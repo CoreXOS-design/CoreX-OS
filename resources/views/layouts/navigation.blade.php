@@ -1,0 +1,196 @@
+<nav x-data="{ open: false }" class="bg-transparent border-b border-white/10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between h-16">
+            <div class="flex">
+                <div class="shrink-0 flex items-center">
+                    <a href="{{ route('dashboard') }}">
+                        <img src="{{ asset('images/logo.png') }}" alt="Logo" style="max-height:72px; max-width:240px; width:auto; height:auto; object-fit:contain;">
+                    </a>
+                </div>
+
+                @php
+                    /* NAV_ROLE_HELPERS_2026_SAFE */
+                    $u = auth()->user();
+
+                    // Use View-As overrides (session) when present
+                    $effectiveRole = strtolower(trim((string)($u?->effectiveRole() ?? ($u->role ?? ""))));
+                    $effectiveBranchId = $u?->effectiveBranchId();
+
+                    $navIsAdmin = ($effectiveRole === "admin") || (bool)($u->is_admin ?? 0);
+                    $navIsBM = ($effectiveRole === "branch_manager");
+                    $navIsAgent = ($effectiveRole === "agent");
+                @endphp
+
+                <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex hidden"> <!-- SIDEBAR_NAV_DISABLED_2026 -->
+                    <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">Dashboard</x-nav-link>
+                    <x-nav-link :href="route('worksheet.index')" :active="request()->routeIs('worksheet.*')">Worksheet</x-nav-link>
+                    <x-nav-link :href="route('rentals.index')" :active="request()->routeIs('rentals.*')">Rentals</x-nav-link>
+
+                                        {{-- Tools --}}
+                    <x-nav-link :href="route('tools.commission')" :active="request()->routeIs('tools.commission')">Commission Calculator</x-nav-link>
+                    <x-nav-link :href="route('tools.cma')" :active="request()->routeIs('tools.cma')">CMA Certificate Generator</x-nav-link>
+
+@if($navIsAgent)
+                        <x-nav-link :href="route('agent.dashboard')" :active="request()->routeIs('agent.dashboard')">Agent Dashboard</x-nav-link>
+                        <x-nav-link :href="route('agent.daily')" :active="request()->routeIs('agent.daily')">My Daily Activity</x-nav-link>
+                    @endif
+
+                    @if($navIsBM)
+                        <x-nav-link :href="route('bm.my.dashboard')" :active="request()->routeIs('bm.my.dashboard')">My Agent Dashboard</x-nav-link>
+                          <x-nav-link :href="route('bm.performance')" :active="request()->routeIs('bm.performance')">Branch Performance</x-nav-link>
+
+                    <x-nav-link :href="route('bm.worksheet.market')" :active="request()->routeIs('bm.worksheet.market*')">Worksheet Market</x-nav-link>
+                        <x-nav-link :href="route('admin.deals')" :active="request()->routeIs('admin.deals*')">Deal Register</x-nav-link>
+                        <x-nav-link :href="route('admin.targets.activity.setup')" :active="request()->routeIs('admin.targets.activity.setup*')">Daily Activity Setup</x-nav-link>
+                        @if($effectiveBranchId)
+                            <x-nav-link :href="route('agent.daily')" :active="request()->routeIs('agent.daily')">Daily Activity Capture</x-nav-link>
+                        @endif
+                    @endif
+
+                    @if($navIsAdmin)
+                        <x-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">Admin</x-nav-link>
+
+                        @if(\Illuminate\Support\Facades\Route::has('admin.worksheet-market'))
+    <x-nav-link :href="route('admin.worksheet-market')" :active="request()->routeIs('admin.worksheet-market*')">Worksheet Market</x-nav-link>
+@endif
+                        <x-nav-link :href="route('admin.performance')" :active="request()->routeIs('admin.performance')">Performance</x-nav-link>
+                        <x-nav-link :href="route('admin.performance-settings.edit')" :active="request()->routeIs('admin.performance-settings*')">Company Settings</x-nav-link>
+                        <x-nav-link :href="route('admin.deals')" :active="request()->routeIs('admin.deals*')">Deal Register</x-nav-link>
+                        <x-nav-link :href="route('admin.targets')" :active="request()->routeIs('admin.targets')">Targets</x-nav-link>
+                        <x-nav-link :href="route('admin.targets.activity.definitions')" :active="request()->routeIs('admin.targets.activity.definitions*')">Activity Definitions</x-nav-link>
+                        <x-nav-link :href="route('admin.targets.activity.setup')" :active="request()->routeIs('admin.targets.activity.setup*')">Activity Setup</x-nav-link>
+                        <x-nav-link :href="route('admin.branch-assignments')" :active="request()->routeIs('admin.branch-assignments')">Branch Assignments</x-nav-link>
+                        <x-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">Users</x-nav-link>
+                    @endif
+                </div>
+            </div>
+
+            <div class="hidden sm:flex sm:items-center sm:ms-6 hidden"> <!-- SIDEBAR_USER_MENU_DISABLED_2026 -->
+                <x-dropdown align="right" width="64">
+                    <x-slot name="trigger">
+                        <button class="inline-flex items-center px-3 py-2 text-sm font-bold leading-4 text-white hover:text-white/80">
+                            <div>{{ Auth::user()->name }}</div>
+                            <div class="ms-1">
+                                <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </div>
+                        </button>
+                    </x-slot>
+
+                    <x-slot name="content">
+                        <x-dropdown-link :href="route('profile.edit')">Profile</x-dropdown-link>
+
+                        @if(auth()->user()?->isAdmin())
+                            <div class="px-4 py-2 text-xs text-gray-500 uppercase">View As</div>
+
+                            <form method="POST" action="{{ url('/admin/view-as') }}">@csrf
+                                <input type="hidden" name="role" value="admin">
+                                <button type="submit" class="w-full text-left px-4 py-2 text-sm">Admin</button>
+                            </form>
+
+                            <form method="POST" action="{{ url('/admin/view-as') }}">@csrf
+                                <input type="hidden" name="role" value="branch_manager">
+                                <button type="submit" class="w-full text-left px-4 py-2 text-sm">Branch Manager</button>
+                            </form>
+
+                            <form method="POST" action="{{ url('/admin/view-as') }}">@csrf
+                                <input type="hidden" name="role" value="agent">
+                                <button type="submit" class="w-full text-left px-4 py-2 text-sm">Agent</button>
+                            </form>
+
+                            <form method="POST" action="{{ url('/admin/view-as/reset') }}">@csrf
+                                <button type="submit" class="w-full text-left px-4 py-2 text-sm text-red-600">Reset View As</button>
+                            </form>
+
+                            <div class="border-t my-1"></div>
+                        @endif
+
+                        <form method="POST" action="{{ route('logout') }}">@csrf
+                            <x-dropdown-link :href="route('logout')" onclick="event.preventDefault(); this.closest('form').submit();">
+                                Log Out
+                            </x-dropdown-link>
+                        </form>
+                    </x-slot>
+                </x-dropdown>
+            </div>
+
+            <div class="-me-2 flex items-center sm:hidden">
+                <button @click="open = ! open" class="inline-flex items-center justify-center p-2 rounded-md text-white hover:text-white/80 focus:outline-none transition duration-150 ease-in-out">
+                    <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
+                        <path :class="{'hidden': open, 'inline-flex': ! open }" class="inline-flex" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                        <path :class="{'hidden': ! open, 'inline-flex': open }" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div :class="{'block': open, 'hidden': ! open}" class="hidden sm:hidden bg-white">
+        <div class="pt-2 pb-3 space-y-1">
+            <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">Dashboard</x-responsive-nav-link>
+    @php
+      $bmWorksheetMarketUrl = \Illuminate\Support\Facades\Route::has('bm.worksheet-market') ? route('bm.worksheet-market') : url('/bm/worksheet-market');
+    @endphp
+    <x-responsive-nav-link :href="$bmWorksheetMarketUrl" :active="request()->is('bm/worksheet-market') || request()->routeIs('bm.worksheet-market*')">
+        Worksheet Market
+    </x-responsive-nav-link>
+    <x-responsive-nav-link :href="route('admin.targets')" :active="request()->routeIs('admin.targets')">
+        Daily Activity Capture
+    </x-responsive-nav-link>
+
+            <x-responsive-nav-link :href="route('worksheet.index')" :active="request()->routeIs('worksheet.*')">Worksheet</x-responsive-nav-link>
+
+                        {{-- Tools --}}
+            <x-responsive-nav-link :href="route('tools.commission')" :active="request()->routeIs('tools.commission')">Commission Calculator</x-responsive-nav-link>
+            <x-responsive-nav-link :href="route('tools.cma')" :active="request()->routeIs('tools.cma')">CMA Certificate Generator</x-responsive-nav-link>
+
+@if($navIsAgent)
+                <x-responsive-nav-link :href="route('agent.dashboard')" :active="request()->routeIs('agent.dashboard')">Agent Dashboard</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('agent.daily')" :active="request()->routeIs('agent.daily')">My Daily Activity</x-responsive-nav-link>
+            @endif
+
+            @if($navIsBM)
+                <x-responsive-nav-link :href="route('bm.my.dashboard')" :active="request()->routeIs('bm.my.dashboard')">My Agent Dashboard</x-responsive-nav-link>
+                  <x-responsive-nav-link :href="route('bm.performance')" :active="request()->routeIs('bm.performance')">Branch Performance</x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('bm.worksheet.market')" :active="request()->routeIs('bm.worksheet.market*')">Worksheet Market</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.deals')" :active="request()->routeIs('admin.deals*')">Deal Register</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.targets.activity.setup')" :active="request()->routeIs('admin.targets.activity.setup*')">Daily Activity Setup</x-responsive-nav-link>
+                @if($effectiveBranchId)
+                    <x-responsive-nav-link :href="route('agent.daily')" :active="request()->routeIs('agent.daily')">Daily Activity Capture</x-responsive-nav-link>
+                @endif
+            @endif
+
+            @if($navIsAdmin)
+                <x-responsive-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">Admin</x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('admin.worksheet-market')" :active="request()->routeIs('admin.worksheet-market*')">Worksheet Market</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.performance')" :active="request()->routeIs('admin.performance')">Performance</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.deals')" :active="request()->routeIs('admin.deals*')">Deal Register</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.targets')" :active="request()->routeIs('admin.targets')">Targets</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.targets.activity.definitions')" :active="request()->routeIs('admin.targets.activity.definitions*')">Activity Definitions</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.targets.activity.setup')" :active="request()->routeIs('admin.targets.activity.setup*')">Activity Setup</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.branch-assignments')" :active="request()->routeIs('admin.branch-assignments')">Branch Assignments</x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">Users</x-responsive-nav-link>
+            @endif
+        </div>
+
+        <div class="pt-4 pb-1 border-t border-gray-200">
+            <div class="px-4">
+                <div class="font-medium text-base text-gray-800">{{ Auth::user()->name }}</div>
+                <div class="font-medium text-sm text-gray-500">{{ Auth::user()->email }}</div>
+            </div>
+
+            <div class="mt-3 space-y-1">
+                <x-responsive-nav-link :href="route('profile.edit')">Profile</x-responsive-nav-link>
+
+                <form method="POST" action="{{ route('logout') }}">@csrf
+                    <x-responsive-nav-link :href="route('logout')" onclick="event.preventDefault(); this.closest('form').submit();">
+                        Log Out
+                    </x-responsive-nav-link>
+                </form>
+            </div>
+        </div>
+    </div>
+</nav>

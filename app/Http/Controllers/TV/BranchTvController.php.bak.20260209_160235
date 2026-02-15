@@ -1,0 +1,33 @@
+<?php
+
+namespace App\Http\Controllers\TV;
+
+use App\Models\Deal;
+use App\Http\Controllers\Controller;
+use App\Services\Admin\CompanyPerformanceService;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class BranchTvController extends Controller
+{
+    public function show(Request $request, CompanyPerformanceService $service, int $branchId)
+    {
+        $period = $request->query('period') ?: Carbon::now()->format('Y-m');
+
+        // Basic branch existence check
+        $branchName = DB::table('branches')->where('id', $branchId)->value('name');
+        abort_unless($branchName, 404);
+
+        // Single source of truth (same engine BM uses)
+        $rollup = $service->getBranchRollup($branchId, $period);
+
+                $statusSummary = Deal::statusSummaryForBranch((int)$branchId, (string)$period);
+
+return view('tv.branch', [
+            'statusSummary' => $statusSummary,
+            'rollup' => $rollup,
+            'branchName' => $branchName,
+        ]);
+    }
+}

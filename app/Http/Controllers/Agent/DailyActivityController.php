@@ -1,0 +1,294 @@
+<?php
+
+namespace App\Http\Controllers\Agent;
+
+use App\Http\Controllers\Controller;
+use App\Http\Controllers\Admin\TargetController;
+use Illuminate\Http\Request;
+
+class DailyActivityController extends Controller
+{
+// === AGENT_DAILY_UI_PATCH:WEEK_AND_STRIP ===
+    /**
+     * Patch: Week range (Mon–Sun) + 7-day strip metadata.
+     */
+    private function agentDailyWeekMeta(\Illuminate\Http\Request $request): array
+    {
+        $tz = config('app.timezone') ?: 'UTC';
+
+        $today = \Carbon\Carbon::now($tz)->startOfDay();
+
+        // Requested date (from query string) but NEVER allow future dates.
+        $selected = $request->query('date');
+        $requested = $selected
+            ? \Carbon\Carbon::parse($selected, $tz)->startOfDay()
+            : $today->copy();
+
+        // Rolling window: today + previous 7 days (8 total). Clamp selection into this window.
+        $windowStart = $today->copy()->subDays(7);
+
+        $selectedDate = $requested->greaterThan($today)
+            ? $today->copy()
+            : $requested->copy();
+
+        if ($selectedDate->lessThan($windowStart)) {
+            $selectedDate = $windowStart->copy();
+        }
+
+        // Build the rolling strip from oldest -> newest (7 days back .. today)
+        $days = [];
+        for ($i = 7; $i >= 0; $i--) {
+            $d = $today->copy()->subDays($i);
+            $days[] = [
+                'date' => $d->toDateString(),
+                'label' => $d->format('D j M'),
+                'is_selected' => $d->toDateString() === $selectedDate->toDateString(),
+                'is_today' => false,
+            ];
+        }
+
+        return [
+            'selectedDate' => $selectedDate,
+            'weekStart' => $windowStart, // kept for backwards compatibility with existing index() merge keys
+            'weekEnd' => $today->copy()->endOfDay(),
+            'days' => $days,
+        ];
+    }
+
+
+
+
+    public function index(Request $request)
+    {
+        // === AGENT_DAILY_UI_PATCH:INDEX_INJECT ===
+        // Week range (Mon–Sun) + 7-day strip metadata
+        $meta = $this->agentDailyWeekMeta($request);
+        $request->merge([
+            'date' => $meta['selectedDate']->toDateString(),
+            'week_start' => $meta['weekStart']->toDateString(),
+            'week_end' => $meta['weekEnd']->toDateString(),
+        ]);
+        // === AGENT_DAILY_UI_PATCH:VIEW_SHARE ===
+        \Illuminate\Support\Facades\View::share('agentDailyWeek', $meta);
+
+
+        $u = $request->user();
+        $role = strtolower(trim((string)($u?->effectiveRole() ?? '')));
+
+        // Agent-only. (Optional legacy fallback: allow blank role)
+        abort_unless($u && ($role === '' || $role === 'agent') || auth()->user()?->isEffectiveBranchManager() || auth()->user()?->isEffectiveAdmin(), 403);// Temporary bridge: keep existing output unchanged
+        // === V2 DAILY ACTIVITY ===
+        $user = $request->user();
+        $branchId = $user->branch_id ?? null;
+        $date = $request->get('date');
+
+        $period = substr($date, 0, 7);
+
+        // Monthly points target for this user + period (default 0)
+        $monthlyTarget = (int) (\DB::table('targets')
+            ->where('user_id', $user->id)
+            ->where('period', $period)
+            ->value('points_target') ?? 0);
+
+        // MTD points: sum(value * weight) for this user in this period,
+        // limited to enabled definitions visible to their branch (global + branch)
+
+        $definitions = \DB::table('activity_definitions')
+            ->where('is_enabled', 1)
+            ->where('scope', 'global')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
+
+        $defIds = collect($definitions)->pluck('id')->map(fn($v) => (int)$v)->all();
+
+        $mtdPoints = (int) \DB::table('daily_activity_entries as e')
+            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
+            ->where('e.user_id', $user->id)
+            ->where('e.period', $period)
+            ->whereIn('e.activity_definition_id', $defIds)
+            ->sum(\DB::raw('e.value * d.weight'));
+
+        $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
+
+        $entries = \DB::table('daily_activity_entries')
+            ->where('user_id', $user->id)
+            ->where('activity_date', $date)
+            ->get()
+            ->keyBy('activity_definition_id');
+
+        $values = [];
+        $totalPoints = 0;
+
+        foreach ($definitions as $def) {
+            $val = (int)($entries[$def->id]->value ?? 0);
+            $values[$def->id] = $val;
+            $totalPoints += $val * (int)$def->weight;
+        }
+
+        return view('agent.daily-v2', [
+            'definitions'  => $definitions,
+            'values'       => $values,
+            'totalPoints'  => $totalPoints,
+            'selectedDate' => $date,
+            'period'       => $period,
+            'monthlyTarget'=> $monthlyTarget,
+            'mtdPoints'    => $mtdPoints,
+            'remainingPoints' => $remainingPoints,
+        ]);
+
+    }
+
+    public function printSheet(Request $request)
+    {
+        // Reuse EXACT same date/window logic as index()
+        $meta = $this->agentDailyWeekMeta($request);
+        $request->merge([
+            'date' => $meta['selectedDate']->toDateString(),
+            'week_start' => $meta['weekStart']->toDateString(),
+            'week_end' => $meta['weekEnd']->toDateString(),
+        ]);
+        \Illuminate\Support\Facades\View::share('agentDailyWeek', $meta);
+
+        $u = $request->user();
+        $role = strtolower(trim((string)($u?->effectiveRole() ?? '')));
+
+        // Match index() authorization logic (bridge kept)
+        abort_unless($u && ($role === '' || $role === 'agent') || auth()->user()?->isEffectiveBranchManager() || auth()->user()?->isEffectiveAdmin(), 403);
+
+        // === V2 DAILY ACTIVITY (same as index) ===
+        $user = $request->user();
+        $branchId = $user->branch_id ?? null;
+        $date = $request->get('date');
+
+        $period = substr($date, 0, 7);
+
+        // Monthly points target for this user + period (default 0)
+        $monthlyTarget = (int) (\DB::table('targets')
+            ->where('user_id', $user->id)
+            ->where('period', $period)
+            ->value('points_target') ?? 0);
+
+        // Definitions (EXACT same query as index)
+        $definitions = \DB::table('activity_definitions')
+            ->where('is_enabled', 1)
+            ->where('scope', 'global')
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+
+        $defIds = collect($definitions)->pluck('id')->map(fn($v) => (int)$v)->all();
+
+        $mtdPoints = (int) \DB::table('daily_activity_entries as e')
+            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
+            ->where('e.user_id', $user->id)
+            ->where('e.period', $period)
+            ->whereIn('e.activity_definition_id', $defIds)
+            ->sum(\DB::raw('e.value * d.weight'));
+
+        $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
+
+        $entries = \DB::table('daily_activity_entries')
+            ->where('user_id', $user->id)
+            ->where('activity_date', $date)
+            ->get()
+            ->keyBy('activity_definition_id');
+
+        $values = [];
+        $totalPoints = 0;
+
+        foreach ($definitions as $def) {
+            $val = (int)($entries[$def->id]->value ?? 0);
+            $values[$def->id] = $val;
+            $totalPoints += $val * (int)$def->weight;
+        }
+
+        // Optional: branch name (safe check)
+        $branchName = null;
+        if ($branchId && \Illuminate\Support\Facades\Schema::hasTable('branches')) {
+            $branchName = \DB::table('branches')->where('id', $branchId)->value('name');
+        }
+
+        return view('agent.daily-v2-print', [
+            'definitions'  => $definitions,
+            'values'       => $values,
+            'totalPoints'  => $totalPoints,
+            'selectedDate' => $date,
+            'period'       => $period,
+            'monthlyTarget'=> $monthlyTarget,
+            'mtdPoints'    => $mtdPoints,
+            'remainingPoints' => $remainingPoints,
+            'user'         => $user,
+            'branchName'   => $branchName,
+        ]);
+
+    }
+    public function store(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user, 403);
+
+        $role = strtolower(trim((string)($user?->effectiveRole() ?? '')));
+        abort_unless(($role === '' || $role === 'agent') || $user->isEffectiveBranchManager() || $user->isEffectiveAdmin(), 403);
+
+        $data = $request->validate([
+            'activity_date' => ['required', 'date'],
+            'values' => ['array'],
+            'values.*' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $date = $data['activity_date'];
+        $period = substr($date, 0, 7);
+        $branchId = $user->branch_id ?? null;
+
+        // Allowed enabled definitions for this user (global + branch)
+        $definitions = \DB::table('activity_definitions')
+            ->where('is_enabled', 1)
+            ->where(function ($q) use ($branchId) {
+                $q->where('scope', 'global');
+                if ($branchId) {
+                    $q->orWhere(function ($qq) use ($branchId) {
+                        $qq->where('scope', 'branch')
+                           ->where('branch_id', $branchId);
+                    });
+                }
+            })
+            ->get();
+
+        $allowedIds = $definitions->pluck('id')->map(fn($v) => (int)$v)->all();
+        $posted = (array)($data['values'] ?? []);
+
+        // Save entries (0 => delete, >0 => upsert)
+        foreach ($allowedIds as $defId) {
+            $val = (int)($posted[(string)$defId] ?? ($posted[$defId] ?? 0));
+            if ($val <= 0) {
+                \DB::table('daily_activity_entries')
+                    ->where('activity_definition_id', $defId)
+                    ->where('user_id', $user->id)
+                    ->where('activity_date', $date)
+                    ->delete();
+                continue;
+            }
+
+            \DB::table('daily_activity_entries')->updateOrInsert(
+                [
+                    'activity_definition_id' => $defId,
+                    'user_id' => $user->id,
+                    'activity_date' => $date,
+                    'period' => $period,
+                ],
+                [
+                    'branch_id' => $branchId,
+                    'period' => $period,
+                    'value' => $val,
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ]
+            );
+        }
+
+        return redirect()->route('agent.daily', ['date' => $date])->with('status', 'Daily activity saved.');
+    }
+
+}

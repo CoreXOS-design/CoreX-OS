@@ -1,0 +1,179 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Branch;
+use App\Models\TvMessage;
+use Illuminate\Http\Request;
+
+class TvMessageController extends Controller
+{
+    // -------------------------
+    // Admin (all branches + global)
+    // -------------------------
+
+    public function adminIndex(Request $request)
+    {
+        $branches = Branch::query()->orderBy('name')->get();
+
+        $messages = TvMessage::query()
+            ->with(['branch', 'creator'])
+            ->orderByRaw('case when branch_id is null then 0 else 1 end') // global first
+            ->orderBy('id', 'desc')
+            ->get();
+
+        return view('admin.tv-messages.index', [
+            'branches' => $branches,
+            'messages' => $messages,
+        ]);
+    }
+
+    public function adminStore(Request $request)
+    {
+        $data = $request->validate([
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'title' => ['nullable', 'string', 'max:255'],
+            'message' => ['required', 'string'],
+            'display_area' => ['nullable', 'in:hero,ticker,both'],
+            'is_enabled' => ['nullable', 'in:0,1'],
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date'],
+        ]);
+
+        $data['created_by_user_id'] = auth()->id();
+        $data['is_enabled'] = (bool)($data['is_enabled'] ?? false);
+        $data['display_area'] = $data['display_area'] ?? 'both';
+
+
+        TvMessage::create($data);
+
+        return redirect()->route('admin.tv-messages')->with('status', 'TV message added.');
+    }
+
+    public function adminUpdate(Request $request, TvMessage $tvMessage)
+    {
+        $data = $request->validate([
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'title' => ['nullable', 'string', 'max:255'],
+            'message' => ['required', 'string'],
+            'display_area' => ['nullable', 'in:hero,ticker,both'],
+            'is_enabled' => ['nullable', 'in:0,1'],
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date'],
+        ]);
+
+        $data['is_enabled'] = (bool)($data['is_enabled'] ?? false);
+        $data['display_area'] = $data['display_area'] ?? 'both';
+
+
+        $tvMessage->update($data);
+
+        return redirect()->route('admin.tv-messages')->with('status', 'TV message saved.');
+    }
+
+    public function adminDelete(TvMessage $tvMessage)
+    {
+        $tvMessage->delete();
+
+        return redirect()->route('admin.tv-messages')->with('status', 'TV message deleted.');
+    }
+
+    // -------------------------
+    // Branch Manager (own branch only)
+    // -------------------------
+
+    public function bmIndex(Request $request)
+    {
+        $u = auth()->user();
+        $branchId = (int)($u?->effectiveBranchId() ?? 0);
+
+        abort_unless($branchId > 0, 403);
+
+        $messages = TvMessage::query()
+            ->where('branch_id', $branchId) // BM cannot see global or other branches here
+            ->with(['branch', 'creator'])
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $globalMessages = TvMessage::query()
+            ->whereNull('branch_id')
+            ->with(['branch', 'creator'])
+            ->orderBy('id', 'desc')
+            ->get();
+
+        return view('bm.tv-messages.index', [
+            'branchId' => $branchId,
+            'messages' => $messages,
+            'globalMessages' => $globalMessages,
+        ]);
+    }
+
+    public function bmStore(Request $request)
+    {
+        $u = auth()->user();
+        $branchId = (int)($u?->effectiveBranchId() ?? 0);
+        abort_unless($branchId > 0, 403);
+
+        $data = $request->validate([
+            'title' => ['nullable', 'string', 'max:255'],
+            'message' => ['required', 'string'],
+            'display_area' => ['nullable', 'in:hero,ticker,both'],
+            'is_enabled' => ['nullable', 'in:0,1'],
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date'],
+        ]);
+
+        $data['branch_id'] = $branchId;
+        $data['created_by_user_id'] = auth()->id();
+        $data['is_enabled'] = (bool)($data['is_enabled'] ?? false);
+        $data['display_area'] = $data['display_area'] ?? 'both';
+
+
+        TvMessage::create($data);
+
+        return redirect()->route('bm.tv-messages')->with('status', 'TV message added.');
+    }
+
+    public function bmUpdate(Request $request, TvMessage $tvMessage)
+    {
+        $u = auth()->user();
+        $branchId = (int)($u?->effectiveBranchId() ?? 0);
+        abort_unless($branchId > 0, 403);
+
+        // BM can only edit their own branch messages (never global)
+        abort_unless((int)$tvMessage->branch_id === $branchId, 403);
+
+        $data = $request->validate([
+            'title' => ['nullable', 'string', 'max:255'],
+            'message' => ['required', 'string'],
+            'display_area' => ['nullable', 'in:hero,ticker,both'],
+            'is_enabled' => ['nullable', 'in:0,1'],
+            'starts_at' => ['nullable', 'date'],
+            'ends_at' => ['nullable', 'date'],
+        ]);
+
+        $data['is_enabled'] = (bool)($data['is_enabled'] ?? false);
+        $data['display_area'] = $data['display_area'] ?? 'both';
+
+
+        // never allow BM to change branch_id or creator
+        unset($data['branch_id'], $data['created_by_user_id']);
+
+        $tvMessage->update($data);
+
+        return redirect()->route('bm.tv-messages')->with('status', 'TV message saved.');
+    }
+
+    public function bmDelete(TvMessage $tvMessage)
+    {
+        $u = auth()->user();
+        $branchId = (int)($u?->effectiveBranchId() ?? 0);
+        abort_unless($branchId > 0, 403);
+
+        abort_unless((int)$tvMessage->branch_id === $branchId, 403);
+
+        $tvMessage->delete();
+
+        return redirect()->route('bm.tv-messages')->with('status', 'TV message deleted.');
+    }
+}

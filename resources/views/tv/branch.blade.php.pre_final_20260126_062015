@@ -1,0 +1,245 @@
+@php
+    $r = $rollup;
+
+    // Targets / actuals (branch)
+    $targets = $r['totals']['targets'] ?? [];
+    $actuals = $r['totals']['actuals'] ?? [];
+
+    $valueTarget = (float)($targets['value'] ?? 0);
+    $valueActual = (float)($actuals['value'] ?? $actuals['sales_value'] ?? 0);
+    $valueTargetSet = $valueTarget > 0;
+    $valuePct = $valueTargetSet ? (($valueActual / $valueTarget) * 100) : 0;
+    $valueRemaining = $valueTargetSet ? max($valueTarget - $valueActual, 0) : 0;
+
+    $dealsTarget = (int)($targets['deals'] ?? 0);
+    $dealsActual = (int)($actuals['deals'] ?? 0);
+    $dealsTargetSet = $dealsTarget > 0;
+    $dealsPct = $dealsTargetSet ? (($dealsActual / $dealsTarget) * 100) : 0;
+    $dealsRemaining = $dealsTargetSet ? max($dealsTarget - $dealsActual, 0) : 0;
+
+    // Points / pace (from BM rollup)
+    $pts = $r['points'] ?? ['actual'=>0,'target'=>0,'pct'=>0,'status'=>'—','per_day_needed'=>0,'today_points'=>0,'days_left'=>0];
+    $pointsActual = (float)($pts['actual'] ?? 0);
+    $pointsTarget = (float)($pts['target'] ?? 0);
+    $pointsTargetSet = $pointsTarget > 0;
+    $pointsPct    = (float)($pts['pct'] ?? ($pointsTargetSet ? (($pointsActual / $pointsTarget) * 100) : 0));
+    $pointsStatus = (string)($pts['status'] ?? '—');
+    $pointsPerDayNeeded = (float)($pts['per_day_needed'] ?? 0);
+    $todayPoints = (float)($pts['today_points'] ?? 0);
+    $daysLeft = (int)($pts['days_left'] ?? 0);
+
+    // Today activity totals
+    $today = $r['activities_today'] ?? [];
+    $todayTotal = 0;
+    if (is_array($today)) {
+        foreach ($today as $k => $v) { $todayTotal += (int)$v; }
+    }
+
+    // Color bars
+    $valueBar  = !$valueTargetSet ? 'bg-gray-700' : ($valuePct >= 95 ? 'bg-green-600' : ($valuePct >= 75 ? 'bg-amber-500' : 'bg-red-600'));
+    $dealsBar  = !$dealsTargetSet ? 'bg-gray-700' : ($dealsPct >= 95 ? 'bg-green-600' : ($dealsPct >= 75 ? 'bg-amber-500' : 'bg-red-600'));
+
+    $pointsBar = 'bg-gray-700';
+    if ($pointsTargetSet) {
+        if ($pointsActual >= $pointsTarget) $pointsBar = 'bg-green-600';
+        elseif ($pointsStatus === 'Ahead' || $pointsStatus === 'On pace') $pointsBar = 'bg-green-600';
+        elseif ($pointsPct >= 75) $pointsBar = 'bg-amber-500';
+        else $pointsBar = 'bg-red-600';
+    }
+
+    // Motivational banner messages (NO agent names, NO money shaming)
+    $banner = [];
+    $banner[] = "Sound the bell 🔔  Every signed deal moves the whole branch.";
+    $banner[] = "This month: Deals ".number_format($dealsActual,0)." • Value R ".number_format($valueActual,0)." • Points ".number_format($pointsActual,0).".";
+
+    if ($dealsTargetSet || $valueTargetSet) {
+        $banner[] = "Still to target: "
+            .($dealsTargetSet ? number_format($dealsRemaining,0)." deals" : "deals target not set")
+            ." • "
+            .($valueTargetSet ? "R ".number_format($valueRemaining,0)." value" : "value target not set")
+            .".";
+    } else {
+        $banner[] = "Targets not set for this branch/period yet — ask the BM to capture targets.";
+    }
+
+    $banner[] = "Today: ".number_format($todayTotal,0)." activity rows • ".number_format($todayPoints,0)." points so far.";
+    $banner[] = ($pointsTargetSet)
+        ? ("Pace: ".$pointsStatus." • Need/day ".number_format($pointsPerDayNeeded,1)." • Days left ".number_format($daysLeft,0).".")
+        : ("Set points target to unlock pace guidance.");
+@endphp<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV — {{ $branchName }}</title>
+
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#05070c;color:#f8fafc;font-family:system-ui;}
+:root{
+ --pad:clamp(10px,1.5vmin,28px);
+ --gap:clamp(8px,1.2vmin,22px);
+ --label:clamp(14px,1.6vmin,26px);
+ --num:clamp(42px,6.2vmin,130px);
+ --sub:clamp(16px,1.8vmin,34px);
+ --hero:clamp(30px,4.4vmin,80px);
+ --ticker:clamp(22px,3.4vmin,64px);
+}
+
+.screen{height:100vh;display:grid;grid-template-rows:auto 1fr auto;}
+.header{padding:var(--pad);display:flex;justify-content:space-between;align-items:flex-end;}
+.title{font-size:clamp(22px,2.4vmin,46px);font-weight:900;}
+.subtitle{opacity:.6;font-size:clamp(13px,1.4vmin,22px);}
+
+.grid{padding:0 var(--pad);display:grid;grid-template-rows:auto 1fr;gap:var(--gap);}
+.top{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap);}
+
+.card{
+ background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02));
+ border:1px solid rgba(255,255,255,.08);
+ border-radius:2.2vmin;
+ padding:var(--pad);
+ display:flex;flex-direction:column;justify-content:space-between;
+ box-shadow:0 20px 60px rgba(0,0,0,.6);
+ position:relative;overflow:hidden;
+}
+.card::after{
+ content:"";position:absolute;inset:-40%;
+ background:radial-gradient(circle at top,rgba(255,255,255,.08),transparent 60%);
+ pointer-events:none;
+}
+
+.label{font-size:var(--label);opacity:.7;font-weight:800;}
+.big{font-size:var(--num);font-weight:950;letter-spacing:-.04em;}
+.sub{font-size:var(--sub);opacity:.7;font-weight:800;}
+
+.bar{height:1.4vmin;background:#0b1220;border-radius:999px;overflow:hidden;margin-top:.6em;}
+.bar > div{
+ height:100%;border-radius:999px;
+ transition:width 1.5s ease;
+ box-shadow:0 0 20px currentColor;
+}
+
+.hero{
+ display:flex;align-items:center;justify-content:center;
+ font-size:var(--hero);font-weight:950;text-align:center;
+ padding:var(--pad);
+ background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(0,0,0,.4));
+ border:1px solid rgba(255,255,255,.08);
+ border-radius:2.2vmin;
+ position:relative;
+}
+.dots{position:absolute;bottom:1vmin;display:flex;gap:.6vmin;}
+.dot{height:.6vmin;border-radius:999px;background:#1f2937;width:1.2vmin;transition:.3s;}
+.dot.active{background:#6366f1;width:3vmin;}
+
+.ticker{
+ height:clamp(60px,8vmin,140px);
+ display:flex;align-items:center;justify-content:center;
+ background:linear-gradient(90deg,#020409,#05070c,#020409);
+ border-top:1px solid rgba(255,255,255,.1);
+ font-size:var(--ticker);font-weight:900;
+ padding:0 6vw;text-align:center;
+}
+.fade{transition:opacity .6s ease;}
+.out{opacity:0;}
+.clock{font-size:clamp(18px,2vmin,36px);font-weight:900;}
+</style>
+</head>
+<body>
+
+<div class="screen">
+  <div class="header">
+    <div>
+      <div class="title">{{ $branchName }}</div>
+      <div class="subtitle">Live Wallboard • {{ $r['period'] }}</div>
+    </div>
+    <div>
+      <div class="clock" id="clock"></div>
+      <div class="sub">{{ number_format($todayPoints,0) }} points today</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="top">
+      <div class="card">
+        <div class="label">Value</div>
+        <div class="big">R {{ number_format($valueActual,0) }}</div>
+        <div class="sub">{{ number_format($valuePct,1) }}%</div>
+        <div class="bar"><div style="width:{{ min(100,$valuePct) }}%;color:#22c55e;background:#22c55e"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="label">Deals</div>
+        <div class="big">{{ number_format($dealsActual,0) }}</div>
+        <div class="sub">{{ number_format($dealsPct,1) }}%</div>
+        <div class="bar"><div style="width:{{ min(100,$dealsPct) }}%;color:#3b82f6;background:#3b82f6"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="label">Pace</div>
+        <div class="big">{{ number_format($pointsActual,0) }}</div>
+        <div class="sub">{{ $pointsStatus }}</div>
+        <div class="bar"><div style="width:{{ min(100,$pointsPct) }}%;color:#f59e0b;background:#f59e0b"></div></div>
+      </div>
+    </div>
+
+    <div class="hero" id="hero">
+      <div id="heroText">—</div>
+      <div class="dots" id="dots"></div>
+    </div>
+  </div>
+
+  <div class="ticker"><div id="ticker" class="fade">—</div></div>
+</div>
+
+<script>
+function clock(){
+  const d=new Date();
+  document.getElementById('clock').textContent =
+    d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+setInterval(clock,1000);clock();
+
+const heroMsgs=[
+@if($dealsTargetSet)
+"We need {{ $dealsRemaining }} more deals to hit target",
+@endif
+@if($pointsTargetSet)
+"To stay on pace today: {{ number_format($pointsPerDayNeeded,1) }} points",
+@endif
+"Momentum is built daily",
+"Consistency beats intensity",
+"Every call and viewing moves the needle"
+];
+
+const tickerMsgs=@json($banner);
+
+function rotate(el,msgs,dots,delay){
+ let i=0;
+ el.textContent=msgs[0];
+ function drawDots(){
+   dots.innerHTML='';
+   msgs.forEach((_,j)=>{
+     const d=document.createElement('div');
+     d.className='dot'+(j===i?' active':'');
+     dots.appendChild(d);
+   });
+ }
+ drawDots();
+ setInterval(()=>{
+   el.classList.add('out');
+   setTimeout(()=>{
+     i=(i+1)%msgs.length;
+     el.textContent=msgs[i];
+     drawDots();
+     el.classList.remove('out');
+   },500);
+ },delay);
+}
+
+rotate(document.getElementById('heroText'),heroMsgs,document.getElementById('dots'),12000);
+rotate(document.getElementById('ticker'),tickerMsgs,{innerHTML:''},9000);
+</script>
+
+</body>
+</html>

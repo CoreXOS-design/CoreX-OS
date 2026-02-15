@@ -1,0 +1,36 @@
+    public function activityDefinitions(Request $request)
+    {
+        abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+
+        $auth = auth()->user();
+
+        // Scope:
+        // - Branch Manager: see global + their branch-specific definitions
+        // - Admin: for now, see global definitions (we'll add branch switch next)
+        $branchId = null;
+        if ($this->isBranchManager()) {
+            $branchId = (int)($auth?->branch_id ?? 0);
+            if ($branchId <= 0) $branchId = null;
+        }
+
+        $definitions = DB::table('activity_definitions')
+            ->when($branchId !== null, function ($q) use ($branchId) {
+                $q->where(function ($qq) use ($branchId) {
+                    $qq->where('scope', 'global')
+                       ->orWhere('scope', (string)$branchId);
+                });
+            }, function ($q) {
+                // Admin (default): global only for now
+                $q->where('scope', 'global');
+            })
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        return view('admin.targets.activity-definitions', [
+            'definitions' => $definitions,
+            'branchId' => $branchId,
+            'isAdmin' => $this->isAdmin(),
+            'isBranchManager' => $this->isBranchManager(),
+        ]);
+    }

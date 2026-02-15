@@ -1,0 +1,47 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use App\Models\AiConversation;
+use App\Models\AiMessage;
+
+class EllieController extends Controller
+{
+    public function index(Request $request)
+    {
+        $user = Auth::user();
+
+        // Load user's conversations
+        $conversations = AiConversation::where('user_id', $user->id)
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get();
+
+        // Load active conversation if provided
+        $conversationId = $request->query('conversation_id');
+
+        $activeConversation = null;
+        $messages = collect();
+
+        if ($conversationId) {
+            $activeConversation = AiConversation::where('user_id', $user->id)
+                ->where('id', $conversationId)
+                ->first();
+
+            if ($activeConversation) {
+                $messages = AiMessage::where('conversation_id', $activeConversation->id)
+                    ->orderBy('id')
+                    ->get();
+            }
+        }
+
+        return view('ellie.index', [
+            'conversations' => $conversations,
+            'activeConversation' => $activeConversation,
+            'messages' => $messages,
+        ]);
+    }
+}

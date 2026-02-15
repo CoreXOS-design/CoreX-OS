@@ -1,0 +1,107 @@
+@extends('layouts.app')
+
+@section('content')
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Agent</div>
+            <h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ $user->name }}</h1>
+            <div class="text-sm text-slate-600 dark:text-slate-300">{{ $user->email }}</div>
+        </div>
+
+        <div class="flex flex-wrap gap-2 items-end">
+            <a href="{{ route('admin.listings.agents', ['status' => $status ?? 'active', 'source' => $source ?? 'propcon']) }}"
+               class="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-900/30">
+                Back
+            </a>
+
+            <form method="get" class="flex flex-wrap gap-2 items-end">
+                <div>
+                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Status</label>
+                    <select name="status" class="rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                        @foreach(['active'=>'Active (contains active/for sale)','all'=>'All'] as $k=>$label)
+                            <option value="{{ $k }}" @selected(($status ?? 'active') === $k)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Source</label>
+                    <input name="source" value="{{ $source ?? 'propcon' }}" class="w-40 rounded-lg border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+                </div>
+                <button class="px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100">
+                    Apply
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4">
+            <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Active listings</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ number_format((int)($summary->listing_count ?? 0)) }}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4">
+            <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Total asking value</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">R {{ number_format(((int)($summary->total_value_cents ?? 0))/100, 0) }}</div>
+        </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Listings</div>
+            <div class="text-xs text-slate-500 dark:text-slate-400">Showing {{ $listings->firstItem() ?? 0 }}–{{ $listings->lastItem() ?? 0 }} of {{ $listings->total() }}</div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+                <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
+                    <tr>
+                        <th class="text-left px-4 py-3">Property</th>
+                        <th class="text-left px-4 py-3">Status</th>
+                        <th class="text-left px-4 py-3">Type</th>
+                        <th class="text-left px-4 py-3">Mandate</th>
+                        <th class="text-right px-4 py-3">Price</th>
+                        <th class="text-left px-4 py-3">Modified</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    @forelse($listings as $l)
+                        <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/30">
+                            <td class="px-4 py-3">
+                                <div class="font-medium text-slate-900 dark:text-slate-100">{{ $l->property ?? '(no address)' }}</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">
+                                    {{ $l->external_ref ?? $l->external_id ?? '' }}
+                                    @if($l->region) · {{ $l->region }} @endif
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-slate-900 dark:text-slate-100">{{ $l->status ?? '' }}</td>
+                            <td class="px-4 py-3 text-slate-900 dark:text-slate-100">{{ $l->type ?? '' }}</td>
+                            <td class="px-4 py-3 text-slate-900 dark:text-slate-100">{{ $l->mandate ?? '' }}</td>
+                            <td class="px-4 py-3 text-right text-slate-900 dark:text-slate-100">
+                                @if(!is_null($l->price_cents))
+                                    R {{ number_format($l->price_cents/100, 0) }}
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-slate-700 dark:text-slate-200">
+                                @if($l->modified_at) {{ $l->modified_at->format('Y-m-d') }} @endif
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td class="px-4 py-6 text-center text-slate-500 dark:text-slate-400" colspan="6">
+                                No listings found for this agent/filter.
+                            </td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+
+        <div class="px-4 py-3 border-t border-slate-200 dark:border-slate-800">
+            {{ $listings->links() }}
+        </div>
+    </div>
+
+</div>
+@endsection

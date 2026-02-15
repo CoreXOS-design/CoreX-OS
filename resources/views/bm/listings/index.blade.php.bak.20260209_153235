@@ -1,0 +1,247 @@
+@extends('layouts.app')
+
+@section('content')
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">My Listing Stock</h1>
+            <p class="text-sm text-slate-600 dark:text-slate-300">Read-only view from imported Propcon stock. Filters affect totals.</p>
+
+            @if(!empty($context))
+    <div class="mt-4 rounded-2xl bg-slate-900 dark:bg-slate-800 text-white px-6 py-4">
+        <div class="flex items-center justify-between gap-6">
+            <div class="min-w-0">
+                <div class="text-xs uppercase tracking-wider text-slate-200">
+                    {{ strtoupper((string)($context['filter'] ?? 'view')) }}
+                </div>
+                <div class="text-2xl font-semibold leading-tight truncate">
+                    {{ $context['title'] ?? 'Listings' }}
+                </div>
+                <div class="text-sm text-slate-200 mt-1">
+                    {{ $context['note'] ?? '' }}
+                </div>
+            </div>
+            <div class="text-right shrink-0">
+                <div class="text-xs uppercase tracking-wider text-slate-200">Count</div>
+                <div class="text-3xl font-bold leading-tight">
+                    {{ (int)($context['count'] ?? 0) }}
+                </div>
+            </div>
+        </div>
+    </div>
+@endif
+
+        </div>
+        <div class="text-right">
+            <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Active listings</div>
+            <div class="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{{ number_format((int)($summary->listing_count ?? 0)) }}</div>
+            <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Total value: R {{ number_format(((int)($summary->total_price_cents ?? 0))/100, 0) }}
+            </div>
+        </div>
+    </div>
+
+    
+    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 space-y-3">
+        <form method="get" class="flex flex-wrap items-end gap-2">
+            <div class="min-w-[220px]">
+                <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Status</label>
+                <select name="status" class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-2 py-1 text-sm">
+                    <option value="active" {{ $statusFilter==='active' ? 'selected' : '' }}>Active (contains active/for sale)</option>
+                    <option value="all" {{ $statusFilter==='all' ? 'selected' : '' }}>All</option>
+                    <option value="sold" {{ $statusFilter==='sold' ? 'selected' : '' }}>Contains: sold</option>
+                    <option value="withdrawn" {{ $statusFilter==='withdrawn' ? 'selected' : '' }}>Contains: withdrawn</option>
+                    <option value="expired" {{ $statusFilter==='expired' ? 'selected' : '' }}>Contains: expired</option>
+                    <option value="under offer" {{ $statusFilter==='under offer' ? 'selected' : '' }}>Contains: under offer</option>
+                </select>
+            </div>
+
+            <div class="min-w-[180px]">
+                <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Mandate contains</label>
+                <input type="text" name="mandate" value="{{ $mandate }}"
+                       placeholder="e.g. open / sole"
+                       class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-2 py-1 text-sm" />
+            </div>
+
+            <div class="min-w-[180px]">
+                <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Type contains</label>
+                <input type="text" name="type" value="{{ $type }}"
+                       placeholder="e.g. apartment"
+                       class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-2 py-1 text-sm" />
+            </div>
+
+            <div class="flex gap-2">
+                <button class="px-3 py-1 rounded-lg text-sm bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100">
+                    Apply
+                </button>
+                <a href="{{ route('agent.listings') }}" class="px-3 py-1 rounded-lg text-sm border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900">
+                    Reset
+                </a>
+            </div>
+        </form>
+
+        <div class="flex flex-wrap items-start gap-3">
+            <div class="flex items-center gap-2">
+                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">Mandate</div>
+                <div class="flex flex-wrap gap-2">
+                    @forelse($byMandate as $m)
+                        <a href="{{ route('agent.listings', array_merge(request()->except('page'), ['mandate' => $m->label])) }}"
+                           class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900">
+                            <span class="font-semibold">{{ $m->c }}</span>
+                            <span>{{ $m->label }}</span>
+                        </a>
+                    @empty
+                        <span class="text-xs text-slate-500 dark:text-slate-400">No mandate data</span>
+                    @endforelse
+                </div>
+            </div>
+
+            <div class="px-1 text-slate-400 dark:text-slate-500 font-semibold select-none">|</div>
+
+            <div class="flex items-center gap-2">
+                <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">Type</div>
+                <div class="flex flex-wrap gap-2">
+                    @forelse($byType as $t)
+                        <a href="{{ route('agent.listings', array_merge(request()->except('page'), ['type' => $t->label])) }}"
+                           class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-xs border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900">
+                            <span class="font-semibold">{{ $t->c }}</span>
+                            <span>{{ $t->label }}</span>
+                        </a>
+                    @empty
+                        <span class="text-xs text-slate-500 dark:text-slate-400">No type data</span>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
+        <div class="px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div class="text-sm font-medium text-slate-900 dark:text-slate-100">Listings</div>
+            <div class="text-xs text-slate-500 dark:text-slate-400">{{ $listings->total() }} total (page {{ $listings->currentPage() }} of {{ $listings->lastPage() }})</div>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+                <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
+<tr>
+                        <th class="text-left px-3 py-2">Status</th>
+                        <th class="text-left px-3 py-2">Mandate</th>
+                        <th class="text-left px-3 py-2">Type</th>
+                        <th class="text-right px-3 py-2">DOM</th>
+                        <th class="text-right px-3 py-2">Since edit</th>
+                        <th class="text-left px-3 py-2">Expiry</th>
+                        <th class="text-right px-3 py-2">Price</th>
+                        <th class="text-right px-3 py-2">CMA (R)</th>
+                        <th class="text-right px-3 py-2">Ref</th>
+                    </tr>
+                </thead>
+                
+<tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+
+@forelse($listings as $l)
+
+<tr class="bg-slate-50/40 dark:bg-slate-900/20">
+<td colspan="9" class="px-3 py-2">
+<div class="font-semibold text-slate-900 dark:text-slate-100">
+{{ trim(preg_replace('/\s+/', ' ', str_replace(["\r","\n"], ' ', (string)($l->property ?? '')))) ?: ($l->region ?: '(no address)') }}
+</div>
+</td>
+</tr>
+
+<tr>
+
+<td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ $l->status }}</td>
+
+<td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ $l->mandate }}</td>
+
+<td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ $l->type }}</td>
+
+<td class="px-3 py-2 text-right font-semibold text-slate-900 dark:text-slate-100">
+{{ $l->days_on_market !== null ? (int)$l->days_on_market : "—" }}
+</td>
+
+<td class="px-3 py-2 text-right font-semibold text-slate-900 dark:text-slate-100">
+{{ $l->days_since_edit !== null ? (int)$l->days_since_edit : "—" }}
+</td>
+
+<td class="px-3 py-2 text-xs">
+@if($l->expires_at)
+<div class="font-medium">{{ $l->expires_on }}</div>
+@php $dte = $l->days_to_expiry; @endphp
+@if(!is_null($dte))
+@if($dte < 0)
+<div class="text-slate-500">expired {{ abs((int)$dte) }}d ago</div>
+@else
+<div class="text-slate-500">in {{ (int)$dte }}d</div>
+@endif
+@endif
+@else
+—
+@endif
+</td>
+
+<td class="px-3 py-2 text-right font-semibold">
+@if($l->price_cents !== null)
+R {{ number_format($l->price_cents/100, 0) }}
+@else
+—
+@endif
+</td>
+
+<td class="px-3 py-2 text-right">
+
+<form method="POST" action="{{ route('agent.listings.cma', $l) }}" class="flex items-center justify-end gap-2">
+
+@csrf
+
+<input name="cma_value"
+value="{{ $l->cma_price_cents !== null ? number_format($l->cma_price_cents/100, 0, '.', '') : '' }}"
+placeholder="e.g. 1250000"
+class="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1 text-xs" />
+
+<button class="px-2 py-1 rounded-lg bg-slate-900 text-white text-xs">
+Save
+</button>
+
+</form>
+
+@if($l->cma_updated_at)
+<div class="text-[10px] text-slate-500 mt-1">
+updated {{ is_string($l->cma_updated_at) ? substr($l->cma_updated_at,0,10) : $l->cma_updated_at->format('Y-m-d') }}
+</div>
+@endif
+
+</td>
+
+<td class="px-3 py-2 text-right text-xs text-slate-500">
+{{ $l->external_ref ?? $l->external_id ?? '—' }}
+</td>
+
+</tr>
+
+<tr class="h-3"><td colspan="9"></td></tr>
+
+@empty
+
+<tr>
+<td colspan="9" class="px-4 py-6 text-center text-slate-500">
+No listings found.
+</td>
+</tr>
+
+@endforelse
+
+</tbody>
+
+            </table>
+        </div>
+
+        <div class="px-3 py-2 border-t border-slate-200 dark:border-slate-800">
+            {{ $listings->links() }}
+        </div>
+    </div>
+
+</div>
+@endsection

@@ -1,0 +1,1237 @@
+@extends('layouts.app')
+
+@section('content')
+<style>
+/* ===== Agent Targets theme (Tools) =====
+   Match the rest of the app: white content cards, dark text, clean borders.
+   Scoped to #hf-tool-root only.
+*/
+#hf-tool-root, #hf-tool-root * { box-sizing: border-box; }
+
+#hf-tool-root{
+  --ink: #0f172a;         /* slate-900 */
+  --muted: #64748b;       /* slate-500 */
+  --border: rgba(15,23,42,0.10);
+  --border2: rgba(15,23,42,0.14);
+  --card: #ffffff;
+  --card2: #f8fafc;       /* slate-50 */
+  --shadow: 0 18px 50px rgba(0,0,0,0.20);
+  --shadow2: 0 10px 26px rgba(0,0,0,0.14);
+  --navy: #0b2a45;        /* deep navy */
+  --navy2: #0a233a;
+
+  padding: 22px;
+  background: transparent;   /* let your dark site background show */
+  color: var(--ink);
+}
+
+#hf-tool-root .wrap{
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+/* Header becomes a clean white slab like your pages */
+#hf-tool-root header{
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  align-items:flex-start;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow2);
+  margin-bottom: 14px;
+}
+
+#hf-tool-root h1{
+  margin:0;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  color: var(--ink);
+}
+
+#hf-tool-root .sub{
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+#hf-tool-root .pill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card2);
+  color: #334155; /* slate-700 */
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Tabs like your dark buttons */
+#hf-tool-root .tabs{
+  display:flex;
+  gap:10px;
+  margin: 14px 0 14px 0;
+  overflow-x:auto;
+  padding-bottom: 4px;
+}
+
+#hf-tool-root .tab{
+  border: 1px solid rgba(11,42,69,0.35);
+  background: linear-gradient(180deg, var(--navy), var(--navy2));
+  color: rgba(255,255,255,0.92);
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform .12s ease, opacity .12s ease;
+}
+
+#hf-tool-root .tab:hover{ transform: translateY(-1px); opacity: 0.96; }
+
+#hf-tool-root .tab.active{
+  border-color: rgba(11,42,69,0.55);
+  box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+}
+
+/* Sections */
+#hf-tool-root .section{ display:none; }
+#hf-tool-root .section.active{ display:block; }
+
+/* Main card content */
+#hf-tool-root .card{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+#hf-tool-root .divider{
+  height: 1px;
+  background: rgba(15,23,42,0.08);
+  margin: 14px 0;
+}
+
+/* Labels + fields */
+#hf-tool-root label{
+  display:block;
+  color: #334155; /* slate-700 */
+  font-size: 12px;
+  margin-bottom: 6px;
+  font-weight: 800;
+}
+
+#hf-tool-root input[type="number"],
+#hf-tool-root input[type="text"],
+#hf-tool-root input[type="date"],
+#hf-tool-root select,
+#hf-tool-root textarea{
+  width:100%;
+  border: 1px solid rgba(15,23,42,0.14);
+  background: #ffffff;
+  color: var(--ink);
+  padding: 11px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+
+#hf-tool-root textarea{ min-height: 90px; resize: vertical; }
+
+#hf-tool-root input:focus,
+#hf-tool-root select:focus,
+#hf-tool-root textarea:focus{
+  border-color: rgba(11,42,69,0.45);
+  box-shadow: 0 0 0 4px rgba(11,42,69,0.10);
+}
+
+/* Rows */
+#hf-tool-root .inlineRow{ display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+#hf-tool-root .field{ flex:1; min-width: 240px; }
+#hf-tool-root .field.small{ flex:0 0 220px; }
+#hf-tool-root .field.tiny{ flex:0 0 120px; }
+
+/* Buttons — same family as Deal Register */
+#hf-tool-root .btn{
+  border: 1px solid rgba(11,42,69,0.35);
+  background: linear-gradient(180deg, var(--navy), var(--navy2));
+  color: rgba(255,255,255,0.95);
+  padding: 10px 12px;
+  border-radius: 14px;
+  cursor:pointer;
+  font-size: 13px;
+  font-weight: 900;
+  transition: transform .12s ease, opacity .12s ease;
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+}
+
+#hf-tool-root .btn:hover{ transform: translateY(-1px); opacity: 0.96; }
+
+#hf-tool-root .btn.secondary{
+  background: #ffffff;
+  color: var(--navy);
+  border-color: rgba(11,42,69,0.35);
+}
+
+#hf-tool-root .btn.secondary:hover{
+  background: #f8fafc;
+}
+
+#hf-tool-root .btn.danger{
+  background: #ffffff;
+  color: #b91c1c;
+  border-color: rgba(185,28,28,0.30);
+}
+
+/* KPI tiles (results) — white cards like your UI */
+#hf-tool-root .results{
+  display:grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+#hf-tool-root .result{
+  grid-column: span 4;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px;
+  background: #ffffff;
+  box-shadow: var(--shadow2);
+}
+
+@media (max-width: 950px){
+  #hf-tool-root .result{ grid-column: span 12; }
+}
+
+#hf-tool-root .k{
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: .7px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  font-weight: 900;
+}
+
+#hf-tool-root .v{
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: .2px;
+  color: var(--ink);
+}
+
+#hf-tool-root .mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #475569; /* slate-600 */
+  margin-top: 6px;
+}
+
+/* History table — clean grid */
+#hf-tool-root .history-table{
+  width:100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  overflow:hidden;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+}
+
+#hf-tool-root .history-table th{
+  text-align:left;
+  color: #475569;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .7px;
+  padding: 12px;
+  border-bottom: 1px solid rgba(15,23,42,0.08);
+  background: #f8fafc;
+}
+
+#hf-tool-root .history-table td{
+  padding: 12px;
+  border-bottom: 1px solid rgba(15,23,42,0.06);
+  font-size: 13px;
+  color: #0f172a;
+}
+
+#hf-tool-root .history-table tr:hover td{
+  background: #f8fafc;
+}
+
+#hf-tool-root .agent-tag{
+  background: #f1f5f9;
+  border: 1px solid rgba(15,23,42,0.10);
+  color: #0f172a;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+/* CMA preview stays white */
+#hf-tool-root .cma-preview{
+  border: 1px solid rgba(0,0,0,0.10);
+  border-radius: 12px;
+  padding: 34px;
+  background: #ffffff;
+  color: #111;
+  max-width: 820px;
+  margin: 18px auto;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.20);
+}
+</style>
+
+<div id="hf-tool-root">
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Home Finders Coastal Portal</h1>
+      <div class="sub">Unified Real Estate Management System</div>
+    </div>
+    <div class="row">
+      <div id="activeAgentDisplay" class="pill" style="border-color:rgba(255,255,255,0.18)">
+        <span style="font-size:10px; opacity:0.7">User:</span> <b id="currentAgentName">{{ auth()->user()?->name ?? "User" }}</b>
+      </div>
+      <button class="btn secondary" id="btnReset">Clear Form</button>
+    </div>
+  </header>
+
+  <!-- Calculator Section -->
+  <div id="calcSection" class="section active">
+    <div class="card">
+      <div class="inlineRow" style="margin-bottom: 16px;">
+        <div class="field" style="flex:2">
+          <label>Property Address</label>
+          <input id="propAddress" type="text" value="" placeholder="e.g. 12 Smith Street, Shelly Beach"/>
+        </div>
+        <div class="field small">
+          <label>Property Type</label>
+          <select id="propType">
+            <option value="res">Residential (7.5%)</option>
+            <option value="land">Vacant land (10%)</option>
+            <option value="comm">Commercial (10%)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="inlineRow">
+        <div class="field">
+          <label id="priceLabel">Advertised Price (R)</label>
+          <input id="price" type="number" value="0" min="0" step="1000"/>
+          <input id="ownerPocket" type="number" value="0" min="0" step="1000" style="display:none"/>
+        </div>
+        <div class="field tiny">
+          <label>Commission %</label>
+          <input id="commPct" type="number" value="7.5" min="0" step="0.1"/>
+        </div>
+        <div class="field tiny">
+          <label>VAT %</label>
+          <input id="vatRate" type="number" value="15" min="0" step="0.5"/>
+        </div>
+        <div class="field small">
+          <label>VAT Mode</label>
+          <div class="row" style="gap:10px;">
+            <label class="pill" style="margin:0;"><input type="checkbox" id="vatIncl" style="margin-right:8px">VAT included in comm</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="inlineRow">
+        <div class="field small">
+          <label>Input Mode</label>
+          <div class="row" style="gap:10px;">
+            <label class="pill" style="margin:0;"><input type="radio" name="mode" id="modePrice" checked style="margin-right:8px">Price</label>
+            <label class="pill" style="margin:0;"><input type="radio" name="mode" id="modePocket" style="margin-right:8px">Owner Pocket</label>
+          </div>
+        </div>
+        <div class="field small">
+          <label>Override Commission</label>
+          <label class="pill" style="margin:0;"><input type="checkbox" id="commOverrideOn" style="margin-right:8px">Enable override</label>
+        </div>
+        <div class="field" id="commOverrideWrap" style="display:none; flex:2">
+          <label>Override Amount</label>
+          <div class="inlineRow" style="gap:8px;">
+            <div class="field">
+              <input id="commOverrideAmt" type="number" value="60000" min="0" step="100"/>
+            </div>
+            <div class="field small">
+              <select id="commOverrideMode">
+                <option value="inc">VAT inclusive</option>
+                <option value="ex">VAT exclusive</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="results">
+        <div class="result">
+          <div class="k">Selling Price</div>
+          <div class="v" id="rSellingPrice">—</div>
+        </div>
+        <div class="result">
+          <div class="k">Owner Pocket</div>
+          <div class="v good" id="rOwnerPocket">—</div>
+        </div>
+        <div class="result">
+          <div class="k">Commission (VAT Incl)</div>
+          <div class="v" id="rTotalInc">—</div>
+        </div>
+
+        <div class="result">
+          <div class="k">Discount vs Default</div>
+          <div class="v bad" id="rLostInc">—</div>
+          <div class="mono">Lost: <span id="rLostVsDefault">0%</span></div>
+        </div>
+        <div class="result" style="grid-column:span 8">
+          <div class="k">Notes</div>
+          <div class="mono" id="discNote">—</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="inlineRow">
+        <div class="field small">
+          <label>Certificate Date</label>
+          <input id="certDate" type="date" />
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn action" id="btnPrint">Print Commission Summary</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CMA Section -->
+  <div id="certSection" class="section">
+    <div class="card">
+      <div class="inlineRow" style="margin-bottom: 10px;">
+        <div class="field" style="flex:2">
+          <label>Property Address</label>
+          <input id="cmaAddress" type="text" placeholder="e.g. 12 Smith Street, Shelly Beach"/>
+        </div>
+
+        <div class="field small">
+          <label>Property Type</label>
+          <select id="cmaType">
+            <option value="House">House</option>
+            <option value="Townhouse">Townhouse</option>
+            <option value="Apartment">Apartment</option>
+            <option value="Vacant Land">Vacant Land</option>
+            <option value="Commercial">Commercial</option>
+            <option value="Farm">Farm</option>
+          </select>
+        </div>
+
+        <div class="field small">
+          <label>Analysis Date</label>
+          <input id="cmaDate" type="date"/>
+        </div>
+      </div>
+
+      <div class="inlineRow">
+        <div class="field">
+          <label>Estimated Market Value (R)</label>
+          <input id="cmaValue" type="number" value="0" min="0" step="1000"/>
+        </div>
+        <div class="field">
+          <label>Bedrooms</label>
+          <input id="cmaBeds" type="text" placeholder="e.g. 3"/>
+        </div>
+        <div class="field">
+          <label>Bathrooms</label>
+          <input id="cmaBaths" type="text" placeholder="e.g. 2"/>
+        </div>
+        <div class="field">
+          <label>Parking</label>
+          <input id="cmaParking" type="text" placeholder="e.g. 2 garages"/>
+        </div>
+      </div>
+
+      <div class="inlineRow" style="margin-top: 12px;">
+        <div class="field">
+          <label>Key Features / Notes</label>
+          <textarea id="cmaNotes" placeholder="e.g. Sea views, renovated kitchen, walking distance to beach..."></textarea>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="inlineRow">
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn action" id="btnPrintCert">Print CMA Certificate</button>
+        </div>
+      </div>
+
+      <div class="cma-preview" id="cmaPreview" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- History Section -->
+  <div id="historySection" class="section">
+    <div class="card">
+      <div class="inlineRow" style="justify-content:space-between">
+        <div>
+          <h1 style="font-size:16px;margin:0">History & Logs</h1>
+          <div class="sub">Click a row to reload, or delete entries.</div>
+        </div>
+      </div>
+
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Ref</th><th>Date</th><th>Type</th><th>Property</th><th>Agent</th><th>Value</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+        <div>
+            <h1 style="font-size:16px;margin:0 0 10px 0">Logged-in User</h1>
+            <div class="sub" style="margin-bottom:10px;">
+              This tool now uses the current logged-in account for printing & history.
+            </div>
+
+            <div class="pill" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+              <div>
+                <div style="font-weight:900" id="authUserName">{{ auth()->user()?->name ?? "User" }}</div>
+                <div style="font-size:11px; opacity:0.8" id="authUserEmail">{{ auth()->user()?->email ?? "" }}</div>
+              </div>
+              <div class="agent-tag" id="authUserRole" style="background:#0f172a; color:#fff; border-color:rgba(255,255,255,0.12);">{{ strtolower(trim((string)(auth()->user()?->effectiveRole() ?? (auth()->user()?->role ?? "")))) }}</div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="sub">Preview Logo:</div>
+            <div class="pill" style="margin-top:8px;">
+              <span id="prevCompanyName" style="font-weight:800">Home Finders Coastal</span>
+              <img id="prevLogo" style="display:none; max-height:30px; margin-left:10px;" />
+            </div>
+          </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+  window.DEFAULT_TAB = @json($defaultTab);
+  window.PRINT_SETTINGS = @json($printSettings ?? null);
+</script>
+
+  @php
+    $AUTH_USER = [
+      "id" => auth()->id(),
+      "name" => auth()->user()?->name,
+      "email" => auth()->user()?->email,
+      "role" => strtolower(trim((string)(auth()->user()?->effectiveRole() ?? (auth()->user()?->role ?? "")))),
+      "designation" => auth()->user()?->designation,
+    ];
+  @endphp
+  <script>
+    window.AUTH_USER = @json($AUTH_USER);
+  </script>
+
+
+<script>
+/**
+ * Home Finders Coastal Portal
+ * Core logic for Calculator, CMA, History and Settings.
+ */
+
+const el = (id) => document.getElementById(id);
+const fmtZAR = (n) => isFinite(n) ? n.toLocaleString("en-ZA", { style: "currency", currency: "ZAR" }) : "—";
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+
+// --- STATE ---
+
+const DEFAULT_SETTINGS = {
+  companyName: "Home Finders Coastal",
+  address: "The Emporium Shop 5, Shelly Beach, Margate",
+  tel: "(039) 315 0857",
+  ffc: "2023116041",
+  logoUrl: "",
+};
+
+let SETTINGS = (window.PRINT_SETTINGS || null) || DEFAULT_SETTINGS;
+
+const CALC_DATA = {
+  sellingPrice: 0,
+  ownerPocket: 0,
+  commEx: 0,
+  commInc: 0,
+  vat: 0,
+  discountedAmt: 0,
+  discountPct: 0,
+  discountNote: ""
+};
+
+
+// ===== Server-backed History =====
+
+let HISTORY_ITEMS = [];
+
+function getCsrfToken() {
+  const elMeta = document.querySelector('meta[name="csrf-token"]');
+  return elMeta ? elMeta.getAttribute('content') : '';
+}
+
+async function apiFetch(url, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (!headers['Accept']) headers['Accept'] = 'application/json';
+  // For JSON requests
+  if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  // Laravel CSRF for state-changing
+  if (!headers['X-CSRF-TOKEN']) headers['X-CSRF-TOKEN'] = getCsrfToken();
+
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  // Try to parse JSON; if not, throw generic error
+  let json = null;
+  try { json = await res.json(); } catch (e) {}
+
+  if (!res.ok) {
+    const msg = (json && (json.message || json.error)) ? (json.message || json.error) : (res.status + " " + res.statusText);
+    throw new Error(msg);
+  }
+  return json;
+}
+
+function renderHistory() {
+  const body = el("historyBody");
+  if (!body) return;
+  body.innerHTML = "";
+
+  (HISTORY_ITEMS || []).forEach(item => {
+    const tr = document.createElement("tr");
+    tr.onclick = () => window.loadHistoryItem(item.id);
+
+    const d = item.occurred_at ? new Date(item.occurred_at) : null;
+    const dateText = d ? d.toLocaleDateString("en-ZA") : "—";
+
+    tr.innerHTML = `
+      <td class="mono">${escapeHtml(item.ref || "")}</td>
+      <td>${escapeHtml(dateText)}</td>
+      <td><span class="agent-tag" style="background:rgba(255,255,255,0.05); color:#fff">${escapeHtml(item.type || "")}</span></td>
+      <td>${escapeHtml(item.property || "")}</td>
+      <td>${escapeHtml(item.agent_name || "")}</td>
+      <td style="font-weight:700">${fmtZAR(Number(item.value || 0))}</td>
+      <td class="actions-cell">
+        <button class="btn danger" style="padding: 4px 8px; font-size: 11px;" onclick="event.stopPropagation(); window.deleteHistoryItem(${item.id})">Delete</button>
+      </td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+async function refreshHistory() {
+  try {
+    const json = await apiFetch("/tools/history", { method: "GET" });
+    HISTORY_ITEMS = (json && json.items) ? json.items : [];
+    renderHistory();
+  } catch (e) {
+    console.warn("Could not load history:", e);
+    // keep UI usable
+  }
+}
+
+window.loadHistoryItem = async (id) => {
+  try {
+    const json = await apiFetch(`/tools/history/${id}`, { method: "GET" });
+    const item = json && json.item ? json.item : null;
+    if (!item || !item.payload) return;
+
+    const data = item.payload || {};
+
+    if (item.type === "CALC") {
+      el("propAddress").value = data.propAddress || "";
+      el("propType").value = data.propType || "res";
+      el("price").value = data.price ?? 0;
+      el("ownerPocket").value = data.ownerPocket ?? 0;
+      el("commPct").value = data.commPct ?? 7.5;
+      el("vatRate").value = data.vatRate ?? 15;
+      el("vatIncl").checked = !!data.vatIncl;
+      el("commOverrideOn").checked = !!data.commOverrideOn;
+      el("commOverrideAmt").value = data.commOverrideAmt ?? 60000;
+      el("commOverrideMode").value = data.commOverrideMode ?? "inc";
+      el("modePrice").checked = data.mode === "price";
+      el("modePocket").checked = data.mode === "pocket";
+      el("certDate").value = data.certDate || "";
+
+      el("commOverrideWrap").style.display = el("commOverrideOn").checked ? "block" : "none";
+      if (el("modePocket").checked) {
+        el("price").style.display = "none";
+        el("ownerPocket").style.display = "block";
+        el("priceLabel").textContent = "Net Pocket Target (R)";
+      } else {
+        el("price").style.display = "block";
+        el("ownerPocket").style.display = "none";
+        el("priceLabel").textContent = "Advertised Price (R)";
+      }
+
+      activateSection("calcSection");
+      calcAll();
+    } else {
+      el("cmaAddress").value = data.cmaAddress || "";
+      if (el("cmaType")) el("cmaType").value = data.cmaType || "House";
+      el("cmaDate").value = data.cmaDate || "";
+      el("cmaValue").value = data.cmaValue ?? 0;
+      el("cmaBeds").value = data.cmaBeds || "";
+      el("cmaBaths").value = data.cmaBaths || "";
+      el("cmaParking").value = data.cmaParking || "";
+      el("cmaNotes").value = data.cmaNotes || "";
+
+      activateSection("certSection");
+    }
+  } catch (e) {
+    alert("Could not load history entry.");
+  }
+};
+
+window.deleteHistoryItem = async (id) => {
+  if (!confirm("Delete this history entry?")) return;
+  try {
+    await apiFetch(`/tools/history/${id}`, { method: "DELETE" });
+    await refreshHistory();
+  } catch (e) {
+    alert("Could not delete history entry.");
+  }
+};
+
+async function saveHistoryEntry(type, property, value, payload) {
+  // Must NOT block printing if it fails.
+  try {
+    await apiFetch("/tools/history", {
+      method: "POST",
+      body: JSON.stringify({
+        type,
+        property: property || "—",
+        value: Number(value || 0),
+        payload: payload || {},
+        occurred_at: new Date().toISOString(),
+      }),
+    });
+    // Update list in background-ish (best effort)
+    refreshHistory();
+    return true;
+  } catch (e) {
+    console.warn("Could not save history:", e);
+    alert("Could not save history");
+    return false;
+  }
+}
+
+
+// --- FUNCTIONS ---
+
+
+function updateUIFromSettings() {
+      const user = (window.AUTH_USER || {});
+  if (user && user.name) {
+    if (el("currentAgentName")) el("currentAgentName").textContent = user.name || "User";
+    if (el("authUserName")) el("authUserName").textContent = user.name || "User";
+    if (el("authUserEmail")) el("authUserEmail").textContent = user.email || "";
+    if (el("authUserRole")) el("authUserRole").textContent = (user.role || "").replace(/_/g," ");
+    if (el("userSigName")) el("userSigName").textContent = user.name || "User";
+  }
+    renderHistory();
+}
+
+
+function calcAll() {
+  const vatRate = Math.max(0, Number(el("vatRate").value)) / 100;
+  const isPocketMode = el("modePocket").checked;
+  const isOverride = el("commOverrideOn").checked;
+  const isVatIncl = el("vatIncl").checked;
+
+  let sellingPrice = 0;
+  let ownerPocket = 0;
+  let commInc = 0;
+  let commEx = 0;
+
+  if (isOverride) {
+    const amt = Math.max(0, Number(el("commOverrideAmt").value));
+    const mode = el("commOverrideMode").value;
+    if (mode === "inc") {
+      commInc = amt;
+      commEx = vatRate > 0 ? (commInc / (1 + vatRate)) : commInc;
+    } else {
+      commEx = amt;
+      commInc = commEx * (1 + vatRate);
+    }
+    sellingPrice = isPocketMode ? (Number(el("ownerPocket").value) + commInc) : Number(el("price").value);
+    ownerPocket = sellingPrice - commInc;
+  } else {
+    const commPct = Math.max(0, Number(el("commPct").value)) / 100;
+    if (isPocketMode) {
+      ownerPocket = Number(el("ownerPocket").value);
+      const denom = isVatIncl ? (1 - commPct) : (1 - (commPct * (1 + vatRate)));
+      sellingPrice = denom > 0 ? (ownerPocket / denom) : 0;
+    } else {
+      sellingPrice = Number(el("price").value);
+    }
+    const commBase = sellingPrice * commPct;
+    if (isVatIncl) {
+      commInc = commBase;
+      commEx = commInc / (1 + vatRate);
+    } else {
+      commEx = commBase;
+      commInc = commEx * (1 + vatRate);
+    }
+    ownerPocket = sellingPrice - commInc;
+  }
+
+  CALC_DATA.sellingPrice = sellingPrice;
+  CALC_DATA.ownerPocket = ownerPocket;
+  CALC_DATA.commInc = commInc;
+  CALC_DATA.commEx = commEx;
+  CALC_DATA.vat = commInc - commEx;
+
+  el("rSellingPrice").textContent = fmtZAR(sellingPrice);
+  el("rOwnerPocket").textContent = fmtZAR(ownerPocket);
+  el("rTotalInc").textContent = fmtZAR(commInc);
+
+  const propType = el("propType").value;
+  const defRate = propType === "res" ? 0.075 : 0.10;
+  const defCommEx = sellingPrice * defRate;
+  const defCommInc = defCommEx * (1 + vatRate);
+  const lostInc = Math.max(0, defCommInc - commInc);
+
+  CALC_DATA.discountedAmt = lostInc;
+  CALC_DATA.discountPct = defCommInc > 0 ? (lostInc / defCommInc) * 100 : 0;
+  CALC_DATA.discountNote = `Target: ${(defRate*100).toFixed(1)}% vs Effective: ${sellingPrice > 0 ? ((commEx/sellingPrice)*100).toFixed(2) : "0"}% VAT-excl.`;
+
+  el("rLostInc").textContent = fmtZAR(CALC_DATA.discountedAmt);
+  el("rLostVsDefault").textContent = CALC_DATA.discountPct.toFixed(1) + "%";
+  el("discNote").textContent = CALC_DATA.discountNote;
+}
+
+function handlePrint(html) {
+  const w = window.open("", "_blank", "width=900,height=650");
+  if (!w) return alert("Pop-up blocked. Please allow pop-ups for printing.");
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => {
+    w.print();
+    w.close();
+  }, 300);
+}
+
+
+
+function generateCalculatorPrintHtml() {    const user = (window.AUTH_USER || {});
+  const isCandidatePP = String(user.designation || '').trim().toLowerCase() === 'candidate property practitioner';
+  const certDate = el("certDate").value ? new Date(el("certDate").value).toLocaleDateString("en-ZA") : new Date().toLocaleDateString("en-ZA");
+  const property = el("propAddress").value || "—";
+  const commPct = Number(el("commPct").value || 0).toFixed(2);
+  const vatRate = Number(el("vatRate").value || 0).toFixed(2);
+  return `
+    <html>
+    <head>
+      <title>Commission Summary</title>
+      <style>
+        body{ font-family: Arial, sans-serif; padding: 30px; color:#111; }
+        .top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;}
+        .company{font-size:18px;font-weight:900;}
+        .muted{color:#444;font-size:12px;line-height:1.4;}
+        .title{font-size:22px;font-weight:900;margin:20px 0 8px 0;}
+        .box{border:1px solid #ddd;border-radius:10px;padding:14px;margin:10px 0;}
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+        .k{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;}
+        .v{font-size:16px;font-weight:800;}
+        .sig{margin-top:28px;display:flex;justify-content:flex-end;}
+        .sigbox{width:260px; text-align:center;}
+          .sigline{border-top:1px solid #000; margin-top:0;}
+          .sigtext{padding-top:4px;}
+        .sigimg{max-height:80px; display:block; margin:0 auto 6px auto;}
+        .ppra-footer{margin-top:18px;text-align:center;font-size:11px;color:#555;}
+        @media print{
+          body{background:#fff !important;}
+          a[href]:after{content:"" !important;}
+        }
+      </style>
+    </head>
+    <body>
+      <div class="top">
+        <div>
+          <div class="company">${escapeHtml(SETTINGS.companyName)}</div>
+          <div class="muted">${escapeHtml(SETTINGS.address)}<br>${escapeHtml(SETTINGS.tel)}<br>FFC: ${escapeHtml(SETTINGS.ffc)}</div>
+        </div>
+        <div>${SETTINGS.logoUrl ? `<img src="${SETTINGS.logoUrl}" style="max-height:70px;">` : ""}</div>
+      </div>
+
+      <div class="title">Commission Summary</div>
+      <div class="muted">Date: ${certDate}</div>
+
+      <div class="box">
+        <div class="k">Property</div>
+        <div class="v">${escapeHtml(property)}</div>
+      </div>
+
+      <div class="box grid">
+        <div>
+          <div class="k">Selling Price</div>
+          <div class="v">${fmtZAR(CALC_DATA.sellingPrice)}</div>
+        </div>
+        <div>
+          <div class="k">Owner Pocket</div>
+          <div class="v">${fmtZAR(CALC_DATA.ownerPocket)}</div>
+        </div>
+        <div>
+          <div class="k">Commission (VAT incl)</div>
+          <div class="v">${fmtZAR(CALC_DATA.commInc)}</div>
+        </div>
+        <div>
+          <div class="k">Commission (VAT excl)</div>
+          <div class="v">${fmtZAR(CALC_DATA.commEx)}</div>
+        </div>
+        <div>
+          <div class="k">VAT (${vatRate}%)</div>
+          <div class="v">${fmtZAR(CALC_DATA.vat)}</div>
+        </div>
+        <div>
+          <div class="k">Commission %</div>
+          <div class="v">${commPct}%</div>
+        </div>
+      </div>
+
+            <div class="sig" style="gap:18px;">
+        <div class="sigbox">
+          <div style="height:55px"></div>
+          <div class="sigline"></div>
+          <div class="sigtext">
+            <div style="font-weight:900">${escapeHtml(user.name || "User")}</div>
+            <div class="muted">${escapeHtml(user.designation || "Property Practitioner")}</div>
+          </div>
+        </div>
+        ${isCandidatePP ? `
+        <div class="sigbox">
+          <div style="height:55px"></div>
+          <div class="sigline"></div>
+          <div class="sigtext">
+            <div style="font-weight:900">Property Practitioner</div>
+            <div class="muted">&nbsp;</div>
+          </div>
+        </div>
+        ` : ``}
+      </div>
+<div class="ppra-footer">Registered with the PPRA.</div>
+    </body>
+    </html>
+  `;
+}
+
+function generateCmaPrintHtml() {    const user = (window.AUTH_USER || {});
+  const isCandidatePP = String(user.designation || '').trim().toLowerCase() === 'candidate property practitioner';
+  const cmaAddress = el("cmaAddress").value || "—";
+  const cmaType = el("cmaType").value || "—";
+  const cmaDate = el("cmaDate").value ? new Date(el("cmaDate").value).toLocaleDateString("en-ZA") : new Date().toLocaleDateString("en-ZA");
+  const cmaValue = Number(el("cmaValue").value || 0);
+    const cmaBeds = (el("cmaBeds").value || "").trim();
+    const cmaBaths = (el("cmaBaths").value || "").trim();
+    const cmaParking = (el("cmaParking").value || "").trim();
+  const cmaNotes = el("cmaNotes").value || "";
+  const detailsExtras = [
+    cmaBeds ? `<div class="item"><b>Bedrooms</b>${escapeHtml(cmaBeds)}</div>` : "",
+    cmaBaths ? `<div class="item"><b>Bathrooms</b>${escapeHtml(cmaBaths)}</div>` : "",
+    cmaParking ? `<div class="item"><b>Parking</b>${escapeHtml(cmaParking)}</div>` : "",
+  ].filter(Boolean).join("");
+  return `
+    <html>
+    <head>
+      <title>Market Analysis Certificate</title>
+      <style>
+        body{
+          font-family: Georgia, serif;
+          padding: 30px;
+          background:#ffffff;
+        }
+        .cert{
+          background:#fff;
+          border: 4px double #bbb;
+          border-radius: 10px;
+          padding: 26px;
+          max-width: 820px;
+          margin: 0 auto;
+        }
+        .header{
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          gap:16px;
+          border-bottom:1px solid #ddd;
+          padding-bottom:14px;
+        }
+        .logo{max-height:60px;}
+        .company{font-family: Arial, sans-serif; font-weight:900; font-size:14px; color:#1a3c5a;}
+        .title{
+          font-family: Arial, sans-serif;
+          font-weight:900;
+          font-size:20px;
+          letter-spacing:1px;
+          text-align:center;
+          margin: 16px 0 6px 0;
+          color:#1a3c5a;
+          text-transform:uppercase;
+        }
+        .value{
+          font-family: Arial, sans-serif;
+          font-weight:900;
+          font-size:34px;
+          text-align:center;
+          color:#1a3c5a;
+          margin: 14px 0 18px 0;
+        }
+        .details{
+          font-family: Arial, sans-serif;
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap:12px;
+          font-size:12px;
+          color:#111;
+        }
+        .item b{display:block;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+        .notes{
+          font-family: Arial, sans-serif;
+          margin-top: 18px;
+          border-top:1px solid #eee;
+          padding-top:14px;
+          font-size:12px;
+          color:#333;
+          white-space:pre-wrap;
+        }
+        .disclaimer{
+          font-family: Arial, sans-serif;
+          margin-top: 18px;
+          font-size:11px;
+          color:#444;
+        }
+        .footer{
+          display:flex;
+          justify-content:space-between;
+          align-items:flex-end;
+          margin-top: 22px;
+        }
+        .seal{
+          font-family: Arial, sans-serif;
+          font-weight:900;
+          border:2px solid #1a3c5a;
+          color:#1a3c5a;
+          padding:10px 12px;
+          border-radius:6px;
+          text-align:center;
+          font-size:11px;
+          line-height:1.1;
+        }
+        .sig-box{
+          text-align:center;
+          width:220px;
+          margin:0 auto;
+        }
+        .sig-line{
+          border-top:1px solid #000;
+          margin-top:8px;
+          padding-top:8px;
+        }
+        .sig-img{max-height:75px; display:block; margin: 0 auto 6px auto;}
+        .ppra-footer{margin-top:18px;text-align:center;font-size:11px;color:#555;}
+        @media print{
+          body{background:#fff !important;}
+          .cert{box-shadow:none !important;}
+          a[href]:after{content:"" !important;}
+        }
+      </style>
+    </head>
+    <body>
+      <div class="cert">
+        <div class="header">
+          <div>
+            <div class="company">${escapeHtml(SETTINGS.companyName)}</div>
+            <div class="company" style="font-weight:600;color:#333">${escapeHtml(SETTINGS.address)} • ${escapeHtml(SETTINGS.tel)} • FFC ${escapeHtml(SETTINGS.ffc)}</div>
+          </div>
+          <div>
+            ${SETTINGS.logoUrl ? `<img class="logo" src="${SETTINGS.logoUrl}">` : ``}
+          </div>
+        </div>
+
+        <div class="title">Market Analysis Certificate</div>
+        <div class="company" style="text-align:center;color:#333;font-weight:700">Analysis Date: ${cmaDate}</div>
+
+        <div class="value">${fmtZAR(cmaValue)}</div>
+
+        <div class="details">
+          <div class="item"><b>Property</b>${escapeHtml(cmaAddress)}</div>
+          <div class="item"><b>Property Type</b>${escapeHtml(cmaType)}</div>
+          ${detailsExtras}
+        </div>
+
+        <div class="notes"><b>Notes / Features</b><br>${escapeHtml(cmaNotes)}</div>
+
+        <div class="disclaimer"><b>Disclaimer:</b> This document is a Current Market Analysis based on local trends and available property data. It is not a bank appraisal and not a report by a registered property valuer.</div>
+        <div class="footer">
+          <div class="seal">MARKET<br>ANALYSIS</div>
+          <div style="display:flex; gap:18px; align-items:flex-end;">
+            <div class="sig-box">
+              <div style="height:75px"></div><div class="sig-line"></div>
+              <span style="font-weight:bold; font-size:11pt;">${escapeHtml(user.name || "User")}</span><br><span style="font-size:9pt; color:#666">${escapeHtml(user.designation || "Property Practitioner")}</span>
+            </div>
+            ${isCandidatePP ? `
+            <div class="sig-box">
+              <div style="height:75px"></div><div class="sig-line"></div>
+              <span style="font-weight:bold; font-size:11pt;">Property Practitioner</span><br><span style="font-size:9pt; color:#666">&nbsp;</span>
+            </div>
+            ` : ``}
+          </div>
+        </div>
+        <div class="ppra-footer">Registered with the PPRA.</div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+// --- INITIALIZATION ---
+
+window.addEventListener("DOMContentLoaded", () => {
+  function activateSection(targetId) {
+    document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
+    const t = el(targetId);
+    if (t) t.classList.add("active");
+    calcAll();
+  }
+
+  window.activateSection = activateSection;
+
+    // URL section routing (?section=history|cma|calc)
+    try {
+      const section = new URLSearchParams(window.location.search).get("section");
+      const map = {
+        history: "historySection",
+        cma: "certSection",
+        calc: "calcSection",
+      };
+
+      if (section && map[section]) {
+        activateSection(map[section]);
+      } else if (window.DEFAULT_TAB === "cma") {
+        activateSection("certSection");
+      } else {
+        activateSection("calcSection");
+      }
+    } catch (e) {
+      // fallback
+      if (window.DEFAULT_TAB === "cma") activateSection("certSection");
+      else activateSection("calcSection");
+    }
+    // (handled above by URL section routing)
+  // Settings are admin-controlled now (read-only in tools)
+  // Logo upload removed from tools (admin-controlled)
+
+const calcInputs = ["price", "ownerPocket", "commPct", "vatRate", "vatIncl", "commOverrideOn", "commOverrideAmt", "commOverrideMode", "propType", "propAddress", "certDate"];
+  calcInputs.forEach(id => {
+    const input = el(id);
+    if (input) {
+      input.oninput = calcAll;
+      input.onchange = calcAll;
+    }
+  });
+
+  el("commOverrideOn").onchange = (e) => {
+    el("commOverrideWrap").style.display = e.target.checked ? "block" : "none";
+    calcAll();
+  };
+  el("modePrice").onchange = () => { el("price").style.display = "block"; el("priceLabel").textContent = "Advertised Price (R)"; el("ownerPocket").style.display = "none"; calcAll(); };
+  el("modePocket").onchange = () => { el("price").style.display = "none"; el("priceLabel").textContent = "Net Pocket Target (R)"; el("ownerPocket").style.display = "block"; calcAll(); };
+  el("propType").onchange = () => { el("commPct").value = el("propType").value === "res" ? "7.5" : "10"; calcAll(); };
+
+  el("btnReset").onclick = () => {
+    if(confirm("Reset current form inputs?")) {
+        el("propAddress").value = "";
+        el("propType").value = "res";
+        el("price").value = 0;
+        el("ownerPocket").value = 0;
+        el("commPct").value = 7.5;
+        el("vatRate").value = 15;
+        el("vatIncl").checked = false;
+        el("commOverrideOn").checked = false;
+        el("commOverrideAmt").value = 60000;
+        el("commOverrideMode").value = "inc";
+        el("modePrice").checked = true;
+        el("modePocket").checked = false;
+        el("certDate").value = "";
+
+        el("commOverrideWrap").style.display = "none";
+        el("price").style.display = "block";
+        el("ownerPocket").style.display = "none";
+        el("priceLabel").textContent = "Advertised Price (R)";
+
+        calcAll();
+    }
+  };
+  el("btnPrint").onclick = async () => {
+    // snapshot payload for reload
+    const payload = {
+      propAddress: el("propAddress").value,
+      propType: el("propType").value,
+      price: Number(el("price").value),
+      ownerPocket: Number(el("ownerPocket").value),
+      commPct: Number(el("commPct").value),
+      vatRate: Number(el("vatRate").value),
+      vatIncl: el("vatIncl").checked,
+      commOverrideOn: el("commOverrideOn").checked,
+      commOverrideAmt: Number(el("commOverrideAmt").value),
+      commOverrideMode: el("commOverrideMode").value,
+      mode: el("modePocket").checked ? "pocket" : "price",
+      certDate: el("certDate").value
+    };
+
+    // save history (non-blocking for print)
+    await saveHistoryEntry("CALC", el("propAddress").value || "—", CALC_DATA.sellingPrice, payload);
+
+    handlePrint(generateCalculatorPrintHtml());
+  };
+el("btnPrintCert").onclick = async () => {
+    const payload = {
+      cmaAddress: el("cmaAddress").value || "—",
+      cmaType: el("cmaType").value || "—",
+      cmaDate: el("cmaDate").value || "",
+      cmaValue: Number(el("cmaValue").value || 0),
+      cmaBeds: el("cmaBeds").value || "",
+      cmaBaths: el("cmaBaths").value || "",
+      cmaParking: el("cmaParking").value || "",
+      cmaNotes: el("cmaNotes").value || ""
+    };
+
+    await saveHistoryEntry("CMA", payload.cmaAddress, payload.cmaValue, payload);
+
+    handlePrint(generateCmaPrintHtml());
+  };
+updateUIFromSettings();
+  refreshHistory();
+  calcAll();
+});
+</script>
+@endsection

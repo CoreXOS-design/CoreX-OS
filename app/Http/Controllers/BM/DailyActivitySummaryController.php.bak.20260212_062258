@@ -1,0 +1,16 @@
+<?php
+
+namespace App\Http\Controllers\BM;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+
+class DailyActivitySummaryController extends Controller
+{
+    public function index(Request $request)
+    {
+        abort_unless($request->user() && $request->user()->isEffectiveBranchManager(), 403);
+
+        return view('bm.daily-summary.index');
+    }
+}

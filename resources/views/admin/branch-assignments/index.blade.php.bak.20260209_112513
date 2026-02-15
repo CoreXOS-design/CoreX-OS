@@ -1,0 +1,72 @@
+<x-app-layout>
+    <x-slot name="header">Branch Assignments</x-slot>
+
+    <div class="space-y-6">
+
+        @if($errors->any())
+            <div class="p-3 bg-red-100 text-red-800 rounded">
+                {{ $errors->first() }}
+            </div>
+        @endif
+
+        <div class="p-4 border rounded space-y-4">
+            <h3 class="font-bold">Add Branch</h3>
+
+            <form method="POST" action="{{ route('admin.branches.store') }}" class="flex gap-3 items-end">
+                @csrf
+                <div>
+                    <label>Name</label>
+                    <input name="name" required>
+                </div>
+                <div>
+                    <label>Code</label>
+                    <input name="code" required>
+                </div>
+                <button type="submit">Add Branch</button>
+            </form>
+
+            <div class="pt-4 space-y-2">
+                <h4 class="font-semibold">Existing Branches</h4>
+
+                @foreach($branches as $branch)
+                    <div class="flex items-center gap-4 border-b pb-1">
+                        <div class="w-64">{{ $branch->name }} ({{ $branch->code }})</div>
+
+                        <form method="POST" action="{{ route('admin.branches.delete', $branch) }}"
+                              onsubmit="return confirm('Delete this branch? This cannot be undone.');">
+                            @csrf
+                            <button class="text-red-600 text-sm">Delete</button>
+                        </form>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        <div class="space-y-2">
+            <h3 class="font-bold">User Assignments</h3>
+
+            @foreach($users as $user)
+                <form method="POST" action="{{ route('admin.branch-assignments.update') }}" class="flex items-center gap-4 border-b pb-2">
+                    @csrf
+
+                    <input type="hidden" name="user_id" value="{{ $user->id }}">
+
+                    <div class="w-64 font-semibold">
+                        {{ $user->name }}
+                        <div class="text-xs text-gray-500">{{ $user->email }}</div>
+                    </div>
+
+                    <select name="branch_id" onchange="this.form.submit()">
+                        <option value="">-- No Branch --</option>
+                        @foreach($branches as $branch)
+                            <option value="{{ $branch->id }}" {{ ($assigned[$user->id] ?? null) == $branch->id ? 'selected' : '' }}>
+                                {{ $branch->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                </form>
+            @endforeach
+        </div>
+
+    </div>
+</x-app-layout>

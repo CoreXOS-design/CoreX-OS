@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===========================
+   BM Status Tiles visibility fix (2026-01-28)
+   Ensure readable text on colored tiles even if global/text defaults change.
+   Scoped to the exact tile backgrounds used in resources/views/bm/performance.blade.php
+   =========================== */
+@layer components {
+  .bg-red-900.text-white,
+  .bg-amber-700.text-white,
+  .bg-blue-800.text-white,
+  .bg-green-800.text-white {
+    color: #fff !important;
+  }
+}
+
+
+/* ===========================
+   Deal Form UI (2026-01-19)
+   - Better screen usage
+   - Compact money inputs
+   - Better multi-select behavior
+   =========================== */
+@layer components {
+  /* Constrain content on large screens */
+  .page-wrap {
+    @apply mx-auto w-full max-w-6xl px-4;
+  }
+
+  /* Card-like form sections */
+  .form-card {
+    @apply rounded-2xl border border-gray-200 bg-white p-4 shadow-sm;
+  }
+
+  /* Responsive grids that don't feel stretched */
+  .deal-grid {
+    @apply grid grid-cols-1 gap-4 md:grid-cols-2;
+  }
+
+  .deal-grid-tight {
+    @apply grid grid-cols-1 gap-4 md:grid-cols-2;
+  }
+
+  /* Full-width only when it makes sense */
+  .field-full {
+    @apply md:col-span-2;
+  }
+
+  /* Inputs */
+  .input-base {
+    @apply w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-gray-400 focus:ring-2 focus:ring-gray-200;
+  }
+
+  /* Compact numeric / money fields (prevents insane full-width) */
+  .money-input {
+    width: min(18rem, 100%);
+  }
+
+  /* Multi-select: keep it visually contained */
+  .multi-select {
+    @apply rounded-xl border border-gray-300 bg-white px-2 py-2 text-sm shadow-sm;
+    height: 11rem; /* ~6 rows without taking over the screen */
+    overscroll-behavior: contain;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-800;
+  }
+
+  .btn-link {
+    @apply underline text-sm;
+  }
+
+  .help-text {
+    @apply text-xs text-gray-500;
+  }
+}

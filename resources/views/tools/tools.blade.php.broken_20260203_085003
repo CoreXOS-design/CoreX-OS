@@ -1,0 +1,567 @@
+@extends('layouts.app')
+
+@section('content')
+const historyBody = el("historyBody");
+  historyBody.innerHTML = "";
+  SETTINGS.history.slice().reverse().forEach(item => {
+    const tr = document.createElement("tr");
+    tr.onclick = () =>
+
+<script>
+window.loadHistoryItem(item.id);
+    tr.innerHTML = `
+      <td class="mono">${item.ref}</td>
+      <td>${new Date(item.date).toLocaleDateString("en-ZA")}</td>
+      <td><span class="agent-tag" style="background:rgba(255,255,255,0.05); color:#fff">${item.type}</span></td>
+      <td>${item.property}</td>
+      <td>${item.agentName}</td>
+      <td style="font-weight:700">${fmtZAR(item.value)}</td>
+      <td class="actions-cell">
+        <button class="btn danger" style="padding: 4px 8px; font-size: 11px;" onclick="event.stopPropagation(); window.deleteHistoryItem('${item.id}')">Delete</button>
+      </td>
+    `;
+    historyBody.appendChild(tr);
+  });
+}
+
+function getRefCode(type) {
+  const year = new Date().getFullYear();
+  const count = (SETTINGS.history.filter(h => h.type === type).length + 1).toString().padStart(4, '0');
+  return `HF-${year}-${type}-${count}`;
+}
+
+function calcAll() {
+  const vatRate = Math.max(0, Number(el("vatRate").value)) / 100;
+  const isPocketMode = el("modePocket").checked;
+  const isOverride = el("commOverrideOn").checked;
+  const isVatIncl = el("vatIncl").checked;
+
+  let sellingPrice = 0;
+  let ownerPocket = 0;
+  let commInc = 0;
+  let commEx = 0;
+
+  if (isOverride) {
+    const amt = Math.max(0, Number(el("commOverrideAmt").value));
+    const mode = el("commOverrideMode").value;
+    if (mode === "inc") {
+      commInc = amt;
+      commEx = vatRate > 0 ? (commInc / (1 + vatRate)) : commInc;
+    } else {
+      commEx = amt;
+      commInc = commEx * (1 + vatRate);
+    }
+    sellingPrice = isPocketMode ? (Number(el("ownerPocket").value) + commInc) : Number(el("price").value);
+    ownerPocket = sellingPrice - commInc;
+  } else {
+    const commPct = Math.max(0, Number(el("commPct").value)) / 100;
+    if (isPocketMode) {
+      ownerPocket = Number(el("ownerPocket").value);
+      const denom = isVatIncl ? (1 - commPct) : (1 - (commPct * (1 + vatRate)));
+      sellingPrice = denom > 0 ? (ownerPocket / denom) : 0;
+    } else {
+      sellingPrice = Number(el("price").value);
+    }
+    const commBase = sellingPrice * commPct;
+    if (isVatIncl) {
+      commInc = commBase;
+      commEx = commInc / (1 + vatRate);
+    } else {
+      commEx = commBase;
+      commInc = commEx * (1 + vatRate);
+    }
+    ownerPocket = sellingPrice - commInc;
+  }
+
+  CALC_DATA.sellingPrice = sellingPrice;
+  CALC_DATA.ownerPocket = ownerPocket;
+  CALC_DATA.commInc = commInc;
+  CALC_DATA.commEx = commEx;
+  CALC_DATA.vat = commInc - commEx;
+
+  el("rSellingPrice").textContent = fmtZAR(sellingPrice);
+  el("rOwnerPocket").textContent = fmtZAR(ownerPocket);
+  el("rTotalInc").textContent = fmtZAR(commInc);
+
+  const propType = el("propType").value;
+  const defRate = propType === "res" ? 0.075 : 0.10;
+  const defCommEx = sellingPrice * defRate;
+  const defCommInc = defCommEx * (1 + vatRate);
+  const lostInc = Math.max(0, defCommInc - commInc);
+
+  CALC_DATA.discountedAmt = lostInc;
+  CALC_DATA.discountPct = defCommInc > 0 ? (lostInc / defCommInc) * 100 : 0;
+  CALC_DATA.discountNote = `Target: ${(defRate*100).toFixed(1)}% vs Effective: ${sellingPrice > 0 ? ((commEx/sellingPrice)*100).toFixed(2) : "0"}% VAT-excl.`;
+
+  el("rLostInc").textContent = fmtZAR(CALC_DATA.discountedAmt);
+  el("rLostVsDefault").textContent = CALC_DATA.discountPct.toFixed(1) + "%";
+  el("discNote").textContent = CALC_DATA.discountNote;
+}
+
+function handlePrint(html) {
+  const w = window.open("", "_blank", "width=900,height=650");
+  if (!w) return alert("Pop-up blocked. Please allow pop-ups for printing.");
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => {
+    w.print();
+    w.close();
+  }, 300);
+}
+
+function addHistory(type, property, value, data) {
+
+  const user = (window.AUTH_USER || {});
+    const item = {
+    id: Math.random().toString(36).substr(2, 9),
+    ref: getRefCode(type),
+    date: new Date().toISOString(),
+    type,
+    property,
+    value,
+    agentName: (user.name || "User"),
+    data
+  };
+  SETTINGS.history.push(item);
+  saveSettings();
+}
+
+window.loadHistoryItem = (id) => {
+  const item = SETTINGS.history.find(h => h.id === id);
+  if (!item) return;
+  if (item.type === "CALC") {
+    el("propAddress").value = item.data.propAddress || "";
+    el("propType").value = item.data.propType || "res";
+    el("price").value = item.data.price ?? 0;
+    el("ownerPocket").value = item.data.ownerPocket ?? 0;
+    el("commPct").value = item.data.commPct ?? 7.5;
+    el("vatRate").value = item.data.vatRate ?? 15;
+    el("vatIncl").checked = !!item.data.vatIncl;
+    el("commOverrideOn").checked = !!item.data.commOverrideOn;
+    el("commOverrideAmt").value = item.data.commOverrideAmt ?? 60000;
+    el("commOverrideMode").value = item.data.commOverrideMode ?? "inc";
+    el("modePrice").checked = item.data.mode === "price";
+    el("modePocket").checked = item.data.mode === "pocket";
+    el("certDate").value = item.data.certDate || "";
+
+    el("commOverrideWrap").style.display = el("commOverrideOn").checked ? "block" : "none";
+    if (el("modePocket").checked) {
+      el("price").style.display = "none";
+      el("ownerPocket").style.display = "block";
+      el("priceLabel").textContent = "Net Pocket Target (R)";
+    } else {
+      el("price").style.display = "block";
+      el("ownerPocket").style.display = "none";
+      el("priceLabel").textContent = "Advertised Price (R)";
+    }
+
+    document.querySelector('.tab[data-target="calcSection"]').click();
+    calcAll();
+  } else {
+    el("cmaAddress").value = item.data.cmaAddress || "";
+    if (el("cmaType")) el("cmaType").value = item.data.cmaType || "House";
+    el("cmaDate").value = item.data.cmaDate || "";
+    el("cmaValue").value = item.data.cmaValue ?? 0;
+    el("cmaBeds").value = item.data.cmaBeds || "";
+    el("cmaBaths").value = item.data.cmaBaths || "";
+    el("cmaParking").value = item.data.cmaParking || "";
+    el("cmaNotes").value = item.data.cmaNotes || "";
+
+    document.querySelector('.tab[data-target="certSection"]').click();
+  }
+};
+
+window.deleteHistoryItem = (id) => {
+  if (!confirm("Delete this history entry?")) return;
+  SETTINGS.history = SETTINGS.history.filter(h => h.id !== id);
+  saveSettings();
+};
+
+window.activateAgent = (id) => {
+  SETTINGS.activeAgentId = id;
+  saveSettings();
+};
+
+window.deleteAgent = (id) => {
+  const agent = SETTINGS.agents.find(a => a.id === id);
+  if (!agent) return;
+  if (!confirm(`Remove agent "${agent.name}"?`)) return;
+  SETTINGS.agents = SETTINGS.agents.filter(a => a.id !== id);
+  if (SETTINGS.activeAgentId === id) {
+    SETTINGS.activeAgentId = SETTINGS.agents[0] ? SETTINGS.agents[0].id : "";
+  }
+  saveSettings();
+};
+
+function generateCalculatorPrintHtml() {
+  const agent = SETTINGS.agents.find(a => a.id === SETTINGS.activeAgentId) || SETTINGS.agents[0];
+  const certDate = el("certDate").value ? new Date(el("certDate").value).toLocaleDateString("en-ZA") : new Date().toLocaleDateString("en-ZA");
+  const property = el("propAddress").value || "—";
+  const commPct = Number(el("commPct").value || 0).toFixed(2);
+  const vatRate = Number(el("vatRate").value || 0).toFixed(2);
+
+  addHistory("CALC", property, CALC_DATA.sellingPrice, {
+    propAddress: el("propAddress").value,
+    propType: el("propType").value,
+    price: Number(el("price").value),
+    ownerPocket: Number(el("ownerPocket").value),
+    commPct: Number(el("commPct").value),
+    vatRate: Number(el("vatRate").value),
+    vatIncl: el("vatIncl").checked,
+    commOverrideOn: el("commOverrideOn").checked,
+    commOverrideAmt: Number(el("commOverrideAmt").value),
+    commOverrideMode: el("commOverrideMode").value,
+    mode: el("modePocket").checked ? "pocket" : "price",
+    certDate: el("certDate").value
+  });
+
+  return `
+    <html>
+    <head>
+      <title>Commission Summary</title>
+      <style>
+        body{ font-family: Arial, sans-serif; padding: 30px; color:#111; }
+        .top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;}
+        .company{font-size:18px;font-weight:900;}
+        .muted{color:#444;font-size:12px;line-height:1.4;}
+        .title{font-size:22px;font-weight:900;margin:20px 0 8px 0;}
+        .box{border:1px solid #ddd;border-radius:10px;padding:14px;margin:10px 0;}
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+        .k{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;}
+        .v{font-size:16px;font-weight:800;}
+        .sig{margin-top:28px;display:flex;justify-content:flex-end;}
+        .sigbox{border-top:1px solid #000; padding-top:8px; width:260px; text-align:center;}
+        .sigimg{max-height:80px; display:block; margin:0 auto 6px auto;}
+      </style>
+    </head>
+    <body>
+      <div class="top">
+        <div>
+          <div class="company">${escapeHtml(SETTINGS.companyName)}</div>
+          <div class="muted">${escapeHtml(SETTINGS.address)}<br>${escapeHtml(SETTINGS.tel)}<br>FFC: ${escapeHtml(SETTINGS.ffc)}</div>
+        </div>
+        <div>${SETTINGS.logoUrl ? `<img src="${SETTINGS.logoUrl}" style="max-height:70px;">` : ""}</div>
+      </div>
+
+      <div class="title">Commission Summary</div>
+      <div class="muted">Date: ${certDate}</div>
+
+      <div class="box">
+        <div class="k">Property</div>
+        <div class="v">${escapeHtml(property)}</div>
+      </div>
+
+      <div class="box grid">
+        <div>
+          <div class="k">Selling Price</div>
+          <div class="v">${fmtZAR(CALC_DATA.sellingPrice)}</div>
+        </div>
+        <div>
+          <div class="k">Owner Pocket</div>
+          <div class="v">${fmtZAR(CALC_DATA.ownerPocket)}</div>
+        </div>
+        <div>
+          <div class="k">Commission (VAT incl)</div>
+          <div class="v">${fmtZAR(CALC_DATA.commInc)}</div>
+        </div>
+        <div>
+          <div class="k">Commission (VAT excl)</div>
+          <div class="v">${fmtZAR(CALC_DATA.commEx)}</div>
+        </div>
+        <div>
+          <div class="k">VAT (${vatRate}%)</div>
+          <div class="v">${fmtZAR(CALC_DATA.vat)}</div>
+        </div>
+        <div>
+          <div class="k">Commission %</div>
+          <div class="v">${commPct}%</div>
+        </div>
+      </div>
+
+      <div class="sig">
+        <div class="sigbox">
+          ${agent.sigUrl ? `<img class="sigimg" src="${agent.sigUrl}">` : `<div style="height:80px"></div>`}
+          <div style="font-weight:900">${escapeHtml(agent.name)}</div>
+          <div class="muted">Property Practitioner</div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+function generateCmaPrintHtml() {
+  const agent = SETTINGS.agents.find(a => a.id === SETTINGS.activeAgentId) || SETTINGS.agents[0];
+
+  const cmaAddress = el("cmaAddress").value || "—";
+  const cmaType = el("cmaType").value || "—";
+  const cmaDate = el("cmaDate").value ? new Date(el("cmaDate").value).toLocaleDateString("en-ZA") : new Date().toLocaleDateString("en-ZA");
+  const cmaValue = Number(el("cmaValue").value || 0);
+  const cmaBeds = el("cmaBeds").value || "—";
+  const cmaBaths = el("cmaBaths").value || "—";
+  const cmaParking = el("cmaParking").value || "—";
+  const cmaNotes = el("cmaNotes").value || "";
+
+  addHistory("CMA", cmaAddress, cmaValue, {
+    cmaAddress, cmaType, cmaDate: el("cmaDate").value, cmaValue, cmaBeds, cmaBaths, cmaParking, cmaNotes
+  });
+
+  return `
+    <html>
+    <head>
+      <title>Market Analysis Certificate</title>
+      <style>
+        body{
+          font-family: Georgia, serif;
+          padding: 30px;
+          background:#f2f2f2;
+        }
+        .cert{
+          background:#fff;
+          border: 4px double #bbb;
+          border-radius: 10px;
+          padding: 26px;
+          max-width: 820px;
+          margin: 0 auto;
+        }
+        .header{
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          gap:16px;
+          border-bottom:1px solid #ddd;
+          padding-bottom:14px;
+        }
+        .logo{max-height:60px;}
+        .company{font-family: Arial, sans-serif; font-weight:900; font-size:14px; color:#1a3c5a;}
+        .title{
+          font-family: Arial, sans-serif;
+          font-weight:900;
+          font-size:20px;
+          letter-spacing:1px;
+          text-align:center;
+          margin: 16px 0 6px 0;
+          color:#1a3c5a;
+          text-transform:uppercase;
+        }
+        .value{
+          font-family: Arial, sans-serif;
+          font-weight:900;
+          font-size:34px;
+          text-align:center;
+          color:#1a3c5a;
+          margin: 14px 0 18px 0;
+        }
+        .details{
+          font-family: Arial, sans-serif;
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap:12px;
+          font-size:12px;
+          color:#111;
+        }
+        .item b{display:block;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+        .notes{
+          font-family: Arial, sans-serif;
+          margin-top: 18px;
+          border-top:1px solid #eee;
+          padding-top:14px;
+          font-size:12px;
+          color:#333;
+          white-space:pre-wrap;
+        }
+        .disclaimer{
+          font-family: Arial, sans-serif;
+          margin-top: 18px;
+          font-size:11px;
+          color:#444;
+        }
+        .footer{
+          display:flex;
+          justify-content:space-between;
+          align-items:flex-end;
+          margin-top: 22px;
+        }
+        .seal{
+          font-family: Arial, sans-serif;
+          font-weight:900;
+          border:2px solid #1a3c5a;
+          color:#1a3c5a;
+          padding:10px 12px;
+          border-radius:6px;
+          text-align:center;
+          font-size:11px;
+          line-height:1.1;
+        }
+        .sig-box{
+          text-align:center;
+          width:280px;
+        }
+        .sig-line{
+          border-top:1px solid #000;
+          margin-top:8px;
+          padding-top:8px;
+        }
+        .sig-img{max-height:75px; display:block; margin: 0 auto 6px auto;}
+      </style>
+    </head>
+    <body>
+      <div class="cert">
+        <div class="header">
+          <div>
+            <div class="company">${escapeHtml(SETTINGS.companyName)}</div>
+            <div class="company" style="font-weight:600;color:#333">${escapeHtml(SETTINGS.address)} • ${escapeHtml(SETTINGS.tel)} • FFC ${escapeHtml(SETTINGS.ffc)}</div>
+          </div>
+          <div>
+            ${SETTINGS.logoUrl ? `<img class="logo" src="${SETTINGS.logoUrl}">` : ``}
+          </div>
+        </div>
+
+        <div class="title">Market Analysis Certificate</div>
+        <div class="company" style="text-align:center;color:#333;font-weight:700">Valuation Date: ${cmaDate}</div>
+
+        <div class="value">${fmtZAR(cmaValue)}</div>
+
+        <div class="details">
+          <div class="item"><b>Property</b>${escapeHtml(cmaAddress)}</div>
+          <div class="item"><b>Property Type</b>${escapeHtml(cmaType)}</div>
+          <div class="item"><b>Bedrooms</b>${escapeHtml(cmaBeds)}</div>
+          <div class="item"><b>Bathrooms</b>${escapeHtml(cmaBaths)}</div>
+          <div class="item"><b>Parking</b>${escapeHtml(cmaParking)}</div>
+        </div>
+
+        <div class="notes"><b>Notes / Features</b><br>${escapeHtml(cmaNotes)}</div>
+
+        <div class="disclaimer"><b>Disclaimer:</b> This document is a Market Related Valuation based on local trends and property data. We are property practitioners; this is not a bank appraisal or a valuation from a registered Valuer.</div>
+        <div class="footer">
+          <div class="seal">VALUATION<br>ANALYSIS</div>
+          <div class="sig-box">
+            ${agent.sigUrl ? `<img class="sig-img" src="${agent.sigUrl}">` : `<div style="height:75px"></div><div class="sig-line"></div>`}
+            <span style="font-weight:bold; font-size:11pt;">${escapeHtml(agent.name)}</span><br><span style="font-size:9pt; color:#666">Property Practitioner</span>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+// --- INITIALIZATION ---
+
+window.addEventListener("DOMContentLoaded", () => {
+  function activateSection(targetId) {
+      window.activateSection = activateSection;
+    document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
+    const t = el(targetId);
+    if (t) t.classList.add("active");
+    calcAll();
+  }
+
+
+  // Default tab set by server (commission | cma) OR URL section (?section=history|settings|cma|calc)
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const section = (q.get("section") || "").toLowerCase();
+
+      const map = {
+        "commission": "calcSection",
+        "calc": "calcSection",
+        "calculator": "calcSection",
+        "cma": "certSection",
+        "market": "certSection",
+        "certificate": "certSection",
+        "history": "historySection",
+        "logs": "historySection",
+        "settings": "settingsSection",
+        "setup": "settingsSection"
+      };
+
+      if (section && map[section]) {
+        activateSection(map[section]);
+      } else if (window.DEFAULT_TAB === "cma") {
+        activateSection("certSection");
+      } else {
+        activateSection("calcSection");
+      }
+    } catch (e) {}
+const settingInputs = ["sCompanyName", "sCompanyAddress", "sCompanyTel", "sCompanyFFC"];
+  settingInputs.forEach(id => {
+    el(id).onchange = () => {
+      SETTINGS.companyName = el("sCompanyName").value;
+      SETTINGS.address = el("sCompanyAddress").value;
+      SETTINGS.tel = el("sCompanyTel").value;
+      SETTINGS.ffc = el("sCompanyFFC").value;
+      saveSettings();
+    };
+  });
+      reader.readAsDataURL(file);
+    } else {
+      SETTINGS.agents.push({ id: Math.random().toString(36).substr(2, 9), name, sigUrl: "" });
+      saveSettings();
+    }
+  };
+
+  el("logoUpload").onchange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        SETTINGS.logoUrl = reader.result;
+        saveSettings();
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const calcInputs = ["price", "ownerPocket", "commPct", "vatRate", "vatIncl", "commOverrideOn", "commOverrideAmt", "commOverrideMode", "propType", "propAddress", "certDate"];
+  calcInputs.forEach(id => {
+    const input = el(id);
+    if (input) {
+      input.oninput = calcAll;
+      input.onchange = calcAll;
+    }
+  });
+
+  el("commOverrideOn").onchange = (e) => {
+    el("commOverrideWrap").style.display = e.target.checked ? "block" : "none";
+    calcAll();
+  };
+  el("modePrice").onchange = () => { el("price").style.display = "block"; el("priceLabel").textContent = "Advertised Price (R)"; el("ownerPocket").style.display = "none"; calcAll(); };
+  el("modePocket").onchange = () => { el("price").style.display = "none"; el("priceLabel").textContent = "Net Pocket Target (R)"; el("ownerPocket").style.display = "block"; calcAll(); };
+  el("propType").onchange = () => { el("commPct").value = el("propType").value === "res" ? "7.5" : "10"; calcAll(); };
+
+  el("btnReset").onclick = () => {
+    if(confirm("Reset current form inputs?")) {
+        el("propAddress").value = "";
+        el("propType").value = "res";
+        el("price").value = 0;
+        el("ownerPocket").value = 0;
+        el("commPct").value = 7.5;
+        el("vatRate").value = 15;
+        el("vatIncl").checked = false;
+        el("commOverrideOn").checked = false;
+        el("commOverrideAmt").value = 60000;
+        el("commOverrideMode").value = "inc";
+        el("modePrice").checked = true;
+        el("modePocket").checked = false;
+        el("certDate").value = "";
+
+        el("commOverrideWrap").style.display = "none";
+        el("price").style.display = "block";
+        el("ownerPocket").style.display = "none";
+        el("priceLabel").textContent = "Advertised Price (R)";
+
+        calcAll();
+    }
+  };
+  el("btnPrint").onclick = () => handlePrint(generateCalculatorPrintHtml());
+  el("btnPrintCert").onclick = () => handlePrint(generateCmaPrintHtml());
+
+  updateUIFromSettings();
+  calcAll();
+});
+</script>
+
+@endsection

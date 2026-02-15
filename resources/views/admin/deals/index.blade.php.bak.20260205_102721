@@ -1,0 +1,198 @@
+<x-app-layout>
+    <x-slot name="header">
+    <div class="flex items-center justify-between">
+        <div>
+            <div class="text-xl font-semibold text-gray-900">Deal Register</div>
+            <div class="text-sm text-gray-500">Sorted by Deal No (system-generated). Scroll horizontally to view all fields.</div>
+        </div>
+
+        <a href="{{ route('admin.deals.create') }}"
+           class="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300">
+            <span class="text-base leading-none">+</span>
+            <span>Add Deal</span>
+        </a>
+    </div>
+</x-slot>
+
+    <div class="space-y-6">
+
+        @if($errors->any())
+            <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {{ $errors->first() }}
+            </div>
+        @endif
+        {{-- Full-width breakout (so the white background matches the table width area) --}}
+        
+
+{{-- SAAS_DEAL_TABLE_2026 --}}
+{{-- SAAS_DEAL_TABLE_V2_2026 --}}
+        <div class="rounded-2xl border bg-white shadow-sm overflow-hidden">
+            <div class="flex flex-col gap-3 border-b bg-gray-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <div class="text-sm font-semibold text-gray-900">Deals overview</div>
+                    <div class="text-xs text-gray-500">Sorted by Deal No. Key values shown are our share totals.</div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-700 ring-1 ring-gray-200">
+                        {{ $deals->count() }} deals
+                    </span>
+                </div>
+            </div>
+
+            <div class="table-scroll">
+                <table class="w-full text-sm border-collapse table-sticky">
+                    <thead class="bg-white border-b sticky top-0 z-20 shadow-sm">
+                        <tr class="text-xs font-semibold tracking-wide text-gray-600 uppercase">
+                            <th class="text-left px-5 py-3">Deal</th>
+                            <th class="text-left px-5 py-3">Property</th>
+                            <th class="text-left px-5 py-3">Branch</th>
+                            <th class="text-right px-5 py-3">Selling Price</th>
+                            <th class="text-right px-5 py-3">Our Total (Ex VAT)</th>
+                            <th class="text-right px-5 py-3">Actions</th>
+                        </tr>
+                    </thead>
+
+                    <tbody class="divide-y divide-gray-100">
+                        @foreach($deals->sortByDesc('deal_no') as $deal)
+                            @php
+                                $b = $branches->firstWhere('id', $deal->branch_id);
+                                $acceptedMap = ['P'=>'Pending','D'=>'Declined','G'=>'Granted','R'=>'Registered'];
+                                $acceptedLabel = $deal->accepted_status
+                                    ? ($acceptedMap[$deal->accepted_status] ?? $deal->accepted_status)
+                                    : '—';
+                            @endphp
+
+                            <!-- Primary row -->
+                            <tr class="hover:bg-gray-50/70">
+                                <td class="px-5 py-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="h-10 w-10 rounded-xl bg-gray-900 text-white flex items-center justify-center text-xs font-semibold">
+                                            {{ \Illuminate\Support\Str::of($deal->deal_no)->after('D-') ?: '#' }}
+                                        </div>
+                                        <div>
+                                            <div class="font-semibold text-gray-900">#{{ $deal->deal_no }}</div>
+<form method="POST" action="{{ route('admin.deals.quickUpdate', $deal) }}" class="mt-1 flex flex-wrap items-center gap-2">
+    @csrf
+    @php
+        $asVal = (string)($deal->accepted_status ?? '');
+        $csVal = (string)($deal->commission_status ?? '');
+    @endphp
+
+    <select name="accepted_status" class="h-8 rounded-lg border-gray-200 text-xs">
+        <option value="">—</option>
+        <option value="P" {{ $asVal === 'P' ? 'selected' : '' }}>Pending</option>
+        <option value="G" {{ $asVal === 'G' ? 'selected' : '' }}>Granted</option>
+        <option value="R" {{ $asVal === 'R' ? 'selected' : '' }}>Registered</option>
+        <option value="D" {{ $asVal === 'D' ? 'selected' : '' }}>Declined</option>
+    </select>
+
+    <select name="commission_status" class="h-8 rounded-lg border-gray-200 text-xs">
+        <option value="">—</option>
+        <option value="Not Paid" {{ $csVal === 'Not Paid' ? 'selected' : '' }}>Not Paid</option>
+        <option value="Paid" {{ $csVal === 'Paid' ? 'selected' : '' }}>Paid</option>
+        <option value="Loss" {{ $csVal === 'Loss' ? 'selected' : '' }}>Loss</option>
+    </select>
+
+    <button type="submit"
+        class="inline-flex h-8 items-center justify-center rounded-lg bg-white px-2.5 text-xs font-semibold text-gray-900 ring-1 ring-gray-200 hover:bg-gray-50">
+        Save
+    </button>
+</form>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <td class="px-5 py-4">
+                                    <div class="text-gray-900">
+                                        {{ \Illuminate\Support\Str::limit($deal->property_address, 60) }}
+                                    </div>
+                                    <div class="mt-0.5 text-xs text-gray-500">
+                                        {{ $deal->seller_name }} → {{ $deal->buyer_name }}
+                                    </div>
+                                </td>
+
+                                <td class="px-5 py-4">
+                                    <div class="font-medium text-gray-900">{{ $b?->name ?? '—' }}</div>
+                                    <div class="mt-0.5 text-xs text-gray-500">
+                                        Period: <span class="text-gray-700">{{ $deal->period ?: '—' }}</span>
+                                    </div>
+                                </td>
+
+                                <td class="px-5 py-4 text-right">
+                                    <div class="font-semibold text-gray-900">R {{ number_format((float)$deal->property_value, 0) }}</div>
+                                    <div class="mt-0.5 text-xs text-gray-500">
+                                        Attorney: <span class="text-gray-700">{{ $deal->attorney_name ?: '—' }}</span>
+                                    </div>
+                                </td>
+
+                                <td class="px-5 py-4 text-right">
+                                    <div class="font-semibold text-gray-900">R {{ number_format((float)$deal->totalOurCommission(), 0) }}</div>
+                                    <div class="mt-0.5 text-xs text-gray-500">Company + agents (Ex VAT, before PAYE/deductions)</div>
+                                </td>
+
+                                <td class="px-5 py-4">
+                                    <div class="flex flex-col sm:flex-row gap-2 justify-end">
+                                        <a href="{{ route('admin.deals.log', $deal) }}"
+                                           class="inline-flex items-center justify-center rounded-xl bg-white px-3 py-2 text-xs font-semibold text-gray-900 ring-1 ring-gray-200 hover:bg-gray-50">
+                                            Log
+                                        </a>
+<a href="{{ route('admin.deals.edit', $deal) }}"
+                                           class="inline-flex items-center justify-center rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-gray-800">
+                                            Edit
+                                        </a>
+                                        {{-- HIDE_SETTLEMENT_FROM_BM --}}
+@if(auth()->user()->isEffectiveAdmin())
+<a href="{{ route('admin.deals.settle', $deal) }}"
+                                           class="inline-flex items-center justify-center rounded-xl bg-gray-700 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-gray-600">
+                                            Pay
+                                        </a>
+@endif
+
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <!-- Secondary row -->
+                            <tr class="bg-gray-50/60 text-xs text-gray-600">
+                                <td colspan="6" class="px-5 py-3">
+                                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                                        <div class="rounded-xl bg-white border px-3 py-2">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500">Reg</div>
+                                            <div class="mt-1 text-gray-800">
+                                                <span class="font-medium text-gray-900">{{ $deal->registration_date ?: '—' }}</span>
+                                                <span class="mx-2 text-gray-300">|</span>
+                                                <span class="text-gray-700">Period:</span> <span class="font-medium text-gray-900">{{ $deal->period ?: '—' }}</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="rounded-xl bg-white border px-3 py-2">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500">Gross comm per agent before agency share</div>
+                                            <div class="mt-1 text-gray-800">
+                                                @foreach($deal->allocations() as $userId => $amount)
+                                                    <span class="inline-flex items-center rounded-full bg-gray-50 px-2 py-1 ring-1 ring-gray-200 mr-1 mb-1">
+                                                        {{ $userId == 0 ? 'Company (Unallocated)' : ($agents->firstWhere('id', $userId)->name ?? 'Unknown') }}
+                                                        <span class="ml-1 font-semibold text-gray-900">R {{ number_format($amount, 0) }}</span>
+                                                    </span>
+                                                @endforeach
+                                            </div>
+                                        </div>
+
+                                        <div class="rounded-xl bg-white border px-3 py-2">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500">Quick</div>
+                                            <div class="mt-1 text-gray-800">
+                                                <span class="text-gray-700">Attorney:</span> <span class="font-medium text-gray-900">{{ $deal->attorney_name ?: '—' }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+
+</div>
+</x-app-layout>

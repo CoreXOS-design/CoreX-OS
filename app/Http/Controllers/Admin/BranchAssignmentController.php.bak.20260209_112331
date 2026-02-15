@@ -1,0 +1,85 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Models\Branch;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class BranchAssignmentController extends Controller
+{
+    public function index()
+    {
+        $this->authorizeAdmin();
+
+        $users = User::orderBy('name')->get();
+        $branches = Branch::orderBy('name')->get();
+        $assigned = DB::table('branch_assignments')->pluck('branch_id', 'user_id')->toArray();
+        $branchesInUse = DB::table('branch_assignments')
+            ->select('branch_id', DB::raw('count(*) as cnt'))
+            ->groupBy('branch_id')
+            ->pluck('cnt', 'branch_id')
+            ->toArray();
+
+        return view('admin.branch-assignments.index', compact('users', 'branches', 'assigned', 'branchesInUse'));
+    }
+
+    public function update(Request $request)
+    {
+        $this->authorizeAdmin();
+
+        $data = $request->validate([
+            'user_id' => ['required', 'exists:users,id'],
+            'branch_id' => ['nullable', 'exists:branches,id'],
+        ]);
+
+        DB::table('branch_assignments')->where('user_id', $data['user_id'])->delete();
+
+        if (!empty($data['branch_id'])) {
+            DB::table('branch_assignments')->insert([
+                'user_id' => $data['user_id'],
+                'branch_id' => $data['branch_id'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        return redirect()->back();
+    }
+
+    public function createBranch(Request $request)
+    {
+        $this->authorizeAdmin();
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'code' => ['required', 'string', 'max:50'],
+        ]);
+
+        Branch::create($data);
+
+        return redirect()->back();
+    }
+
+    public function deleteBranch(Branch $branch)
+    {
+        $this->authorizeAdmin();
+
+        $inUse = DB::table('branch_assignments')->where('branch_id', $branch->id)->exists();
+
+        if ($inUse) {
+            return back()->withErrors('Cannot delete branch: users are still assigned.');
+        }
+
+        $branch->delete();
+
+        return redirect()->back();
+    }
+
+    private function authorizeAdmin()
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin(), 403);
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(composer install:*)",
+      "Bash(php -v:*)",
+      "Bash(php --ini:*)",
+      "Bash(php -m:*)",
+      "Bash(composer update:*)",
+      "Bash(php artisan:*)",
+      "Bash(npm run build:*)"
+    ]
+  }
+}

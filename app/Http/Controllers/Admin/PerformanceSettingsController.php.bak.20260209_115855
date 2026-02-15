@@ -1,0 +1,45 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\PerformanceSetting;
+use Illuminate\Http\Request;
+
+class PerformanceSettingsController extends Controller
+{
+    private function ensureAdmin(): void
+    {
+        $u = \Illuminate\Support\Facades\Auth::user();
+        if (!$u || (!($u->is_admin ?? false) && (($u->role ?? '') !== 'admin'))) {
+            abort(403);
+        }
+    }
+
+
+    public function edit()
+    {
+        $this->ensureAdmin();
+        $vatRate = (float) PerformanceSetting::get('vat_rate', 15);
+        $listingsPerSale = (float) PerformanceSetting::get('listings_per_sale', 5);
+
+        return view('admin.performance-settings', [
+            'vatRate' => $vatRate,
+            'listingsPerSale' => $listingsPerSale,
+        ]);
+    }
+
+    public function update(Request $request)
+    {
+        $this->ensureAdmin();
+        $data = $request->validate([
+            'vat_rate' => ['required','numeric','min:0','max:100'],
+            'listings_per_sale' => ['required','numeric','min:0.01','max:1000'],
+        ]);
+
+        PerformanceSetting::updateOrCreate(['key' => 'vat_rate'], ['value' => (string)$data['vat_rate']]);
+        PerformanceSetting::updateOrCreate(['key' => 'listings_per_sale'], ['value' => (string)$data['listings_per_sale']]);
+
+        return redirect()->back()->with('status', 'Performance settings updated.');
+    }
+}

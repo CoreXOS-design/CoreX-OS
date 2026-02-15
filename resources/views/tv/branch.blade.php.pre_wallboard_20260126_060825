@@ -1,0 +1,338 @@
+@php
+    $r = $rollup;
+
+    // Targets / actuals (branch)
+    $targets = $r['totals']['targets'] ?? [];
+    $actuals = $r['totals']['actuals'] ?? [];
+
+    $valueTarget = (float)($targets['value'] ?? 0);
+    $valueActual = (float)($actuals['value'] ?? $actuals['sales_value'] ?? 0);
+    $valueTargetSet = $valueTarget > 0;
+    $valuePct = $valueTargetSet ? (($valueActual / $valueTarget) * 100) : 0;
+    $valueRemaining = $valueTargetSet ? max($valueTarget - $valueActual, 0) : 0;
+
+    $dealsTarget = (int)($targets['deals'] ?? 0);
+    $dealsActual = (int)($actuals['deals'] ?? 0);
+    $dealsTargetSet = $dealsTarget > 0;
+    $dealsPct = $dealsTargetSet ? (($dealsActual / $dealsTarget) * 100) : 0;
+    $dealsRemaining = $dealsTargetSet ? max($dealsTarget - $dealsActual, 0) : 0;
+
+    // Points / pace (from BM rollup)
+    $pts = $r['points'] ?? ['actual'=>0,'target'=>0,'pct'=>0,'status'=>'—','per_day_needed'=>0,'today_points'=>0,'days_left'=>0];
+    $pointsActual = (float)($pts['actual'] ?? 0);
+    $pointsTarget = (float)($pts['target'] ?? 0);
+    $pointsTargetSet = $pointsTarget > 0;
+    $pointsPct    = (float)($pts['pct'] ?? ($pointsTargetSet ? (($pointsActual / $pointsTarget) * 100) : 0));
+    $pointsStatus = (string)($pts['status'] ?? '—');
+    $pointsPerDayNeeded = (float)($pts['per_day_needed'] ?? 0);
+    $todayPoints = (float)($pts['today_points'] ?? 0);
+    $daysLeft = (int)($pts['days_left'] ?? 0);
+
+    // Today activity totals
+    $today = $r['activities_today'] ?? [];
+    $todayTotal = 0;
+    if (is_array($today)) {
+        foreach ($today as $k => $v) { $todayTotal += (int)$v; }
+    }
+
+    // Color bars
+    $valueBar  = !$valueTargetSet ? 'bg-gray-700' : ($valuePct >= 95 ? 'bg-green-600' : ($valuePct >= 75 ? 'bg-amber-500' : 'bg-red-600'));
+    $dealsBar  = !$dealsTargetSet ? 'bg-gray-700' : ($dealsPct >= 95 ? 'bg-green-600' : ($dealsPct >= 75 ? 'bg-amber-500' : 'bg-red-600'));
+
+    $pointsBar = 'bg-gray-700';
+    if ($pointsTargetSet) {
+        if ($pointsActual >= $pointsTarget) $pointsBar = 'bg-green-600';
+        elseif ($pointsStatus === 'Ahead' || $pointsStatus === 'On pace') $pointsBar = 'bg-green-600';
+        elseif ($pointsPct >= 75) $pointsBar = 'bg-amber-500';
+        else $pointsBar = 'bg-red-600';
+    }
+
+    // Motivational banner messages (NO agent names, NO money shaming)
+    $banner = [];
+    $banner[] = "Sound the bell 🔔  Every signed deal moves the whole branch.";
+    $banner[] = "This month: Deals ".number_format($dealsActual,0)." • Value R ".number_format($valueActual,0)." • Points ".number_format($pointsActual,0).".";
+
+    if ($dealsTargetSet || $valueTargetSet) {
+        $banner[] = "Still to target: "
+            .($dealsTargetSet ? number_format($dealsRemaining,0)." deals" : "deals target not set")
+            ." • "
+            .($valueTargetSet ? "R ".number_format($valueRemaining,0)." value" : "value target not set")
+            .".";
+    } else {
+        $banner[] = "Targets not set for this branch/period yet — ask the BM to capture targets.";
+    }
+
+    $banner[] = "Today: ".number_format($todayTotal,0)." activity rows • ".number_format($todayPoints,0)." points so far.";
+    $banner[] = ($pointsTargetSet)
+        ? ("Pace: ".$pointsStatus." • Need/day ".number_format($pointsPerDayNeeded,1)." • Days left ".number_format($daysLeft,0).".")
+        : ("Set points target to unlock pace guidance.");
+@endphp
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TV — {{ $branchName }} — {{ $r['period'] }}</title>
+
+    @vite(['resources/css/app.css','resources/js/app.js'])
+
+    <style>
+        html, body { height: 100%; overflow: hidden; }
+
+        body{
+            background: radial-gradient(circle at 35% 10%, #122445 0%, #070a10 55%, #05070c 100%);
+            color:#f1f5f9;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+
+        .screen { height:100vh; display:flex; flex-direction:column; }
+        .wrap { height:100%; width:100%; padding:44px 54px 0 54px; box-sizing:border-box; }
+
+        /* Premium panels */
+        .panel{
+            background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+            border: 1px solid rgba(255,255,255,.10);
+            border-radius: 30px;
+            box-shadow: 0 18px 60px rgba(0,0,0,.45);
+        }
+
+        .muted{ color:rgba(241,245,249,.68); }
+
+        /* TV typography: bigger than feels “normal” */
+        .h-branch { font-size: clamp(30px, 2.0vw, 44px); font-weight: 900; letter-spacing: -0.02em; }
+        .h-sub    { font-size: clamp(18px, 1.2vw, 26px); font-weight: 700; }
+        .k-label  { font-size: clamp(18px, 1.2vw, 26px); font-weight: 800; }
+        .k-main   { font-size: clamp(84px, 7.0vw, 150px); font-weight: 950; letter-spacing: -0.04em; line-height: 0.98; }
+        .k-sub    { font-size: clamp(22px, 1.6vw, 34px); font-weight: 800; }
+        .k-small  { font-size: clamp(18px, 1.2vw, 26px); font-weight: 800; }
+
+        /* Bars */
+        .bar { height: 26px; border-radius: 999px; overflow:hidden; background: rgba(255,255,255,.10); }
+        .bar > div { height:26px; border-radius:999px; }
+
+        /* Layout grid */
+        .topGrid{
+            display:grid;
+            grid-template-columns: 1.2fr 0.9fr 0.9fr;
+            gap: 26px;
+            align-items: stretch;
+        }
+
+        /* Hero message */
+        .hero{
+            margin-top: 26px;
+            padding: 34px 38px;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap: 26px;
+        }
+        .heroTitle{
+            font-size: clamp(44px, 3.2vw, 74px);
+            font-weight: 950;
+            letter-spacing: -0.03em;
+            line-height: 1.02;
+        }
+        .heroSide{
+            min-width: 360px;
+            text-align:right;
+        }
+        .heroSide .bigNum{
+            font-size: clamp(44px, 3.2vw, 74px);
+            font-weight: 950;
+            letter-spacing: -0.03em;
+        }
+
+        /* Ticker */
+        .ticker{
+            margin-top: 26px;
+            height: 120px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            padding: 0 50px;
+            box-sizing:border-box;
+            background: linear-gradient(90deg, rgba(0,0,0,.35), rgba(0,0,0,.55));
+            border-top: 1px solid rgba(255,255,255,.10);
+        }
+        .tickerText{
+            font-size: clamp(30px, 2.4vw, 52px);
+            font-weight: 900;
+            text-align:center;
+            letter-spacing: 0.01em;
+        }
+
+        .fade { transition: opacity 700ms ease; opacity: 1; }
+        .fade.out { opacity: 0; }
+    </style>
+</head>
+<body>
+<div class="screen">
+
+    <div class="wrap">
+
+        {{-- HEADER --}}
+        <div class="flex items-end justify-between">
+            <div>
+                <div class="h-branch">{{ $branchName }}</div>
+                <div class="muted h-sub mt-1">Live branch performance • Period {{ $r['period'] }}</div>
+            </div>
+
+            <div class="panel px-8 py-6 text-right" style="min-width: 320px;">
+                <div class="muted k-label">Today</div>
+                <div class="k-main" style="font-size: clamp(56px, 4.2vw, 86px); margin-top: 6px;">
+                    {{ number_format($todayPoints, 0) }}
+                </div>
+                <div class="muted k-small" style="margin-top: 8px;">Points • Activity rows: {{ number_format($todayTotal, 0) }}</div>
+            </div>
+        </div>
+
+        {{-- TOP KPI STRIP --}}
+        <div class="topGrid mt-8">
+
+            {{-- VALUE --}}
+            <div class="panel p-8">
+                <div class="muted k-label">Value</div>
+                <div class="k-main mt-4">R {{ number_format($valueActual, 0) }}</div>
+                <div class="muted k-sub mt-2">
+                    @if($valueTargetSet)
+                        of R {{ number_format($valueTarget, 0) }}
+                    @else
+                        Target not set
+                    @endif
+                </div>
+
+                <div class="mt-7 bar">
+                    <div class="{{ $valueBar }}" style="width: {{ min(100, max(0, $valuePct)) }}%"></div>
+                </div>
+
+                <div class="mt-5 flex items-center justify-between">
+                    <div class="k-sub">{{ number_format($valuePct, 1) }}%</div>
+                    <div class="muted k-small">
+                        @if($valueTargetSet)
+                            To go: R {{ number_format($valueRemaining, 0) }}
+                        @else
+                            Ask BM to set targets
+                        @endif
+                    </div>
+                </div>
+            </div>
+
+            {{-- DEALS --}}
+            <div class="panel p-8">
+                <div class="muted k-label">Deals</div>
+                <div class="k-main mt-4">{{ number_format($dealsActual, 0) }}</div>
+                <div class="muted k-sub mt-2">
+                    @if($dealsTargetSet)
+                        of {{ number_format($dealsTarget, 0) }}
+                    @else
+                        Target not set
+                    @endif
+                </div>
+
+                <div class="mt-7 bar">
+                    <div class="{{ $dealsBar }}" style="width: {{ min(100, max(0, $dealsPct)) }}%"></div>
+                </div>
+
+                <div class="mt-5 flex items-center justify-between">
+                    <div class="k-sub">{{ number_format($dealsPct, 1) }}%</div>
+                    <div class="muted k-small">
+                        @if($dealsTargetSet)
+                            To go: {{ number_format($dealsRemaining, 0) }} deals
+                        @else
+                            Ask BM to set targets
+                        @endif
+                    </div>
+                </div>
+            </div>
+
+            {{-- PACE --}}
+            <div class="panel p-8">
+                <div class="muted k-label">Pace</div>
+                <div class="k-main mt-4">{{ number_format($pointsActual, 0) }}</div>
+                <div class="muted k-sub mt-2">
+                    @if($pointsTargetSet)
+                        of {{ number_format($pointsTarget, 0) }} — {{ $pointsStatus }}
+                    @else
+                        Points target not set
+                    @endif
+                </div>
+
+                <div class="mt-7 bar">
+                    <div class="{{ $pointsBar }}" style="width: {{ min(100, max(0, $pointsPct)) }}%"></div>
+                </div>
+
+                <div class="mt-5 flex items-center justify-between" style="gap:18px;">
+                    <div class="k-sub">{{ number_format($pointsPct, 1) }}%</div>
+                    <div class="muted k-small" style="text-align:right;">
+                        @if($pointsTargetSet)
+                            Need/day: {{ number_format($pointsPerDayNeeded, 1) }} • Days left: {{ number_format($daysLeft, 0) }}
+                        @else
+                            Set points to unlock pace
+                        @endif
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        {{-- HERO WOW MESSAGE --}}
+        @php
+            // Build an action-focused hero line (non-shaming)
+            $hero = "Stay consistent today — every call and viewing builds momentum.";
+            if ($dealsTargetSet && $dealsRemaining > 0) {
+                $hero = "We need ".$dealsRemaining." more deal".($dealsRemaining==1?'':'s')." to hit the monthly target.";
+            }
+            if ($pointsTargetSet && $daysLeft > 0) {
+                $hero = ($pointsStatus === 'Behind')
+                    ? ("To recover pace: aim for ".number_format($pointsPerDayNeeded,1)." points per day.")
+                    : ("To stay on pace: aim for ".number_format($pointsPerDayNeeded,1)." points per day.");
+            }
+        @endphp
+
+        <div class="panel hero">
+            <div class="heroTitle">{{ $hero }}</div>
+            <div class="heroSide">
+                <div class="muted k-label">Today focus</div>
+                <div class="bigNum mt-2">
+                    @if($pointsTargetSet)
+                        {{ number_format($pointsPerDayNeeded,1) }}
+                    @else
+                        —
+                    @endif
+                </div>
+                <div class="muted k-small mt-2">points per day</div>
+            </div>
+        </div>
+
+    </div>
+
+    {{-- SPORTS-CASTER TICKER --}}
+    <div class="ticker">
+        <div id="ticker" class="tickerText fade">—</div>
+    </div>
+
+</div>
+
+<script>
+(function () {
+    const msgs = @json($banner);
+    const el = document.getElementById('ticker');
+    if (!msgs || msgs.length === 0 || !el) return;
+
+    let i = 0;
+    el.textContent = msgs[i] || '—';
+
+    setInterval(() => {
+        el.classList.add('out');
+        setTimeout(() => {
+            i = (i + 1) % msgs.length;
+            el.textContent = msgs[i] || '—';
+            el.classList.remove('out');
+        }, 700);
+    }, 12000); // 12s per message (sports-caster readable)
+})();
+</script>
+</body>
+</html>

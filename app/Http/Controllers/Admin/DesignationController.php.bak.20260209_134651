@@ -1,0 +1,101 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Designation;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class DesignationController extends Controller
+{
+    public function index()
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin(), 403);
+
+        $designations = Designation::orderBy('sort_order')->orderBy('name')->get();
+
+        return view('admin.designations.index', compact('designations'));
+    }
+
+    public function store(Request $request)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin(), 403);
+
+        $data = $request->validate([
+            'name' => ['required','string','max:100'],
+            'sort_order' => ['nullable','integer','min:0','max:1000000'],
+            'is_enabled' => ['nullable','in:0,1'],
+        ]);
+
+        $name = trim($data['name']);
+        if ($name === '') return back()->withErrors('Name is required.');
+
+        $exists = Designation::whereRaw('lower(name) = lower(?)', [$name])->exists();
+        if ($exists) return back()->withErrors('That designation already exists.');
+
+        Designation::create([
+            'name' => $name,
+            'sort_order' => (int)($data['sort_order'] ?? 0),
+            'is_enabled' => ((string)($data['is_enabled'] ?? '1') === '1') ? 1 : 0,
+        ]);
+
+        return back()->with('status', 'Designation added.');
+    }
+
+    public function update(Request $request, Designation $designation)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin(), 403);
+
+        $data = $request->validate([
+            'name' => ['required','string','max:100'],
+            'sort_order' => ['nullable','integer','min:0','max:1000000'],
+            'is_enabled' => ['nullable','in:0,1'],
+        ]);
+
+        $newName = trim($data['name']);
+        if ($newName === '') return back()->withErrors('Name is required.');
+
+        $oldName = (string)$designation->name;
+
+        $dupe = Designation::where('id', '!=', $designation->id)
+            ->whereRaw('lower(name) = lower(?)', [$newName])
+            ->exists();
+        if ($dupe) return back()->withErrors('Another designation with that name already exists.');
+
+        $isEnabled = ((string)($data['is_enabled'] ?? '1') === '1') ? 1 : 0;
+        $sortOrder = (int)($data['sort_order'] ?? 0);
+
+        DB::transaction(function () use ($designation, $oldName, $newName, $sortOrder, $isEnabled) {
+            // Update the designation row
+            $designation->name = $newName;
+            $designation->sort_order = $sortOrder;
+            $designation->is_enabled = $isEnabled;
+            $designation->save();
+
+            // Keep existing users in sync if the name changed
+            if ($oldName !== $newName) {
+                User::where('designation', $oldName)->update(['designation' => $newName]);
+            }
+        });
+
+        return back()->with('status', 'Designation updated.');
+    }
+
+    public function delete(Designation $designation)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin(), 403);
+
+        $name = (string)$designation->name;
+
+        $inUse = User::where('designation', $name)->exists();
+        if ($inUse) {
+            return back()->withErrors("Cannot delete '{$name}' because at least one user is assigned to it. Change those users first.");
+        }
+
+        $designation->delete();
+
+        return back()->with('status', 'Designation deleted.');
+    }
+}

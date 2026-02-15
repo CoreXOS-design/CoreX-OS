@@ -1,0 +1,243 @@
+@php
+    $r = $rollup;
+
+    // Targets / actuals (branch)
+    $targets = $r['totals']['targets'] ?? [];
+    $actuals = $r['totals']['actuals'] ?? [];
+
+    $valueTarget = (float)($targets['value'] ?? 0);
+    $valueActual = (float)($actuals['value'] ?? $actuals['sales_value'] ?? 0);
+    $valueTargetSet = $valueTarget > 0;
+    $valuePct = $valueTargetSet ? (($valueActual / $valueTarget) * 100) : 0;
+    $valueRemaining = $valueTargetSet ? max($valueTarget - $valueActual, 0) : 0;
+
+    $dealsTarget = (int)($targets['deals'] ?? 0);
+    $dealsActual = (int)($actuals['deals'] ?? 0);
+    $dealsTargetSet = $dealsTarget > 0;
+    $dealsPct = $dealsTargetSet ? (($dealsActual / $dealsTarget) * 100) : 0;
+    $dealsRemaining = $dealsTargetSet ? max($dealsTarget - $dealsActual, 0) : 0;
+
+    // Points / pace (from BM rollup)
+    $pts = $r['points'] ?? ['actual'=>0,'target'=>0,'pct'=>0,'status'=>'—','per_day_needed'=>0,'today_points'=>0,'days_left'=>0];
+    $pointsActual = (float)($pts['actual'] ?? 0);
+    $pointsTarget = (float)($pts['target'] ?? 0);
+    $pointsTargetSet = $pointsTarget > 0;
+    $pointsPct    = (float)($pts['pct'] ?? ($pointsTargetSet ? (($pointsActual / $pointsTarget) * 100) : 0));
+    $pointsStatus = (string)($pts['status'] ?? '—');
+    $pointsPerDayNeeded = (float)($pts['per_day_needed'] ?? 0);
+    $todayPoints = (float)($pts['today_points'] ?? 0);
+    $daysLeft = (int)($pts['days_left'] ?? 0);
+
+    // Today activity totals
+    $today = $r['activities_today'] ?? [];
+    $todayTotal = 0;
+    if (is_array($today)) {
+        foreach ($today as $k => $v) { $todayTotal += (int)$v; }
+    }
+
+    // Color bars
+    $valueBar  = !$valueTargetSet ? 'bg-gray-700' : ($valuePct >= 95 ? 'bg-green-600' : ($valuePct >= 75 ? 'bg-amber-500' : 'bg-red-600'));
+    $dealsBar  = !$dealsTargetSet ? 'bg-gray-700' : ($dealsPct >= 95 ? 'bg-green-600' : ($dealsPct >= 75 ? 'bg-amber-500' : 'bg-red-600'));
+
+    $pointsBar = 'bg-gray-700';
+    if ($pointsTargetSet) {
+        if ($pointsActual >= $pointsTarget) $pointsBar = 'bg-green-600';
+        elseif ($pointsStatus === 'Ahead' || $pointsStatus === 'On pace') $pointsBar = 'bg-green-600';
+        elseif ($pointsPct >= 75) $pointsBar = 'bg-amber-500';
+        else $pointsBar = 'bg-red-600';
+    }
+
+    // Motivational banner messages (NO agent names, NO money shaming)
+    $banner = [];
+    $banner[] = "Sound the bell 🔔  Every signed deal moves the whole branch.";
+    $banner[] = "This month: Deals ".number_format($dealsActual,0)." • Value R ".number_format($valueActual,0)." • Points ".number_format($pointsActual,0).".";
+
+    if ($dealsTargetSet || $valueTargetSet) {
+        $banner[] = "Still to target: "
+            .($dealsTargetSet ? number_format($dealsRemaining,0)." deals" : "deals target not set")
+            ." • "
+            .($valueTargetSet ? "R ".number_format($valueRemaining,0)." value" : "value target not set")
+            .".";
+    } else {
+        $banner[] = "Targets not set for this branch/period yet — ask the BM to capture targets.";
+    }
+
+    $banner[] = "Today: ".number_format($todayTotal,0)." activity rows • ".number_format($todayPoints,0)." points so far.";
+    $banner[] = ($pointsTargetSet)
+        ? ("Pace: ".$pointsStatus." • Need/day ".number_format($pointsPerDayNeeded,1)." • Days left ".number_format($daysLeft,0).".")
+        : ("Set points target to unlock pace guidance.");
+@endphp
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TV — {{ $branchName }} — {{ $r['period'] }}</title>
+
+    @vite(['resources/css/app.css','resources/js/app.js'])
+
+    <style>
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+        background: radial-gradient(circle at top, #0f1b33, #05080f);
+        color: #f1f5f9;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    .panel {
+        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 28px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+    }
+
+    .screen { height: 100vh; display: flex; flex-direction: column; }
+    .content { flex: 1; padding: 40px; display: flex; flex-direction: column; gap: 28px; }
+
+    .muted { color: rgba(241,245,249,0.65); }
+
+    /* MASSIVE typography for TVs */
+    .kpi { font-weight: 900; letter-spacing: -0.03em; }
+    .big { font-size: clamp(72px, 6vw, 120px); line-height: 1.0; }
+    .mid { font-size: clamp(22px, 1.8vw, 36px); }
+
+    /* Progress bar thicker */
+    .bar { height: 22px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,0.08); }
+    .bar > div { height: 22px; border-radius: 999px; }
+
+    /* Banner */
+    .banner {
+        height: 110px;
+        flex: 0 0 110px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        background: linear-gradient(90deg, #0b1220, #05080f);
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .bannerText {
+        font-size: clamp(28px, 2.4vw, 46px);
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-align:center;
+        padding: 0 40px;
+    }
+
+    .fade { transition: opacity 600ms ease; opacity: 1; }
+    .fade.out { opacity: 0; }
+</style>
+</head>
+<body>
+    <div class="screen">
+
+        <div class="content max-w-[1500px] mx-auto w-full">
+
+            {{-- HEADER --}}
+            <div class="flex items-end justify-between gap-6">
+                <div>
+                    <div class="text-5xl font-extrabold tracking-tight">{{ $branchName }}</div>
+                    <div class="muted text-xl mt-1">TV Motivation — Period {{ $r['period'] }}</div>
+                </div>
+
+                <div class="text-right panel px-6 py-4">
+                    <div class="muted mid font-semibold">Today</div>
+                    <div class="mt-1 flex items-baseline justify-end gap-3">
+                        <div class="muted mid">Points</div>
+                        <div class="text-5xl font-extrabold">{{ number_format($todayPoints, 0) }}</div>
+                    </div>
+                    <div class="muted mid mt-1">Activity rows: {{ number_format($todayTotal, 0) }}</div>
+                </div>
+            </div>
+
+            {{-- KPI ROW --}}
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {{-- VALUE --}}
+                <div class="panel p-6">
+                    <div class="muted mid font-semibold">Value (Actual / Target)</div>
+                    <div class="kpi big mt-3">R {{ number_format($valueActual, 0) }}</div>
+                    <div class="muted mid font-semibold mt-1">/ R {{ number_format($valueTarget, 0) }}</div>
+                    <div class="mt-4 bar">
+                        <div class="{{ $valueBar }}" style="width: {{ min(100, max(0, $valuePct)) }}%"></div>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between">
+                        <div class="text-2xl font-extrabold">{{ number_format($valuePct, 1) }}%</div>
+                        <div class="muted mid font-semibold">Still need: R {{ number_format($valueRemaining, 0) }}</div>
+                    </div>
+                </div>
+
+                {{-- DEALS --}}
+                <div class="panel p-6">
+                    <div class="muted mid font-semibold">Deals (Actual / Target)</div>
+                    <div class="kpi big mt-3">{{ number_format($dealsActual, 0) }}</div>
+                    <div class="muted mid font-semibold mt-1">/ {{ number_format($dealsTarget, 0) }}</div>
+                    <div class="mt-4 bar">
+                        <div class="{{ $dealsBar }}" style="width: {{ min(100, max(0, $dealsPct)) }}%"></div>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between">
+                        <div class="text-2xl font-extrabold">{{ number_format($dealsPct, 1) }}%</div>
+                        <div class="muted mid font-semibold">Still need: {{ number_format($dealsRemaining, 0) }} deals</div>
+                    </div>
+                </div>
+
+                {{-- POINTS --}}
+                <div class="panel p-6">
+                    <div class="muted mid font-semibold">Pace (Points)</div>
+                    <div class="kpi big mt-3">{{ number_format($pointsActual, 0) }}</div>
+                    <div class="muted mid font-semibold mt-1">/ {{ number_format($pointsTarget, 0) }} — {{ $pointsStatus }}</div>
+                    <div class="mt-4 bar">
+                        <div class="{{ $pointsBar }}" style="width: {{ min(100, max(0, $pointsPct)) }}%"></div>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between gap-4">
+                        <div class="text-2xl font-extrabold">{{ number_format($pointsPct, 1) }}%</div>
+                        <div class="muted mid font-semibold">
+                            Need/day: {{ number_format($pointsPerDayNeeded, 1) }} • Days left: {{ number_format($daysLeft, 0) }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Single WOW panel (kept short so no overflow) --}}
+            <div class="panel p-6">
+                <div class="text-3xl font-extrabold">Focus right now</div>
+                <div class="muted mid mt-2 font-semibold">
+                    Stay consistent. Keep the branch moving. Ring the bell 🔔 when it’s signed.
+                </div>
+            </div>
+
+            <div class="muted mid">
+                Tip: add <span class="font-semibold">?period=YYYY-MM</span> to switch months. Private TV token required.
+            </div>
+
+        </div>
+
+        {{-- READABLE ROTATING BANNER (no scrolling) --}}
+        <div class="banner">
+            <div id="banner" class="bannerText fade">—</div>
+        </div>
+
+    </div>
+
+    <script>
+        (function () {
+            const msgs = @json($banner);
+            const el = document.getElementById('banner');
+            if (!msgs || msgs.length === 0 || !el) return;
+
+            let i = 0;
+            el.textContent = msgs[i] || '—';
+
+            setInterval(() => {
+                el.classList.add('out');
+                setTimeout(() => {
+                    i = (i + 1) % msgs.length;
+                    el.textContent = msgs[i] || '—';
+                    el.classList.remove('out');
+                }, 500);
+            }, 10000); // 10s per message (readable)
+        })();
+    </script>
+</body>
+</html>

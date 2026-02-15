@@ -1,0 +1,1026 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Target;
+use App\Models\DailyActivity;
+use App\Models\ActivityTarget;
+use App\Models\User;
+use App\Models\Deal;
+use App\Models\Branch;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+
+class TargetController extends Controller
+{
+    private function isAdmin(): bool
+    {
+        $u = auth()->user();
+        if (!$u) return false;
+
+        // Prefer effective role (View-As), but fall back to DB role
+        if (method_exists($u, 'isEffectiveAdmin') && (bool)$u->isEffectiveAdmin()) return true;
+
+        $role = strtolower(trim((string)($u->role ?? '')));
+        return ($role === 'admin');
+    }
+
+    private function isBranchManager(): bool
+    {
+        $u = auth()->user();
+        if (!$u) return false;
+
+        if (method_exists($u, 'isEffectiveBranchManager') && (bool)$u->isEffectiveBranchManager()) return true;
+
+        $role = strtolower(trim((string)($u->role ?? '')));
+        return ($role === 'branch_manager');
+    }
+
+    private function isAgent(): bool
+    {
+        // Agent: not admin/BM, and role is empty/null/"agent" (case-insensitive)
+        $u = auth()->user();
+        if (!$u) return false;
+        if ($this->isAdmin() || $this->isBranchManager()) return false;
+
+        $role = strtolower(trim((string)($u->role ?? '')));
+        return ($role === '' || $role === 'agent');
+    }
+public function index(Request $request)
+    {
+        abort_unless($this->isAdmin() || $this->isBranchManager() || $this->isAgent(), 403);
+
+        $auth = auth()->user();
+
+        // Period
+        $period = (string)($request->get('period') ?: Carbon::now()->format('Y-m'));
+
+        // Period options from deals table (plus current period)
+        $periods = Deal::query()
+            ->select('period')
+            ->whereNotNull('period')
+            ->groupBy('period')
+            ->orderBy('period', 'desc')
+            ->pluck('period')
+            ->all();
+
+        if (!in_array($period, $periods, true)) {
+            array_unshift($periods, $period);
+        }
+
+        // Branch name lookup
+        $branchNames = Branch::query()->pluck('name', 'id')->all();
+
+        // Scope users
+        $usersQ = User::query()
+            ->where('is_active', 1)
+            ->where(function ($q) {
+                $q->whereNull('role')
+                  ->orWhere('role', 'agent')
+                  ->orWhere('role', 'branch_manager');
+            });
+
+        if ($this->isAgent()) {
+            $usersQ->where('id', (int)$auth->id);
+        } elseif ($this->isBranchManager()) {
+            $usersQ->where('branch_id', (int)$auth->branch_id);
+        }
+
+        $users = $usersQ
+            ->orderBy('branch_id')
+            ->orderBy('name')
+            ->get();
+
+
+        // Normalize branch_id for display (fallback to branch_assignments when users.branch_id is empty)
+        $baMap = [];
+        $baRows = DB::table('branch_assignments')
+            ->select('user_id', 'branch_id', 'id')
+            ->whereIn('user_id', $users->pluck('id'))
+            ->orderBy('id', 'desc')
+            ->get();
+
+        foreach ($baRows as $r) {
+            $uid = (int)$r->user_id;
+            if (!isset($baMap[$uid]) && (int)$r->branch_id > 0) {
+                $baMap[$uid] = (int)$r->branch_id;
+            }
+        }
+
+        $users->transform(function ($u) use ($baMap) {
+            $bid = (int)($u->branch_id ?? 0);
+            if ($bid <= 0) {
+                $uid = (int)$u->id;
+                if (isset($baMap[$uid])) {
+                    $u->branch_id = $baMap[$uid];
+                }
+            }
+            return $u;
+        });
+        // Monthly targets (existing)
+        $targets = Target::query()
+            ->where('period', $period)
+            ->whereIn('user_id', $users->pluck('id'))
+            ->get()
+            ->keyBy('user_id');
+
+        // Actuals: from deal_user pivot joined to deals by period
+        $actuals = collect();
+        $userIds = $users->pluck('id')->all();
+
+        if (count($userIds) > 0) {
+            // Actuals NOTE:
+
+            // value_actual must split each deal's property_value equally across DISTINCT agents on the deal,
+
+            // and must NOT halve a deal when the same agent appears twice (listing + selling).
+
+            //
+
+            // Rule: per deal, agent_value = property_value / COUNT(DISTINCT user_id on that deal)
+
+            // Then SUM per user.
+
+            
+
+            // Distinct deal+user rows for users in scope (prevents double rows when user is on both sides)
+
+            $duDistinct = DB::table('deal_user')
+
+                ->selectRaw('DISTINCT deal_id, user_id');
+
+            
+
+            // Agent count per deal (for this period), counting DISTINCT agents on the deal
+
+            $agentCounts = DB::table('deal_user')
+
+                ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
+
+                ->where('deals.period', $period)
+
+                ->selectRaw('deal_user.deal_id as deal_id, COUNT(DISTINCT deal_user.user_id) as agent_count')
+
+                ->groupBy('deal_user.deal_id');
+
+            
+
+            $rows = DB::query()
+
+                ->fromSub($duDistinct, 'du')
+
+                ->join('deals', 'deals.id', '=', 'du.deal_id')
+
+                ->joinSub($agentCounts, 'ac', function($j) {
+
+                    $j->on('ac.deal_id', '=', 'du.deal_id');
+
+                })
+
+                ->where('deals.period', $period)
+
+                ->whereIn('du.user_id', $userIds)
+
+                ->leftJoin('deal_user as du_side', function($j) {
+
+                    $j->on('du_side.deal_id', '=', 'du.deal_id')
+
+                      ->on('du_side.user_id', '=', 'du.user_id');
+
+                })
+
+                ->selectRaw('
+
+                    du.user_id as user_id,
+
+                    COUNT(DISTINCT CASE WHEN du_side.side = "listing" THEN du.deal_id END) as listings_actual,
+
+                    COUNT(DISTINCT du.deal_id) as deals_actual,
+
+                    COALESCE(SUM( (deals.property_value * 1.0) / NULLIF(ac.agent_count, 0) ), 0) as value_actual
+
+                ')
+
+                ->groupBy('du.user_id')
+
+                ->get();
+
+
+            $actuals = collect($rows)->keyBy('user_id');
+        }
+
+        // Daily date selector
+        $dailyDate = (string)($request->get('date') ?: Carbon::now()->toDateString());
+
+        // Monthly activity targets (leading indicators) — for later settings screen, but ready now
+        $activityTargets = ActivityTarget::query()
+            ->where('period', $period)
+            ->whereIn('user_id', $users->pluck('id'))
+            ->get()
+            ->keyBy('user_id');
+
+        
+        // Daily activity columns (settings-driven)
+        // Admin view (all branches): global defaults only
+        // Branch Manager / Agent: branch override (if exists) else global defaults
+        $dailyCols = DB::table('activity_columns')
+            ->select('key', 'label', 'group', 'default_enabled', 'sort_order')
+            ->orderBy('sort_order')
+            ->orderBy('key')
+            ->get()
+            ->map(function ($c) {
+                return [
+                    'key' => (string)$c->key,
+                    'label' => (string)$c->label,
+                    'group' => $c->group === null ? null : (string)$c->group,
+                    'enabled' => (int)$c->default_enabled,
+                    'order' => (int)$c->sort_order,
+                ];
+            })
+            ->keyBy('key')
+            ->all();
+
+        $effectiveCols = [];
+
+        if ($this->isAdmin()) {
+            // global only
+            foreach ($dailyCols as $k => $c) {
+                if ((int)$c['enabled'] === 1) $effectiveCols[] = $c;
+            }
+            usort($effectiveCols, fn($a, $b) => ($a['order'] <=> $b['order']) ?: strcmp($a['key'], $b['key']));
+        } else {
+            // branch override if possible
+            $bid = (int)($auth?->branch_id ?? 0);
+            $over = [];
+            if ($bid > 0) {
+                $rows = DB::table('branch_activity_columns')
+                    ->select('key', 'is_enabled', 'sort_order', 'points_weight')
+                    ->where('branch_id', $bid)
+                    ->get();
+                foreach ($rows as $r) {
+                    $over[(string)$r->key] = [
+                        'enabled' => (int)$r->is_enabled,
+                        'order' => $r->sort_order === null ? null : (int)$r->sort_order,
+                    ];
+                }
+            }
+
+            foreach ($dailyCols as $k => $c) {
+                $enabled = (int)$c['enabled'];
+                $order = (int)$c['order'];
+
+                if (isset($over[$k])) {
+                    $enabled = (int)$over[$k]['enabled'];
+                    if ($over[$k]['order'] !== null) $order = (int)$over[$k]['order'];
+                }
+
+                if ($enabled === 1) {
+                    $c['enabled'] = 1;
+                    $c['order'] = $order;
+                    $effectiveCols[] = $c;
+                }
+            }
+
+            usort($effectiveCols, fn($a, $b) => ($a['order'] <=> $b['order']) ?: strcmp($a['key'], $b['key']));
+        }
+// Daily activity actuals for selected date
+        $dailyActivities = DailyActivity::query()
+            ->where('activity_date', $dailyDate)
+            ->whereIn('user_id', $users->pluck('id'))
+            ->get()
+            ->keyBy('user_id');
+
+        // Week context for admin targets page (prevents undefined variables)
+        $tz = config('app.timezone') ?: 'UTC';
+        $selectedDateObj = \Carbon\Carbon::parse($dailyDate, $tz)->startOfDay();
+        $weekStart = $selectedDateObj->copy()->startOfWeek(\Carbon\Carbon::MONDAY)->startOfDay();
+        $weekEnd   = $weekStart->copy()->addDays(6)->endOfDay();
+
+        $weekDays = [];
+        for ($i = 0; $i < 7; $i++) {
+            $d = $weekStart->copy()->addDays($i);
+            $weekDays[] = [
+                'date' => $d->toDateString(),
+                'label' => $d->format('D j M'),
+                'is_selected' => ($d->toDateString() === $selectedDateObj->toDateString()),
+                'is_today' => $d->isSameDay(\Carbon\Carbon::now($tz)),
+            ];
+        }
+
+        // Points-by-day is optional on admin targets; keep empty unless/ until computed per user
+        $pointsByDay = [];
+
+
+        return view('admin.targets.index', [
+            'period' => $period,
+            'periods' => $periods,
+            'users' => $users,
+            'targets' => $targets,
+            'actuals' => $actuals,
+
+            'dailyDate' => $dailyDate,
+            'weekStart' => $weekStart,
+            'weekEnd' => $weekEnd,
+            'weekDays' => $weekDays,
+            'pointsByDay' => $pointsByDay,
+            'activityTargets' => $activityTargets,
+            'dailyActivities' => $dailyActivities,
+
+            'dailyCols' => $effectiveCols,
+
+            'branchNames' => $branchNames,
+
+            'isAdmin' => $this->isAdmin(),
+            'isBranchManager' => $this->isBranchManager(),
+            'isAgent' => $this->isAgent(),
+            'canEditTargets' => ($this->isAdmin() || $this->isBranchManager()),
+        ]);
+    }
+
+    public function save(Request $request)
+    {
+        // Monthly targets: Admin/BM only
+        abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+
+        $period = (string)$request->input('period');
+        if (!preg_match('/^\d{4}\-\d{2}$/', $period)) {
+            return back()->withErrors('Invalid period.')->withInput();
+        }
+
+        $auth = auth()->user();
+        $branchId = $auth?->branch_id;
+
+        $data = $request->input('targets', []);
+        if (!is_array($data)) $data = [];
+
+        DB::transaction(function () use ($data, $period, $auth, $branchId) {
+            foreach ($data as $userId => $row) {
+                $userId = (int)$userId;
+                if ($userId <= 0) continue;
+
+                $u = User::find($userId);
+                if (!$u) continue;
+
+                // Branch manager can only save for their branch
+                if ((string)($auth?->role ?? '') === 'branch_manager' || (bool)($auth?->isEffectiveBranchManager())) {
+                    if ((int)$u->branch_id !== (int)$branchId) continue;
+                }
+
+                $listings = isset($row['listings_target']) ? (int)$row['listings_target'] : 0;
+                $deals    = isset($row['deals_target']) ? (int)$row['deals_target'] : 0;
+                $value    = isset($row['value_target']) ? (float)$row['value_target'] : 0;
+
+                $points   = isset($row['points_target']) ? (int)$row['points_target'] : 0;
+
+                if ($listings < 0) $listings = 0;
+                if ($deals < 0) $deals = 0;
+                if ($value < 0) $value = 0;
+                if ($points < 0) $points = 0;
+
+                Target::updateOrCreate(
+                    ['period' => $period, 'user_id' => $userId],
+                    [
+                        'branch_id' => $u->branch_id,
+                        'listings_target' => $listings,
+                        'deals_target' => $deals,
+                        'value_target' => $value,
+                        'points_target' => $points,
+                        'updated_by' => $auth?->id,
+                        'created_by' => $auth?->id,
+                    ]
+                );
+            }
+        });
+
+        return redirect()->route('admin.targets', ['period' => $period])
+            ->with('status', 'Targets saved.');
+    }
+
+    
+    public function agentDaily(Request $request)
+    {
+        // Agents: dedicated daily capture screen
+        // BM/Admin: redirect to the Targets page (which already contains Daily Activity capture and scopes correctly)
+        if (! $this->isAgent()) {
+            $dailyDate = (string)($request->get('date') ?: \Illuminate\Support\Carbon::now()->toDateString());
+            if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dailyDate)) {
+                $dailyDate = \Illuminate\Support\Carbon::now()->toDateString();
+            }
+            $period = substr($dailyDate, 0, 7);
+
+            abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+            return redirect()->route('admin.targets', ['period' => $period, 'date' => $dailyDate]);
+        }
+
+        $auth = auth()->user();
+        $userId = (int)($auth?->id ?? 0);
+        if ($userId <= 0) abort(403);
+
+        $dailyDate = (string)($request->get('date') ?: Carbon::now()->toDateString());
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dailyDate)) {
+            $dailyDate = Carbon::now()->toDateString();
+        }
+
+        // === AGENT_DAILY_WEEK_PATCH:START ===
+        // Week range (Mon–Sun) + 7-day history strip
+        $tz = config('app.timezone') ?: 'UTC';
+        $selectedDate = Carbon::parse($dailyDate, $tz)->startOfDay();
+        $weekStart = $selectedDate->copy()->startOfWeek(Carbon::MONDAY);
+        $weekEnd   = $weekStart->copy()->addDays(6)->endOfDay();
+
+        $weekDays = [];
+        for ($i = 0; $i < 7; $i++) {
+            $d = $weekStart->copy()->addDays($i);
+            $weekDays[] = [
+                'date' => $d->toDateString(),
+                'label' => $d->format('D j M'),
+                'is_selected' => $d->toDateString() === $selectedDate->toDateString(),
+                'is_today' => $d->isSameDay(Carbon::now($tz)),
+            ];
+        }
+        // === AGENT_DAILY_WEEK_PATCH:END ===
+
+        $period = substr($dailyDate, 0, 7);
+        $branchId = (int)($auth?->branch_id ?? 0);
+
+        // Branch name lookup (for display)
+        $branchNames = Branch::query()->pluck('name', 'id')->all();
+
+        // Effective daily columns for THIS agent (branch override if exists, else global default)
+        $dailyCols = DB::table('activity_columns as ac')
+            ->leftJoin('branch_activity_columns as bac', function ($join) use ($branchId) {
+                $join->on('bac.key', '=', 'ac.key')
+                     ->where('bac.branch_id', '=', $branchId);
+            })
+            ->selectRaw('
+                ac.key as key,
+                ac.label as label,
+                COALESCE(bac.points_weight, ac.points_weight) as points_weight,
+                ac."group" as "group",
+                COALESCE(bac.is_enabled, ac.default_enabled) as is_enabled,
+                COALESCE(bac.sort_order, ac.sort_order) as sort_order
+            ')
+            ->orderBy('sort_order')
+            ->get()
+            ->map(function ($r) {
+                return [
+                    'key' => (string)$r->key,
+                    'label' => (string)$r->label,
+                    'group' => $r->group !== null ? (string)$r->group : null,
+                    'is_enabled' => (int)$r->is_enabled,
+                    'points_weight' => (float)($r->points_weight ?? 1.0),
+                    'sort_order' => (int)$r->sort_order,
+                ];
+            })
+            ->filter(function ($c) { return (int)$c['is_enabled'] === 1; })
+            ->values()
+            ->all();
+
+        // Daily activity row for this agent
+        $dailyActivities = DailyActivity::query()
+            ->where('activity_date', $dailyDate)
+            ->where('user_id', $userId)
+            ->get()
+            ->keyBy('user_id');
+
+        // === AGENT_DAILY_WEEK_PATCH:WEEKLOAD ===
+        // Load 7 days of daily_activities for this agent (Mon–Sun)
+        $dailyWeek = DailyActivity::query()
+            ->where('user_id', $userId)
+            ->whereBetween('activity_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+            ->get()
+            ->keyBy(function ($row) { return (string)$row->activity_date; });
+
+        // Points per day = sum( value(field) * points_weight ) across enabled columns
+        $pointsByDay = [];
+        foreach ($weekDays as $d) {
+            $date = (string)$d['date'];
+            $row = $dailyWeek->get($date);
+            $sum = 0.0;
+            if ($row) {
+                foreach ($dailyCols as $c) {
+                    $key = (string)($c['key'] ?? '');
+                    if ($key === '') continue;
+                    $w = (float)($c['points_weight'] ?? 1.0);
+                    $val = (float)($row->{$key} ?? 0);
+                    $sum += ($val * $w);
+                }
+            }
+            $pointsByDay[$date] = $sum;
+        }
+
+
+        // Provide $users collection shaped like the targets page expects (single row)
+        $users = User::query()->where('id', $userId)->get();
+
+
+        // === AGENT_DAILY_UI_PATCH:WEEK_AND_POINTS ===
+        // Week (Mon–Sun) + 7-day history + points per day (based on activity_columns.points_weight)
+        $tz = config('app.timezone') ?: 'UTC';
+        $selectedDateObj = \Carbon\Carbon::parse($dailyDate, $tz)->startOfDay();
+        $weekStart = $selectedDateObj->copy()->startOfWeek(\Carbon\Carbon::MONDAY)->startOfDay();
+        $weekEnd   = $weekStart->copy()->addDays(6)->endOfDay();
+
+        // Pull this agent's activities for the whole week
+        $weekRows = \App\Models\DailyActivity::query()
+            ->where('user_id', $userId)
+            ->whereBetween('activity_date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+            ->get();
+
+        $weekByDate = $weekRows->keyBy(function ($r) {
+            return \Carbon\Carbon::parse($r->activity_date)->toDateString();
+        });
+
+        // Build points weights map from the effective daily columns
+        $weights = [];
+        foreach ($dailyCols as $c) {
+            $k = (string)($c['key'] ?? '');
+            if ($k === '' || $k === 'notes') continue;
+            $weights[$k] = (float)($c['points_weight'] ?? 1);
+        }
+
+        $pointsByDay = [];
+        $weekDays = [];
+        for ($i = 0; $i < 7; $i++) {
+            $d = $weekStart->copy()->addDays($i);
+            $ds = $d->toDateString();
+
+            $row = $weekByDate->get($ds);
+            if (!$row) {
+                $pointsByDay[$ds] = null;
+            } else {
+                $sum = 0.0;
+                foreach ($weights as $k => $w) {
+                    $v = 0;
+                    if (isset($row->$k)) {
+                        $v = (float)$row->$k;
+                    }
+                    $sum += ($v * $w);
+                }
+                $pointsByDay[$ds] = $sum;
+            }
+
+            $weekDays[] = [
+                'date' => $ds,
+                'label' => $d->format('D j M'),
+                'is_selected' => ($ds === $selectedDateObj->toDateString()),
+                'is_today' => $d->isSameDay(\Carbon\Carbon::now($tz)),
+            ];
+        }
+
+        return view('agent.daily', [
+            'period' => $period,
+            'dailyDate' => $dailyDate,
+            'weekStart' => $weekStart,
+            'weekEnd' => $weekEnd,
+            'weekDays' => $weekDays,
+            'pointsByDay' => $pointsByDay,
+            'dailyCols' => $dailyCols,
+            'dailyActivities' => $dailyActivities,
+            'users' => $users,
+            'branchNames' => $branchNames,
+
+            'isAdmin' => false,
+            'isBranchManager' => false,
+            'isAgent' => true,
+        
+            // Week UI
+            'weekStart' => $weekStart,
+            'weekEnd' => $weekEnd,
+            'weekDays' => $weekDays,
+            'pointsByDay' => $pointsByDay,
+]);
+    }
+
+public function saveDaily(Request $request)
+    {
+        // Daily activity: Admin/BM can capture (review/testing), Agents always capture themselves (Pattern C)
+        abort_unless($this->isAdmin() || $this->isBranchManager() || $this->isAgent(), 403);
+
+        $activityDate = (string)$request->input('activity_date');
+        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $activityDate)) {
+            return back()->withErrors('Invalid activity date.')->withInput();
+        }
+
+        $period = substr($activityDate, 0, 7);
+
+        $auth = auth()->user();
+        $branchId = $auth?->branch_id;
+
+        $data = $request->input('daily', []);
+        if (!is_array($data)) $data = [];
+
+        // Accept both payload shapes:
+        // 1) Admin grid: daily[user_id][field] = value
+        // 2) Agent simple: daily[field] = value  (assume current user)
+        $authId = (int)($auth?->id ?? 0);
+        $looksLikeGrid = false;
+        foreach ($data as $k => $v) {
+            // If any top-level key is numeric, we assume grid format
+            if (is_string($k) && ctype_digit($k)) { $looksLikeGrid = true; break; }
+            if (is_int($k)) { $looksLikeGrid = true; break; }
+        }
+        if (!$looksLikeGrid && $authId > 0) {
+            $data = [$authId => $data];
+        }
+
+        // Whitelist columns from the actual table (prevents unexpected keys)
+        $cols = \Illuminate\Support\Facades\Schema::getColumnListing('daily_activities');
+        $allowed = array_fill_keys(array_map('strval', $cols), true);
+
+        // Disallow meta/system columns from being set via payload
+        $blocked = [
+            'id' => true,
+            'activity_date' => true,
+            'period' => true,
+            'user_id' => true,
+            'branch_id' => true,
+            'created_at' => true,
+            'updated_at' => true,
+        ];
+DB::transaction(function () use ($data, $activityDate, $period, $auth, $branchId, $allowed, $blocked) {
+            foreach ($data as $userId => $row) {
+                $userId = (int)$userId;
+                if ($userId <= 0) continue;
+
+                // Agent can ONLY save their own row
+                if (($auth->role === null || (string)$auth->role === 'agent') && !($auth->isEffectiveAdmin() || $auth->isEffectiveBranchManager())) {
+                    if ($userId !== (int)$auth->id) continue;
+                }
+
+                $u = User::find($userId);
+                if (!$u) continue;
+
+                // Branch manager can only save for their branch
+                if ((string)($auth?->role ?? '') === 'branch_manager' || (bool)($auth?->isEffectiveBranchManager())) {
+                    if ((int)$u->branch_id !== (int)$branchId) continue;
+                }
+
+                $payload = [];
+                if (is_array($row)) {
+                    foreach ($row as $k => $v) {
+                        $k = (string)$k;
+                        if ($k === '') continue;
+                        if (!isset($allowed[$k])) continue;
+                        if (isset($blocked[$k])) continue;
+
+                        if ($k === 'notes') {
+                            $payload[$k] = is_array($v) ? '' : trim((string)$v);
+                            continue;
+                        }
+
+                        $n = (int)$v;
+                        if ($n < 0) $n = 0;
+                        $payload[$k] = $n;
+                    }
+                }
+
+                // Audit
+                if (isset($allowed['created_by']) && !isset($blocked['created_by'])) {
+                    $payload['created_by'] = (int)($auth?->id ?? null);
+                }
+                if (isset($allowed['updated_by']) && !isset($blocked['updated_by'])) {
+                    $payload['updated_by'] = (int)($auth?->id ?? null);
+                }
+
+                DailyActivity::updateOrCreate(
+                    [
+                        'user_id' => $userId,
+                        'activity_date' => $activityDate,
+                    ],
+                    array_merge(
+                        ['period' => $period, 'branch_id' => $u->branch_id],
+                        $payload
+                    )
+                );
+            }
+        });
+
+        if ($this->isAgent()) {
+            return redirect()->route('agent.daily', ['date' => $activityDate])
+                ->with('status', 'Daily activity saved.');
+        }
+
+        return redirect()->route('admin.targets', ['period' => $period, 'date' => $activityDate])
+            ->with('status', 'Daily activity saved.');
+
+    }
+    
+    // =========================
+    // V2: Activity Definitions (new model)
+    // =========================
+        public function activityDefinitions(Request $request)
+    {
+        abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+
+        $auth = auth()->user();
+
+        // Scope:
+        // - Branch Manager: see global + their branch-specific definitions
+        // - Admin: for now, see global definitions (we'll add branch switch next)
+        $branchId = null;
+        if ($this->isBranchManager()) {
+            $branchId = (int)($auth?->branch_id ?? 0);
+            if ($branchId <= 0) $branchId = null;
+        }
+
+        $definitions = DB::table('activity_definitions')
+            ->when($branchId !== null, function ($q) use ($branchId) {
+                $q->where(function ($qq) use ($branchId) {
+                    $qq->where('scope', 'global')
+                       ->orWhere('scope', (string)$branchId);
+                });
+            }, function ($q) {
+                // Admin (default): global only for now
+                $q->where('scope', 'global');
+            })
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+
+        return view('admin.targets.activity-definitions', [
+            'definitions' => $definitions,
+            'branchId' => $branchId,
+            'isAdmin' => $this->isAdmin(),
+            'isBranchManager' => $this->isBranchManager(),
+        ]);
+    }
+
+
+
+    
+    public function activityDefinitionsSave(Request $request)
+    {
+        abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+
+        $auth = auth()->user();
+
+        $branchId = null;
+        if ($this->isBranchManager()) {
+            $branchId = (int)($auth?->branch_id ?? 0);
+            if ($branchId <= 0) $branchId = null;
+        }
+
+        $name = trim((string)$request->input('name'));
+        if ($name === '') {
+            return back()->withErrors('Name is required.');
+        }
+
+        $weight = (float)$request->input('weight', 1);
+        if ($weight < 0) $weight = 0;
+
+        $order = (int)$request->input('sort_order', 100);
+        if ($order < 0) $order = 0;
+
+        $isActive = $request->has('is_enabled') ? 1 : 0;
+
+        $id = $request->input('id');
+
+        $payload = [
+            'name' => $name,
+            'weight' => $weight,
+            'sort_order' => $order,
+            'is_enabled' => $isActive,
+            'updated_at' => now(),
+        ];
+
+        if ($id) {
+            DB::table('activity_definitions')
+                ->where('id', (int)$id)
+                ->update($payload);
+        } else {
+            DB::table('activity_definitions')->insert(array_merge($payload, [
+                'scope' => 'global',
+                'branch_id' => null,
+                'created_at' => now(),
+            ]));
+        }
+
+        return redirect()
+            ->route('admin.targets.activity.definitions')
+            ->with('status', 'Activity added.');
+    }
+
+
+
+public function activitySetup(Request $request)
+    {
+        abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+
+        $auth = auth()->user();
+
+        // Branch context:
+        // - Branch Manager: always their branch
+        // - Admin: optional branch_id querystring to edit overrides; otherwise edits global defaults
+        $branchId = null;
+        if ($this->isBranchManager()) {
+            $branchId = (int)($auth?->branch_id ?? 0);
+        } elseif ($this->isAdmin()) {
+            $branchId = (int)($request->get('branch_id') ?? 0);
+        }
+        if ($branchId <= 0) $branchId = null;
+
+        $columns = DB::table('activity_columns')
+            ->select('key', 'label', 'group', 'input_type', 'default_enabled', 'sort_order', 'points_weight')
+            ->orderBy('sort_order')
+            ->orderBy('key')
+            ->get();
+
+        $branchOverrides = [];
+        if ($branchId !== null) {
+            $rows = DB::table('branch_activity_columns')
+                ->select('key', 'is_enabled', 'sort_order', 'points_weight')
+                ->where('branch_id', $branchId)
+                ->get();
+
+            foreach ($rows as $r) {
+                $branchOverrides[(string)$r->key] = [
+                    'is_enabled' => (int)$r->is_enabled,
+                    'sort_order' => $r->sort_order === null ? null : (int)$r->sort_order,
+                    'points_weight' => $r->points_weight === null ? null : (float)$r->points_weight,
+                ];
+            }
+        }
+
+        $branches = [];
+        if ($this->isAdmin()) {
+            $branches = DB::table('branches')->select('id', 'name')->orderBy('name')->get();
+        }
+
+        return view('admin.targets.activity-setup', [
+            'columns' => $columns,
+            'branchId' => $branchId,
+            'branchOverrides' => $branchOverrides,
+            'branches' => $branches,
+            'isAdmin' => $this->isAdmin(),
+            'isBranchManager' => $this->isBranchManager(),
+        ]);
+    }
+
+    public function activitySetupSave(Request $request)
+    {
+        abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+
+        $auth = auth()->user();
+
+        $branchId = null;
+        if ($this->isBranchManager()) {
+            $branchId = (int)($auth?->branch_id ?? 0);
+        } elseif ($this->isAdmin()) {
+            $branchId = (int)($request->input('branch_id') ?? 0);
+        }
+        if ($branchId <= 0) $branchId = null;
+
+        $rows = $request->input('cols', []);
+        if (!is_array($rows)) $rows = [];
+
+        // Build allow-list from activity_columns to prevent unexpected keys
+        $allowed = DB::table('activity_columns')->pluck('key')->all();
+        $allowed = array_map('strval', $allowed);
+        $allowedSet = array_fill_keys($allowed, true);
+
+        DB::transaction(function () use ($rows, $allowedSet, $branchId) {
+
+            if ($branchId === null) {
+                // GLOBAL save (admin only)
+                foreach ($rows as $key => $row) {
+                    $key = (string)$key;
+                    if (!isset($allowedSet[$key])) continue;
+
+                    $label = isset($row['label']) ? trim((string)$row['label']) : '';
+                    if ($label === '') $label = $key;
+
+                    $group = isset($row['group']) ? trim((string)$row['group']) : null;
+                    if ($group === '') $group = null;
+
+                    $enabled = isset($row['enabled']) ? 1 : 0;
+                    $order = isset($row['order']) ? (int)$row['order'] : 100;
+
+                    $weight = isset($row['weight']) ? (float)$row['weight'] : 1.0;
+                    if ($weight < 0) $weight = 0;
+
+                    if ($order < 0) $order = 0;
+
+                    DB::table('activity_columns')
+                        ->where('key', $key)
+                        ->update([
+                            'label' => $label,
+                            'group' => $group,
+                            'default_enabled' => $enabled,
+                            'sort_order' => $order,
+                            'points_weight' => $weight,
+                            'updated_at' => now(),
+                        ]);
+                }
+            } else {
+                // BRANCH override save (admin w/ branch_id OR branch manager)
+                foreach ($rows as $key => $row) {
+                    $key = (string)$key;
+                    if (!isset($allowedSet[$key])) continue;
+
+                    $enabled = isset($row['enabled']) ? 1 : 0;
+                    $order = array_key_exists('order', $row) ? (int)$row['order'] : null;
+
+                    $weight = null;
+                    if (array_key_exists('weight', $row)) {
+                        $wRaw = $row['weight'];
+                        if ($wRaw === '' || $wRaw === null) {
+                            $weight = null;
+                        } else {
+                            $w = (float)$wRaw;
+                            if ($w < 0) $w = 0;
+                            $weight = $w;
+                        }
+                    }
+
+                    if ($order !== null && $order < 0) $order = 0;
+
+                    DB::table('branch_activity_columns')
+                        ->updateOrInsert(
+                            ['branch_id' => $branchId, 'key' => $key],
+                            [
+                                'is_enabled' => $enabled,
+                                'sort_order' => $order,
+                                'points_weight' => $weight,
+                                'updated_at' => now(),
+                                'created_at' => now(),
+                            ]
+                        );
+                }
+            }
+        });
+
+        $redir = ['status' => 'Activity columns saved.'];
+        if ($branchId !== null) {
+            return redirect()->route('admin.targets.activity.setup', ['branch_id' => $branchId])->with($redir);
+        }
+        return redirect()->route('admin.targets.activity.setup')->with($redir);
+    }
+
+
+    public function activityColumnCreate(Request $request)
+    {
+        // Admin-only: create a new activity column definition
+        abort_unless($this->isAdmin(), 403);
+
+        $key = strtolower(trim((string)$request->input('key', '')));
+        $label = trim((string)$request->input('label', ''));
+        $group = trim((string)$request->input('group', ''));
+        $inputType = strtolower(trim((string)$request->input('input_type', 'number')));
+
+        $enabled = $request->boolean('default_enabled', true) ? 1 : 0;
+        $order = (int)$request->input('sort_order', 100);
+        if ($order < 0) $order = 0;
+
+        $weight = (float)$request->input('points_weight', 1.0);
+        if ($weight < 0) $weight = 0;
+
+        if ($key === '' || !preg_match('/^[a-z][a-z0-9_]*$/', $key)) {
+            return redirect()->route('admin.targets.activity.setup')
+                ->withErrors(['key' => 'Key must be snake_case (letters, numbers, underscores), starting with a letter.'])
+                ->withInput();
+        }
+
+        if ($label === '') $label = $key;
+
+        // Safety: must exist as a REAL column on daily_activities, otherwise capture screens break
+        if (!\Illuminate\Support\Facades\Schema::hasColumn('daily_activities', $key)) {
+            return redirect()->route('admin.targets.activity.setup')
+                ->withErrors(['key' => "daily_activities does not have column '{$key}'. Create a migration to add it first, then add it here."])
+                ->withInput();
+        }
+
+        // Uniqueness
+        $exists = \Illuminate\Support\Facades\DB::table('activity_columns')->where('key', $key)->exists();
+        if ($exists) {
+            return redirect()->route('admin.targets.activity.setup')
+                ->withErrors(['key' => "Key '{$key}' already exists."])
+                ->withInput();
+        }
+
+        $row = [
+            'key' => $key,
+            'label' => $label,
+            'group' => ($group === '' ? null : $group),
+            'input_type' => ($inputType === '' ? 'number' : $inputType),
+            'default_enabled' => $enabled,
+            'sort_order' => $order,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        // points_weight exists via later migration, only write it if the column exists
+        if (\Illuminate\Support\Facades\Schema::hasColumn('activity_columns', 'points_weight')) {
+            $row['points_weight'] = $weight;
+        }
+
+        \Illuminate\Support\Facades\DB::table('activity_columns')->insert($row);
+
+        return redirect()->route('admin.targets.activity.setup')
+            ->with('status', "Added activity column: {$key}");
+    }
+
+
+}

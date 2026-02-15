@@ -1,0 +1,478 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use App\Models\AiConversation;
+use App\Models\AiMessage;
+
+class EllieController extends Controller
+{
+    public function index(Request $request)
+    {
+        $user = Auth::user();
+
+        // Load user's conversations
+          $showArchived = $request->query('archived') == '1';
+
+          $conversationsQuery = AiConversation::where('user_id', $user->id);
+
+          if (!$showArchived) {
+              $conversationsQuery->where(function ($q) {
+                  $q->whereNull('status')->orWhere('status', 'active');
+              });
+          }
+
+          $conversations = $conversationsQuery
+              ->orderByDesc('last_message_at')
+              ->orderByDesc('id')
+              ->limit(50)
+              ->get();
+
+          // ELLIE_ACTIONS_2026
+// ELLIE_NEW_CONVO_2026
+        // If user clicked New, create a fresh conversation and redirect to it
+        if ($request->query('new') == '1') {
+            $c = AiConversation::create([
+                'user_id' => $user->id,
+                'title' => null,
+                'last_message_at' => now(),
+            ]);
+
+            return redirect()->route('ellie.index', ['conversation_id' => $c->id]);
+        }
+
+        // Load active conversation if provided
+        $conversationId = $request->query('conversation_id');
+
+        $activeConversation = null;
+        $messages = collect();
+
+        if ($conversationId) {
+            $activeConversation = AiConversation::where('user_id', $user->id)
+                ->where('id', $conversationId)
+                ->first();
+
+            if ($activeConversation) {
+                $messages = AiMessage::where('conversation_id', $activeConversation->id)
+                    ->orderBy('id')
+                    ->get();
+            }
+        }
+
+        return view('ellie.index', [
+            'conversations' => $conversations,
+            'activeConversation' => $activeConversation,
+            'messages' => $messages,
+        ]);
+    }
+
+
+    public function send(Request $request)
+    {
+        $user = Auth::user();
+
+        $data = $request->validate([
+            'conversation_id' => 'nullable|integer',
+            'message' => 'required|string|max:20000',
+        ]);
+
+        // Create or load conversation
+        if (!empty($data['conversation_id'])) {
+            $conversation = AiConversation::where('user_id', $user->id)
+                ->where('id', $data['conversation_id'])
+                ->firstOrFail();
+        } else {
+            $conversation = AiConversation::create([
+                'user_id' => $user->id,
+                'title' => null,
+                'last_message_at' => now(),
+            ]);
+        }
+
+        // Store user message
+        $userMsg = AiMessage::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'user',
+            'content' => $data['message'],
+        ]);
+        // Call local AI service (same pipeline as /internal/ai-chat-proxy)
+
+          // ELLIE_PRIME_RATE_OVERRIDE_2026
+          $msgLower = function_exists('mb_strtolower') ? mb_strtolower((string)$data['message']) : strtolower((string)$data['message']);
+          $looksLikeRateQuestion =
+              (str_contains($msgLower, 'prime') && str_contains($msgLower, 'rate')) ||
+              (str_contains($msgLower, 'interest') && str_contains($msgLower, 'rate')) ||
+              (str_contains($msgLower, 'lending') && str_contains($msgLower, 'rate'));
+
+          if ($looksLikeRateQuestion) {
+              $prime = DB::table('performance_settings')->where('key', 'sa_prime_rate')->value('value');
+              $primeUpdated = DB::table('performance_settings')->where('key', 'sa_prime_rate_updated_at')->value('value');
+              if (!empty($prime)) {
+                  $reply = "SA Prime Lending Rate (from HF Coastal Performance Settings): {$prime}%"
+                      . (!empty($primeUpdated) ? " (last updated {$primeUpdated})." : ".");
+
+                  AiMessage::create([
+                      'conversation_id' => $conversation->id,
+                      'user_id' => $user->id,
+                      'role' => 'assistant',
+                      'content' => $reply,
+                  ]);
+
+                  $conversation->update(['last_message_at' => now()]);
+
+                  return response()->json([
+                      'ok' => true,
+                      'conversation_id' => $conversation->id,
+                      'reply' => $reply,
+                      'redirect' => route('ellie.index', ['conversation_id' => $conversation->id]),
+                  ]);
+              }
+          }
+
+        // ELLIE_CONTEXT_V1_2026
+        // ELLIE_CONTEXT_V2_PERFORMANCE_INJECTION_2026
+        $perfSvc = app(\App\Services\Agent\AgentPerformanceService::class);
+        $snapshot = $perfSvc->getMonthlySnapshot($user, now());
+
+        // ELLIE_CONTEXT_V2_PIPELINE_LISTINGS_2026
+          // Pipeline (Pending/Granted) from deal_money_lines (agent-scoped)
+          $pendingStatuses = ['Pending', 'Granted'];
+
+          // Auto-detect which property value column exists (SQLite-safe)
+          $valueCol = null;
+          foreach (['property_value_cents', 'property_value', 'property_value_amount', 'property_value_amount_cents'] as $c) {
+              if (Schema::hasColumn('deal_money_lines', $c)) { $valueCol = $c; break; }
+          }
+          $valueIsCents = ($valueCol && str_ends_with($valueCol, '_cents'));
+
+          $pipelineQ = DB::table('deal_money_lines')
+              ->where('user_id', (int)$user->id)
+              ->whereIn('deal_status', $pendingStatuses)
+              ->selectRaw('COUNT(DISTINCT deal_id) as deals_count');
+
+          if ($valueCol) {
+              $pipelineQ->selectRaw('COALESCE(SUM(' . $valueCol . '),0) as value_sum');
+          } else {
+              $pipelineQ->selectRaw('0 as value_sum');
+          }
+
+          $pipeline = $pipelineQ->first();
+
+          $pipelineDealsCount = (int)($pipeline->deals_count ?? 0);
+          $pipelineValueRaw = $pipeline->value_sum ?? 0;
+          $pipelineValue = $valueIsCents ? (((int)$pipelineValueRaw) / 100.0) : ((float)$pipelineValueRaw);
+
+// Listings (active + stale)
+        $listingsActive = (int) DB::table('listing_stocks')
+            ->where('agent_id', (int)$user->id)
+            ->where('status', 'active')
+            ->count();
+
+        $listingsStale = (int) DB::table('listing_stocks')
+            ->where('agent_id', (int)$user->id)
+            ->where('status', 'active')
+            ->where('is_stale', 1)
+            ->count();
+
+        // ELLIE_NEXT_ACTIONS_ENGINE_2026
+        $nextActions = [];
+
+        $dealsTarget = (int)($snapshot['derived_targets']['deals_needed'] ?? 0);
+        $valueTarget = (float)($snapshot['derived_targets']['value_target'] ?? 0);
+        $pointsTarget = (float)($snapshot['actuals']['points_target'] ?? 0);
+
+        if ($dealsTarget <= 0 && $valueTarget <= 0 && $pointsTarget <= 0) {
+            $nextActions[] = 'Complete your Worksheet for this month so Ellie can set accurate targets (income, deals, listings, activity points).';
+        }
+
+        if (($pipelineDealsCount ?? 0) > 0) {
+            $nextActions[] = 'Push your pending pipeline: follow up and move deals from Pending/Granted to Registered.';
+        } else {
+            $nextActions[] = 'Build pipeline today: 10 quality follow-ups + 2 new listing leads + book 1 appointment.';
+        }
+
+        if (($listingsStale ?? 0) > 0) {
+            $nextActions[] = 'You have stale listings—do price/feedback updates and relaunch marketing on the oldest ones.';
+        }
+
+        $pa = (float)($snapshot['actuals']['points_actual'] ?? 0);
+        if ($pointsTarget > 0 && $pa < ($pointsTarget * 0.6)) {
+            $nextActions[] = 'Your activity points are behind—focus on high-weight activities first (calls, follow-ups, appointments).';
+        }
+        $ctx = [
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'role' => $user->role ?? null,
+                'branch_id' => $user->branch_id ?? null,
+            ],
+            'performance' => [
+                'period' => $snapshot['period'] ?? null,
+
+                'income_target' => $snapshot['derived_targets']['value_target'] ?? 0,
+                'income_actual' => $snapshot['actuals']['sales_value'] ?? 0,
+                'income_gap' => $snapshot['remaining']['value'] ?? 0,
+
+                'deals_target' => $snapshot['derived_targets']['deals_needed'] ?? 0,
+                'deals_actual' => $snapshot['actuals']['deals_count'] ?? 0,
+                'deals_gap' => $snapshot['remaining']['deals'] ?? 0,
+
+                'activity_points' => $snapshot['actuals']['points_actual'] ?? 0,
+                'activity_target' => $snapshot['actuals']['points_target'] ?? 0,
+
+                'days_left' => $snapshot['remaining']['days_left'] ?? 0,
+                'deals_per_day_required' => $snapshot['pace']['deals_per_day'] ?? 0,
+                'value_per_day_required' => $snapshot['pace']['value_per_day'] ?? 0,
+
+                'progress_deals_pct' => $snapshot['progress']['deals_pct'] ?? null,
+                'progress_value_pct' => $snapshot['progress']['value_pct'] ?? null,
+                'progress_points_pct' => $snapshot['progress']['points_pct'] ?? null,
+            ],
+            // Pipeline/listings will be injected next (Phase 1b)
+            'pipeline' => [
+                'value_pending' => $pipelineValue,
+                'deals_count' => $pipelineDealsCount,
+            ],
+            'listings' => [
+                'active' => $listingsActive,
+                'stale' => $listingsStale,
+            ],
+            'next_actions' => $nextActions,
+        ];
+
+        $resp = Http::timeout(120)
+            ->acceptJson()
+            ->asJson()
+            ->post('http://127.0.0.1:3100/chat', [
+                'message' => $data['message'],
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'role' => $user->role ?? null,
+                    'branch_id' => $user->branch_id ?? null,
+                ],
+                'context' => $ctx,
+            ]);
+
+        if (!$resp->successful()) {
+            $reply = 'AI service error (' . $resp->status() . ').';
+        } else {
+            $payload = $resp->json();
+            $reply = '';
+            $sources = [];
+            $mode = null;
+            if (is_array($payload)) {
+                $reply = (string)($payload['reply'] ?? '');
+                $mode = $payload['mode'] ?? null;
+                $sources = is_array($payload['sources'] ?? null) ? $payload['sources'] : [];
+                if ($reply === '') {
+                    $reply = json_encode($payload);
+                }
+            } else {
+                $reply = (string)$resp->body();
+            }
+            if (!empty($sources)) {
+                $lines = [];
+                foreach ($sources as $src) {
+                    if (!is_array($src)) continue;
+                    $u = (string)($src['url'] ?? '');
+                    if ($u === '') continue;
+                    $t = (string)($src['title'] ?? 'Source');
+                    $lines[] = "- " . $t . ": " . $u;
+                }
+                if (!empty($lines)) {
+                    $reply .= "\n\nSources:\n" . implode("\n", $lines);
+                }
+            }
+            if (!is_string($reply) || trim($reply) === '') {
+                $reply = 'Sorry, I could not respond.';
+            }
+        }
+
+        // Store assistant message
+        $aiMsg = AiMessage::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'assistant',
+            'content' => $reply,
+        ]);
+
+          // ELLIE_AUTOTITLE_2026
+          // Auto-title conversation after first exchange (only if title is empty)
+          if (empty($conversation->title)) {
+              $title = $this->generateAutoTitle((string)($data['message'] ?? ''), (string)$reply);
+              if ($title !== '') {
+                  $conversation->title = $title;
+                  $conversation->save();
+              }
+          }
+
+
+        // Update conversation timestamp
+        $conversation->update([
+            'last_message_at' => now(),
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'conversation_id' => $conversation->id,
+            'reply' => $reply,
+        ]);
+    }
+
+      private function generateAutoTitle(string $userMessage, string $assistantReply): string
+      {
+          $s = trim($userMessage);
+          $s = preg_replace('/\s+/u', ' ', $s ?? '');
+          // Remove most punctuation but keep words/numbers/spaces and a few separators
+          $s = preg_replace('/[^\pL\pN\s\-\&\/]/u', '', $s ?? '');
+          $s = trim($s);
+
+          if ($s === '') {
+              return 'New Chat';
+          }
+
+          $words = preg_split('/\s+/u', $s, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+          $maxWords = 6;
+
+          if (count($words) > $maxWords) {
+              $words = array_slice($words, 0, $maxWords);
+          }
+
+          $t = trim(implode(' ', $words));
+
+          // Hard cap
+          if (function_exists('mb_substr')) {
+              $t = mb_substr($t, 0, 60);
+          } else {
+              $t = substr($t, 0, 60);
+          }
+
+          $t = trim($t);
+          if ($t === '') {
+              return 'New Chat';
+          }
+
+          return (string) Str::of($t)->title();
+      }
+
+
+      public function rename(Request $request)
+      {
+          $user = Auth::user();
+
+          $data = $request->validate([
+              'conversation_id' => 'required|integer',
+              'title' => 'required|string|max:120',
+              'return_archived' => 'nullable|string',
+          ]);
+
+          $conversation = AiConversation::where('user_id', $user->id)
+              ->where('id', $data['conversation_id'])
+              ->firstOrFail();
+
+          $conversation->title = trim($data['title']);
+          $conversation->save();
+
+          $archived = ($data['return_archived'] ?? '') === '1' ? '1' : null;
+
+          return redirect()->route('ellie.index', array_filter([
+              'conversation_id' => $conversation->id,
+              'archived' => $archived,
+          ]));
+      }
+
+      public function archive(Request $request)
+        {
+            $user = Auth::user();
+
+            $data = $request->validate([
+                'conversation_id' => 'required|integer',
+                'return_archived' => 'nullable|string',
+            ]);
+
+            $conversation = AiConversation::where('user_id', $user->id)
+                ->where('id', $data['conversation_id'])
+                ->firstOrFail();
+
+            $conversation->status = 'archived';
+            $conversation->save();
+
+            $returnArchived = ($data['return_archived'] ?? '') === '1';
+
+            if ($returnArchived) {
+                // If user is viewing archived, stay in archived mode and pick next archived conversation
+                $nextConversation = AiConversation::where('user_id', $user->id)
+                    ->where('status', 'archived')
+                    ->where('id', '!=', $conversation->id)
+                    ->orderByDesc('last_message_at')
+                    ->orderByDesc('id')
+                    ->first();
+
+                return redirect()->route('ellie.index', array_filter([
+                    'archived' => '1',
+                    'conversation_id' => $nextConversation?->id,
+                ]));
+            }
+
+            // Default: move user to next active conversation (excluding the one just archived)
+            $nextConversation = AiConversation::where('user_id', $user->id)
+                ->where(function ($q) {
+                    $q->whereNull('status')->orWhere('status', 'active');
+                })
+                ->where('id', '!=', $conversation->id)
+                ->orderByDesc('last_message_at')
+                ->orderByDesc('id')
+                ->first();
+
+            return redirect()->route('ellie.index', array_filter([
+                'conversation_id' => $nextConversation?->id,
+            ]));
+        }
+
+        public function unarchive(Request $request)
+        {
+            $user = Auth::user();
+
+            $data = $request->validate([
+                'conversation_id' => 'required|integer',
+                'return_archived' => 'nullable|string',
+            ]);
+
+            $conversation = AiConversation::where('user_id', $user->id)
+                ->where('id', $data['conversation_id'])
+                ->firstOrFail();
+
+            $conversation->status = 'active';
+            $conversation->save();
+
+            $returnArchived = ($data['return_archived'] ?? '') === '1';
+
+            if ($returnArchived) {
+                // User is viewing archived list: this conversation disappears, so go to next archived
+                $nextConversation = AiConversation::where('user_id', $user->id)
+                    ->where('status', 'archived')
+                    ->orderByDesc('last_message_at')
+                    ->orderByDesc('id')
+                    ->first();
+
+                return redirect()->route('ellie.index', array_filter([
+                    'archived' => '1',
+                    'conversation_id' => $nextConversation?->id,
+                ]));
+            }
+
+            // Otherwise, keep user on the now-active conversation
+            return redirect()->route('ellie.index', [
+                'conversation_id' => $conversation->id,
+            ]);
+        }
+
+}

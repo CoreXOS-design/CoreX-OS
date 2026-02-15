@@ -1,0 +1,50 @@
+@extends('layouts.app')
+
+@section('content')
+
+<div class="max-w-4xl mx-auto px-4 py-6">
+
+    <h1 class="text-2xl font-bold mb-6">
+        {{ $rental->id ? 'Edit Rental' : 'Create Rental' }}
+    </h1>
+
+    <form method="POST" action="#">
+        @csrf
+
+        <div class="bg-white shadow rounded p-6 space-y-4">
+
+            <div>
+                <label class="block text-sm font-medium">Address</label>
+                <input type="text"
+                       name="lease_address"
+                       value="{{ old('lease_address', $rental->lease_address) }}"
+                       class="w-full border rounded px-3 py-2">
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+
+                <div>
+                    <label class="block text-sm font-medium">Lease Start</label>
+                    <input type="date"
+                           name="lease_start_date"
+                           value="{{ old('lease_start_date', optional($rental->lease_start_date)->format('Y-m-d')) }}"
+                           class="w-full border rounded px-3 py-2">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium">Lease End</label>
+                    <input type="date"
+                           name="lease_end_date"
+                           value="{{ old('lease_end_date', optional($rental->lease_end_date)->format('Y-m-d')) }}"
+                           class="w-full border rounded px-3 py-2">
+                </div>
+
+            </div>
+
+        </div>
+
+    </form>
+
+</div>
+
+@endsection

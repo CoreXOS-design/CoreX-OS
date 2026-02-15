@@ -1,0 +1,91 @@
+<x-app-layout>
+    <x-slot name="header">
+        <div class="flex items-center justify-between">
+            <div>
+                <div class="text-xl font-semibold text-gray-900">My Deals</div>
+                <div class="text-sm text-gray-500">Deals where you are allocated on listing and/or selling side.</div>
+            </div>
+        </div>
+    </x-slot>
+
+    <div class="rounded-2xl border bg-white shadow-sm overflow-hidden">
+        <div class="border-b bg-gray-50/60 px-5 py-4 flex items-center justify-between">
+            <div>
+                <div class="text-sm font-semibold text-gray-900">Deals overview</div>
+                <div class="text-xs text-gray-500">Read-only. You can add remarks in the log.</div>
+            </div>
+            <span class="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-700 ring-1 ring-gray-200">
+                {{ $deals->count() }} deals
+            </span>
+        </div>
+
+        <div class="table-scroll">
+            <table class="w-full text-sm border-collapse table-sticky">
+                <thead class="bg-white border-b sticky top-0 z-20 shadow-sm">
+                    <tr class="text-xs font-semibold tracking-wide text-gray-600 uppercase">
+                        <th class="text-left px-5 py-3">Deal</th>
+                        <th class="text-left px-5 py-3">Property</th>
+                        <th class="text-left px-5 py-3">Branch</th>
+                        <th class="text-right px-5 py-3">Selling Price</th>
+                        <th class="text-right px-5 py-3">Our Total (Ex VAT)</th>
+                        <th class="text-right px-5 py-3">Actions</th>
+                    </tr>
+                </thead>
+
+                <tbody class="divide-y divide-gray-100">
+                    @foreach($deals->sortByDesc('deal_no') as $deal)
+                        @php
+                            $b = $branches->firstWhere('id', $deal->branch_id);
+                            $acceptedMap = ['P'=>'Pending','D'=>'Declined','G'=>'Granted','R'=>'Registered'];
+                            $acceptedLabel = $deal->accepted_status
+                                ? ($acceptedMap[$deal->accepted_status] ?? $deal->accepted_status)
+                                : '—';
+                        @endphp
+                        <tr class="hover:bg-gray-50/70">
+                            <td class="px-5 py-4">
+                                <div class="font-semibold text-gray-900">#{{ $deal->deal_no }}</div>
+                                <div class="mt-0.5 text-xs text-gray-500">
+                                    <span class="font-medium text-gray-700">{{ $acceptedLabel }}</span>
+                                    <span class="mx-1">·</span>
+                                    <span class="font-medium text-gray-700">{{ $deal->commission_status ?? '—' }}</span>
+                                </div>
+                            </td>
+
+                            <td class="px-5 py-4">
+                                <div class="text-gray-900">{{ \Illuminate\Support\Str::limit($deal->property_address, 60) }}</div>
+                                <div class="mt-0.5 text-xs text-gray-500">{{ $deal->seller_name }} → {{ $deal->buyer_name }}</div>
+                            </td>
+
+                            <td class="px-5 py-4">
+                                <div class="font-medium text-gray-900">{{ $b?->name ?? '—' }}</div>
+                                <div class="mt-0.5 text-xs text-gray-500">Period: <span class="text-gray-700">{{ $deal->period ?: '—' }}</span></div>
+                            </td>
+
+                            <td class="px-5 py-4 text-right">
+                                <div class="font-semibold text-gray-900">R {{ number_format((float)$deal->property_value, 0) }}</div>
+                            </td>
+
+                            <td class="px-5 py-4 text-right">
+                                <div class="font-semibold text-gray-900">R {{ number_format((float)$deal->totalOurCommission(), 0) }}</div>
+                                <div class="mt-0.5 text-xs text-gray-500">Company + agents (Ex VAT)</div>
+                            </td>
+
+                            <td class="px-5 py-4 text-right">
+                                <a href="{{ route('agent.deals.log', $deal) }}"
+                                   class="inline-flex items-center justify-center rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-gray-800">
+                                    Log
+                                </a>
+                            </td>
+                        </tr>
+                    @endforeach
+
+                    @if($deals->isEmpty())
+                        <tr>
+                            <td colspan="6" class="px-5 py-10 text-center text-sm text-gray-500">No deals allocated to you yet.</td>
+                        </tr>
+                    @endif
+                </tbody>
+            </table>
+        </div>
+    </div>
+</x-app-layout>

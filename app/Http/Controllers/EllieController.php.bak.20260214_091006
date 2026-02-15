@@ -1,0 +1,287 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use App\Models\AiConversation;
+use App\Models\AiMessage;
+
+class EllieController extends Controller
+{
+    public function index(Request $request)
+    {
+        $user = Auth::user();
+
+        // Load user's conversations
+          $showArchived = $request->query('archived') == '1';
+
+          $conversationsQuery = AiConversation::where('user_id', $user->id);
+
+          if (!$showArchived) {
+              $conversationsQuery->where(function ($q) {
+                  $q->whereNull('status')->orWhere('status', 'active');
+              });
+          }
+
+          $conversations = $conversationsQuery
+              ->orderByDesc('last_message_at')
+              ->orderByDesc('id')
+              ->limit(50)
+              ->get();
+
+          // ELLIE_ACTIONS_2026
+// ELLIE_NEW_CONVO_2026
+        // If user clicked New, create a fresh conversation and redirect to it
+        if ($request->query('new') == '1') {
+            $c = AiConversation::create([
+                'user_id' => $user->id,
+                'title' => null,
+                'last_message_at' => now(),
+            ]);
+
+            return redirect()->route('ellie.index', ['conversation_id' => $c->id]);
+        }
+
+        // Load active conversation if provided
+        $conversationId = $request->query('conversation_id');
+
+        $activeConversation = null;
+        $messages = collect();
+
+        if ($conversationId) {
+            $activeConversation = AiConversation::where('user_id', $user->id)
+                ->where('id', $conversationId)
+                ->first();
+
+            if ($activeConversation) {
+                $messages = AiMessage::where('conversation_id', $activeConversation->id)
+                    ->orderBy('id')
+                    ->get();
+            }
+        }
+
+        return view('ellie.index', [
+            'conversations' => $conversations,
+            'activeConversation' => $activeConversation,
+            'messages' => $messages,
+        ]);
+    }
+
+
+    public function send(Request $request)
+    {
+        $user = Auth::user();
+
+        $data = $request->validate([
+            'conversation_id' => 'nullable|integer',
+            'message' => 'required|string|max:20000',
+        ]);
+
+        // Create or load conversation
+        if (!empty($data['conversation_id'])) {
+            $conversation = AiConversation::where('user_id', $user->id)
+                ->where('id', $data['conversation_id'])
+                ->firstOrFail();
+        } else {
+            $conversation = AiConversation::create([
+                'user_id' => $user->id,
+                'title' => null,
+                'last_message_at' => now(),
+            ]);
+        }
+
+        // Store user message
+        $userMsg = AiMessage::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'user',
+            'content' => $data['message'],
+        ]);
+        // Call local AI service (same pipeline as /internal/ai-chat-proxy)
+        $resp = Http::timeout(120)
+            ->acceptJson()
+            ->asJson()
+            ->post('http://127.0.0.1:3100/chat', [
+                'message' => $data['message'],
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'role' => $user->role ?? null,
+                    'branch_id' => $user->branch_id ?? null,
+                ],
+            ]);
+
+        if (!$resp->successful()) {
+            $reply = 'AI service error (' . $resp->status() . ').';
+        } else {
+            $payload = $resp->json();
+            $reply = is_array($payload) ? ($payload['reply'] ?? json_encode($payload)) : (string)$resp->body();
+            if (!is_string($reply) || trim($reply) === '') {
+                $reply = 'Sorry, I could not respond.';
+            }
+        }
+
+        // Store assistant message
+        $aiMsg = AiMessage::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $user->id,
+            'role' => 'assistant',
+            'content' => $reply,
+        ]);
+
+          // ELLIE_AUTOTITLE_2026
+          // Auto-title conversation after first exchange (only if title is empty)
+          if (empty($conversation->title)) {
+              $title = $this->generateAutoTitle((string)($data['message'] ?? ''), (string)$reply);
+              if ($title !== '') {
+                  $conversation->title = $title;
+                  $conversation->save();
+              }
+          }
+
+
+        // Update conversation timestamp
+        $conversation->update([
+            'last_message_at' => now(),
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'conversation_id' => $conversation->id,
+            'reply' => $reply,
+        ]);
+    }
+
+      private function generateAutoTitle(string $userMessage, string $assistantReply): string
+      {
+          $s = trim($userMessage);
+          $s = preg_replace('/\s+/u', ' ', $s ?? '');
+          // Remove most punctuation but keep words/numbers/spaces and a few separators
+          $s = preg_replace('/[^\pL\pN\s\-\&\/]/u', '', $s ?? '');
+          $s = trim($s);
+
+          if ($s === '') {
+              return 'New Chat';
+          }
+
+          $words = preg_split('/\s+/u', $s, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+          $maxWords = 6;
+
+          if (count($words) > $maxWords) {
+              $words = array_slice($words, 0, $maxWords);
+          }
+
+          $t = trim(implode(' ', $words));
+
+          // Hard cap
+          if (function_exists('mb_substr')) {
+              $t = mb_substr($t, 0, 60);
+          } else {
+              $t = substr($t, 0, 60);
+          }
+
+          $t = trim($t);
+          if ($t === '') {
+              return 'New Chat';
+          }
+
+          return (string) Str::of($t)->title();
+      }
+
+
+      public function rename(Request $request)
+      {
+          $user = Auth::user();
+
+          $data = $request->validate([
+              'conversation_id' => 'required|integer',
+              'title' => 'required|string|max:120',
+              'return_archived' => 'nullable|string',
+          ]);
+
+          $conversation = AiConversation::where('user_id', $user->id)
+              ->where('id', $data['conversation_id'])
+              ->firstOrFail();
+
+          $conversation->title = trim($data['title']);
+          $conversation->save();
+
+          $archived = ($data['return_archived'] ?? '') === '1' ? '1' : null;
+
+          return redirect()->route('ellie.index', array_filter([
+              'conversation_id' => $conversation->id,
+              'archived' => $archived,
+          ]));
+      }
+
+      public function archive(Request $request)
+      {
+          $user = Auth::user();
+
+          $data = $request->validate([
+              'conversation_id' => 'required|integer',
+              'return_archived' => 'nullable|string',
+          ]);
+
+          $conversation = AiConversation::where('user_id', $user->id)
+              ->where('id', $data['conversation_id'])
+              ->firstOrFail();
+
+          $conversation->status = 'archived';
+          $conversation->save();
+
+          $archived = ($data['return_archived'] ?? '') === '1' ? '1' : null;
+
+          // ELLIE_SMART_REDIRECT_2026
+          // Find newest active conversation
+          $nextConversation = AiConversation::where('user_id', $user->id)
+              ->where(function ($q) {
+                  $q->whereNull('status')->orWhere('status', 'active');
+              })
+              ->orderByDesc('last_message_at')
+              ->orderByDesc('id')
+              ->first();
+
+          // Redirect to next active conversation if exists
+          if ($nextConversation) {
+              return redirect()->route('ellie.index', array_filter([
+                  'conversation_id' => $nextConversation->id,
+                  'archived' => $archived,
+              ]));
+          }
+
+          // Otherwise fallback safely
+          return redirect()->route('ellie.index', array_filter([
+              'archived' => $archived,
+          ]));
+      }
+
+      public function unarchive(Request $request)
+      {
+          $user = Auth::user();
+
+          $data = $request->validate([
+              'conversation_id' => 'required|integer',
+              'return_archived' => 'nullable|string',
+          ]);
+
+          $conversation = AiConversation::where('user_id', $user->id)
+              ->where('id', $data['conversation_id'])
+              ->firstOrFail();
+
+          $conversation->status = 'active';
+          $conversation->save();
+
+          $archived = ($data['return_archived'] ?? '') === '1' ? '1' : null;
+
+          return redirect()->route('ellie.index', array_filter([
+              'conversation_id' => $conversation->id,
+              'archived' => $archived,
+          ]));
+      }
+
+
+}

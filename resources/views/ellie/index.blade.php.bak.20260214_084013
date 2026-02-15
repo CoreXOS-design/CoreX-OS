@@ -1,0 +1,105 @@
+@extends('layouts.app')
+
+@section('content')
+
+@php
+    $conversation_id = $conversation_id ?? ($conversation->id ?? request()->get('conversation_id'));
+@endphp
+
+
+<div class="h-full min-h-0 flex flex-col">
+
+    <!-- Header -->
+    <div class="flex items-center gap-3 mb-4 shrink-0">
+        <img src="/images/ellie-32-circle.png" class="w-8 h-8 rounded-full">
+        <div>
+            <div class="font-semibold text-lg">Ellie, Your AI Assistant</div>
+            <div class="text-xs text-gray-500">Logged in as {{ auth()->user()->name }}</div>
+        </div>
+    </div>
+
+    <!-- Main Chat Layout -->
+    <div class="flex-1 min-h-0 grid grid-cols-[320px_1fr] gap-4 overflow-hidden">
+
+        <!-- Conversations List -->
+        <div class="border rounded-lg flex flex-col min-h-0 bg-white">
+
+            <div class="p-3 border-b flex justify-between items-center shrink-0">
+                <div class="font-semibold">Conversations</div>
+                <a href="/ellie" class="text-sm px-2 py-1 bg-blue-600 text-white rounded">New</a>
+            </div>
+
+            <div class="flex-1 overflow-y-auto">
+
+                @foreach($conversations as $c)
+                    <a href="/ellie?conversation_id={{ $c->id }}"
+                       class="block p-3 border-b hover:bg-gray-50 {{ $conversation_id == $c->id ? 'bg-blue-50' : '' }}">
+                        <div class="font-medium">Conversation #{{ $c->id }}</div>
+                        <div class="text-xs text-gray-500">{{ $c->updated_at }}</div>
+                    </a>
+                @endforeach
+
+            </div>
+
+        </div>
+
+        <!-- Chat Thread -->
+        <div class="border rounded-lg flex flex-col min-h-0 bg-white">
+
+            <!-- Chat Header -->
+            <div class="p-3 border-b flex justify-between items-center shrink-0">
+                <div class="font-semibold">
+                    {{ $conversation->title ?? 'New Conversation' }}
+                </div>
+            </div>
+
+            <!-- Messages -->
+            <div id="ellie-messages"
+                 class="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+
+                @foreach($messages as $m)
+
+                    @if($m->role === 'user')
+                        <div class="flex justify-end">
+                            <div class="bg-blue-600 text-white px-4 py-2 rounded-lg max-w-[70%]">
+                                {{ $m->content }}
+                            </div>
+                        </div>
+                    @else
+                        <div class="flex justify-start">
+                            <div class="bg-white border px-4 py-2 rounded-lg max-w-[70%]">
+                                {{ $m->content }}
+                            </div>
+                        </div>
+                    @endif
+
+                @endforeach
+
+            </div>
+
+            <!-- Composer -->
+            <form method="POST" action="/ellie/send"
+                  class="border-t p-3 flex gap-2 shrink-0">
+                @csrf
+
+                <input type="hidden" name="conversation_id"
+                       value="{{ $conversation_id ?? '' }}">
+
+                <input name="message"
+                       class="flex-1 border rounded px-3 py-2"
+                       placeholder="Message Ellie..."
+                       autocomplete="off">
+
+                <button class="bg-blue-600 text-white px-4 rounded">
+                    Send
+                </button>
+
+            </form>
+
+        </div>
+
+    </div>
+
+</div>
+
+@endsection

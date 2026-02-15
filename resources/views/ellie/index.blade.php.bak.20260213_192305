@@ -1,0 +1,116 @@
+@extends('layouts.app')
+
+@section('content')
+@php
+    $u = auth()->user();
+@endphp
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-semibold text-slate-900 dark:text-slate-100">Ellie, Your AI Assistant</h1>
+            <div class="text-sm text-slate-600 dark:text-slate-300 mt-1">
+                Logged in as <span class="font-medium">{{ $u?->name }}</span>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <a href="{{ route('ai.buddy') }}" class="inline-flex items-center px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800">
+                Back to AI Buddy
+            </a>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        {{-- Conversations --}}
+        <div class="lg:col-span-4">
+            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-200/70 dark:border-slate-700 flex items-center justify-between">
+                    <div class="font-semibold text-slate-900 dark:text-slate-100">Conversations</div>
+                    <button type="button" class="text-sm px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                        New
+                    </button>
+                </div>
+
+                <div class="max-h-[70vh] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    @forelse($conversations as $c)
+                        @php
+                            $isActive = (int)($activeConversation?->id ?? 0) === (int)$c->id;
+                            $title = $c->title ?: ('Conversation #' . $c->id);
+                        @endphp
+                        <a href="{{ route('ellie.index', ['conversation_id' => $c->id]) }}"
+                           class="block px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 {{ $isActive ? 'bg-slate-50 dark:bg-slate-800/50' : '' }}">
+                            <div class="text-sm font-medium text-slate-900 dark:text-slate-100">{{ $title }}</div>
+                            <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                {{ $c->last_message_at ? $c->last_message_at->diffForHumans() : 'No messages yet' }}
+                            </div>
+                        </a>
+                    @empty
+                        <div class="px-4 py-6 text-sm text-slate-600 dark:text-slate-300">
+                            No conversations yet. Click <b>New</b> to start.
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+
+        {{-- Chat --}}
+        <div class="lg:col-span-8">
+            <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-200/70 dark:border-slate-700">
+                    <div class="font-semibold text-slate-900 dark:text-slate-100">
+                        {{ $activeConversation ? ($activeConversation->title ?: ('Conversation #' . $activeConversation->id)) : 'Select a conversation' }}
+                    </div>
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        Ellie will soon use your performance stats to guide your next best actions.
+                    </div>
+                </div>
+
+                <div id="ellieMessages" class="p-4 space-y-3 max-h-[55vh] overflow-y-auto bg-slate-50/40 dark:bg-slate-950/30">
+                    @if(!$activeConversation)
+                        <div class="text-sm text-slate-600 dark:text-slate-300">
+                            Choose a conversation on the left, or click <b>New</b>.
+                        </div>
+                    @else
+                        @forelse($messages as $m)
+                            <div class="flex {{ $m->role === 'user' ? 'justify-end' : 'justify-start' }}">
+                                <div class="max-w-[85%] rounded-2xl px-4 py-3 text-sm
+                                    {{ $m->role === 'user'
+                                        ? 'bg-slate-900 text-white'
+                                        : 'bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-700 text-slate-900 dark:text-slate-100' }}">
+                                    <div class="whitespace-pre-wrap">{{ $m->content }}</div>
+                                    <div class="text-[11px] opacity-70 mt-2">
+                                        {{ $m->created_at?->format('Y-m-d H:i') }}
+                                    </div>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="text-sm text-slate-600 dark:text-slate-300">
+                                No messages yet. Say hi to Ellie below.
+                            </div>
+                        @endforelse
+                    @endif
+                </div>
+
+                <div class="p-4 border-t border-slate-200/70 dark:border-slate-700">
+                    <form onsubmit="return false;" class="flex gap-2 items-end">
+                        <textarea id="ellieInput" rows="2"
+                                  class="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                                  placeholder="Type a message..."></textarea>
+                        <button id="ellieSend" type="button"
+                                class="inline-flex items-center px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800">
+                            Send
+                        </button>
+                    </form>
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                        Next step: wire this to the existing /ai/chat pipeline + store messages in DB.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+@endsection

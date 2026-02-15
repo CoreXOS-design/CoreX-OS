@@ -1,0 +1,42 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class ListingStock extends Model
+{
+    protected $fillable = [
+        'user_id',
+        'branch_id',
+        'source',
+        'external_id',
+        'external_ref',
+        'property',
+        'status',
+        'price_cents',
+        'category',
+        'type',
+        'region',
+        'mandate',
+        'listed_at',
+        'modified_at',
+        'expires_at',
+        'raw_payload',
+    ];
+
+    protected $casts = [
+        'branch_id'    => 'integer',
+        'price_cents'  => 'integer',
+        'listed_at'    => 'datetime',
+        'modified_at'  => 'datetime',
+        'expires_at'   => 'datetime',
+        'raw_payload'  => 'array',
+    ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+}
