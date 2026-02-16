@@ -206,7 +206,9 @@ class MultiDemoSeeder extends Seeder
         $seedDaily($a3, ['2026-01-05','2026-01-06','2026-01-07','2026-01-08']);
         $seedDaily($a4, ['2026-01-16','2026-01-17']);
 
-        echo \"MULTI DEMO SEEDED: branches={$branch1},{$branch2} BM={$bm1->id},{$bm2->id} agents={$a1->id},{$a2->id},{$a3->id},{$a4->id}\\n\";
-        echo \"Logins (Password123!): bm@demo.local (branch1), bm2@demo.local (branch2), agent1-4@demo.local\\n\";
+        echo "MULTI DEMO SEEDED: branches={$branch1},{$branch2} BM={$bm1->id},{$bm2->id} agents={$a1->id},{$a2->id},{$a3->id},{$a4->id}\n";
+echo "Logins (Password123!): bm@demo.local (branch1), bm2@demo.local (branch2), agent1-4@demo.local\n";
+
+
     }
 }
