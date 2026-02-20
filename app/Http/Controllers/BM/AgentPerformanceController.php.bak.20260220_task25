@@ -1,0 +1,165 @@
+<?php
+
+namespace App\Http\Controllers\BM;
+
+use App\Http\Controllers\Controller;
+use App\Services\Admin\CompanyPerformanceService;
+use App\Services\Finance\CommissionCalculator;
+use App\Services\Finance\FinanceReadModel;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class AgentPerformanceController extends Controller
+{
+    public function show(Request $request, CompanyPerformanceService $service, int $userId)
+    {
+        $u = $request->user();
+        $role = strtolower(trim((string)($u?->role ?? '')));
+        abort_unless($u && $role === 'branch_manager', 403);
+
+        $bmBranchId = (int)($u->branch_id ?? 0);
+        abort_unless($bmBranchId > 0, 403);
+
+        $period = $request->query('period') ?: Carbon::now()->format('Y-m');
+        abort_unless((bool)preg_match('/^\d{4}-\d{2}$/', $period), 422);
+
+        // Source of truth: same service as BM Performance + Agent dashboard (read-only)
+        $payload  = $service->getAgentRollup($bmBranchId, $userId, $period);
+        $agentRow = $payload['agent'];
+
+        // Human branch name
+        $branchName = DB::table('branches')->where('id', $bmBranchId)->value('name');
+
+        // Deals list for this agent + period (for detail table)
+        $start = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+        $end   = (clone $start)->endOfMonth();
+
+        $deals = DB::table('deal_user')
+            ->join('deals','deals.id','=','deal_user.deal_id')
+            ->where('deal_user.user_id', (int)$userId)
+            ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
+            ->orderBy('deals.deal_date','desc')
+            ->select(
+                'deals.id as deal_id',
+                'deals.deal_date','deals.file_no','deals.deal_no','deals.property_address',
+                'deals.property_value','deals.total_commission',
+                'deals.listing_external','deals.listing_our_share_percent',
+                'deals.selling_external','deals.selling_our_share_percent',
+                'deal_user.side','deal_user.agent_split_percent','deal_user.agent_cut_percent'
+            )
+            ->get();
+
+        // Compute per-deal income columns for deals table display rows
+        $dealsComputed = $deals->map(function ($d) {
+            $sideIncomeExVat = (float) CommissionCalculator::companyIncomeExVatForSide($d, $d->side ?? null);
+
+            $split = (float)($d->agent_split_percent ?? 0);
+            if ($split < 0)   $split = 0;
+            if ($split > 100) $split = 100;
+
+            $agentIncome     = round($sideIncomeExVat * ($split / 100.0), 2);
+            $companyRetained = round($sideIncomeExVat - $agentIncome, 2);
+
+            $d->company_income_ex_vat   = round($sideIncomeExVat, 2);
+            $d->agent_income_ex_vat     = $agentIncome;
+            $d->company_retained_ex_vat = $companyRetained;
+
+            return $d;
+        });
+
+        // Precompute deals table footer totals (controller — not blade)
+        $dealsTotals = [
+            'company_income' => round((float) $dealsComputed->sum('company_income_ex_vat'), 2),
+            'agent_income'   => round((float) $dealsComputed->sum('agent_income_ex_vat'), 2),
+            'retained'       => round((float) $dealsComputed->sum('company_retained_ex_vat'), 2),
+        ];
+
+        // Finance Engine rollup — canonical per-stage counts + agent income
+        $cv = (new FinanceReadModel())->getAgentPeriodMap((int) $userId, $period);
+
+        $finance = [
+            'period'     => $period,
+            'run_exists' => ! empty($cv),
+            'counts'     => [
+                'pending'    => (int)(float)($cv['agent_period.deals.pending.count']    ?? 0),
+                'granted'    => (int)(float)($cv['agent_period.deals.granted.count']    ?? 0),
+                'registered' => (int)(float)($cv['agent_period.deals.registered.count'] ?? 0),
+                'declined'   => (int)(float)($cv['agent_period.deals.declined.count']   ?? 0),
+            ],
+            'money'      => [
+                'pending'    => ['agent_income_ex_vat' => (float)($cv['agent_period.money.pending.agent_income_ex_vat']    ?? 0)],
+                'granted'    => ['agent_income_ex_vat' => (float)($cv['agent_period.money.granted.agent_income_ex_vat']    ?? 0)],
+                'registered' => ['agent_income_ex_vat' => (float)($cv['agent_period.money.registered.agent_income_ex_vat'] ?? 0)],
+                'declined'   => ['agent_income_ex_vat' => (float)($cv['agent_period.money.declined.agent_income_ex_vat']   ?? 0)],
+                'total_nondeclined' => [
+                    'agent_income_ex_vat'   => (float)($cv['agent_period.money.total_nondeclined.agent_income_ex_vat']   ?? 0),
+                    'company_income_ex_vat' => (float)($cv['agent_period.money.total_nondeclined.company_income_ex_vat'] ?? 0),
+                    'retained_ex_vat'       => (float)($cv['agent_period.money.total_nondeclined.retained_ex_vat']       ?? 0),
+                ],
+            ],
+            'breakdowns' => [
+                'pending'    => $cv['agent_period.money.pending.breakdown_json']    ?? null,
+                'granted'    => $cv['agent_period.money.granted.breakdown_json']    ?? null,
+                'registered' => $cv['agent_period.money.registered.breakdown_json'] ?? null,
+                'declined'   => $cv['agent_period.money.declined.breakdown_json']   ?? null,
+            ],
+        ];
+
+        // Precompute cross-stage totals in controller (never in blade)
+        $finance['total_count_nondeclined'] = $finance['counts']['pending']
+            + $finance['counts']['granted']
+            + $finance['counts']['registered'];
+
+        $storedTotal = $finance['money']['total_nondeclined']['agent_income_ex_vat'];
+        $finance['total_agent_income_nondeclined'] = $storedTotal > 0
+            ? $storedTotal
+            : round(
+                $finance['money']['pending']['agent_income_ex_vat']
+                + $finance['money']['granted']['agent_income_ex_vat']
+                + $finance['money']['registered']['agent_income_ex_vat'],
+                2
+            );
+
+        return view('bm.agent-performance', [
+            'period'     => $period,
+
+            'agent' => (object)[
+                'id'    => (int)($agentRow['user_id'] ?? 0),
+                'name'  => (string)($agentRow['name']  ?? ''),
+                'email' => (string)($agentRow['email'] ?? ''),
+            ],
+            'branchName' => $branchName,
+
+            'targets' => [
+                'deals'    => (int)($agentRow['targets']['deals']    ?? 0),
+                'listings' => (int)($agentRow['targets']['listings'] ?? 0),
+                'value'    => (float)($agentRow['targets']['value']  ?? 0),
+                'points'   => (float)($agentRow['targets']['points'] ?? 0),
+            ],
+            'actuals' => [
+                'deals'       => (int)($agentRow['actuals']['deals']       ?? 0),
+                'sales_value' => (float)($agentRow['actuals']['sales_value'] ?? 0),
+                'value'       => (float)($agentRow['actuals']['value']       ?? ($agentRow['actuals']['sales_value'] ?? 0)),
+                'daily_rows'  => (int)($agentRow['actuals']['daily_rows']  ?? 0),
+                'points'      => (float)($agentRow['actuals']['points']    ?? 0),
+            ],
+            'progress' => [
+                'deals_pct'             => (float)($agentRow['progress']['deals_pct']             ?? 0),
+                'value_pct'             => (float)($agentRow['progress']['value_pct']             ?? 0),
+                'points_pct'            => (float)($agentRow['progress']['points_pct']            ?? 0),
+                'points_status'         => (string)($agentRow['progress']['points_status']        ?? '—'),
+                'points_per_day_needed' => (float)($agentRow['progress']['points_per_day_needed'] ?? 0),
+            ],
+
+            // New WOW blocks
+            'momentum_7d'      => $payload['momentum_7d']      ?? [],
+            'activities_today' => $payload['activities_today'] ?? [],
+
+            // Table data
+            'deals'       => $dealsComputed,
+            'dealsTotals' => $dealsTotals,
+            'finance'     => $finance,
+        ]);
+    }
+}

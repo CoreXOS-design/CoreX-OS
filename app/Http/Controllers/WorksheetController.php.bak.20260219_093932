@@ -1,0 +1,1284 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Carbon\Carbon;
+use App\Models\Worksheet;
+use App\Models\ListingStock;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+
+class WorksheetController extends Controller
+{
+    public function index()
+    {
+        $user = Auth::user();
+
+        // Auto-create a default worksheet for first-time users (current period).
+        // This prevents an empty worksheet screen after DB resets / new registrations.
+        $currentPeriod = now()->format('Y-m');
+
+        $existingForCurrent = Worksheet::where('user_id', $user->id)
+            ->where('period', $currentPeriod)
+            ->first();
+
+        if (!$existingForCurrent) {
+            // Admin-controlled defaults (fallbacks if not set yet)
+            $defaultAgentCut = $user->agent_cut_percent;
+            if ($defaultAgentCut === null || $defaultAgentCut === '') $defaultAgentCut = 50;
+
+            $defaultPayeMethod = $user->paye_method ?? 'percentage';
+            $defaultPayeValue = $user->paye_value;
+            if ($defaultPayeValue === null || $defaultPayeValue === '') $defaultPayeValue = 0;
+
+            $agentSplitPercent = (float) $defaultAgentCut;
+            $payePercent = ($defaultPayeMethod === 'percentage') ? (float)$defaultPayeValue : 0.0;
+
+            // Carry-forward defaults: use the most recent worksheet (any period) as the next month's starting point.
+            $prev = Worksheet::where('user_id', $user->id)
+                ->orderBy('period', 'desc')
+                ->first();
+
+            Worksheet::create([
+                'user_id' => (int) $user->id,
+                'period' => $currentPeriod,
+
+                // Targets carry forward (agent can edit)
+                'personal_net_target' => (float)($prev->personal_net_target ?? 0),
+                'business_net_target' => (float)($prev->business_net_target ?? 0),
+                'want_net_target' => (float)($prev->want_net_target ?? 0),
+
+                // Planning inputs carry forward
+                'avg_sale_price' => (float)($prev->avg_sale_price_admin ?? $prev->avg_sale_price ?? 1060000),
+                'commission_percent' => (float)($prev->commission_percent ?? 7.5),
+
+                // Admin-controlled values always come from user record
+                'paye_percent' => $payePercent,
+                'agent_split_percent' => $agentSplitPercent,
+
+                // Stock inputs carry forward
+                'correctly_priced_percent' => (float)($prev->correctly_priced_percent ?? 40),
+                'current_listings' => (int)($prev->current_listings ?? 0),
+            ]);
+        }
+
+
+        $worksheets = Worksheet::where('user_id', $user->id)
+            ->orderBy('period', 'desc')
+            ->get();
+
+        $periodForStats = $worksheets->first()->period ?? now()->format('Y-m');
+        $dealStats = self::dealRegisterStats((int)$user->id, (string)$periodForStats);
+
+
+        
+        // ---- Company requirement awareness (read-only, no enforcement yet) ----
+        $companyRequirement = [
+            'branch_budget' => 0,
+            'agents' => 0,
+            'required_per_agent' => 0,
+            'current_company_income' => 0,
+            'shortfall' => 0,
+            'meets' => true,
+        ];
+
+        if ($user->branch_id && $worksheets->first()) {
+            $period = $worksheets->first()->period;
+
+            $branchGoal = \App\Models\MonthlyTargetGoal::where('branch_id', $user->branch_id)
+                ->where('period', $period)
+                ->first();
+
+            if ($branchGoal && $branchGoal->branch_budget > 0) {
+                $activeAgents = \App\Models\User::where('branch_id', $user->branch_id)
+                    ->where('is_active', 1)
+                      ->where('counts_for_branch_split', 1)
+->count();
+
+                if ($activeAgents > 0) {
+                    $requiredPerAgent = $branchGoal->branch_budget / $activeAgents;
+
+                    $calc = \App\Http\Controllers\WorksheetController::calculate($worksheets->first());
+                    $currentCompanyIncome = $calc['company_income'] ?? 0;
+
+                    $rawShortfall = max(0, $requiredPerAgent - $currentCompanyIncome);
+
+                    // Currency tolerance: avoid false warnings due to floating rounding (e.g. cents).
+                    // Treat anything under R1 as zero shortfall.
+                    $shortfall = ($rawShortfall < 1.0) ? 0.0 : $rawShortfall;
+
+                    $companyRequirement = [
+                        'branch_budget' => $branchGoal->branch_budget,
+                        'agents' => $activeAgents,
+                        'required_per_agent' => $requiredPerAgent,
+                        'current_company_income' => $currentCompanyIncome,
+                        'shortfall' => $shortfall,
+                        'meets' => $shortfall <= 0.0,
+                    ];
+                }
+            }
+        }
+
+
+        // ---- Listing Stock: computed active listings (from imports) ----
+        $activeListings = ListingStock::query()
+            ->where('user_id', $user->id)
+            ->where('source', 'propcon')
+            ->where(function ($q) {
+                $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                  ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+            })
+            ->count();
+
+
+        // ---- CMA pricing quality (only for listings where CMA is captured) ----
+        // Rule: evaluate ONLY listings with CMA captured; overpriced if asking > CMA by more than 5%.
+        $cmaScope = ListingStock::query()
+            ->where('user_id', $user->id)
+            ->where('source', 'propcon')
+            ->where(function ($q) {
+                $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                  ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+            })
+            ->whereNotNull('price_cents')
+            ->whereNotNull('cma_price_cents')
+            ->where('cma_price_cents', '>', 0);
+
+        $cmaCount = (int) (clone $cmaScope)->count();
+
+        $overpricedCount = (int) (clone $cmaScope)
+            ->whereRaw("price_cents > (cma_price_cents * 105) / 100")
+            ->count();
+
+        $cmaOverpricedPercent = $cmaCount > 0 ? (int) round(($overpricedCount * 100) / $cmaCount) : null;
+        $cmaCorrectlyPricedPercent = $cmaCount > 0 ? max(0, 100 - (int)$cmaOverpricedPercent) : null;
+
+
+        $w = $worksheets->first();
+        $calc = $w ? self::calculate($w) : null;
+
+        return view('worksheet.index', [
+            'cmaCount' => $cmaCount,
+            'cmaOverpricedCount' => $overpricedCount,
+            'cmaOverpricedPercent' => $cmaOverpricedPercent,
+            'cmaCorrectlyPricedPercent' => $cmaCorrectlyPricedPercent,
+            'activeListings' => $activeListings,
+            'worksheets' => $worksheets,
+            'latest' => $w,
+            'w' => $w,
+            'calc' => $calc,
+            'user' => $user,
+            'dealStats' => $dealStats,
+            'companyRequirement' => $companyRequirement,
+        ]);
+    }
+
+    public function store(Request $request)
+    {
+        $user = Auth::user();
+        $userId = (int) $user->id;
+        
+        // Listing Stock: always enforce current_listings from imported stock (lock field)
+        $computedActiveListings = ListingStock::query()
+            ->where('user_id', $userId)
+            ->where('source', 'propcon')
+            ->where(function ($q) {
+                $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                  ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+            })
+            ->count();
+
+        
+        // CMA pricing quality (enforce correctly_priced_percent only when CMA exists)
+        $cmaScope = ListingStock::query()
+            ->where('user_id', $userId)
+            ->where('source', 'propcon')
+            ->where(function ($q) {
+                $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                  ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+            })
+            ->whereNotNull('price_cents')
+            ->whereNotNull('cma_price_cents')
+            ->where('cma_price_cents', '>', 0);
+
+        $cmaCount = (int) (clone $cmaScope)->count();
+        $overpricedCount = (int) (clone $cmaScope)
+            ->whereRaw("price_cents > (cma_price_cents * 105) / 100")
+            ->count();
+
+        $computedCmaCorrectlyPricedPercent = null;
+        if ($cmaCount > 0) {
+            $overpricedPercent = (int) round(($overpricedCount * 100) / $cmaCount);
+            $computedCmaCorrectlyPricedPercent = max(0, 100 - $overpricedPercent);
+        }
+
+
+        // Admin-controlled defaults (fallbacks if not set yet)
+        $defaultAgentCut = $user->agent_cut_percent;
+        if ($defaultAgentCut === null || $defaultAgentCut === '') $defaultAgentCut = 50;
+
+        $defaultPayeMethod = $user->paye_method ?? 'percentage';
+        $defaultPayeValue = $user->paye_value;
+        if ($defaultPayeValue === null || $defaultPayeValue === '') $defaultPayeValue = 0;
+
+        // Worksheet expects "agent_split_percent" (agent share), but user stores "agent_cut_percent" (agent cut).
+        // In this app, agent_cut_percent = agent share percent of pool.
+        $agentSplitPercent = (float) $defaultAgentCut;
+
+        // Worksheet stores paye_percent only (your calculator is % based). If method is fixed, we store 0 here.
+        $payePercent = ($defaultPayeMethod === 'percentage') ? (float)$defaultPayeValue : 0.0;
+
+        $data = $request->validate([
+            'period' => ['required', 'string', 'max:7', 'regex:/^\d{4}-\d{2}$/'],
+            'personal_net_target' => ['required', 'numeric', 'min:0'],
+            'business_net_target' => ['required', 'numeric', 'min:0'],
+            'want_net_target' => ['required', 'numeric', 'min:0'],
+
+            'avg_sale_price' => ['required', 'numeric', 'min:0'],
+            'commission_percent' => ['required', 'numeric', 'min:0', 'max:100'],
+
+            // Removed from agent input:
+            // 'paye_percent'
+            // 'agent_split_percent'
+
+            'correctly_priced_percent' => ['required', 'numeric', 'min:0.01', 'max:100'],
+            'current_listings' => ['required', 'integer', 'min:0'],
+        ]);
+
+        // Inject admin-controlled values into worksheet record
+        $data['paye_percent'] = $payePercent;
+        $data['agent_split_percent'] = $agentSplitPercent;
+
+        // Upsert per user+period
+        $worksheet = Worksheet::updateOrCreate(
+
+            ['user_id' => $userId, 'period' => $data['period']],
+
+            $data + ['user_id' => $userId]
+
+        );
+
+
+        // ---- Keep targets table in sync (single source for dashboards) ----
+
+        // Derived targets are SAFE and are used by Agent/BM/Admin dashboards.
+
+        $calc = self::calculate($worksheet);
+
+
+        $dealsTarget = (int) ceil((float)($calc['sales_needed_per_month'] ?? 0));
+
+        $listingsTarget = (int) ceil((float)($calc['total_listings_needed'] ?? 0));
+
+
+        // Value target uses the planning avg sale price (BM override if present)
+
+        $avgSalePlan = (float)($worksheet->avg_sale_price_admin ?? $worksheet->avg_sale_price ?? 0);
+
+        $valueTarget = (float)($dealsTarget * $avgSalePlan);
+
+
+        $now = now()->toDateTimeString();
+
+
+        // Upsert by unique (period,user_id). Do NOT overwrite points_target here.
+
+        DB::table('targets')->updateOrInsert(
+
+            ['period' => (string)$worksheet->period, 'user_id' => (int)$userId],
+
+            [
+
+                'branch_id' => $user->branch_id,
+
+                'listings_target' => $listingsTarget,
+
+                'deals_target' => $dealsTarget,
+
+                'value_target' => $valueTarget,
+
+                'updated_by' => $userId,
+
+                'updated_at' => $now,
+
+                // created_* only matters on first insert; safe to provide in updateOrInsert
+
+                'created_by' => $userId,
+
+                'created_at' => $now,
+
+            ]
+
+        );
+
+        return redirect()
+            ->route('worksheet.index')
+            ->with('status', 'Worksheet saved for ' . $worksheet->period);
+    }
+
+    
+        public static function dealRegisterStats(int $userId, string $period): array
+    {
+        // period = YYYY-MM
+        $start = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+        $end   = (clone $start)->endOfMonth();
+
+        // VAT (admin setting)
+        $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
+        $vatRate = $vatRatePercent / 100.0;
+        $vatDiv = (1.0 + $vatRate);
+
+        // ---- Deals scope: distinct deals for this agent (avoid double counting deal when agent is on both sides) ----
+        $dealIdsSub = DB::table('deal_user')
+            ->where('user_id', $userId)
+            ->select('deal_id')
+            ->distinct();
+
+        $deals = DB::query()
+            ->fromSub($dealIdsSub, 'du')
+            ->join('deals', 'deals.id', '=', 'du.deal_id')
+->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
+            ->select([
+                'deals.id',
+                'deals.property_value',
+                'deals.total_commission',
+                'deals.accepted_status',
+                'deals.granted_at',
+                'deals.registration_date',
+            ])
+            ->get();
+
+        // Stage classifier
+        $stageOf = function($d): string {
+            if (!empty($d->registration_date)) return 'registered';
+            if (!empty($d->granted_at)) return 'granted';
+            if (($d->accepted_status ?? '') === 'D') return 'declined';
+            return 'pending';
+        };
+
+        // ---- Totals: sales + commission (incl & excl VAT) ----
+        $salesInc = 0.0;
+        $salesEx  = 0.0;
+        $commInc  = 0.0;
+        $commEx   = 0.0;
+
+        $counts = [
+            'total' => 0,
+            'pending' => 0,
+            'granted' => 0,
+            'registered' => 0,
+            'declined' => 0,
+        ];
+
+        $stageSalesInc = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageSalesEx  = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageCommInc  = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageCommEx   = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+
+        foreach ($deals as $d) {
+            $counts['total']++;
+
+            $stage = $stageOf($d);
+            $counts[$stage] = ($counts[$stage] ?? 0) + 1;
+
+            $pvInc = (float)($d->property_value ?? 0);
+            $pvEx = $pvInc; // Sale price is not VAT-rated; keep ex-VAT sales equal to sale price
+
+
+            // Assume stored commission is INCL VAT, derive EXCL VAT for calc
+            $cInc = (float)($d->total_commission ?? 0);
+            $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
+
+            $salesInc += $pvInc; $salesEx += $pvEx;
+            $commInc  += $cInc;  $commEx  += $cEx;
+
+            $stageSalesInc[$stage] += $pvInc;
+            $stageSalesEx[$stage]  += $pvEx;
+            $stageCommInc[$stage]  += $cInc;
+            $stageCommEx[$stage]   += $cEx;
+        }
+
+        $dealsCount = (int)$counts['total'];
+        $avgSaleInc = $dealsCount > 0 ? ($salesInc / $dealsCount) : 0.0;
+        $avgSaleEx  = $dealsCount > 0 ? ($salesEx  / $dealsCount) : 0.0;
+
+        $effectiveCommissionPercentEx = $salesEx > 0 ? (($commEx / $salesEx) * 100.0) : 0.0;
+
+        // ---- Agent net earnings by stage (pipeline vs actual) ----
+        // Single source of truth: deal_money_lines (row-based; agent can earn on listing + selling).
+        // Stage is derived from deals, but money is summed from deal_money_lines.
+        $agentNetByStage = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $companyByStageExVat = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+
+        $stageMoney = DB::table('deal_money_lines')
+            ->join('deals', 'deals.id', '=', 'deal_money_lines.deal_id')
+            ->where('deal_money_lines.user_id', $userId)
+->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
+            ->selectRaw("
+                CASE
+                    WHEN deals.registration_date IS NOT NULL AND deals.registration_date <> '' THEN 'registered'
+                    WHEN deals.granted_at IS NOT NULL AND deals.granted_at <> '' THEN 'granted'
+                    WHEN deals.accepted_status = 'D' THEN 'declined'
+                    ELSE 'pending'
+                END AS stage,
+                SUM(deal_money_lines.agent_net_ex_vat) AS agent_net_ex_vat,
+                SUM(deal_money_lines.company_gross_ex_vat) AS company_gross_ex_vat
+            ")
+            ->groupBy('stage')
+            ->get();
+
+        foreach ($stageMoney as $row) {
+            $stage = (string)($row->stage ?? 'pending');
+            if (!array_key_exists($stage, $agentNetByStage)) continue;
+
+            $agentNetByStage[$stage] += (float)($row->agent_net_ex_vat ?? 0);
+            $companyByStageExVat[$stage] += (float)($row->company_gross_ex_vat ?? 0);
+        }
+
+        
+        // ---- PIPELINE (ALL-TIME, NOT PAID): agent NET by stage ----
+        // This is what the agent cares about: outstanding money, not just deal counts.
+        // Source of truth for money: deal_money_lines.agent_net_ex_vat
+        // Filter for "not paid": deals.commission_status != 'Paid' (deal-level)
+        $pipeCounts = ['total'=>0,'pending'=>0,'granted'=>0,'registered'=>0,'declined'=>0];
+        $pipeAgentNetByStage = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+
+        // counts: distinct deals where this agent is on the deal AND the deal is not paid (deal-level)
+        $pipeDeals = DB::table('deal_user')
+            ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
+            ->where('deal_user.user_id', $userId)
+            ->whereRaw("LOWER(COALESCE(deals.commission_status,'')) != 'paid'")
+            ->select('deals.id','deals.accepted_status','deals.granted_at','deals.registration_date')
+            ->distinct()
+            ->get();
+
+        foreach ($pipeDeals as $d) {
+            $pipeCounts['total']++;
+            $stage = $stageOf($d);
+            $pipeCounts[$stage] = ($pipeCounts[$stage] ?? 0) + 1;
+        }
+
+        // money: sum agent_net_ex_vat for NOT PAID deals (deal-level; do NOT join deal_user)
+        $pipeMoney = DB::table('deal_money_lines')
+            ->join('deals', 'deals.id', '=', 'deal_money_lines.deal_id')
+            ->where('deal_money_lines.user_id', $userId)
+            ->whereRaw("LOWER(COALESCE(deals.commission_status,'')) != 'paid'")
+            ->selectRaw("
+                CASE
+                    WHEN deals.registration_date IS NOT NULL AND deals.registration_date <> '' THEN 'registered'
+                    WHEN deals.granted_at IS NOT NULL AND deals.granted_at <> '' THEN 'granted'
+                    WHEN deals.accepted_status = 'D' THEN 'declined'
+                    ELSE 'pending'
+                END AS stage,
+                SUM(deal_money_lines.agent_net_ex_vat) AS agent_net_ex_vat
+            ")
+            ->groupBy('stage')
+            ->get();
+
+        foreach ($pipeMoney as $row) {
+            $st = (string)($row->stage ?? 'pending');
+            if (!array_key_exists($st, $pipeAgentNetByStage)) continue;
+            $pipeAgentNetByStage[$st] += (float)($row->agent_net_ex_vat ?? 0);
+        }
+
+        $pipeAgentNetTotal = 0.0;
+        foreach ($pipeAgentNetByStage as $v) $pipeAgentNetTotal += (float)$v;
+
+
+// compare to 7.5% "ideal" (ex VAT)
+        $idealPercent = 7.5;
+        $idealCommissionEx = $salesEx * ($idealPercent / 100.0);
+        $lostVsIdealEx = $idealCommissionEx - $commEx;
+
+        // ============================
+        // ALL-TIME (no period filter)
+        // ============================
+        $dealsAll = DB::query()
+            ->fromSub($dealIdsSub, 'du_all')
+            ->join('deals', 'deals.id', '=', 'du_all.deal_id')
+            ->select([
+                'deals.id',
+                'deals.property_value',
+                'deals.total_commission',
+                'deals.accepted_status',
+                'deals.granted_at',
+                'deals.registration_date',
+            ])
+            ->get();
+
+        $salesIncAll = 0.0;
+        $salesExAll  = 0.0;
+        $commIncAll  = 0.0;
+        $commExAll   = 0.0;
+
+        $countsAll = [
+            'total' => 0,
+            'pending' => 0,
+            'granted' => 0,
+            'registered' => 0,
+            'declined' => 0,
+        ];
+
+        $stageSalesIncAll = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageSalesExAll  = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageCommIncAll  = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageCommExAll   = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+
+        foreach ($dealsAll as $d) {
+            $countsAll['total']++;
+
+            $stage = $stageOf($d);
+            $countsAll[$stage] = ($countsAll[$stage] ?? 0) + 1;
+
+            $pvInc = (float)($d->property_value ?? 0);
+            $pvEx = $pvInc; // Sale price is not VAT-rated; keep ex-VAT sales equal to sale price
+
+
+            $cInc = (float)($d->total_commission ?? 0);
+            $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
+
+            $salesIncAll += $pvInc; $salesExAll += $pvEx;
+            $commIncAll  += $cInc;  $commExAll  += $cEx;
+
+            $stageSalesIncAll[$stage] += $pvInc;
+            $stageSalesExAll[$stage]  += $pvEx;
+            $stageCommIncAll[$stage]  += $cInc;
+            $stageCommExAll[$stage]   += $cEx;
+        }
+
+        $dealsCountAll = (int)($countsAll['total'] ?? 0);
+        $avgSaleIncAll = $dealsCountAll > 0 ? ($salesIncAll / $dealsCountAll) : 0.0;
+        $avgSaleExAll  = $dealsCountAll > 0 ? ($salesExAll  / $dealsCountAll) : 0.0;
+        $effectiveCommissionPercentExAll = $salesExAll > 0 ? (($commExAll / $salesExAll) * 100.0) : 0.0;
+
+        // =====================================================
+        // PIPELINE (ALL-TIME, NOT PAID deals only, per-agent)
+        // =====================================================
+        $pipelineNotPaidDeals = DB::query()
+            ->fromSub(
+                DB::table('deal_user')
+                    ->where('user_id', $userId)
+                    ->whereNull('paid_at')
+                    ->select('deal_id')
+                    ->distinct(),
+                'du_np'
+            )
+            ->join('deals', 'deals.id', '=', 'du_np.deal_id')
+            ->whereRaw("LOWER(COALESCE(deals.commission_status,'')) != 'paid'")
+            ->select([
+                'deals.id',
+                'deals.accepted_status',
+                'deals.granted_at',
+                'deals.registration_date',
+            ])
+            ->get();
+
+        $pipelineNotPaidAllTimeCounts = [
+            'total' => 0,
+            'pending' => 0,
+            'granted' => 0,
+            'registered' => 0,
+            'declined' => 0,
+        ];
+
+        foreach ($pipelineNotPaidDeals as $d) {
+            $pipelineNotPaidAllTimeCounts['total']++;
+            $stage = $stageOf($d);
+            $pipelineNotPaidAllTimeCounts[$stage] = ($pipelineNotPaidAllTimeCounts[$stage] ?? 0) + 1;
+        }
+
+        // =========================
+        // ALL-TIME (no period filter)
+        // =========================
+        $dealsAll = DB::query()
+            ->fromSub($dealIdsSub, 'du_all')
+            ->join('deals', 'deals.id', '=', 'du_all.deal_id')
+            ->select([
+                'deals.id',
+                'deals.property_value',
+                'deals.total_commission',
+                'deals.accepted_status',
+                'deals.granted_at',
+                'deals.registration_date',
+            ])
+            ->get();
+
+        $salesIncAll = 0.0;
+        $salesExAll  = 0.0;
+        $commIncAll  = 0.0;
+        $commExAll   = 0.0;
+
+        $countsAll = [
+            'total' => 0,
+            'pending' => 0,
+            'granted' => 0,
+            'registered' => 0,
+            'declined' => 0,
+        ];
+
+        $stageSalesIncAll = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageSalesExAll  = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageCommIncAll  = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+        $stageCommExAll   = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
+
+        foreach ($dealsAll as $d) {
+            $countsAll['total']++;
+
+            $stage = $stageOf($d);
+            $countsAll[$stage] = ($countsAll[$stage] ?? 0) + 1;
+
+            $pvInc = (float)($d->property_value ?? 0);
+            $pvEx = $pvInc; // Sale price is not VAT-rated; keep ex-VAT sales equal to sale price
+
+
+            $cInc = (float)($d->total_commission ?? 0);
+            $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
+
+            $salesIncAll += $pvInc; $salesExAll += $pvEx;
+            $commIncAll  += $cInc;  $commExAll  += $cEx;
+
+            $stageSalesIncAll[$stage] += $pvInc;
+            $stageSalesExAll[$stage]  += $pvEx;
+            $stageCommIncAll[$stage]  += $cInc;
+            $stageCommExAll[$stage]   += $cEx;
+        }
+
+        $dealsCountAll = (int)($countsAll['total'] ?? 0);
+        $avgSaleIncAll = $dealsCountAll > 0 ? ($salesIncAll / $dealsCountAll) : 0.0;
+        $avgSaleExAll  = $dealsCountAll > 0 ? ($salesExAll  / $dealsCountAll) : 0.0;
+
+        $effectiveCommissionPercentExAll = $salesExAll > 0 ? (($commExAll / $salesExAll) * 100.0) : 0.0;
+
+        // ==========================================
+        // PIPELINE (ALL-TIME, NOT PAID deals only)
+        // ==========================================
+        // Definition: "not paid" = deal_user.paid_at IS NULL (per-agent)
+        // Stage: derived from deals (registration_date > granted_at > accepted_status D > pending)
+        $pipeDeals = DB::query()
+            ->fromSub(
+                DB::table('deal_user')
+                    ->where('user_id', $userId)
+                    ->whereNull('paid_at')
+                    ->select('deal_id')
+                    ->distinct(),
+                'du_np'
+            )
+            ->join('deals', 'deals.id', '=', 'du_np.deal_id')
+            ->select([
+                'deals.id',
+                'deals.accepted_status',
+                'deals.granted_at',
+                'deals.registration_date',
+            ])
+            ->get();
+
+        $pipelineNotPaidAllTimeCounts = [
+            'total' => 0,
+            'pending' => 0,
+            'granted' => 0,
+            'registered' => 0,
+            'declined' => 0,
+        ];
+
+        foreach ($pipeDeals as $d) {
+            $pipelineNotPaidAllTimeCounts['total']++;
+            $stage = $stageOf($d);
+            $pipelineNotPaidAllTimeCounts[$stage] = ($pipelineNotPaidAllTimeCounts[$stage] ?? 0) + 1;
+        }
+
+
+
+        return [
+            'period' => $period,
+
+            // counts
+            'counts' => $counts,
+
+            // deal-level totals (incl & excl VAT)
+            'sales_value_inc_vat' => $salesInc,
+            'sales_value_ex_vat'  => $salesEx,
+            'total_commission_inc_vat' => $commInc,
+            'total_commission_ex_vat'  => $commEx,
+
+            // deal-level averages
+            'avg_sale_price_inc_vat' => $avgSaleInc,
+            'avg_sale_price_ex_vat'  => $avgSaleEx,
+            'effective_commission_percent_ex_vat' => $effectiveCommissionPercentEx,
+
+            // stage totals (deal-level)
+            'stage_sales_inc_vat' => $stageSalesInc,
+            'stage_sales_ex_vat'  => $stageSalesEx,
+            'stage_commission_inc_vat' => $stageCommInc,
+            'stage_commission_ex_vat'  => $stageCommEx,
+
+            // agent pipeline/actual net earnings by stage (ex VAT basis)
+            'agent_net_by_stage' => $agentNetByStage,
+
+            
+
+
+            // pipeline (ALL-TIME, NOT PAID) — money + counts
+            'pipeline_not_paid_all_time' => [
+                'counts' => $pipeCounts,
+                'agent_net_ex_vat_by_stage' => $pipeAgentNetByStage,
+                'agent_net_ex_vat_total' => $pipeAgentNetTotal,
+            ],
+            // company retained attributable to this agent (ex VAT)
+            'company_by_stage_ex_vat' => $companyByStageExVat,
+// ideal comparison (ex VAT)
+            'ideal_commission_ex_vat_at_7_5' => $idealCommissionEx,
+            'lost_commission_ex_vat_vs_7_5'  => $lostVsIdealEx,
+
+            // -----------------------
+            // All-time (no period filter)
+            // -----------------------
+            'all_time' => [
+                'counts' => $countsAll,
+
+                'sales_value_inc_vat' => $salesIncAll,
+                'sales_value_ex_vat'  => $salesExAll,
+                'total_commission_inc_vat' => $commIncAll,
+                'total_commission_ex_vat'  => $commExAll,
+
+                'avg_sale_price_inc_vat' => $avgSaleIncAll,
+                'avg_sale_price_ex_vat'  => $avgSaleExAll,
+                'effective_commission_percent_ex_vat' => $effectiveCommissionPercentExAll,
+
+                'stage_sales_inc_vat' => $stageSalesIncAll,
+                'stage_sales_ex_vat'  => $stageSalesExAll,
+                'stage_commission_inc_vat' => $stageCommIncAll,
+                'stage_commission_ex_vat'  => $stageCommExAll,
+            ],
+
+            // -------------------------------------------------------
+            // Pipeline (ALL-TIME, NOT PAID deals only, per-agent)
+            // -------------------------------------------------------
+            'pipeline_not_paid_all_time_counts' => $pipelineNotPaidAllTimeCounts,
+        ];
+    }
+
+  
+    public static function calculateWithOverrides(Worksheet $w, float $avgSalePriceOverride, float $commissionPercentOverride): array
+    {
+        $personal = (float) $w->personal_net_target;
+        $business = (float) $w->business_net_target;
+        $want = (float) $w->want_net_target;
+
+        $avgSalePrice = (float) $avgSalePriceOverride;
+        $commissionPercent = (float) $commissionPercentOverride;
+
+        $payePercent = (float) $w->paye_percent;
+        $agentSplitPercent = (float) $w->agent_split_percent;
+        $correctlyPricedPercent = (float) $w->correctly_priced_percent;
+
+        // Prefer live Listing Stock count (Propcon) so "Gap" and bottom totals reflect actual stock.
+        // Fallback to saved worksheet value if user_id is missing for any reason.
+        $currentListings = (int) $w->current_listings;
+        if (!empty($w->user_id)) {
+            $currentListings = (int) \App\Models\ListingStock::query()
+                ->where('user_id', (int)$w->user_id)
+                ->where('source', 'propcon')
+                ->where(function ($q) {
+                    $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                      ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+                })
+                ->count();
+        }
+
+        $netNeed = $personal + $business + $want;
+
+        $payeFactor = 1 - ($payePercent / 100);
+        $agentShareFactor = ($agentSplitPercent / 100);
+
+        $grossAgentIncomeNeeded = $payeFactor > 0 ? ($netNeed / $payeFactor) : 0;
+
+        // VAT and performance ratios (admin controlled)
+        $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
+        $vatRate = $vatRatePercent / 100;
+        $listingsPerSale = (float) \App\Models\PerformanceSetting::get('listings_per_sale', 5);
+
+
+        // Commission always treated as GROSS first, then excl VAT
+        $grossCommissionPerSale = $avgSalePrice * ($commissionPercent / 100);
+        $commissionPerSale = $grossCommissionPerSale / (1 + $vatRate);
+
+        $agentGrossPerSale = $commissionPerSale * $agentShareFactor;
+        $payePerSale = $agentGrossPerSale * ($payePercent / 100);
+        $agentNetPerSale = $agentGrossPerSale - $payePerSale;
+
+        $salesNeededPerMonth = $agentNetPerSale > 0 ? ($netNeed / $agentNetPerSale) : 0;
+
+        $correctlyPricedListingsNeeded = $salesNeededPerMonth * $listingsPerSale;
+
+        $cpFactor = ($correctlyPricedPercent / 100);
+        $totalListingsNeeded = $cpFactor > 0 ? ($correctlyPricedListingsNeeded / $cpFactor) : 0;
+
+        $gap = $totalListingsNeeded - $currentListings;
+
+        $companyIncomePerSale = $commissionPerSale * (1 - $agentShareFactor);
+
+        return [
+            'net_need' => $netNeed,
+            'gross_agent_income_needed' => $grossAgentIncomeNeeded,
+
+            'commission_per_sale' => $commissionPerSale,
+            'agent_gross_per_sale' => $agentGrossPerSale,
+            'paye_per_sale' => $payePerSale,
+            'agent_net_per_sale' => $agentNetPerSale,
+            'company_income_per_sale' => $companyIncomePerSale,
+
+            'sales_needed_per_month' => $salesNeededPerMonth,
+            'correctly_priced_listings_needed' => $correctlyPricedListingsNeeded,
+            'total_listings_needed' => $totalListingsNeeded,
+            'gap' => $gap,
+        ];
+    }
+
+
+  
+    public static function calculate(Worksheet $w): array
+    {
+        $personal = (float) $w->personal_net_target;
+        $business = (float) $w->business_net_target;
+        $want = (float) $w->want_net_target;
+
+        $avgSalePrice = (float) ($w->avg_sale_price_admin ?? $w->avg_sale_price);
+        $commissionPercent = (float) $w->commission_percent;
+
+        $payePercent = (float) $w->paye_percent;
+        $agentSplitPercent = (float) $w->agent_split_percent;
+        $correctlyPricedPercent = (float) $w->correctly_priced_percent;
+
+        // Prefer live Listing Stock count (Propcon) so "Gap" and bottom totals reflect actual stock.
+        // Fallback to saved worksheet value if user_id is missing for any reason.
+        $currentListings = (int) $w->current_listings;
+        if (!empty($w->user_id)) {
+            $currentListings = (int) \App\Models\ListingStock::query()
+                ->where('user_id', (int)$w->user_id)
+                ->where('source', 'propcon')
+                ->where(function ($q) {
+                    $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                      ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+                })
+                ->count();
+        }
+
+        $netNeed = $personal + $business + $want;
+
+        $payeFactor = 1 - ($payePercent / 100);
+        $agentShareFactor = ($agentSplitPercent / 100);
+
+        $grossAgentIncomeNeeded = $payeFactor > 0 ? ($netNeed / $payeFactor) : 0;
+
+        // VAT and performance ratios (admin controlled)
+        $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
+        $vatRate = $vatRatePercent / 100;
+        $listingsPerSale = (float) \App\Models\PerformanceSetting::get('listings_per_sale', 5);
+
+
+        // Commission always treated as GROSS first, then excl VAT
+        $grossCommissionPerSale = $avgSalePrice * ($commissionPercent / 100);
+        $commissionPerSale = $grossCommissionPerSale / (1 + $vatRate);
+
+        $agentGrossPerSale = $commissionPerSale * $agentShareFactor;
+        $payePerSale = $agentGrossPerSale * ($payePercent / 100);
+        $agentNetPerSale = $agentGrossPerSale - $payePerSale;
+
+        $salesNeededPerMonth = $agentNetPerSale > 0 ? ($netNeed / $agentNetPerSale) : 0;
+
+        $correctlyPricedListingsNeeded = $salesNeededPerMonth * $listingsPerSale;
+
+        $cpFactor = ($correctlyPricedPercent / 100);
+        $totalListingsNeeded = $cpFactor > 0 ? ($correctlyPricedListingsNeeded / $cpFactor) : 0;
+
+        $gap = $totalListingsNeeded - $currentListings;
+
+        $companyIncomePerSale = $commissionPerSale * (1 - $agentShareFactor);
+
+          $companyIncome = $salesNeededPerMonth * $companyIncomePerSale;
+
+        // Rentals inclusion (CORRECT: match Rentals Register logic exactly)
+$rentals = [
+    'active_rentals_count' => 0,
+    'rental_assist_count' => 0,
+    'total_commission_excl' => 0.0,
+];
+
+try {
+    if (!empty($w->user_id)) {
+
+        $userId = (int)$w->user_id;
+
+        $rentalsQuery = \App\Models\Rental::query()
+            ->where('is_active', 1)
+            ->whereHas('agents', function ($q) use ($userId) {
+                $q->where('users.id', $userId);
+            })
+            ->with(['currentAmountVersion','agents']);
+
+        $rentalsCollection = $rentalsQuery->get();
+
+        $activeCount = 0;
+        $assistCount = 0;
+        $totalExcl = 0.0;
+
+        foreach ($rentalsCollection as $r) {
+
+            $activeCount++;
+
+            if ((bool)($r->is_rental_assist ?? false)) {
+                $assistCount++;
+            }
+
+            $version = $r->currentAmountVersion;
+
+            if (!$version) continue;
+
+            $commExcl = (float)($version->commission_excl ?? 0);
+
+            $agentCount = max(1, $r->agents->count());
+
+            $share = $commExcl / $agentCount;
+
+            $totalExcl += $share;
+        }
+
+        $rentals = [
+            'active_rentals_count' => $activeCount,
+            'rental_assist_count' => $assistCount,
+            'total_commission_excl' => round($totalExcl, 2),
+        ];
+    }
+}
+catch (\Throwable $e) {
+    // fail safe
+}
+
+
+        return [
+            'net_need' => $netNeed,
+            'gross_agent_income_needed' => $grossAgentIncomeNeeded,
+
+            'commission_per_sale' => $commissionPerSale,
+            'agent_gross_per_sale' => $agentGrossPerSale,
+            'paye_per_sale' => $payePerSale,
+            'agent_net_per_sale' => $agentNetPerSale,
+            'company_income_per_sale' => $companyIncomePerSale,
+
+            'sales_needed_per_month' => $salesNeededPerMonth,
+            'correctly_priced_listings_needed' => $correctlyPricedListingsNeeded,
+            'total_listings_needed' => $totalListingsNeeded,
+            'gap' => $gap,
+            'company_income' => $companyIncome,
+
+            'rentals_active_count' => (int)($rentals['active_rentals_count'] ?? 0),
+            'rentals_assist_count' => (int)($rentals['rental_assist_count'] ?? 0),
+            'rentals_commission_excl_total' => (float)($rentals['total_commission_excl'] ?? 0),
+];
+    }
+
+
+    public function alignToCompany(\Illuminate\Http\Request $request)
+    {
+        $user = \Illuminate\Support\Facades\Auth::user();
+
+        $worksheet = \App\Models\Worksheet::where('user_id', $user->id)
+            ->orderBy('period', 'desc')
+            ->first();
+
+        if (!$worksheet || !$user->branch_id) {
+            return redirect()->back()->with('error', 'No worksheet or branch found.');
+        }
+
+        $goal = \App\Models\MonthlyTargetGoal::where('branch_id', $user->branch_id)
+            ->where('period', $worksheet->period)
+            ->first();
+
+        if (!$goal || !$goal->branch_budget) {
+            return redirect()->back()->with('error', 'No branch budget configured.');
+        }
+
+        $agents = \App\Models\User::where('branch_id', $user->branch_id)
+            ->where('is_active', 1)
+                      ->whereIn('role', ['agent','branch_manager','admin'])
+            ->count();
+
+        if ($agents < 1) $agents = 1;
+
+        $requiredPerAgent = $goal->branch_budget / $agents;
+
+        $calc = self::calculate($worksheet);
+        $currentCompanyIncome = $calc['company_income'] ?? 0;
+
+        if ($currentCompanyIncome <= 0) {
+            return redirect()->back()->with('error', 'Cannot adjust targets with zero contribution.');
+        }
+
+        $ratio = $requiredPerAgent / $currentCompanyIncome;
+
+        $worksheet->personal_net_target = round($worksheet->personal_net_target * $ratio, 2);
+        $worksheet->business_net_target = round($worksheet->business_net_target * $ratio, 2);
+        $worksheet->want_net_target     = round($worksheet->want_net_target * $ratio, 2);
+
+        $worksheet->save();
+
+        // precision correction (guarantee meets requirement)
+        $worksheet->refresh();
+        $recalc = self::calculate($worksheet);
+        $newCompanyIncome = $recalc['company_income'] ?? 0;
+
+        if ($newCompanyIncome > 0 && $newCompanyIncome < $requiredPerAgent) {
+            $fixRatio = $requiredPerAgent / $newCompanyIncome;
+
+            $worksheet->personal_net_target = round($worksheet->personal_net_target * $fixRatio, 2);
+            $worksheet->business_net_target = round($worksheet->business_net_target * $fixRatio, 2);
+            $worksheet->want_net_target     = round($worksheet->want_net_target * $fixRatio, 2);
+
+            $worksheet->save();
+        }
+
+
+                  self::syncTargetsFromWorksheet($worksheet, $user);
+
+          return redirect()->back()->with('status', 'Targets aligned to company requirement.');
+    }
+
+
+
+    public function alignTargets()
+    {
+        $user = \Illuminate\Support\Facades\Auth::user();
+
+        $w = \App\Models\Worksheet::where('user_id', $user->id)
+            ->orderBy('period', 'desc')
+            ->first();
+
+        if (!$w) {
+            return redirect()->back()->with('status', 'No worksheet found.');
+        }
+
+        if (!$user->branch_id) {
+            return redirect()->back()->with('status', 'No branch assigned.');
+        }
+
+        $goal = \App\Models\MonthlyTargetGoal::where('branch_id', $user->branch_id)
+            ->where('period', $w->period)
+            ->first();
+
+        if (!$goal || $goal->branch_budget <= 0) {
+            return redirect()->back()->with('status', 'No branch budget set.');
+        }
+
+        $agents = \App\Models\User::where('branch_id', $user->branch_id)
+            ->where('is_active', 1)
+                      ->whereIn('role', ['agent','branch_manager','admin'])
+            ->count();
+
+        if ($agents < 1) {
+            return redirect()->back()->with('status', 'No active agents in branch.');
+        }
+
+        $requiredPerAgent = $goal->branch_budget / $agents;
+
+        $calc = self::calculate($w);
+        $currentCompany = $calc['company_income'] ?? 0;
+
+        if ($currentCompany <= 0) {
+            return redirect()->back()->with('status', 'Cannot align: current contribution is zero.');
+        }
+
+        // Always scale towards requirement (no tolerance shortcuts)
+        $multiplier = $requiredPerAgent / $currentCompany;
+
+        // First uplift
+        $w->personal_net_target = round($w->personal_net_target * $multiplier, 2);
+        $w->business_net_target = round($w->business_net_target * $multiplier, 2);
+        $w->want_net_target     = round($w->want_net_target * $multiplier, 2);
+        $w->save();
+
+        // Converge until requirement is met (max 5 passes, safe cap)
+        for ($i = 0; $i < 5; $i++) {
+            $w->refresh();
+            $recalc = self::calculate($w);
+            $newCompany = $recalc['company_income'] ?? 0;
+
+            if ($newCompany >= $requiredPerAgent) {
+                break;
+            }
+
+            if ($newCompany <= 0) {
+                break;
+            }
+
+            $fix = $requiredPerAgent / $newCompany;
+
+            $w->personal_net_target = round($w->personal_net_target * $fix, 2);
+            $w->business_net_target = round($w->business_net_target * $fix, 2);
+            $w->want_net_target     = round($w->want_net_target * $fix, 2);
+            $w->save();
+        }
+
+                  self::syncTargetsFromWorksheet($w, $user);
+
+          return redirect()->back()->with('status', 'Targets aligned to company requirement.');
+    }
+
+
+    public function applyBranchDefault()
+    {
+        $user = \Illuminate\Support\Facades\Auth::user();
+
+        // Latest worksheet for this user (current working period)
+        $w = \App\Models\Worksheet::where('user_id', $user->id)
+            ->orderBy('period', 'desc')
+            ->first();
+
+        if (!$w) {
+            return redirect()->back()->with('status', 'No worksheet found.');
+        }
+
+        if (!$user->branch_id) {
+            return redirect()->back()->with('status', 'No branch assigned.');
+        }
+
+        // Only apply branch default when agent has not entered their own budget (net = 0)
+        $netNow = (float)$w->personal_net_target + (float)$w->business_net_target + (float)$w->want_net_target;
+        if ($netNow > 0) {
+            return redirect()->back()->with('status', 'Budget already entered (branch default not applied).');
+        }
+
+        // Branch goal for this period
+        $goal = \App\Models\MonthlyTargetGoal::where('branch_id', $user->branch_id)
+            ->where('period', $w->period)
+            ->first();
+
+        if (!$goal || (float)$goal->branch_budget <= 0) {
+            return redirect()->back()->with('status', 'No branch budget set for this month.');
+        }
+
+        // Active agents in branch (agents only)
+        $agents = \App\Models\User::where('branch_id', $user->branch_id)
+            ->whereIn('role', ['agent','branch_manager','admin'])
+            ->where('is_active', 1)
+            ->count();
+
+        if ($agents < 1) $agents = 1;
+
+        $requiredPerAgent = (float)$goal->branch_budget / (float)$agents;
+
+        // --- Per-sale economics (independent of netNeed) ---
+        $avgSalePrice = (float) ($w->avg_sale_price_admin ?? $w->avg_sale_price);
+        $commissionPercent = (float) $w->commission_percent;
+        $payePercent = (float) $w->paye_percent;
+        $agentSplitPercent = (float) $w->agent_split_percent;
+
+        // VAT: commission is gross, then we remove VAT to get excl VAT
+                $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
+        $vatRate = $vatRatePercent / 100;
+        $grossCommissionPerSale = $avgSalePrice * ($commissionPercent / 100);
+        $commissionPerSaleExVat = $grossCommissionPerSale / (1 + $vatRate);
+
+        $agentShareFactor = ($agentSplitPercent / 100);
+        $companyIncomePerSale = $commissionPerSaleExVat * (1 - $agentShareFactor);
+
+        $agentGrossPerSale = $commissionPerSaleExVat * $agentShareFactor;
+        $agentNetPerSale = $agentGrossPerSale * (1 - ($payePercent / 100));
+
+        if ($companyIncomePerSale <= 0 || $agentNetPerSale <= 0) {
+            return redirect()->back()->with('status', 'Cannot apply branch default (inputs produce zero contribution).');
+        }
+
+        // Required NET target so that company retained income hits requiredPerAgent
+        // company_income = (netNeed/agentNetPerSale) * companyIncomePerSale
+        // => netNeed = requiredPerAgent * agentNetPerSale / companyIncomePerSale
+        $netNeedRequired = $requiredPerAgent * $agentNetPerSale / $companyIncomePerSale;
+
+        // Distribute into personal/business/want using last non-zero worksheet ratios if available
+        $prev = \App\Models\Worksheet::where('user_id', $user->id)
+            ->where('id', '<>', $w->id)
+            ->orderBy('period', 'desc')
+            ->get()
+            ->first(function($x){
+                $sum = (float)$x->personal_net_target + (float)$x->business_net_target + (float)$x->want_net_target;
+                return $sum > 0;
+            });
+
+        if ($prev) {
+            $prevTotal = (float)$prev->personal_net_target + (float)$prev->business_net_target + (float)$prev->want_net_target;
+            $rp = $prevTotal > 0 ? ((float)$prev->personal_net_target / $prevTotal) : (1/3);
+            $rb = $prevTotal > 0 ? ((float)$prev->business_net_target / $prevTotal) : (1/3);
+            $rw = $prevTotal > 0 ? ((float)$prev->want_net_target / $prevTotal) : (1/3);
+        } else {
+            // sensible default split
+            $rp = 0.65; $rb = 0.20; $rw = 0.15;
+        }
+
+        $w->personal_net_target = round($netNeedRequired * $rp, 2);
+        $w->business_net_target = round($netNeedRequired * $rb, 2);
+        $w->want_net_target = round($netNeedRequired * $rw, 2);
+
+        // precision fix: ensure totals sum exactly to required (avoid 49199.99 type drift)
+        $sum = (float)$w->personal_net_target + (float)$w->business_net_target + (float)$w->want_net_target;
+        $diff = round($netNeedRequired - $sum, 2);
+        if (abs($diff) >= 0.01) {
+            $w->personal_net_target = round((float)$w->personal_net_target + $diff, 2);
+        }
+
+        $w->save();
+
+                  self::syncTargetsFromWorksheet($w, $user);
+
+          return redirect()->back()->with('status', 'Branch default applied — targets set to meet company requirement.');
+    }
+
+
+
+    /**
+     * Keep targets table in sync with worksheet changes.
+     * targets is the single source for Agent/BM/Admin dashboards.
+     */
+    private static function syncTargetsFromWorksheet(\App\Models\Worksheet $worksheet, \App\Models\User $user): void
+    {
+        $userId = (int) $user->id;
+        
+        // Listing Stock: always enforce current_listings from imported stock (lock field)
+        $computedActiveListings = ListingStock::query()
+            ->where('user_id', $userId)
+            ->where('source', 'propcon')
+            ->where(function ($q) {
+                $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                  ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+            })
+            ->count();
+
+
+        $calc = self::calculate($worksheet);
+
+        $dealsTarget = (int) ceil((float)($calc['sales_needed_per_month'] ?? 0));
+        $listingsTarget = (int) ceil((float)($calc['total_listings_needed'] ?? 0));
+
+        $avgSalePlan = (float)($worksheet->avg_sale_price_admin ?? $worksheet->avg_sale_price ?? 0);
+        $valueTarget = (float)($dealsTarget * $avgSalePlan);
+
+        $now = now()->toDateTimeString();
+
+        \Illuminate\Support\Facades\DB::table('targets')->updateOrInsert(
+            ['period' => (string)$worksheet->period, 'user_id' => (int)$userId],
+            [
+                'branch_id' => $user->branch_id,
+                'listings_target' => $listingsTarget,
+                'deals_target' => $dealsTarget,
+                'value_target' => $valueTarget,
+
+                'updated_by' => $userId,
+                'updated_at' => $now,
+
+                // safe on insert
+                'created_by' => $userId,
+                'created_at' => $now,
+            ]
+        );
+    }
+
+}

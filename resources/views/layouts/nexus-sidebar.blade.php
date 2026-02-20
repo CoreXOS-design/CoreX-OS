@@ -132,7 +132,41 @@
             <svg class="nexus-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
         </a>
 
-        <div class="nexus-nav-divider"></div>
+        
+        {{-- PDF Splitter (route-guarded) --}}
+        @if(\Illuminate\Support\Facades\Route::has('tools.pdf_splitter.index'))
+        <a href="{{ route('tools.pdf_splitter.index') }}" class="nexus-nav-item {{ request()->is('tools/pdf-splitter*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <path d="M14 2v6h6"/>
+                <path d="M8 13h8"/>
+                <path d="M8 17h8"/>
+                <path d="M8 9h2"/>
+            </svg>
+            <span>PDF Splitter</span>
+            <svg class="nexus-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6"/>
+            </svg>
+        </a>
+        @endif
+
+
+        {{-- Presentations (feature-flag + route-guarded) --}}
+        @if(config('features.presentations') && \Illuminate\Support\Facades\Route::has('presentations.index'))
+        <a href="{{ route('presentations.index') }}" class="nexus-nav-item {{ request()->is('presentations*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 4h16v10H4z"/>
+                <path d="M8 20h8"/>
+                <path d="M12 14v6"/>
+            </svg>
+            <span>Presentations</span>
+            <svg class="nexus-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m9 18 6-6-6-6"/>
+            </svg>
+        </a>
+        @endif
+
+<div class="nexus-nav-divider"></div>
 
         {{-- Role Manager --}}
         @if(!$user || $user->canAccessNexusSection('role-manager'))

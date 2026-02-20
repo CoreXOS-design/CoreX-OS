@@ -443,11 +443,3 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
 });
 
 Route::get('tools/pdf-splitter/download', [\App\Http\Controllers\Tools\PdfSplitterController::class, 'downloadLastZip'])->name('tools.pdf_splitter.download');
-
-// ===== PRESENTATIONS =====
-Route::middleware(['auth'])->group(function () {
-    Route::get('/presentations', [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])
-        ->name('presentations.index');
-    Route::post('/presentations/{presentation}/upload', [\App\Http\Controllers\Presentation\PresentationController::class, 'upload'])
-        ->name('presentations.upload');
-});

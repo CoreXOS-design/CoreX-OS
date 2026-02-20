@@ -1,0 +1,1347 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Deal;
+use App\Models\DealLog;
+use App\Models\User;
+use App\Models\Branch;
+use App\Models\DealSettlement;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Services\Finance\FinanceReadModel;
+use App\Services\SlidingScaleService;
+
+class DealController extends Controller
+{
+    private function isLocked(Deal $deal): bool
+    {
+        return (string)($deal->commission_status ?? '') === 'Paid';
+    }
+
+    private function denyIfLocked(Deal $deal)
+    {
+        if ($this->isLocked($deal)) {
+            return redirect()->route('admin.deals')
+                ->withErrors('This deal is marked Paid and is locked. No edits are allowed.');
+        }
+        return null;
+    }
+
+    private function logDealEvent(Deal $deal, string $eventType, ?string $from = null, ?string $to = null, ?string $message = null): void
+    {
+        try {
+            DealLog::create([
+                'deal_id' => $deal->id,
+                'actor_user_id' => auth()->id(),
+                'event_type' => $eventType,
+                'from_value' => $from,
+                'to_value' => $to,
+                'message' => $message,
+            ]);
+        } catch (\Throwable $e) {
+            // Never block deal operations because logging failed
+        }
+    }
+
+    
+    
+    public function addRemark(Request $request, Deal $deal)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        $data = $request->validate([
+            'remark' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $remark = trim((string)$data['remark']);
+        if ($remark === '') {
+            return redirect()->route('admin.deals.log', $deal)->withErrors('Remark cannot be blank.');
+        }
+
+        // Backwards compatibility: keep latest remark on deal row
+        $deal->remarks = $remark;
+        $deal->save();
+
+        // Audit trail entry
+        $this->logDealEvent($deal, 'remark_added', null, null, $remark);
+
+        return redirect()->route('admin.deals.log', $deal)->with('status', 'Remark added.');
+    }
+
+public function log(Deal $deal)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        $logs = DealLog::query()
+            ->where('deal_id', $deal->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $actors = User::whereIn('id', $logs->pluck('actor_user_id')->filter()->unique()->values())->get()->keyBy('id');
+
+        return view('admin.deals.log', compact('deal', 'logs', 'actors'));
+    }
+
+
+public function index(FinanceReadModel $readModel)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        // BM_FILTER_PATCH
+        $user             = auth()->user();
+        $period           = (string) request('period', '');
+        $commissionStatus = (string) request('commission_status', '');
+
+        $query = Deal::query()->visibleTo($user);
+
+        // Optional status filter (supports legacy 1-letter statuses)
+        if (request('status')) {
+            $st = (string) request('status');
+            $map = [
+                'Pending'    => ['Pending', 'P'],
+                'Granted'    => ['Granted', 'G'],
+                'Registered' => ['Registered', 'R'],
+                'Declined'   => ['Declined', 'D'],
+            ];
+            if (isset($map[$st])) {
+                $query->whereIn('accepted_status', $map[$st]);
+            } else {
+                $query->where('accepted_status', $st);
+            }
+        }
+
+        // Period filter
+        if ($period) {
+            $query->where('period', $period);
+        }
+
+        // Commission status filter
+        if ($commissionStatus) {
+            $query->where('commission_status', $commissionStatus);
+        }
+
+        $deals = $query->orderBy('deal_no')->get();
+
+        // PAID_NOT_SETTLED_EXCEPTION: Admin-only exception report
+        // Deals marked Paid in register but settlement not marked paid (agent might still be unpaid)
+        $paidNotSettledDeals = collect();
+
+        if (auth()->user()?->isEffectiveAdmin()) {
+            $paidDeals   = $deals->filter(fn($d) => (string)($d->commission_status ?? '') === 'Paid')->values();
+            $paidDealIds = $paidDeals->pluck('id')->map(fn($v) => (int)$v)->all();
+
+            $settledPaidDealIds = [];
+            if (count($paidDealIds) > 0) {
+                $settledPaidDealIds = \App\Models\DealSettlement::query()
+                    ->whereIn('deal_id', $paidDealIds)
+                    ->whereNotNull('paid_at')
+                    ->distinct()
+                    ->pluck('deal_id')
+                    ->map(fn($v) => (int)$v)
+                    ->all();
+            }
+
+            $settledPaidSet      = array_flip($settledPaidDealIds);
+            $paidNotSettledDeals = $paidDeals->filter(function ($d) use ($settledPaidSet) {
+                return !isset($settledPaidSet[(int)$d->id]);
+            })->values();
+        }
+
+        // ---- Finance Engine summary (period-scope, only when period is selected) ----
+        $summary           = null;
+        $finance           = [];
+        $financeSource     = 'empty';
+        $financeAuditRunId = null;
+        $entityType        = 'company_period';
+        $entityId          = 1;
+        $branchId          = 0;
+
+        if ($period) {
+            if ($user->isEffectiveAdmin()) {
+                $fr         = $readModel->getCompanyPeriodMap($period);
+                $entityType = 'company_period';
+                $entityId   = 1;
+            } else {
+                $branchId   = (int)($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
+                $fr         = $readModel->getBranchPeriodMap($branchId, $period);
+                $entityType = 'branch_period';
+                $entityId   = $branchId;
+            }
+            $finance           = $fr['data'];
+            $financeSource     = $fr['source'];
+            $financeAuditRunId = $fr['audit_run_id'];
+
+            // Build typed summary — explicit keys per entity_type, no dynamic prefix in blade
+            if (!empty($finance)) {
+                if ($entityType === 'company_period') {
+                    $summary = [
+                        'counts' => [
+                            'pending'    => (int)(float)($finance['company_period.deals.pending.count']    ?? 0),
+                            'granted'    => (int)(float)($finance['company_period.deals.granted.count']    ?? 0),
+                            'registered' => (int)(float)($finance['company_period.deals.registered.count'] ?? 0),
+                            'declined'   => (int)(float)($finance['company_period.deals.declined.count']   ?? 0),
+                        ],
+                        'money' => [
+                            'total_nondeclined_income_ex_vat'  => (float)($finance['company_period.money.total_nondeclined.team_agent_income_ex_vat'] ?? 0),
+                            'registered_granted_income_ex_vat' => round(
+                                (float)($finance['company_period.money.registered.team_agent_income_ex_vat'] ?? 0) +
+                                (float)($finance['company_period.money.granted.team_agent_income_ex_vat']    ?? 0),
+                                2
+                            ),
+                        ],
+                    ];
+                } else {
+                    $summary = [
+                        'counts' => [
+                            'pending'    => (int)(float)($finance['branch_period.deals.pending.count']    ?? 0),
+                            'granted'    => (int)(float)($finance['branch_period.deals.granted.count']    ?? 0),
+                            'registered' => (int)(float)($finance['branch_period.deals.registered.count'] ?? 0),
+                            'declined'   => (int)(float)($finance['branch_period.deals.declined.count']   ?? 0),
+                        ],
+                        'money' => [
+                            'total_nondeclined_income_ex_vat'  => (float)($finance['branch_period.money.total_nondeclined.team_agent_income_ex_vat'] ?? 0),
+                            'registered_granted_income_ex_vat' => round(
+                                (float)($finance['branch_period.money.registered.team_agent_income_ex_vat'] ?? 0) +
+                                (float)($finance['branch_period.money.granted.team_agent_income_ex_vat']    ?? 0),
+                                2
+                            ),
+                        ],
+                    ];
+                }
+            }
+        }
+
+        $agents   = User::orderBy('name')->get();
+        $branches = Branch::orderBy('name')->get();
+
+        return view('admin.deals.index', compact(
+            'deals', 'agents', 'branches', 'paidNotSettledDeals',
+            'period', 'commissionStatus', 'finance', 'financeSource', 'financeAuditRunId',
+            'entityType', 'entityId', 'branchId', 'summary'
+        ));
+    }
+
+    public function create()
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        $user = auth()->user();
+        $defaultBranchId = $user?->effectiveBranchId();
+
+        $agents = User::orderBy('name')->get();
+
+        // Branch managers should only see (and use) their branch
+        $branches = Branch::orderBy('name');
+        if ($user && $user->isEffectiveBranchManager()) {
+            $branches->where('id', $defaultBranchId);
+        }
+        $branches = $branches->get();
+
+        $deal = new Deal();
+        // Defaults for new deal
+        $deal->branch_id = $defaultBranchId;
+        $deal->period = now()->format('Y-m');         // current period
+        $deal->deal_date = now()->toDateString();     // today
+        $deal->accepted_status = 'P';                 // Pending
+        $deal->commission_status = 'Not Paid';        // Not Paid
+
+        return view('admin.deals.form', [
+            'mode' => 'create',
+            'deal' => $deal,
+            'agents' => $agents,
+            'branches' => $branches,
+        ]);
+    }public function edit(Deal $deal)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+
+        $agents = User::orderBy('name')->get();
+        $branches = Branch::orderBy('name')->get();
+
+        return view('admin.deals.form', [
+            'mode' => 'edit',
+            'deal' => $deal,
+            'agents' => $agents,
+            'branches' => $branches,
+        ]);
+    }
+
+    public function store(Request $request)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        return DB::transaction(function () use ($request) {
+            $deal = new Deal();            // NUMERIC DEAL NUMBERING — supports legacy D-#### and numeric formats
+            $maxNumericOnly = (int) Deal::query()
+                ->whereRaw("deal_no NOT LIKE 'D-%'")
+                ->whereRaw("deal_no GLOB '[0-9]*'")
+                ->max('deal_no');
+
+            $maxFromPrefixed = (int) Deal::query()
+                ->selectRaw("MAX(CAST(SUBSTR(deal_no, 3) AS INTEGER)) as m")
+                ->where('deal_no', 'like', 'D-%')
+                ->value('m');
+
+            $maxNumeric = max($maxNumericOnly, $maxFromPrefixed, 0);
+
+            // If the database is empty (fresh/wiped), start at 1001 to match real-world file numbering.
+            if ($maxNumeric <= 0) {
+                $maxNumeric = 1000;
+            }
+
+            $next = $maxNumeric + 1;
+
+            // NEW FORMAT: numeric only
+            $deal->deal_no = (string)$next;
+
+            $resp = $this->persistDeal($deal, $request);
+            if ($deal->exists) {
+                $this->logDealEvent($deal, 'created', null, null, 'Deal created');
+            }
+            return $resp;
+        });
+    }
+
+    public function update(Request $request, Deal $deal)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+
+        return $this->persistDeal($deal, $request);
+    }
+
+    
+    public function quickUpdate(Request $request, Deal $deal)
+    {
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        $oldAccepted = (string)($deal->accepted_status ?? '');
+        $oldCommission = (string)($deal->commission_status ?? '');
+
+        $data = $request->validate([
+            'accepted_status' => ['nullable', 'string', 'max:1'],
+            'commission_status' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        $newAccepted = array_key_exists('accepted_status', $data) ? (string)($data['accepted_status'] ?? '') : $oldAccepted;
+        $newCommission = array_key_exists('commission_status', $data) ? (string)($data['commission_status'] ?? '') : $oldCommission;
+
+        $deal->fill([
+            'accepted_status' => $newAccepted,
+            'commission_status' => $newCommission,
+        ])->save();
+
+        if ($oldAccepted !== $newAccepted) {
+            $this->logDealEvent($deal, 'status_changed', $oldAccepted, $newAccepted);
+        }
+        if ($oldCommission !== $newCommission) {
+            $this->logDealEvent($deal, 'commission_status_changed', $oldCommission, $newCommission);
+        }
+
+        return redirect()->route('admin.deals')->with('status', 'Deal updated.');
+    }
+
+
+    protected function persistDeal(Deal $deal, Request $request)
+    {
+
+        $oldAcceptedStatus = (string)($deal->accepted_status ?? "");
+
+$financialLocked = ($deal->exists && $this->isLocked($deal));
+
+        $data = $request->validate([
+            'period' => ['required'],
+            'deal_date' => ['required', 'date'],
+
+            'property_value' => ['required', 'numeric'],
+            'total_commission' => ['required', 'numeric'],
+
+
+            'listing_split_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'selling_split_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'file_no' => ['nullable', 'string', 'max:255'],
+            'branch_id' => ['nullable', 'integer'],
+            'property_address' => ['nullable', 'string', 'max:255'],
+            'seller_name' => ['nullable', 'string', 'max:255'],
+            'buyer_name' => ['nullable', 'string', 'max:255'],
+            'attorney_name' => ['nullable', 'string', 'max:255'],
+            'accepted_status' => ['nullable', 'string', 'max:1'],
+            'commission_status' => ['nullable', 'string', 'max:50'],
+            'registration_date' => ['nullable', 'date'],
+            'remarks' => ['nullable', 'string'],
+
+            'listing_external' => ['nullable'],
+            'listing_our_share_percent' => ['nullable', 'numeric'],
+            'listing_external_agency' => ['nullable', 'string', 'max:255'],
+
+            'selling_external' => ['nullable'],
+            'selling_our_share_percent' => ['nullable', 'numeric'],
+            'selling_external_agency' => ['nullable', 'string', 'max:255'],
+
+            'listing_agents' => ['array'],
+            'selling_agents' => ['array'],
+            'listing_override' => ['array'],
+            'selling_override' => ['array'],
+        ]);
+
+        // Defaults + safety enforcement for new deals
+        $user = auth()->user();
+
+        // Branch managers are forced to their branch (UI may still submit something else)
+        if ($user && $user->isEffectiveBranchManager()) {
+            $data['branch_id'] = $user->effectiveBranchId();
+        }
+
+        // For new deals, if statuses are blank, default them
+        if (!$deal->exists) {
+            if (empty($data['accepted_status'])) {
+                $data['accepted_status'] = 'P'; // Pending
+            }
+            if (empty($data['commission_status'])) {
+                $data['commission_status'] = 'Not Paid';
+            }
+        }
+
+
+        
+
+        if (!empty($financialLocked) && $financialLocked) {
+            // Paid = financials locked, but operational fields may still be updated
+            $deal->fill([
+                "period" => $data["period"],
+                "deal_date" => $data["deal_date"],
+
+                "file_no" => $data["file_no"] ?? null,
+                "branch_id" => $data["branch_id"] ?? null,
+                "property_address" => $data["property_address"] ?? null,
+                "seller_name" => $data["seller_name"] ?? null,
+                "buyer_name" => $data["buyer_name"] ?? null,
+                "attorney_name" => $data["attorney_name"] ?? null,
+                "accepted_status" => $data["accepted_status"] ?? null,
+                "registration_date" => $data["registration_date"] ?? null,
+                "remarks" => $data["remarks"] ?? null,
+            ])->save();
+
+            return redirect()->route("admin.deals.edit", $deal)
+                ->with("status", "Deal saved. Financial fields are locked because this deal is Paid.");
+        }
+
+$financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid"));
+        if ($financialLocked) {
+            // Paid = financials locked (commission, splits, external flags, settlement inputs)
+            // Still allow operational updates
+            $deal->fill([
+                "file_no" => $data["file_no"] ?? null,
+                "branch_id" => $data["branch_id"] ?? null,
+                "property_address" => $data["property_address"] ?? null,
+                "seller_name" => $data["seller_name"] ?? null,
+                "buyer_name" => $data["buyer_name"] ?? null,
+                "attorney_name" => $data["attorney_name"] ?? null,
+                "accepted_status" => $data["accepted_status"] ?? null,
+                "registration_date" => $data["registration_date"] ?? null,
+                "remarks" => $data["remarks"] ?? null,
+            ])->save();
+
+            return redirect()->route("admin.deals.edit", $deal)
+                ->with("status", "Deal saved. Financial fields are locked because this deal is Paid.");
+        }
+        // Deal-level side split must total 100 (tolerance 0.01)
+        $listingSplit = isset($data['listing_split_percent']) && $data['listing_split_percent'] !== '' ? (float)$data['listing_split_percent'] : 50.0;
+        $sellingSplit = isset($data['selling_split_percent']) && $data['selling_split_percent'] !== '' ? (float)$data['selling_split_percent'] : 50.0;
+
+        if (abs(($listingSplit + $sellingSplit) - 100) > 0.01) {
+            return back()->withErrors("Listing split % + Selling split % must equal 100. Currently: " . ($listingSplit + $sellingSplit))
+                ->withInput();
+        }
+
+
+
+        foreach (['listing', 'selling'] as $side) {
+            $external  = !empty($data[$side.'_external']);
+            $agents    = $data[$side.'_agents'] ?? [];
+            $overrides = $data[$side.'_override'] ?? [];
+
+            if ($external) {
+                $data[$side.'_our_share_percent'] = 0;
+                continue;
+            }
+
+            if (count($agents) === 0) {
+                return back()->withErrors("{$side} side requires at least one agent.")->withInput();
+            }
+
+            $anyOverride = false;
+            foreach ($agents as $id) {
+                $v = $overrides[$id] ?? null;
+                if ($v !== null && $v !== '') { $anyOverride = true; break; }
+            }
+
+            if ($anyOverride) {
+                $sum = 0;
+                foreach ($agents as $id) {
+                    $v = $overrides[$id] ?? null;
+                    if ($v === null || $v === '') {
+                        return back()->withErrors("{$side} side: if you use % overrides, every selected agent needs a % (and total must be 100).")->withInput();
+                    }
+                    $sum += (float) $v;
+                }
+
+                if (abs($sum - 100) > 0.01) {
+                    return back()->withErrors("{$side} side percentages must total 100. Currently: {$sum}")->withInput();
+                }
+            }
+        }
+
+        $deal->fill([
+            'period' => $data['period'],
+            'deal_date' => $data['deal_date'],
+            'property_value' => $data['property_value'],
+            'total_commission' => $data['total_commission'],
+
+
+            'listing_split_percent' => $listingSplit,
+            'selling_split_percent' => $sellingSplit,
+            'file_no' => $data['file_no'] ?? null,
+            'branch_id' => $data['branch_id'] ?? null,
+            'property_address' => $data['property_address'] ?? null,
+            'seller_name' => $data['seller_name'] ?? null,
+            'buyer_name' => $data['buyer_name'] ?? null,
+            'attorney_name' => $data['attorney_name'] ?? null,
+            'accepted_status' => $data['accepted_status'] ?? null,
+            'commission_status' => $data['commission_status'] ?? null,
+            'registration_date' => $data['registration_date'] ?? null,
+            'remarks' => $data['remarks'] ?? null,
+
+            'listing_external' => !empty($data['listing_external']),
+            'listing_our_share_percent' => $data['listing_our_share_percent'] ?? 100,
+            'listing_external_agency' => $data['listing_external_agency'] ?? null,
+
+            'selling_external' => !empty($data['selling_external']),
+            'selling_our_share_percent' => $data['selling_our_share_percent'] ?? 100,
+            'selling_external_agency' => $data['selling_external_agency'] ?? null,
+        ])->save();
+
+        $deal->agents()->detach();
+
+        foreach (['listing', 'selling'] as $side) {
+            if (!empty($data[$side . '_external'])) continue;
+
+            $agents    = $data[$side . '_agents'] ?? [];
+            $overrides = $data[$side . '_override'] ?? [];
+
+            // Determine if % overrides were supplied on the deal register side
+            $anyOverride = false;
+            foreach ($agents as $id) {
+                $v = $overrides[$id] ?? null;
+                if ($v !== null && $v !== '') { $anyOverride = true; break; }
+            }
+
+            $count = max(count($agents), 1);
+            $auto = 100 / $count;
+
+            // ENFORCE: overrides must total 100% per side (audit rule)
+            if ($anyOverride) {
+                $sum = 0.0;
+                foreach ($agents as $id) {
+                    $v = $overrides[$id] ?? 0;
+                    $sum += (float)$v;
+                }
+                if (abs($sum - 100.0) > 0.01) {
+                    return back()
+                        ->withErrors(strtoupper($side) . " split overrides must total 100%. Currently: " . $sum)
+                        ->withInput();
+                }
+            }
+
+            foreach ($agents as $userId) {
+                $user = User::find($userId);
+
+                // Snapshot defaults onto pivot so future user changes don't rewrite old deals
+                $defaultCut = ($user && $user->agent_cut_percent !== null && $user->agent_cut_percent !== '') ? (float) $user->agent_cut_percent : 50;
+                $defaultPayeMethod = ($user && $user->paye_method) ? $user->paye_method : 'percentage';
+                $defaultPayeValue  = ($user && $user->paye_value !== null && $user->paye_value !== '') ? (float) $user->paye_value : 0;
+
+                $split = $anyOverride ? (float) ($overrides[$userId] ?? 0) : $auto;
+
+                $deal->agents()->attach($userId, [
+                    'side' => $side,
+                    'agent_split_percent' => $split,
+
+                    // Snapshotted defaults (frozen per deal)
+                    'agent_cut_percent' => $defaultCut,
+                    'paye_method' => $defaultPayeMethod,
+                    'paye_value' => $defaultPayeValue,
+                ]);
+            }
+        }
+
+
+        // Sliding scale recalculation: only when accepted_status changes to/from Granted
+        $newAcceptedStatus = (string)($deal->accepted_status ?? "");
+        if ($oldAcceptedStatus !== $newAcceptedStatus && ($oldAcceptedStatus === "G" || $newAcceptedStatus === "G")) {
+            (new SlidingScaleService())->applyForDeal($deal->fresh());
+        }
+
+        // CRITICAL: Rebuild deal_money_lines after any deal create/update and pivot changes
+        \Log::info('Rebuilding deal_money_lines after deal create/update', ['deal_id' => (int)$deal->id]);
+        \App\Services\DealMoneyLineRebuilder::rebuildDealId((int)$deal->id);
+
+
+
+        return redirect()->route('admin.deals');
+    }
+
+    public function settle(Deal $deal)
+    {
+
+        // BM_SETTLEMENT_GUARD
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        $deal->load('agents');
+
+        // Settlement maths — single canonical computation (see computeSettlementPools)
+        $pools                  = $this->computeSettlementPools($deal);
+        $vatRate                = $pools['vatRate'];
+        $vatAmt                 = $pools['vatAmt'];
+        $totalCommissionIncVat  = $pools['totalCommissionIncVat'];
+        $totalCommissionExVat   = $pools['totalCommissionExVat'];
+        $listingPool            = $pools['listingPool'];
+        $sellingPool            = $pools['sellingPool'];
+        $listingExternalPayable = $pools['listingExternalPayable'];
+        $sellingExternalPayable = $pools['sellingExternalPayable'];
+        $externalPayableTotal   = $pools['externalPayableTotal'];
+
+        $settlements = DealSettlement::where('deal_id', $deal->id)->get()
+            ->groupBy(fn($s) => $s->side . ':' . $s->user_id);
+
+        $listingRows = $this->buildSettleRows($deal, 'listing', $listingPool, $settlements);
+        $sellingRows = $this->buildSettleRows($deal, 'selling', $sellingPool, $settlements);
+
+        // Per-agent summary across listing + selling
+        $agentSummary = [];
+
+        $totals = [
+            'allocated' => 0.0,
+            'gross' => 0.0,
+            'paye' => 0.0,
+            'deductions' => 0.0,
+            'net' => 0.0,
+            'company' => 0.0,
+            'external' => (float) $externalPayableTotal,
+        ];
+
+        foreach (array_merge($listingRows, $sellingRows) as $r) {
+            $uid = (int) $r['user_id'];
+
+            if (!isset($agentSummary[$uid])) {
+                $agentSummary[$uid] = [
+                    'user_id' => $uid,
+                    'name' => $r['name'],
+                    'allocated' => 0.0,
+                    'gross' => 0.0,
+                    'paye' => 0.0,
+                    'deductions' => 0.0,
+                    'net' => 0.0,
+                ];
+            }
+
+            $agentSummary[$uid]['allocated'] += (float) $r['allocated'];
+            $agentSummary[$uid]['gross'] += (float) $r['gross'];
+            $agentSummary[$uid]['paye'] += (float) $r['paye'];
+            $agentSummary[$uid]['deductions'] += (float) $r['deductions'];
+            $agentSummary[$uid]['net'] += (float) $r['net'];
+
+            $totals['allocated'] += (float) $r['allocated'];
+            $totals['gross'] += (float) $r['gross'];
+            $totals['paye'] += (float) $r['paye'];
+            $totals['deductions'] += (float) $r['deductions'];
+            $totals['net'] += (float) $r['net'];
+            $totals['company'] += (float) $r['company'];
+        }
+
+        // Sort summary by agent name
+        $agentSummary = array_values($agentSummary);
+        usort($agentSummary, fn($a, $b) => strcmp($a['name'], $b['name']));
+
+        // checksum: everything must reconcile back to total_commission
+        $checksumTotal = $totals['net'] + $totals['paye'] + $totals['deductions'] + $totals['company'] + $totals['external'] + $vatAmt;
+        $checksumOk = abs($checksumTotal - $totalCommissionExVat) <= 0.01;
+
+        return view('admin.deals.settle', [
+            'deal' => $deal,
+            'vatRate' => $vatRate,
+            'totalCommissionIncVat' => $totalCommissionIncVat,
+            'totalCommissionExVat' => $totalCommissionExVat,
+            'listingPool' => $listingPool,
+            'sellingPool' => $sellingPool,
+            'listingRows' => $listingRows,
+            'sellingRows' => $sellingRows,
+
+            'listingExternalPayable' => $listingExternalPayable,
+            'sellingExternalPayable' => $sellingExternalPayable,
+            'externalPayableTotal' => $externalPayableTotal,
+
+            'agentSummary' => $agentSummary,
+            'totals' => $totals,
+            'checksumTotal' => $checksumTotal,
+            'checksumOk' => $checksumOk,
+        ]);
+    }
+
+    public function saveSettlement(Request $request, Deal $deal)
+    {
+        
+
+        // BM_SETTLEMENT_GUARD
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        // Allow settlement save if marking paid (needed to populate paid_at)
+        if ($this->isLocked($deal) && !$request->boolean('mark_paid')) {
+            return redirect()->route('admin.deals.settle', $deal)
+                ->withErrors('This deal is marked Paid and is locked. No changes are allowed.');
+        }
+
+        $data = $request->all();
+
+          // ALLOC_AUDIT_SNAPSHOT: capture pivot before settlement save for audit diff
+          $beforePivot = DB::table('deal_user')
+              ->where('deal_id', $deal->id)
+              ->get()
+              ->mapWithKeys(function ($r) {
+                  $key = ($r->side ?? '') . ':' . (int)$r->user_id;
+                  return [$key => [
+                      'side' => (string)($r->side ?? ''),
+                      'user_id' => (int)$r->user_id,
+                      'agent_split_percent' => $r->agent_split_percent,
+                      'agent_cut_percent' => $r->agent_cut_percent,
+                      'paye_method' => $r->paye_method,
+                      'paye_value' => $r->paye_value,
+                      'deductions' => $r->deductions,
+                      'deductions_description' => $r->deductions_description,
+                      'paid_at' => $r->paid_at,
+                  ]];
+              })
+              ->toArray();
+
+          $oldCommissionStatusForPaid = (string)($deal->commission_status ?? '');
+
+        // Settlement maths — single canonical computation (see computeSettlementPools)
+        $pools                  = $this->computeSettlementPools($deal);
+        $vatRate                = $pools['vatRate'];
+        $vatAmt                 = $pools['vatAmt'];
+        $totalCommissionIncVat  = $pools['totalCommissionIncVat'];
+        $totalCommissionExVat   = $pools['totalCommissionExVat'];
+        $listingPool            = $pools['listingPool'];
+        $sellingPool            = $pools['sellingPool'];
+        $listingExternalPayable = $pools['listingExternalPayable'];
+        $sellingExternalPayable = $pools['sellingExternalPayable'];
+        $externalPayableTotal   = $pools['externalPayableTotal'];
+
+        // Validate share totals for non-external sides (forces full pool usage)
+        foreach (['listing', 'selling'] as $side) {
+            if ($deal->{$side . '_external'}) continue;
+
+            $shares = $data[$side . '_share'] ?? [];
+            $sum = 0.0;
+            foreach ($shares as $v) $sum += (float) $v;
+
+            if (count($shares) === 0) {
+                return back()->withErrors("{$side} side has no agents to settle.")->withInput();
+            }
+
+            if (abs($sum - 100) > 0.01) {
+                return back()->withErrors(ucfirst($side) . " shares must total 100. Currently: {$sum}")->withInput();
+            }
+        }
+
+        // Compute checksum from the posted values (so we can block "mark paid" if not balanced)
+        $totals = [
+            'gross' => 0.0,
+            'paye' => 0.0,
+            'deductions' => 0.0,
+            'net' => 0.0,
+            'company' => 0.0,
+            'external' => (float) $externalPayableTotal,
+        ];
+
+        foreach (['listing', 'selling'] as $side) {
+            if ($deal->{$side . '_external'}) continue;
+
+            $pool = $side === 'listing' ? $listingPool : $sellingPool;
+            $shares = $data[$side . '_share'] ?? [];
+
+            foreach ($shares as $userId => $sharePercent) {
+                $userId = (int) $userId;
+                $sharePercent = (float) $sharePercent;
+
+                $agentCut = $data[$side . '_agent_cut'][$userId] ?? null;
+                $agentCutPercent = ($agentCut === '' || $agentCut === null) ? 50.0 : (float) $agentCut;
+
+                $payeMethod = $data[$side . '_paye_method'][$userId] ?? 'percentage';
+                $payeMethod = $payeMethod ?: 'percentage';
+
+                $payeValue = $data[$side . '_paye_value'][$userId] ?? 0;
+                $payeValue = ($payeValue === '' || $payeValue === null) ? 0.0 : (float) $payeValue;
+                $deductions = $data[$side . '_deductions'][$userId] ?? 0;
+                $deductions = ($deductions === '' || $deductions === null) ? 0.0 : (float) $deductions;
+
+                $allocated = $pool * ($sharePercent / 100.0);
+                $gross = $allocated * ($agentCutPercent / 100.0);
+
+                if ($payeMethod === 'fixed') {
+                    $paye = (float) $payeValue;
+                } else {
+                    $paye = $gross * ((float) $payeValue / 100.0);
+                }
+
+                $net = $gross - $paye - $deductions;
+                $company = $allocated - $gross;
+
+                $totals['gross'] += $gross;
+                $totals['paye'] += $paye;
+                $totals['deductions'] += $deductions;
+                $totals['net'] += $net;
+                $totals['company'] += $company;
+            }
+        }
+
+        $checksumTotal = $totals['net'] + $totals['paye'] + $totals['deductions'] + $totals['company'] + $totals['external'];
+        $checksumOk = abs($checksumTotal - $totalCommissionExVat) <= 0.01;
+
+        if (!empty($data['mark_paid']) && !$checksumOk) {
+            return back()->withErrors(
+                "Cannot mark this deal as Paid because it does not balance. Checksum is R " .
+                number_format($checksumTotal, 2) .
+                " but Total Commission (ex VAT) is R " .
+                number_format($totalCommissionExVat, 2) .
+                "."
+            )->withInput();
+        }
+
+        DB::transaction(function () use ($deal, $data) {
+            
+            foreach (['listing', 'selling'] as $side) {
+                if ($deal->{$side . '_external'}) continue;
+
+                $shares = $data[$side . '_share'] ?? [];
+                $userIds = array_map('intval', array_keys($shares));
+
+                // Remove settlements for agents no longer in the posted list for this side
+                DealSettlement::where('deal_id', $deal->id)
+                    ->where('side', $side)
+                    ->when(count($userIds) > 0, fn($q) => $q->whereNotIn('user_id', $userIds))
+                    ->delete();
+
+                foreach ($shares as $userId => $sharePercent) {
+                    $userId = (int) $userId;
+
+                    $agentCut = $data[$side . '_agent_cut'][$userId] ?? null;
+                    $payeMethod = $data[$side . '_paye_method'][$userId] ?? 'percentage';
+                    $payeValue = $data[$side . '_paye_value'][$userId] ?? 0;
+                    $deductions = $data[$side . '_deductions'][$userId] ?? 0;
+                    $deductionsDesc = $data[$side . '_deductions_description'][$userId] ?? null;
+
+                    DealSettlement::updateOrCreate(
+                        ['deal_id' => $deal->id, 'user_id' => $userId, 'side' => $side],
+                        [
+                            'share_percent' => (float) $sharePercent,
+                            'agent_cut_percent' => ($agentCut === '' || $agentCut === null) ? 50 : (float) $agentCut,
+                            'paye_method' => $payeMethod ?: 'percentage',
+                            'paye_value' => (float) $payeValue,
+                            'deductions' => (float) $deductions,
+                            'deductions_description' => $deductionsDesc,
+                        ]
+                    );
+
+                    // Also snapshot onto pivot (per side) for audit consistency
+                    DB::table('deal_user')
+                        ->where('deal_id', $deal->id)
+                        ->where('user_id', $userId)
+                        ->where('side', $side)
+                        ->update([
+                            'agent_split_percent' => (float) $sharePercent,
+                            'agent_cut_percent' => ($agentCut === '' || $agentCut === null) ? null : (float) $agentCut,
+                            'paye_method' => $payeMethod ?: null,
+                            'paye_value' => ($payeValue === '' || $payeValue === null) ? null : (float) $payeValue,
+                            'deductions' => ($deductions === '' || $deductions === null) ? null : (float) $deductions,
+                            'deductions_description' => $deductionsDesc,
+                            'updated_at' => now(),
+                        ]);
+                }
+            }
+
+            if (!empty($data['mark_paid'])) {
+                $now = now();
+
+                $deal->commission_status = 'Paid';
+                $deal->save();
+
+                // Stamp paid_at for audit/accounting
+                DealSettlement::where('deal_id', $deal->id)->update(['paid_at' => $now]);
+
+                DB::table('deal_user')
+                    ->where('deal_id', $deal->id)
+                    ->update(['paid_at' => $now, 'updated_at' => $now]);
+            }
+        });
+
+          // ALLOC_AUDIT_SNAPSHOT: capture pivot after settlement save for audit diff
+          $afterPivot = DB::table('deal_user')
+              ->where('deal_id', $deal->id)
+              ->get()
+              ->mapWithKeys(function ($r) {
+                  $key = ($r->side ?? '') . ':' . (int)$r->user_id;
+                  return [$key => [
+                      'side' => (string)($r->side ?? ''),
+                      'user_id' => (int)$r->user_id,
+                      'agent_split_percent' => $r->agent_split_percent,
+                      'agent_cut_percent' => $r->agent_cut_percent,
+                      'paye_method' => $r->paye_method,
+                      'paye_value' => $r->paye_value,
+                      'deductions' => $r->deductions,
+                      'deductions_description' => $r->deductions_description,
+                      'paid_at' => $r->paid_at,
+                  ]];
+              })
+              ->toArray();
+
+          // Always log settlement save
+          $this->logDealEvent($deal, 'settlement_saved', null, null, 'Settlement saved');
+
+          // Diff allocations: additions/removals/field changes per side+user
+          $allKeys = array_unique(array_merge(array_keys($beforePivot), array_keys($afterPivot)));
+          foreach ($allKeys as $k) {
+              $b = $beforePivot[$k] ?? null;
+              $a = $afterPivot[$k] ?? null;
+
+              if ($b === null && $a !== null) {
+                  $this->logDealEvent($deal, 'agent_allocation_added', null, null, "Agent allocation added: {$a['side']} user_id={$a['user_id']}");
+                  continue;
+              }
+              if ($b !== null && $a === null) {
+                  $this->logDealEvent($deal, 'agent_allocation_removed', null, null, "Agent allocation removed: {$b['side']} user_id={$b['user_id']}");
+                  continue;
+              }
+              if ($b === null or $a === null):
+                  continue;
+              endif;
+
+              $fields = ['agent_split_percent','agent_cut_percent','paye_method','paye_value','deductions','deductions_description','paid_at'];
+              $changes = [];
+              foreach ($fields as $f) {
+                  $bv = $b[$f] ?? null;
+                  $av = $a[$f] ?? null;
+                  if ((string)($bv ?? '') !== (string)($av ?? '')) {
+                      $changes[] = $f . ':' . (string)($bv ?? '∅') . '→' . (string)($av ?? '∅');
+                  }
+              }
+              if (count($changes) > 0) {
+                  $msg = "Allocation updated: {$a['side']} user_id={$a['user_id']} (" . implode(', ', $changes) . ")";
+                  $this->logDealEvent($deal, 'agent_allocation_changed', null, null, $msg);
+              }
+          }
+
+          if (!empty($data['mark_paid'])) {
+              $this->logDealEvent($deal, 'commission_status_changed', $oldCommissionStatusForPaid, 'Paid', 'Marked Paid via settlement');
+              $this->logDealEvent($deal, 'settlement_marked_paid', null, null, 'Settlement marked Paid');
+          }
+
+        // Rebuild deal_money_lines after settlement changes (single source of truth)
+        // Rebuild deal_money_lines immediately after settlement save (single source of truth)
+        \Log::info('Rebuilding deal_money_lines after settlement save', ['deal_id' => (int)$deal->id]);
+        \App\Services\DealMoneyLineRebuilder::rebuildDealId((int)$deal->id);
+
+        return redirect()
+            ->route('admin.deals.settle', $deal)
+            ->with('status', 'Settlement saved.');
+    }
+
+
+
+    public function printSettlement(Deal $deal)
+    {
+        // BM_SETTLEMENT_GUARD
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        $deal->load('agents');
+
+        // Settlement maths — single canonical computation (see computeSettlementPools)
+        $pools                  = $this->computeSettlementPools($deal);
+        $vatRate                = $pools['vatRate'];
+        $vatAmt                 = $pools['vatAmt'];
+        $totalCommissionIncVat  = $pools['totalCommissionIncVat'];
+        $totalCommissionExVat   = $pools['totalCommissionExVat'];
+        $listingPool            = $pools['listingPool'];
+        $sellingPool            = $pools['sellingPool'];
+        $listingExternalPayable = $pools['listingExternalPayable'];
+        $sellingExternalPayable = $pools['sellingExternalPayable'];
+        $externalPayableTotal   = $pools['externalPayableTotal'];
+
+        $settlements = DealSettlement::where('deal_id', $deal->id)->get()
+            ->groupBy(fn($s) => $s->side . ':' . $s->user_id);
+
+        $listingRows = $this->buildSettleRows($deal, 'listing', $listingPool, $settlements);
+        $sellingRows = $this->buildSettleRows($deal, 'selling', $sellingPool, $settlements);
+
+        // Per-agent summary across listing + selling
+        $agentSummary = [];
+        $totals = [
+            'allocated' => 0.0,
+            'gross' => 0.0,
+            'paye' => 0.0,
+            'deductions' => 0.0,
+            'net' => 0.0,
+            'company' => 0.0,
+            'external' => (float) $externalPayableTotal,
+        ];
+
+        foreach (array_merge($listingRows, $sellingRows) as $r) {
+            $uid = (int) $r['user_id'];
+
+            if (!isset($agentSummary[$uid])) {
+                $agentSummary[$uid] = [
+                    'user_id' => $uid,
+                    'name' => $r['name'],
+                    'allocated' => 0.0,
+                    'gross' => 0.0,
+                    'paye' => 0.0,
+                    'deductions' => 0.0,
+                    'net' => 0.0,
+                ];
+            }
+
+            $agentSummary[$uid]['allocated'] += (float) $r['allocated'];
+            $agentSummary[$uid]['gross'] += (float) $r['gross'];
+            $agentSummary[$uid]['paye'] += (float) $r['paye'];
+            $agentSummary[$uid]['deductions'] += (float) $r['deductions'];
+            $agentSummary[$uid]['net'] += (float) $r['net'];
+
+            $totals['allocated'] += (float) $r['allocated'];
+            $totals['gross'] += (float) $r['gross'];
+            $totals['paye'] += (float) $r['paye'];
+            $totals['deductions'] += (float) $r['deductions'];
+            $totals['net'] += (float) $r['net'];
+            $totals['company'] += (float) $r['company'];
+        }
+
+        // Sort summary by agent name
+        $agentSummary = array_values($agentSummary);
+        usort($agentSummary, fn($a, $b) => strcmp($a['name'], $b['name']));
+
+        $checksumTotal = $totals['net'] + $totals['paye'] + $totals['deductions'] + $totals['company'] + $totals['external'] + $vatAmt;
+        $checksumOk = abs($checksumTotal - $totalCommissionExVat) <= 0.01;
+
+        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+
+        return view('admin.deals.print.settlement', compact(
+            'deal',
+            'companyName',
+            'vatRate',
+            'vatAmt',
+            'totalCommissionIncVat',
+            'totalCommissionExVat',
+            'listingPool',
+            'sellingPool',
+            'listingRows',
+            'sellingRows',
+            'listingExternalPayable',
+            'sellingExternalPayable',
+            'externalPayableTotal',
+            'agentSummary',
+            'totals',
+            'checksumTotal',
+            'checksumOk'
+        ));
+    }
+
+    public function printAgentPayslip(Deal $deal, User $user)
+    {
+        // BM_SETTLEMENT_GUARD
+        abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
+
+        $deal->load('agents');
+
+        // Settlement maths — single canonical computation (see computeSettlementPools)
+        $pools                  = $this->computeSettlementPools($deal);
+        $vatRate                = $pools['vatRate'];
+        $vatAmt                 = $pools['vatAmt'];
+        $totalCommissionIncVat  = $pools['totalCommissionIncVat'];
+        $totalCommissionExVat   = $pools['totalCommissionExVat'];
+        $listingPool            = $pools['listingPool'];
+        $sellingPool            = $pools['sellingPool'];
+        $listingExternalPayable = $pools['listingExternalPayable'];
+        $sellingExternalPayable = $pools['sellingExternalPayable'];
+        $externalPayableTotal   = $pools['externalPayableTotal'];
+
+        $settlements = DealSettlement::where('deal_id', $deal->id)->get()
+            ->groupBy(fn($s) => $s->side . ':' . $s->user_id);
+
+        $listingRows = $this->buildSettleRows($deal, 'listing', $listingPool, $settlements);
+        $sellingRows = $this->buildSettleRows($deal, 'selling', $sellingPool, $settlements);
+
+        $uid = (int)$user->id;
+
+        $listingMine = array_values(array_filter($listingRows, fn($r) => (int)$r['user_id'] === $uid));
+        $sellingMine = array_values(array_filter($sellingRows, fn($r) => (int)$r['user_id'] === $uid));
+
+        $mine = [
+            'allocated' => 0.0,
+            'gross' => 0.0,
+            'paye' => 0.0,
+            'deductions' => 0.0,
+            'net' => 0.0,
+            'company' => 0.0,
+        ];
+
+        // Totals for this agent across both sides
+        foreach (array_merge($listingMine, $sellingMine) as $r) {
+            $mine['allocated'] += (float)$r['allocated'];
+            $mine['gross'] += (float)$r['gross'];
+            $mine['paye'] += (float)$r['paye'];
+            $mine['deductions'] += (float)$r['deductions'];
+            $mine['net'] += (float)$r['net'];
+            $mine['company'] += (float)$r['company'];
+        }
+
+        $companyName = (string) \App\Models\PerformanceSetting::get('company_name', 'Home Finders Coastal');
+
+        return view('admin.deals.print.payslip', [
+            'deal' => $deal,
+            'companyName' => $companyName,
+            'user' => $user,
+            'vatRate' => $vatRate,
+            'vatAmt' => $vatAmt,
+            'totalCommissionIncVat' => $totalCommissionIncVat,
+            'totalCommissionExVat' => $totalCommissionExVat,
+            'listingMine' => $listingMine,
+            'sellingMine' => $sellingMine,
+            'mine' => $mine,
+            'externalPayableTotal' => $externalPayableTotal,
+        ]);
+    }
+
+
+    /**
+     * Single authoritative settlement pool computation.
+     * Called by settle(), saveSettlement(), printSettlement(), printAgentPayslip().
+     * No logic may be changed here without updating all callers.
+     *
+     * @return array{
+     *   vatRate: float, vatAmt: float,
+     *   totalCommissionIncVat: float, totalCommissionExVat: float,
+     *   listingPool: float, sellingPool: float,
+     *   listingExternalPayable: float, sellingExternalPayable: float,
+     *   externalPayableTotal: float
+     * }
+     */
+    private function computeSettlementPools(Deal $deal): array
+    {
+        // Settlement maths is based on GROSS commission (VAT informational only)
+        $vatRatePercent        = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
+        $vatRate               = $vatRatePercent / 100;
+        $totalCommissionIncVat = (float) $deal->total_commission;
+        $totalCommissionExVat  = ($totalCommissionIncVat > 0) ? ($totalCommissionIncVat / (1.0 + $vatRate)) : 0.0;
+
+        // Side splits are captured INCL VAT (bank reality).
+        // Internal payouts (agents/company) are EX VAT; External payable is INCL VAT.
+        $vatAmt = (float)$totalCommissionIncVat - (float)$totalCommissionExVat;
+
+        $listingSplitPct = max(0.0, min(100.0, (float)($deal->listing_split_percent ?? 50)));
+        $sellingSplitPct = max(0.0, min(100.0, (float)($deal->selling_split_percent ?? 50)));
+
+        // Side totals INCL VAT (deal register reality)
+        $listingSideInc = (float)$totalCommissionIncVat * ($listingSplitPct / 100.0);
+        $sellingSideInc = (float)$totalCommissionIncVat * ($sellingSplitPct / 100.0);
+
+        // Side totals EX VAT for internal payout pools
+        $listingSideEx = ($listingSideInc > 0) ? ($listingSideInc / (1.0 + $vatRate)) : 0.0;
+        $sellingSideEx = ($sellingSideInc > 0) ? ($sellingSideInc / (1.0 + $vatRate)) : 0.0;
+
+        $listingOurPct = max(0.0, min(100.0, (float)($deal->listing_our_share_percent ?? 100)));
+        $sellingOurPct = max(0.0, min(100.0, (float)($deal->selling_our_share_percent ?? 100)));
+
+        // Pools (EX VAT); external flags zero out the pool (full side paid externally INCL VAT)
+        if ($deal->listing_external) {
+            $listingPool            = 0.0;
+            $listingExternalPayable = $listingSideInc; // lose full INCL VAT side
+        } else {
+            $listingPool            = $listingSideEx * ($listingOurPct / 100.0);
+            $listingExternalPayable = max(0.0, $listingSideInc * (1.0 - ($listingOurPct / 100.0))); // remainder INCL VAT
+        }
+
+        if ($deal->selling_external) {
+            $sellingPool            = 0.0;
+            $sellingExternalPayable = $sellingSideInc; // lose full INCL VAT side
+        } else {
+            $sellingPool            = $sellingSideEx * ($sellingOurPct / 100.0);
+            $sellingExternalPayable = max(0.0, $sellingSideInc * (1.0 - ($sellingOurPct / 100.0))); // remainder INCL VAT
+        }
+
+        return [
+            'vatRate'                => $vatRate,
+            'vatAmt'                 => $vatAmt,
+            'totalCommissionIncVat'  => $totalCommissionIncVat,
+            'totalCommissionExVat'   => $totalCommissionExVat,
+            'listingPool'            => $listingPool,
+            'sellingPool'            => $sellingPool,
+            'listingExternalPayable' => $listingExternalPayable,
+            'sellingExternalPayable' => $sellingExternalPayable,
+            'externalPayableTotal'   => $listingExternalPayable + $sellingExternalPayable,
+        ];
+    }
+
+    private function buildSettleRows(Deal $deal, string $side, float $pool, $settlements): array
+    {
+        $rows = [];
+
+        $agents = $deal->agents->filter(fn($a) => ($a->pivot?->side ?? "") === $side)->values();
+
+        foreach ($agents as $agent) {
+            $userId = (int) $agent->id;
+
+            $key = $side . ":" . $userId;
+            $existing = $settlements->get($key)?->first();
+              // Share % rules (must mirror Deal::allocateSide()):
+              // - If settlement rows exist for this side, they are authoritative (no redistribution)
+              // - Otherwise pivot overrides apply, remainder split equally
+              // - Any final remainder is allocated to Company (Unallocated)
+
+              $agentCount = $agents->count();
+              $shareMap = [];
+
+              if ($agentCount === 1) {
+                  $onlyId = (int) $agents->first()->id;
+                  $shareMap[$onlyId] = 100.0;
+              } else {
+
+                  // 1) Settlement rows are authoritative if any exist
+                  $hasAnySettlement = false;
+
+                  foreach ($agents as $aa) {
+                      $aid = (int) $aa->id;
+                      $k = $side . ":" . $aid;
+                      $ex = $settlements->get($k)?->first();
+                      if ($ex) {
+                          $shareMap[$aid] = (float)$ex->share_percent;
+                          $hasAnySettlement = true;
+                      }
+                  }
+
+                  if (!$hasAnySettlement) {
+                      // 2) Fall back to pivot splits
+                      $overrideTotal = 0.0;
+                      $overrideIds = [];
+                      $normalIds = [];
+
+                      foreach ($agents as $aa) {
+                          $aid = (int) $aa->id;
+                          $v = $aa->pivot->agent_split_percent ?? null;
+                          $v = ($v === "" || $v === null) ? 0.0 : (float)$v;
+
+                          if ($v > 0) {
+                              $overrideIds[$aid] = $v;
+                              $overrideTotal += $v;
+                          } else {
+                              $normalIds[] = $aid;
+                          }
+                      }
+
+                      if ($overrideTotal > 100.0) $overrideTotal = 100.0;
+                      $remaining = max(0.0, 100.0 - $overrideTotal);
+                      $each = (count($normalIds) > 0) ? ($remaining / count($normalIds)) : 0.0;
+
+                      foreach ($overrideIds as $aid => $pct) $shareMap[$aid] = (float)$pct;
+                      foreach ($normalIds as $aid) $shareMap[$aid] = (float)$each;
+                  }
+              }
+
+              $sharePercent = (float)($shareMap[$userId] ?? 0.0);
+
+
+            // Defaults come from pivot snapshot first (frozen per deal), otherwise user record
+
+            $pivotCut = ($agent->pivot?->agent_cut_percent === null || $agent->pivot?->agent_cut_percent === "") ? null : (float)$agent->pivot->agent_cut_percent;
+            $pivotPayeMethod = $agent->pivot?->paye_method ?: null;
+            $pivotPayeValue  = ($agent->pivot?->paye_value === null || $agent->pivot?->paye_value === "") ? null : (float)$agent->pivot->paye_value;
+
+            $userCut = ($agent->agent_cut_percent === null || $agent->agent_cut_percent === "") ? 50 : (float)$agent->agent_cut_percent;
+            $userPayeMethod = $agent->paye_method ?? "percentage";
+            $userPayeValue  = ($agent->paye_value === null || $agent->paye_value === "") ? 0 : (float)$agent->paye_value;
+
+            $slidingCut = ($agent->pivot?->sliding_applied_cut_percent === null || $agent->pivot?->sliding_applied_cut_percent === "") ? null : (float)$agent->pivot->sliding_applied_cut_percent;
+
+            $useSliding = ((int)($agent->sliding_enabled ?? 0) === 1);
+            $defaultCut = ($useSliding && $slidingCut !== null) ? $slidingCut : (($pivotCut !== null) ? $pivotCut : $userCut);
+            $defaultPayeMethod = $pivotPayeMethod ?: $userPayeMethod;
+            $defaultPayeValue  = ($pivotPayeValue !== null) ? $pivotPayeValue : $userPayeValue;
+
+            $agentCutPercent = $existing ? (float)$existing->agent_cut_percent : $defaultCut;
+
+            $payeMethod = $existing ? ($existing->paye_method ?? "percentage") : $defaultPayeMethod;
+            $payeValue  = $existing ? (float)$existing->paye_value : $defaultPayeValue;
+            $deductions = $existing ? (float)$existing->deductions : 0;
+            $deductionsDesc = $existing ? ($existing->deductions_description ?? "") : "";
+
+            $allocated = $pool * ($sharePercent / 100);
+            $gross = $allocated * ($agentCutPercent / 100);
+
+            $paye = 0;
+            if ($payeMethod === "fixed") {
+                $paye = (float)$payeValue;
+            } else {
+                $paye = $gross * ((float)$payeValue / 100);
+            }
+
+            $net = $gross - $paye - $deductions;
+            $company = $allocated - $gross;
+
+            $rows[] = [
+                "user_id" => $userId,
+                "name" => $agent->name,
+                "share_percent" => $sharePercent,
+                "allocated" => $allocated,
+                "agent_cut_percent" => $agentCutPercent,
+                "gross" => $gross,
+                "paye_method" => $payeMethod,
+                "paye_value" => $payeValue,
+                "paye" => $paye,
+                "deductions" => $deductions,
+                "deductions_description" => $deductionsDesc,
+                "net" => $net,
+                "company" => $company,
+            ];
+        }
+
+
+          // Reconcile remainder to Company (Unallocated), same rule as Deal::allocations()
+          $totalAllocated = array_sum(array_column($rows, 'allocated'));
+          $remainder = $pool - $totalAllocated;
+
+          if ($remainder > 0.009) {
+              $rows[] = [
+                  "user_id" => 0,
+                  "name" => "Company (Unallocated)",
+                  "share_percent" => 0.0,
+                  "allocated" => $remainder,
+                  "agent_cut_percent" => 0.0,
+                  "gross" => 0.0,
+                  "paye_method" => "percentage",
+                  "paye_value" => 0.0,
+                  "paye" => 0.0,
+                  "deductions" => 0.0,
+                  "deductions_description" => "",
+                  "net" => 0.0,
+                  "company" => $remainder,
+              ];
+          }
+
+        return $rows;
+    }
+}

@@ -200,7 +200,6 @@ require __DIR__.'/auth.php';
 // ===== TARGETS_MODULE_2026 =====
 use App\Http\Controllers\Admin\TargetController;
 use App\Http\Controllers\ToolsController;
-use App\Http\Controllers\Tools\PdfSplitterController;
 
 Route::middleware(['auth'])->group(function () {
 
@@ -214,13 +213,6 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/history', [ToolsController::class, 'historyStore'])->name('tools.history.store');
     Route::get('/tools/history/{id}', [ToolsController::class, 'historyShow'])->name('tools.history.show');
     Route::delete('/tools/history/{id}', [ToolsController::class, 'historyDestroy'])->name('tools.history.destroy');
-
-    // PDF Pack Splitter
-    Route::get('/tools/pdf-splitter', [PdfSplitterController::class, 'index'])->name('tools.pdf_splitter.index');
-    Route::post('/tools/pdf-splitter/run', [PdfSplitterController::class, 'run'])->name('tools.pdf_splitter.run');
-    Route::get('/tools/pdf-splitter/review', [PdfSplitterController::class, 'review'])->name('tools.pdf_splitter.review');
-    Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->name('tools.pdf_splitter.confirm');
-    Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('branch_manager')->name('bm.my.dashboard');
 
@@ -404,6 +396,16 @@ Route::middleware(['auth'])->group(function () {
 
 });
 
+// ===== FINANCE AUDIT CENTER (Admin, read-only) =====
+Route::middleware(['auth', 'admin'])->group(function () {
+    Route::get('/admin/finance/audit', [\App\Http\Controllers\Admin\FinanceAuditController::class, 'index'])
+        ->name('admin.finance.audit.index');
+    Route::get('/admin/finance/audit/runs/{run}', [\App\Http\Controllers\Admin\FinanceAuditController::class, 'run'])
+        ->name('admin.finance.audit.run');
+    Route::get('/admin/finance/audit/deals/{deal}', [\App\Http\Controllers\Admin\FinanceAuditController::class, 'deal'])
+        ->name('admin.finance.audit.deal');
+});
+
 // Internal: Nginx auth_request gate for /ai (returns 200 or 401, no redirects)
 Route::get('/internal/ai-auth-check', [\App\Http\Controllers\Internal\AiAuthController::class, 'check'])
     ->name('internal.ai-auth-check');
@@ -413,6 +415,16 @@ Route::post('/internal/ai-chat-proxy', [\App\Http\Controllers\Internal\AiChatPro
     ->name('internal.ai-chat-proxy');
 
 Route::get('/ai-buddy', fn() => redirect()->route('ellie.index'))->middleware('auth')->name('ai.buddy');
+
+// ===== PRESENTATIONS MODULE (feature-flagged) =====
+if (config('features.presentations')) {
+    Route::middleware(['auth', 'verified'])->prefix('presentations')->name('presentations.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Presentation\PresentationController::class, 'create'])->name('create');
+        Route::get('/{presentation}', [\App\Http\Controllers\Presentation\PresentationController::class, 'show'])->name('show');
+        Route::post('/', [\App\Http\Controllers\Presentation\PresentationController::class, 'store'])->name('store');
+    });
+}
 
 // ===== NEXUS OS ROUTES =====
 use App\Http\Controllers\Nexus\DashboardController as NexusDashboardController;
@@ -440,14 +452,4 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
         ->middleware('admin')->name('nexus.role-manager.save');
     Route::post('/role-manager/user-role', [NexusRoleManagerController::class, 'updateUserRole'])
         ->middleware('admin')->name('nexus.role-manager.user-role');
-});
-
-Route::get('tools/pdf-splitter/download', [\App\Http\Controllers\Tools\PdfSplitterController::class, 'downloadLastZip'])->name('tools.pdf_splitter.download');
-
-// ===== PRESENTATIONS =====
-Route::middleware(['auth'])->group(function () {
-    Route::get('/presentations', [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])
-        ->name('presentations.index');
-    Route::post('/presentations/{presentation}/upload', [\App\Http\Controllers\Presentation\PresentationController::class, 'upload'])
-        ->name('presentations.upload');
 });

@@ -1,11 +1,11 @@
-<?php if(!empty($tvUrl)): ?>
+@if(!empty($tvUrl))
     <div class="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
         <div class="font-bold text-slate-200 mb-2">📺 TV Display Link</div>
 
         <div class="flex gap-2 items-center">
             <input id="tvLinkInput"
                    readonly
-                   value="<?php echo e($tvUrl); ?>"
+                   value="{{ $tvUrl }}"
                    class="w-full px-3 py-2 rounded bg-black text-slate-200 border border-slate-700 text-sm">
 
             <button onclick="copyTvLink()"
@@ -30,5 +30,4 @@
             setTimeout(() => msg.innerText = "Open this link on a TV and use full-screen mode.", 1200);
         }
     </script>
-<?php endif; ?>
-<?php /**PATH C:\Users\johan\OneDrive\Documents\GitHub\hfc-dash\resources\views/components/tv-link.blade.php ENDPATH**/ ?>
+@endif

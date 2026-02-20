@@ -1,4 +1,4 @@
-<?php
+@php
     $r = $rollup;
 
     // MONEY (ex VAT) — Branch ledger vs Team (agents-in-branch regardless of deal.branch_id)
@@ -50,66 +50,55 @@
 
     $stageFilter = $stageFilter ?? ['pending'=>true,'granted'=>true,'registered'=>true];
     $marketAverages = $marketAverages ?? [];
-?>
+@endphp
 
-<?php if (isset($component)) { $__componentOriginal9ac128a9029c0e4701924bd2d73d7f54 = $component; } ?>
-<?php if (isset($attributes)) { $__attributesOriginal9ac128a9029c0e4701924bd2d73d7f54 = $attributes; } ?>
-<?php $component = App\View\Components\AppLayout::resolve([] + (isset($attributes) && $attributes instanceof Illuminate\View\ComponentAttributeBag ? $attributes->all() : [])); ?>
-<?php $component->withName('app-layout'); ?>
-<?php if ($component->shouldRender()): ?>
-<?php $__env->startComponent($component->resolveView(), $component->data()); ?>
-<?php if (isset($attributes) && $attributes instanceof Illuminate\View\ComponentAttributeBag): ?>
-<?php $attributes = $attributes->except(\App\View\Components\AppLayout::ignoredParameterNames()); ?>
-<?php endif; ?>
-<?php $component->withAttributes([]); ?>
-     <?php $__env->slot('header', null, []); ?> 
+<x-app-layout>
+    <x-slot name="header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h2 class="font-semibold text-xl text-gray-200 leading-tight">
-                    Branch Dashboard — <?php echo e($r['period']); ?>
-
+                    Branch Dashboard — {{ $r['period'] }}
                 </h2>
                 <div class="text-sm text-gray-400">Branch Manager view (TV-ready)</div>
             </div>
-                <?php echo $__env->make("components.tv-link", array_diff_key(get_defined_vars(), ['__data' => 1, '__path' => 1]))->render(); ?>
+                @include("components.tv-link")
 
             <div class="flex flex-wrap md:flex-nowrap items-center gap-2">
-                <form method="GET" action="<?php echo e(route('bm.performance')); ?>" class="flex flex-wrap md:flex-nowrap items-center gap-2">
+                <form method="GET" action="{{ route('bm.performance') }}" class="flex flex-wrap md:flex-nowrap items-center gap-2">
                     <label class="text-sm font-semibold text-gray-200">Period</label>
-                    <input type="month" name="period" value="<?php echo e($r['period']); ?>" />
+                    <input type="month" name="period" value="{{ $r['period'] }}" />
 
                     <div class="flex flex-wrap items-center gap-3 ml-2">
                         <div class="text-xs font-semibold text-gray-300">Include:</div>
                     <div class="ml-4">
                         <div class="text-xs font-semibold text-gray-300">Window:</div>
                         <select name="avg_window" class="ml-2 border rounded p-1 text-sm">
-                            <option value="period" <?php echo e((($avgWindow ?? 'period') === 'period') ? 'selected' : ''); ?>>Period</option>
-                            <option value="3m" <?php echo e((($avgWindow ?? 'period') === '3m') ? 'selected' : ''); ?>>Last 3 months</option>
-                            <option value="6m" <?php echo e((($avgWindow ?? 'period') === '6m') ? 'selected' : ''); ?>>Last 6 months</option>
-                            <option value="all" <?php echo e((($avgWindow ?? 'period') === 'all') ? 'selected' : ''); ?>>All time</option>
+                            <option value="period" {{ (($avgWindow ?? 'period') === 'period') ? 'selected' : '' }}>Period</option>
+                            <option value="3m" {{ (($avgWindow ?? 'period') === '3m') ? 'selected' : '' }}>Last 3 months</option>
+                            <option value="6m" {{ (($avgWindow ?? 'period') === '6m') ? 'selected' : '' }}>Last 6 months</option>
+                            <option value="all" {{ (($avgWindow ?? 'period') === 'all') ? 'selected' : '' }}>All time</option>
                         </select>
                         <div class="text-[11px] text-gray-400 mt-1">
-                            <?php if(($avgWindow ?? 'period') !== 'all'): ?>
-                                Using deal dates: <?php echo e($avgWindowFrom ?? ''); ?> → <?php echo e($avgWindowTo ?? ''); ?>
-
-                            <?php else: ?>
+                            @if(($avgWindow ?? 'period') !== 'all')
+                                Using deal dates: {{ $avgWindowFrom ?? '' }} → {{ $avgWindowTo ?? '' }}
+                            @else
                                 All time (no date filter)
-                            <?php endif; ?>
+                            @endif
                         </div>
                     </div>
 
                         <label class="flex items-center gap-2 text-xs text-gray-200">
-                            <input type="checkbox" name="st_pending" value="1" <?php echo e(($stageFilter['pending'] ?? true) ? 'checked' : ''); ?>>
+                            <input type="checkbox" name="st_pending" value="1" {{ ($stageFilter['pending'] ?? true) ? 'checked' : '' }}>
                             Pending
                         </label>
 
                         <label class="flex items-center gap-2 text-xs text-gray-200">
-                            <input type="checkbox" name="st_granted" value="1" <?php echo e(($stageFilter['granted'] ?? true) ? 'checked' : ''); ?>>
+                            <input type="checkbox" name="st_granted" value="1" {{ ($stageFilter['granted'] ?? true) ? 'checked' : '' }}>
                             Granted
                         </label>
 
                         <label class="flex items-center gap-2 text-xs text-gray-200">
-                            <input type="checkbox" name="st_registered" value="1" <?php echo e(($stageFilter['registered'] ?? true) ? 'checked' : ''); ?>>
+                            <input type="checkbox" name="st_registered" value="1" {{ ($stageFilter['registered'] ?? true) ? 'checked' : '' }}>
                             Registered
                         </label>
                     </div>
@@ -117,24 +106,24 @@
                 </form>
             </div>
         </div>
-     <?php $__env->endSlot(); ?>
+    </x-slot>
 
     <div class="space-y-6">
 
 
-    
+    {{-- BM_STATUS_TILES --}}
 
 <div class="space-y-3">
-    
+    {{-- Set 1: Period (counts) --}}
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
 
-          <a href="/admin/deals?status=Declined&period=<?php echo e($r['period']); ?>" class="block">
+          <a href="/admin/deals?status=Declined&period={{ $r['period'] }}" class="block">
               <div class="rounded-2xl bg-red-900 text-white p-4 shadow">
                   <div class="text-xs opacity-80 mb-2">Declined</div>
                   <div class="grid grid-cols-2 gap-3">
                       <div>
                           <div class="text-[11px] opacity-80">Period</div>
-                          <div class="text-2xl font-extrabold leading-tight"><?php echo e($statusSummary['declined_period'] ?? 0); ?></div>
+                          <div class="text-2xl font-extrabold leading-tight">{{ $statusSummary['declined_period'] ?? 0 }}</div>
                       </div>
                       <div class="text-right">
                           <div class="text-[11px] opacity-80">All time</div>
@@ -144,45 +133,45 @@
               </div>
           </a>
 
-          <a href="/admin/deals?status=Pending&period=<?php echo e($r['period']); ?>" class="block">
+          <a href="/admin/deals?status=Pending&period={{ $r['period'] }}" class="block">
               <div class="rounded-2xl bg-amber-700 text-white p-4 shadow">
                   <div class="text-xs opacity-80 mb-2">Pending</div>
                   <div class="grid grid-cols-2 gap-3">
                       <div>
                           <div class="text-[11px] opacity-80">Period</div>
-                          <div class="text-2xl font-extrabold leading-tight"><?php echo e($statusSummary['pending_period'] ?? 0); ?></div>
+                          <div class="text-2xl font-extrabold leading-tight">{{ $statusSummary['pending_period'] ?? 0 }}</div>
                       </div>
                       <div class="text-right">
                           <div class="text-[11px] opacity-80">All time</div>
-                          <div class="text-2xl font-extrabold leading-tight"><?php echo e($statusSummary['pending_total'] ?? 0); ?></div>
+                          <div class="text-2xl font-extrabold leading-tight">{{ $statusSummary['pending_total'] ?? 0 }}</div>
                       </div>
                   </div>
               </div>
           </a>
 
-          <a href="/admin/deals?status=Granted&period=<?php echo e($r['period']); ?>" class="block">
+          <a href="/admin/deals?status=Granted&period={{ $r['period'] }}" class="block">
               <div class="rounded-2xl bg-blue-800 text-white p-4 shadow">
                   <div class="text-xs opacity-80 mb-2">Granted</div>
                   <div class="grid grid-cols-2 gap-3">
                       <div>
                           <div class="text-[11px] opacity-80">Period</div>
-                          <div class="text-2xl font-extrabold leading-tight"><?php echo e($statusSummary['granted_period'] ?? 0); ?></div>
+                          <div class="text-2xl font-extrabold leading-tight">{{ $statusSummary['granted_period'] ?? 0 }}</div>
                       </div>
                       <div class="text-right">
                           <div class="text-[11px] opacity-80">All time</div>
-                          <div class="text-2xl font-extrabold leading-tight"><?php echo e($statusSummary['granted_total'] ?? 0); ?></div>
+                          <div class="text-2xl font-extrabold leading-tight">{{ $statusSummary['granted_total'] ?? 0 }}</div>
                       </div>
                   </div>
               </div>
           </a>
 
-          <a href="/admin/deals?status=Registered&period=<?php echo e($r['period']); ?>" class="block">
+          <a href="/admin/deals?status=Registered&period={{ $r['period'] }}" class="block">
               <div class="rounded-2xl bg-green-800 text-white p-4 shadow">
                   <div class="text-xs opacity-80 mb-2">Registered</div>
                   <div class="grid grid-cols-2 gap-3">
                       <div>
                           <div class="text-[11px] opacity-80">Period</div>
-                          <div class="text-2xl font-extrabold leading-tight"><?php echo e($statusSummary['registered_period'] ?? 0); ?></div>
+                          <div class="text-2xl font-extrabold leading-tight">{{ $statusSummary['registered_period'] ?? 0 }}</div>
                       </div>
                       <div class="text-right">
                           <div class="text-[11px] opacity-80">All time</div>
@@ -194,14 +183,13 @@
 
       </div>
 
-
+{{-- Set 2: Outstanding (Not Paid) — Company ex VAT --}}
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <a href="/admin/deals?status=Pending&commission_status=Not%20Paid" class="block">
             <div class="rounded-2xl bg-amber-700 text-white p-4 shadow">
                 <div class="text-xs opacity-80">Pending (Not Paid) — Company ex VAT</div>
                 <div class="text-3xl font-extrabold">
-                    R <?php echo e(number_format((float)($statusSummary['pending_unpaid_company_ex_vat'] ?? 0), 0)); ?>
-
+                    R {{ number_format((float)($statusSummary['pending_unpaid_company_ex_vat'] ?? 0), 0) }}
                 </div>
             </div>
         </a>
@@ -210,12 +198,10 @@
             <div class="rounded-2xl bg-blue-800 text-white p-4 shadow">
                 <div class="text-xs opacity-80">Granted (Not Paid) — Company ex VAT</div>
                 <div class="text-3xl font-extrabold">
-                    R <?php echo e(number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0)); ?>
-
+                    R {{ number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0) }}
                 </div>
                 <div class="mt-1 text-xs opacity-80">
-                    Paid this period: R <?php echo e(number_format((float)($statusSummary['granted_paid_company_ex_vat_period'] ?? 0), 0)); ?>
-
+                    Paid this period: R {{ number_format((float)($statusSummary['granted_paid_company_ex_vat_period'] ?? 0), 0) }}
                 </div>
             </div>
         </a>
@@ -224,12 +210,10 @@
             <div class="rounded-2xl bg-green-800 text-white p-4 shadow">
                 <div class="text-xs opacity-80">Registered (Not Paid) — Company ex VAT</div>
                 <div class="text-3xl font-extrabold">
-                    R <?php echo e(number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0)); ?>
-
+                    R {{ number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0) }}
                 </div>
                 <div class="mt-1 text-xs opacity-80">
-                    Paid this period: R <?php echo e(number_format((float)($statusSummary['registered_paid_company_ex_vat_period'] ?? 0), 0)); ?>
-
+                    Paid this period: R {{ number_format((float)($statusSummary['registered_paid_company_ex_vat_period'] ?? 0), 0) }}
                 </div>
             </div>
         </a>
@@ -239,7 +223,7 @@
 
 
         
-  
+  {{-- Branch Listing Stock (Propcon) --}}
   <div class="card">
       <div class="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -249,41 +233,41 @@
       </div>
 
       <div class="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-          <a href="<?php echo e(route('bm.listings', ['filter' => 'active'])); ?>" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
+          <a href="{{ route('bm.listings', ['filter' => 'active']) }}" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
               <div class="text-xs text-gray-500">Active</div>
-              <div class="text-2xl font-extrabold text-gray-900"><?php echo e((int)($listingStats['total'] ?? 0)); ?></div>
+              <div class="text-2xl font-extrabold text-gray-900">{{ (int)($listingStats['total'] ?? 0) }}</div>
           </a>
 
-          <a href="<?php echo e(route('bm.listings', ['filter' => 'dom'])); ?>" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
+          <a href="{{ route('bm.listings', ['filter' => 'dom']) }}" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
               <div class="text-xs text-gray-500">Avg DOM</div>
-              <div class="text-2xl font-extrabold text-gray-900"><?php echo e((int)($listingStats['avg_days_on_market'] ?? 0)); ?></div>
+              <div class="text-2xl font-extrabold text-gray-900">{{ (int)($listingStats['avg_days_on_market'] ?? 0) }}</div>
           </a>
 
-          <a href="<?php echo e(route('bm.listings', ['filter' => 'stale'])); ?>" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
+          <a href="{{ route('bm.listings', ['filter' => 'stale']) }}" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
               <div class="text-xs text-gray-500">Stale (14d)</div>
-              <div class="text-2xl font-extrabold text-gray-900"><?php echo e((int)($listingStats['stale'] ?? 0)); ?></div>
+              <div class="text-2xl font-extrabold text-gray-900">{{ (int)($listingStats['stale'] ?? 0) }}</div>
           </a>
 
-          <a href="<?php echo e(route('bm.listings', ['filter' => 'expiring'])); ?>" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
+          <a href="{{ route('bm.listings', ['filter' => 'expiring']) }}" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
               <div class="text-xs text-gray-500">Expiring (14d)</div>
-              <div class="text-2xl font-extrabold text-gray-900"><?php echo e((int)($listingStats['expiring_soon'] ?? 0)); ?></div>
+              <div class="text-2xl font-extrabold text-gray-900">{{ (int)($listingStats['expiring_soon'] ?? 0) }}</div>
           </a>
 
-          <a href="<?php echo e(route('bm.listings', ['filter' => 'expired'])); ?>" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
+          <a href="{{ route('bm.listings', ['filter' => 'expired']) }}" class="p-4 rounded-2xl bg-gray-50 border border-black/10 hover:bg-gray-100 transition block">
               <div class="text-xs text-gray-500">Expired</div>
-              <div class="text-2xl font-extrabold text-gray-900"><?php echo e((int)($listingStats['expired'] ?? 0)); ?></div>
+              <div class="text-2xl font-extrabold text-gray-900">{{ (int)($listingStats['expired'] ?? 0) }}</div>
           </a>
       </div>
   </div>
 
 
-
-        <?php
+{{-- Deal Register averages (selected statuses) --}}
+        @php
             $avgCount = (int)($marketAverages['deals_count'] ?? 0);
             $avgSaleInc = (float)($marketAverages['avg_sale_price_inc_vat'] ?? 0);
             $avgSaleEx  = (float)($marketAverages['avg_sale_price_ex_vat'] ?? 0);
             $effCommPct = (float)($marketAverages['effective_commission_percent_ex_vat'] ?? 0);
-        ?>
+        @endphp
 
         <div class="card">
             <div class="flex items-start justify-between gap-4 flex-wrap">
@@ -294,7 +278,7 @@
                     </div>
                 </div>
                 <div class="text-xs text-gray-500">
-                    Deals counted: <span class="font-bold text-gray-700"><?php echo e($avgCount); ?></span>
+                    Deals counted: <span class="font-bold text-gray-700">{{ $avgCount }}</span>
                 </div>
             </div>
 
@@ -302,16 +286,15 @@
                 <div class="p-4 rounded-2xl bg-gray-50 border border-black/10">
                     <div class="text-gray-600 font-semibold">Avg Sale Price (Inc VAT)</div>
                     <div class="text-2xl font-extrabold text-gray-900">
-                        R <?php echo e(number_format($avgSaleInc, 0)); ?>
-
+                        R {{ number_format($avgSaleInc, 0) }}
                     </div>
-                    <div class="text-xs text-gray-500 mt-1">Ex VAT: R <?php echo e(number_format($avgSaleEx, 0)); ?></div>
+                    <div class="text-xs text-gray-500 mt-1">Ex VAT: R {{ number_format($avgSaleEx, 0) }}</div>
                 </div>
 
                 <div class="p-4 rounded-2xl bg-gray-50 border border-black/10">
                     <div class="text-gray-600 font-semibold">Effective Commission % (Ex VAT)</div>
                     <div class="text-2xl font-extrabold text-gray-900">
-                        <?php echo e(number_format($effCommPct, 2)); ?>%
+                        {{ number_format($effCommPct, 2) }}%
                     </div>
                     <div class="text-xs text-gray-500 mt-1">
                         Derived from Deal Register totals (ex VAT basis).
@@ -321,9 +304,9 @@
                 <div class="p-4 rounded-2xl bg-gray-50 border border-black/10">
                     <div class="text-gray-600 font-semibold">Filter</div>
                     <div class="text-sm text-gray-800 mt-1">
-                        Pending: <span class="font-bold"><?php echo e(($stageFilter['pending'] ?? true) ? 'Yes' : 'No'); ?></span> •
-                        Granted: <span class="font-bold"><?php echo e(($stageFilter['granted'] ?? true) ? 'Yes' : 'No'); ?></span> •
-                        Registered: <span class="font-bold"><?php echo e(($stageFilter['registered'] ?? true) ? 'Yes' : 'No'); ?></span>
+                        Pending: <span class="font-bold">{{ ($stageFilter['pending'] ?? true) ? 'Yes' : 'No' }}</span> •
+                        Granted: <span class="font-bold">{{ ($stageFilter['granted'] ?? true) ? 'Yes' : 'No' }}</span> •
+                        Registered: <span class="font-bold">{{ ($stageFilter['registered'] ?? true) ? 'Yes' : 'No' }}</span>
                     </div>
                     <div class="text-xs text-gray-500 mt-2">
                         Tip: Un-tick Pending if you want “closed/advanced” averages only.
@@ -335,23 +318,21 @@
 
 
 
-        <?php if(session("status")): ?>
+        @if(session("status"))
             <div class="bg-green-500/10 border border-green-500/20 text-green-200 rounded-xl p-3 text-sm">
-                <?php echo e(session("status")); ?>
-
+                {{ session("status") }}
             </div>
-        <?php endif; ?>
+        @endif
 
-        <?php if($errors->any()): ?>
+        @if($errors->any())
             <div class="bg-red-500/10 border border-red-500/20 text-red-200 rounded-xl p-3 text-sm">
-                <?php echo e(implode(", ", $errors->all())); ?>
-
+                {{ implode(", ", $errors->all()) }}
             </div>
-        <?php endif; ?>
+        @endif
 
         
-        
-        <?php
+        {{-- HERO: Money (branch) --}}
+        @php
             $branchValueTarget_agentsum = (float)($r['totals']['targets']['value'] ?? 0);
             $branchDealsTarget_agentsum = (int)($r['totals']['targets']['deals'] ?? 0);
 
@@ -367,7 +348,7 @@
 
             $valueBar = $valuePct >= 95 ? 'bg-green-600' : ($valuePct >= 75 ? 'bg-amber-500' : 'bg-red-600');
             $dealsBar = $dealsPct >= 95 ? 'bg-green-600' : ($dealsPct >= 75 ? 'bg-amber-500' : 'bg-red-600');
-        ?>
+        @endphp
 
         <div class="card">
             <div class="text-2xl md:text-3xl font-extrabold text-gray-900 leading-tight">Branch focus — Money</div>
@@ -379,25 +360,24 @@
                 <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
                     <div class="text-sm text-gray-600 font-semibold">Branch Value (Actual / Agent-Sum Target)</div>
                     <div class="text-3xl font-extrabold text-gray-900 leading-tight">
-                        R <?php echo e(number_format($branchValueActual, 0)); ?>
-
-                        <span class="text-gray-400 font-bold">/ R <?php echo e(number_format($branchValueTarget_agentsum, 0)); ?></span>
+                        R {{ number_format($branchValueActual, 0) }}
+                        <span class="text-gray-400 font-bold">/ R {{ number_format($branchValueTarget_agentsum, 0) }}</span>
                     </div>
                     <div class="mt-2 h-3 rounded bg-gray-200 overflow-hidden">
-                        <div class="h-3 <?php echo e($valueBar); ?>" style="width: <?php echo e(min(100, max(0, $valuePct))); ?>%"></div>
+                        <div class="h-3 {{ $valueBar }}" style="width: {{ min(100, max(0, $valuePct)) }}%"></div>
                     </div>
-                    <div class="mt-2 text-sm text-gray-700 font-semibold">Progress <?php echo e(number_format($valuePct, 1)); ?>%</div>
+                    <div class="mt-2 text-sm text-gray-700 font-semibold">Progress {{ number_format($valuePct, 1) }}%</div>
                 </div>
 
                 
                     </div>
-                    <div class="mt-2 text-sm text-gray-700 font-semibold">Progress <?php echo e(number_format($dealsPct, 1)); ?>%</div>
+                    <div class="mt-2 text-sm text-gray-700 font-semibold">Progress {{ number_format($dealsPct, 1) }}%</div>
                 </div>
             </div>
         </div>
 
-        
-        <?php
+        {{-- Branch Budget (BM input) --}}
+        @php
             /* BM_BUDGET_TARGETS_READINESS */
             // Magic alignment is only safe when every active branch user has a non-zero VALUE target for this period.
             $missingValueTargets = array_values(array_filter(($r['rows'] ?? []), function ($row) {
@@ -406,7 +386,7 @@
             }));
             $missingValueTargetsCount = count($missingValueTargets);
             /* BM_BUDGET_TARGETS_READINESS_END */
-        ?>
+        @endphp
 
         <div class="card">
             <div class="flex items-center justify-between gap-4 flex-wrap">
@@ -418,12 +398,12 @@
                     </div>
                 </div>
 
-                <form method="POST" action="<?php echo e(route('bm.performance.save')); ?>" class="flex items-end gap-2 flex-wrap">
-                    <?php echo csrf_field(); ?>
-                    <input type="hidden" name="period" value="<?php echo e($r['period']); ?>">
+                <form method="POST" action="{{ route('bm.performance.save') }}" class="flex items-end gap-2 flex-wrap">
+                    @csrf
+                    <input type="hidden" name="period" value="{{ $r['period'] }}">
                     <div>
                         <div class="text-xs text-gray-500 font-semibold mb-1">Branch budget (R)</div>
-                        <input type="number" step="0.01" name="branch_budget" value="<?php echo e($branchBudget); ?>" class="w-48" min="0">
+                        <input type="number" step="0.01" name="branch_budget" value="{{ $branchBudget }}" class="w-48" min="0">
                     </div>
                     <button class="btn-primary px-5 py-2">Save Budget</button>
                 </form>
@@ -432,29 +412,29 @@
             <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div class="p-4 rounded-2xl bg-gray-50 border border-black/10">
                     <div class="text-gray-600 font-semibold">Branch Budget</div>
-                    <div class="text-3xl font-extrabold text-gray-900">R <?php echo e(number_format($branchBudget, 0)); ?></div>
+                    <div class="text-3xl font-extrabold text-gray-900">R {{ number_format($branchBudget, 0) }}</div>
                 </div>
 
                 <div class="p-4 rounded-2xl bg-gray-50 border border-black/10">
                     <div class="text-gray-600 font-semibold">Projected Income (from agent targets)</div>
-                    <div class="text-3xl font-extrabold text-gray-900">R <?php echo e(number_format($projectedIncome, 0)); ?></div>
+                    <div class="text-3xl font-extrabold text-gray-900">R {{ number_format($projectedIncome, 0) }}</div>
                     <div class="text-xs text-gray-500 mt-1">
-                        rate <?php echo e(number_format(($b['commission_rate'] ?? 0.05) * 100, 2)); ?>% × share <?php echo e(number_format(($b['company_share'] ?? 0.5) * 100, 0)); ?>%
+                        rate {{ number_format(($b['commission_rate'] ?? 0.05) * 100, 2) }}% × share {{ number_format(($b['company_share'] ?? 0.5) * 100, 0) }}%
                     </div>
                 </div>
 
-                <div class="p-4 rounded-2xl border border-black/10 <?php echo e($shortAmount > 0 ? 'bg-red-50' : 'bg-green-50'); ?>">
+                <div class="p-4 rounded-2xl border border-black/10 {{ $shortAmount > 0 ? 'bg-red-50' : 'bg-green-50' }}">
                     <div class="text-gray-600 font-semibold">Status</div>
-                    <?php if($branchBudget > 0 && $shortAmount <= 0): ?>
+                    @if($branchBudget > 0 && $shortAmount <= 0)
                         <div class="text-2xl font-extrabold text-green-700">On track ✅</div>
                         <div class="text-sm text-gray-700 mt-1">No increases needed.</div>
-                    <?php elseif($branchBudget > 0 && $shortAmount > 0): ?>
-                        <div class="text-2xl font-extrabold text-red-700">Short by <?php echo e(number_format($shortPct, 1)); ?>%</div>
+                    @elseif($branchBudget > 0 && $shortAmount > 0)
+                        <div class="text-2xl font-extrabold text-red-700">Short by {{ number_format($shortPct, 1) }}%</div>
                         <div class="text-sm text-gray-700 mt-1">
-                            Shortfall: <span class="font-bold">R <?php echo e(number_format($shortAmount, 0)); ?></span>
+                            Shortfall: <span class="font-bold">R {{ number_format($shortAmount, 0) }}</span>
                         </div>
 
-                        <?php if(($missingValueTargetsCount ?? 0) > 0): ?>
+                        @if(($missingValueTargetsCount ?? 0) > 0)
                             <div class="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
                                 <div class="text-sm font-extrabold text-amber-900">Targets incomplete — set missing agent targets</div>
                                 <div class="text-xs text-amber-800 mt-1">
@@ -463,32 +443,32 @@
                                 </div>
 
                                 <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    <?php $__currentLoopData = $missingValueTargets; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $u): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                    @foreach($missingValueTargets as $u)
                                         <div class="rounded-lg border border-amber-200 bg-white p-3 flex items-center justify-between gap-3">
                                             <div>
-                                                <div class="text-sm font-bold text-amber-950"><?php echo e($u['name']); ?></div>
+                                                <div class="text-sm font-bold text-amber-950">{{ $u['name'] }}</div>
                                                 <div class="text-xs text-amber-800">Value target currently: <span class="font-bold">0</span></div>
                                             </div>
 
-                                            <form method="POST" action="<?php echo e(route('bm.performance.alignAgentToCompany')); ?>">
-                                                <?php echo csrf_field(); ?>
-                                                <input type="hidden" name="period" value="<?php echo e($r['period']); ?>">
-                                                <input type="hidden" name="user_id" value="<?php echo e((int)($u['user_id'] ?? 0)); ?>">
+                                            <form method="POST" action="{{ route('bm.performance.alignAgentToCompany') }}">
+                                                @csrf
+                                                <input type="hidden" name="period" value="{{ $r['period'] }}">
+                                                <input type="hidden" name="user_id" value="{{ (int)($u['user_id'] ?? 0) }}">
                                                 <button class="btn-primary px-4 py-2 whitespace-nowrap">Auto align</button>
                                             </form>
                                         </div>
-                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    @endforeach
                                 </div>
 
                                 <div class="text-[11px] text-amber-900 mt-2">
                                     “Set targets” will copy the agent’s most recent non-zero targets into this period (safe default), then Projected Income updates immediately.
                                 </div>
                             </div>
-                        <?php endif; ?>
-<?php elseif($branchBudget > 0 && $shortAmount > 0): ?>
-                        <div class="text-2xl font-extrabold text-red-700">Short by <?php echo e(number_format($shortPct, 1)); ?>%</div>
-                        <div class="text-sm text-gray-700 mt-1">Shortfall: <span class="font-bold">R <?php echo e(number_format($shortAmount, 0)); ?></span></div>                        <?php if(($missingValueTargetsCount ?? 0) === 0): ?>
-<?php else: ?>
+                        @endif
+@elseif($branchBudget > 0 && $shortAmount > 0)
+                        <div class="text-2xl font-extrabold text-red-700">Short by {{ number_format($shortPct, 1) }}%</div>
+                        <div class="text-sm text-gray-700 mt-1">Shortfall: <span class="font-bold">R {{ number_format($shortAmount, 0) }}</span></div>                        @if(($missingValueTargetsCount ?? 0) === 0)
+@else
                             <div class="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
                                 <div class="text-sm font-extrabold text-amber-900">Targets incomplete — Magic disabled</div>
                                 <div class="text-xs text-amber-800 mt-1">
@@ -497,19 +477,19 @@
                                 </div>
                                 <div class="mt-2 text-xs text-amber-900 font-semibold">Missing Value targets:</div>
                                 <ul class="mt-1 text-xs text-amber-900">
-                                    <?php $__currentLoopData = $missingValueTargets; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $u): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                                        <li>• <?php echo e($u['name']); ?></li>
-                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                                    @foreach($missingValueTargets as $u)
+                                        <li>• {{ $u['name'] }}</li>
+                                    @endforeach
                                 </ul>
                             </div>
-                        <?php endif; ?>
+                        @endif
 <div class="text-xs text-gray-500 mt-2">
                             This scales agent targets (listings/deals/value/points) for the period to align with budget.
                         </div>
-                    <?php else: ?>
+                    @else
                         <div class="text-2xl font-extrabold text-gray-700">Set budget</div>
                         <div class="text-sm text-gray-600 mt-1">Enter branch budget to activate alignment.</div>
-                    <?php endif; ?>
+                    @endif
                 </div>
             </div>
         </div>
@@ -527,7 +507,7 @@
 
         </div>
 
-        
+        {{-- Excel-style Agents table --}}
         <div class="card overflow-hidden">
             <div class="p-4">
                 <div class="text-gray-900 font-semibold text-lg">Agents (targets vs actuals)</div>
@@ -535,14 +515,14 @@
             </div>
 
             <div class="overflow-x-auto">
-                <?php
+                @php
     // BRANCH TOTAL Sales Value must match the agent rows (split-correct).
     // This avoids counting full deal values when cross-branch deals exist.
     $branchTotalSalesValueActual = 0.0;
     foreach (($r['rows'] ?? []) as $__row) {
         $branchTotalSalesValueActual += (float)($__row['actuals']['value'] ?? $__row['actuals']['sales_value'] ?? 0);
     }
-?>
+@endphp
 
 <table class="min-w-full text-sm text-gray-900">
                     <thead class="bg-gray-50 text-gray-700">
@@ -556,38 +536,31 @@
                         </tr>
                     </thead>
                     <tbody>
-                        
+                        {{-- Branch totals row (ties to the top tiles) --}}
                         <tr class="border-t border-black/10 bg-gray-50">
                             <td class="px-4 py-3 font-extrabold">BRANCH TOTAL</td>
                             <td class="px-4 py-3 text-right font-bold">
-                                <?php echo e((int)($r['totals']['actuals']['deals'] ?? 0)); ?> / <?php echo e((int)($r['totals']['targets']['deals'] ?? 0)); ?>
-
+                                {{ (int)($r['totals']['actuals']['deals'] ?? 0) }} / {{ (int)($r['totals']['targets']['deals'] ?? 0) }}
                             </td>
                             <td class="px-4 py-3 text-right font-bold">
-                                R <?php echo e(number_format((float)($branchTotalSalesValueActual ?? 0), 0)); ?>
-
-                                / R <?php echo e(number_format((float)($r['totals']['targets']['value'] ?? 0), 0)); ?>
-
+                                R {{ number_format((float)($branchTotalSalesValueActual ?? 0), 0) }}
+                                / R {{ number_format((float)($r['totals']['targets']['value'] ?? 0), 0) }}
                             </td>
                             <td class="px-4 py-3 text-right font-bold">
-                                <?php echo e(number_format((float)($r['totals']['actuals']['points'] ?? 0), 0)); ?>
-
-                                / <?php echo e(number_format((float)($r['totals']['targets']['points'] ?? 0), 0)); ?>
-
+                                {{ number_format((float)($r['totals']['actuals']['points'] ?? 0), 0) }}
+                                / {{ number_format((float)($r['totals']['targets']['points'] ?? 0), 0) }}
                             </td>
                             <td class="px-4 py-3 text-right font-extrabold">
-                                R <?php echo e(number_format((float)($r['totals']['actuals']['team_company_retained'] ?? 0), 0)); ?>
-
+                                R {{ number_format((float)($r['totals']['actuals']['team_company_retained'] ?? 0), 0) }}
                                 <div class="text-[11px] text-gray-500 font-semibold">
-                                    Ledger: R <?php echo e(number_format((float)($r['totals']['actuals']['ledger_company_retained'] ?? 0), 0)); ?>
-
+                                    Ledger: R {{ number_format((float)($r['totals']['actuals']['ledger_company_retained'] ?? 0), 0) }}
                                 </div>
                             </td>
                             <td class="px-4 py-3 text-right text-gray-700 font-bold">—</td>
                         </tr>
 
-                        <?php $__currentLoopData = $r['rows']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $row): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                            <?php
+                        @foreach($r['rows'] as $row)
+                            @php
                                 $pointsTargetRow = (float)($row['targets']['points'] ?? 0);
                                 $pointsActualRow = (float)($row['actuals']['points'] ?? 0);
                                 $pct = ($pointsTargetRow > 0) ? round(($pointsActualRow/$pointsTargetRow)*100, 1) : 0;
@@ -601,57 +574,49 @@
                                 $agentIncome = (float)($row['actuals']['agent_income'] ?? 0);
                                 $valueActual = (float)($row['actuals']['value'] ?? $row['actuals']['sales_value'] ?? 0);
                                 $valueTarget = (float)($row['targets']['value'] ?? 0);
-                            ?>
+                            @endphp
 
                             <tr class="border-t border-black/10">
                                 <td class="px-4 py-3">
                                     <div class="font-semibold">
                                         <a class="text-indigo-600 hover:underline"
-                                           href="<?php echo e(route('bm.agent.performance', ['userId' => $row['user_id'], 'period' => $r['period']])); ?>">
-                                            <?php echo e($row['name']); ?>
-
+                                           href="{{ route('bm.agent.performance', ['userId' => $row['user_id'], 'period' => $r['period']]) }}">
+                                            {{ $row['name'] }}
                                         </a>
                                     </div>
                                     <div class="text-xs text-gray-500">
-                                        Per-day needed: <?php echo e(number_format((float)($row['progress']['points_per_day_needed'] ?? 0), 1)); ?>
-
+                                        Per-day needed: {{ number_format((float)($row['progress']['points_per_day_needed'] ?? 0), 1) }}
                                     </div>
                                 </td>
 
                                 <td class="px-4 py-3 text-right font-semibold">
-                                    <?php echo e((int)($row['actuals']['deals'] ?? 0)); ?> / <?php echo e((int)($row['targets']['deals'] ?? 0)); ?>
-
+                                    {{ (int)($row['actuals']['deals'] ?? 0) }} / {{ (int)($row['targets']['deals'] ?? 0) }}
                                 </td>
 
                                 <td class="px-4 py-3 text-right font-semibold">
-                                    R <?php echo e(number_format($valueActual, 0)); ?> / R <?php echo e(number_format($valueTarget, 0)); ?>
-
+                                    R {{ number_format($valueActual, 0) }} / R {{ number_format($valueTarget, 0) }}
                                 </td>
 
                                 <td class="px-4 py-3 text-right font-semibold">
-                                    <?php echo e(number_format($pointsActualRow, 0)); ?> / <?php echo e(number_format($pointsTargetRow, 0)); ?>
-
+                                    {{ number_format($pointsActualRow, 0) }} / {{ number_format($pointsTargetRow, 0) }}
                                     <div class="mt-1 h-2 rounded bg-gray-200 overflow-hidden">
-                                        <div class="h-2 <?php echo e($pct >= 95 ? 'bg-green-600' : ($pct >= 75 ? 'bg-amber-500' : 'bg-red-600')); ?>"
-                                             style="width: <?php echo e(min(100, max(0, $pct))); ?>%"></div>
+                                        <div class="h-2 {{ $pct >= 95 ? 'bg-green-600' : ($pct >= 75 ? 'bg-amber-500' : 'bg-red-600') }}"
+                                             style="width: {{ min(100, max(0, $pct)) }}%"></div>
                                     </div>
                                 </td>
 
                                 <td class="px-4 py-3 text-right font-extrabold">
-                                    R <?php echo e(number_format($retained, 0)); ?>
-
+                                    R {{ number_format($retained, 0) }}
                                     <div class="text-[11px] text-gray-500 font-semibold">
-                                        Agent: R <?php echo e(number_format($agentIncome, 0)); ?>
-
+                                        Agent: R {{ number_format($agentIncome, 0) }}
                                     </div>
                                 </td>
 
-                                <td class="px-4 py-3 text-right font-extrabold <?php echo e($statusClass); ?>">
-                                    <?php echo e($status); ?>
-
+                                <td class="px-4 py-3 text-right font-extrabold {{ $statusClass }}">
+                                    {{ $status }}
                                 </td>
                             </tr>
-                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                        @endforeach
                     </tbody>
                 </table>
             </div>
@@ -661,14 +626,4 @@
             Privacy: This page shows derived targets + activity + deal actuals. No worksheet net-income fields are exposed.
         </div>
     </div>
- <?php echo $__env->renderComponent(); ?>
-<?php endif; ?>
-<?php if (isset($__attributesOriginal9ac128a9029c0e4701924bd2d73d7f54)): ?>
-<?php $attributes = $__attributesOriginal9ac128a9029c0e4701924bd2d73d7f54; ?>
-<?php unset($__attributesOriginal9ac128a9029c0e4701924bd2d73d7f54); ?>
-<?php endif; ?>
-<?php if (isset($__componentOriginal9ac128a9029c0e4701924bd2d73d7f54)): ?>
-<?php $component = $__componentOriginal9ac128a9029c0e4701924bd2d73d7f54; ?>
-<?php unset($__componentOriginal9ac128a9029c0e4701924bd2d73d7f54); ?>
-<?php endif; ?>
-<?php /**PATH C:\Users\johan\OneDrive\Documents\GitHub\hfc-dash\resources\views/bm/performance.blade.php ENDPATH**/ ?>
+</x-app-layout>

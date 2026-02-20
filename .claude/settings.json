@@ -7,7 +7,12 @@
       "Read(//c//**)",
       "Read(//c/Users/johan/**)",
       "Bash(cmd /c:*)",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(php -l:*)",
+      "Bash(echo:*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\johan\\OneDrive\\Documents\\GitHub\\hfc-dash\\routes"
     ]
   }
 }

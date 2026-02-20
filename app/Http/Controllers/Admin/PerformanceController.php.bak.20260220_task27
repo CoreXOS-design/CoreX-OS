@@ -1,0 +1,323 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Models\Deal;
+use App\Models\MonthlyTargetGoal;
+use App\Http\Controllers\Controller;
+use App\Models\FinanceComputedValue;
+use App\Services\Finance\FinanceReadModel;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class PerformanceController extends Controller
+{
+    public function index(Request $request, FinanceReadModel $readModel)
+    {
+        $period = $request->query('period');
+        if (!$period) {
+            $period = Carbon::now()->format('Y-m');
+        }
+
+        // ---- Finance Engine: company_period totals (entity_id=1) ----
+        $financeResult     = $readModel->getCompanyPeriodMap($period);
+        $finance           = $financeResult['data'];
+        $financeSource     = $financeResult['source'];
+        $financeAuditRunId = $financeResult['audit_run_id'];
+
+        $totals = [
+            'company_income_total_nondeclined'  => (float)($finance['company_period.money.total_nondeclined.team_agent_income_ex_vat'] ?? 0),
+            'company_income_registered_granted' => (float)(
+                ($finance['company_period.money.registered.team_agent_income_ex_vat'] ?? 0)
+                + ($finance['company_period.money.granted.team_agent_income_ex_vat'] ?? 0)
+            ),
+        ];
+
+        // ---- Calendar context ----
+        $start       = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
+        $end         = (clone $start)->endOfMonth();
+        $today       = Carbon::today();
+        $daysInMonth = $start->daysInMonth ?? 30;
+        $daysElapsed = $today->betweenIncluded($start, $end) ? max(1, $start->diffInDays($today) + 1) : 1;
+        $daysLeft    = $today->betweenIncluded($start, $end) ? max(0, $today->diffInDays($end)) : 0;
+
+        // ---- Agent roster from Finance Engine ----
+        // Source: distinct agent_period entity_ids that have computed values for this period.
+        $engineAgentIds = FinanceComputedValue::where('entity_type', 'agent_period')
+            ->where('period', $period)
+            ->distinct()
+            ->pluck('entity_id')
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->values()
+            ->all();
+
+        $agentRows = collect();
+        $agentIds  = [];
+        if (!empty($engineAgentIds)) {
+            $agentRows = DB::table('users')
+                ->whereIn('id', $engineAgentIds)
+                ->where('is_active', 1)
+                ->where('counts_for_branch_split', 1)
+                ->whereNotNull('branch_id')
+                ->select('id', 'name', 'branch_id')
+                ->orderBy('name')
+                ->get();
+            $agentIds = $agentRows->pluck('id')->all();
+        }
+
+        // ---- Agent Finance Engine maps (batch fetch — must be before rows loop) ----
+        // Single query for all agent_period computed values; used for both deal counts and money figures.
+        $agentFinanceMaps = [];
+        if (!empty($agentIds)) {
+            $agentCvRows = FinanceComputedValue::where('entity_type', 'agent_period')
+                ->where('period', $period)
+                ->whereIn('entity_id', $agentIds)
+                ->get(['entity_id', 'definition_key', 'value_numeric', 'value_json']);
+            foreach ($agentCvRows as $cv) {
+                $uid = (int) $cv->entity_id;
+                if ($cv->value_json !== null) {
+                    $agentFinanceMaps[$uid][$cv->definition_key] = $cv->value_json;
+                } elseif ($cv->value_numeric !== null) {
+                    $agentFinanceMaps[$uid][$cv->definition_key] = (float) $cv->value_numeric;
+                }
+            }
+        }
+
+        // ---- Targets per agent (from targets table — non-financial, OK to keep) ----
+        $agentTargets = collect();
+        if (!empty($agentIds)) {
+            $agentTargets = DB::table('targets')
+                ->where('period', $period)
+                ->whereIn('user_id', $agentIds)
+                ->select('user_id', 'deals_target', 'value_target', 'points_target')
+                ->get()
+                ->keyBy('user_id');
+        }
+
+        // ---- Points actuals per agent (non-financial — kept per task) ----
+        $pointsActuals = collect();
+        if (!empty($agentIds)) {
+            $pointsActuals = DB::table('daily_activity_entries as dae')
+                ->join('activity_definitions as ad', 'ad.id', '=', 'dae.activity_definition_id')
+                ->whereIn('dae.user_id', $agentIds)
+                ->where('dae.period', $period)
+                ->where('ad.is_enabled', 1)
+                ->groupBy('dae.user_id')
+                ->selectRaw('dae.user_id, COALESCE(SUM(dae.value * ad.weight), 0) as points_sum')
+                ->get()
+                ->keyBy('user_id');
+        }
+
+        // ---- Branch name lookup ----
+        $branchLookup = DB::table('branches')->select('id', 'name')->get()->keyBy('id');
+
+        // ---- Build agent rows (Finance Engine as read-model only) ----
+        $rows = [];
+        foreach ($agentRows as $a) {
+            $uid     = (int) $a->id;
+            $t       = $agentTargets->get($uid);
+            $pa      = $pointsActuals->get($uid);
+            $agentFm = $agentFinanceMaps[$uid] ?? [];
+
+            // Deal count: sum non-declined Finance Engine stage counts.
+            $dealsCount = (int)(float)(
+                ($agentFm['agent_period.deals.pending.count']    ?? 0) +
+                ($agentFm['agent_period.deals.granted.count']    ?? 0) +
+                ($agentFm['agent_period.deals.registered.count'] ?? 0)
+            );
+
+            $pointsTargetRow = (float)($t->points_target ?? 0);
+            $pointsActualRow = (float)($pa->points_sum ?? 0);
+            $pointsRemRow    = max(0.0, $pointsTargetRow - $pointsActualRow);
+            $pointsPerDayRow = ($daysLeft > 0) ? round($pointsRemRow / $daysLeft, 1) : $pointsRemRow;
+
+            $statusRow = '—';
+            if ($pointsTargetRow > 0) {
+                $expectedByNow = ($pointsTargetRow / $daysInMonth) * $daysElapsed;
+                if ($pointsActualRow >= $pointsTargetRow)         $statusRow = 'Achieved';
+                elseif ($pointsActualRow >= $expectedByNow * 1.05) $statusRow = 'Ahead';
+                elseif ($pointsActualRow >= $expectedByNow * 0.95) $statusRow = 'On pace';
+                else                                               $statusRow = 'Behind';
+            }
+
+            $rows[] = [
+                'user_id'     => $uid,
+                'name'        => $a->name,
+                'branch_id'   => $a->branch_id,
+                'branch_name' => $a->branch_id ? ($branchLookup[$a->branch_id]->name ?? '—') : '—',
+                'targets'     => [
+                    'deals'  => (int)($t->deals_target ?? 0),
+                    'value'  => (float)($t->value_target ?? 0),
+                    'points' => $pointsTargetRow,
+                ],
+                'actuals'     => [
+                    'deals'       => $dealsCount,
+                    'sales_value' => 0.0,
+                    'value'       => 0.0,
+                    'points'      => $pointsActualRow,
+                ],
+                'progress'    => [
+                    'points_status'         => $statusRow,
+                    'points_per_day_needed' => $pointsPerDayRow,
+                ],
+            ];
+        }
+
+        // ---- Branch summary (aggregate targets + points from rows; no financial aggregation) ----
+        $branchSummary = [];
+        foreach ($rows as $row) {
+            $bid   = (int)($row['branch_id'] ?? 0);
+            $bname = (string)($row['branch_name'] ?? '—');
+            if (!isset($branchSummary[$bid])) {
+                $branchSummary[$bid] = [
+                    'branch_id'   => $bid,
+                    'branch_name' => $bname,
+                    'targets'     => ['value' => 0.0, 'points' => 0.0],
+                    'actuals'     => ['sales_value' => 0.0, 'value' => 0.0, 'points' => 0.0],
+                ];
+            }
+            $branchSummary[$bid]['targets']['value']  += (float)($row['targets']['value'] ?? 0);
+            $branchSummary[$bid]['targets']['points'] += (float)($row['targets']['points'] ?? 0);
+            $branchSummary[$bid]['actuals']['points'] += (float)($row['actuals']['points'] ?? 0);
+        }
+        usort($branchSummary, fn($a, $b) => strcmp((string)($a['branch_name']), (string)($b['branch_name'])));
+        $branchSummary = array_values($branchSummary);
+
+        // ---- Company totals ----
+        // Targets: aggregated from agent target rows (non-financial DB read, OK).
+        $totalsDealsTarget  = array_sum(array_map(fn($r) => (int)($r['targets']['deals'] ?? 0), $rows));
+        $totalsValueTarget  = array_sum(array_map(fn($r) => (float)($r['targets']['value'] ?? 0), $rows));
+        $totalsPointsTarget = array_sum(array_map(fn($r) => (float)($r['targets']['points'] ?? 0), $rows));
+        $totalsPoints       = array_sum(array_map(fn($r) => (float)($r['actuals']['points'] ?? 0), $rows));
+
+        // Deal counts: from Finance Engine company_period stage values.
+        $totalsDeals = (int)(float)(
+            ($finance['company_period.deals.pending.count']    ?? 0) +
+            ($finance['company_period.deals.granted.count']    ?? 0) +
+            ($finance['company_period.deals.registered.count'] ?? 0)
+        );
+
+        // ---- Company points struct ----
+        $pointsTarget = $totalsPointsTarget;
+        $pointsActual = $totalsPoints;
+        $pointsPct    = ($pointsTarget > 0) ? round(($pointsActual / $pointsTarget) * 100, 1) : 0.0;
+
+        $pointsRemaining    = max(0.0, $pointsTarget - $pointsActual);
+        $pointsPerDayNeeded = ($daysLeft > 0) ? round($pointsRemaining / $daysLeft, 1) : $pointsRemaining;
+
+        $pointsStatus = '—';
+        if ($pointsTarget > 0) {
+            $expectedByNow = ($pointsTarget / $daysInMonth) * $daysElapsed;
+            if ($pointsActual >= $pointsTarget)         $pointsStatus = 'Achieved';
+            elseif ($pointsActual >= $expectedByNow * 1.05) $pointsStatus = 'Ahead';
+            elseif ($pointsActual >= $expectedByNow * 0.95) $pointsStatus = 'On pace';
+            else                                            $pointsStatus = 'Behind';
+        }
+
+        $todayPoints = (float) DB::table('daily_activity_entries as e')
+            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
+            ->where('e.period', $period)
+            ->where('e.activity_date', $today->toDateString())
+            ->where('d.is_enabled', 1)
+            ->sum(DB::raw('e.value * d.weight'));
+
+        // ---- Build $rollup (view-compatible shape) ----
+        $rollup = [
+            'period'   => $period,
+            'rows'     => $rows,
+            'branches' => $branchSummary,
+            'totals'   => [
+                'targets' => [
+                    'deals'  => $totalsDealsTarget,
+                    'value'  => $totalsValueTarget,
+                    'points' => $totalsPointsTarget,
+                ],
+                'actuals' => [
+                    'deals'       => $totalsDeals,
+                    'sales_value' => 0.0,
+                    'value'       => 0.0,
+                    'points'      => $totalsPoints,
+                ],
+            ],
+            'points' => [
+                'actual'         => $pointsActual,
+                'target'         => $pointsTarget,
+                'pct'            => $pointsPct,
+                'status'         => $pointsStatus,
+                'remaining'      => $pointsRemaining,
+                'per_day_needed' => $pointsPerDayNeeded,
+                'today_points'   => $todayPoints,
+                'days_left'      => $daysLeft,
+            ],
+        ];
+
+        // ---- Branch budgets ----
+        $branchBudgets = MonthlyTargetGoal::query()
+            ->where('period', $period)
+            ->whereNotNull('branch_id')
+            ->pluck('branch_budget', 'branch_id')
+            ->toArray();
+
+        foreach ($rollup['branches'] as $i => $b) {
+            $bid = (int)($b['branch_id'] ?? 0);
+            $rollup['branches'][$i]['branch_budget'] = (float)($branchBudgets[$bid] ?? 0);
+        }
+
+        // ---- Status summary ----
+        $statusSummary = Deal::statusSummaryForCompany($period);
+
+        // ---- Listing Stock Stats (Company) ----
+        $domExpr  = "(julianday(date('now')) - julianday(date(coalesce(listed_at, created_at))))";
+        $editExpr = "(julianday(date('now')) - julianday(date(coalesce(modified_at, created_at))))";
+
+        $listingBase = \App\Models\ListingStock::query()
+            ->where('source', 'propcon')
+            ->where(function ($q) {
+                $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                  ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+            });
+
+        $totalListings = (clone $listingBase)->count();
+
+        $avgDom = (clone $listingBase)
+            ->selectRaw("avg(" . $domExpr . ") as v")
+            ->value('v');
+        $avgDom = $avgDom !== null ? (int) round($avgDom) : 0;
+
+        $staleCount = (clone $listingBase)
+            ->whereRaw($editExpr . " >= 14")
+            ->count();
+
+        $expiringSoonCount = (clone $listingBase)
+            ->whereNotNull('expires_at')
+            ->whereRaw("(julianday(date(expires_at)) - julianday(date('now'))) between 0 and 14")
+            ->count();
+
+        $expiredCount = (clone $listingBase)
+            ->whereNotNull('expires_at')
+            ->whereRaw("julianday(date(expires_at)) < julianday(date('now'))")
+            ->count();
+
+        $listingStats = [
+            'total'              => (int) $totalListings,
+            'avg_days_on_market' => (int) $avgDom,
+            'stale'              => (int) $staleCount,
+            'expiring_soon'      => (int) $expiringSoonCount,
+            'expired'            => (int) $expiredCount,
+        ];
+
+        return view('admin.performance', [
+            'rollup'            => $rollup,
+            'listingStats'      => $listingStats,
+            'statusSummary'     => $statusSummary,
+            'finance'           => $finance,
+            'financeSource'     => $financeSource,
+            'financeAuditRunId' => $financeAuditRunId,
+            'totals'            => $totals,
+            'period'            => $period,
+            'agentFinanceMaps'  => $agentFinanceMaps,
+        ]);
+    }
+}
