@@ -1,206 +1,102 @@
 @extends('layouts.nexus')
 
 @section('nexus-content')
-    <div class="mb-6">
+
+{{-- PAGE HEADER --}}
+<div class="mb-6 flex items-center justify-between">
+    <div>
         <h1 class="text-2xl font-bold text-gray-800">Presentations</h1>
-        <p class="text-sm text-gray-500 mt-1">Upload & Extraction Framework — Scaffold</p>
+        <p class="text-sm text-gray-500 mt-1">Seller presentations with market analysis.</p>
     </div>
+    <a href="{{ route('presentations.create') }}"
+       class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">
+        + New Presentation
+    </a>
+</div>
 
-    @if(session('success'))
-        <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-800 rounded text-sm">
-            {{ session('success') }}
-        </div>
-    @endif
+@if(session('success'))
+    <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-800 rounded text-sm">
+        {{ session('success') }}
+    </div>
+@endif
 
-    @if(!$presentation)
-        <div class="mb-6 px-4 py-3 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded text-sm">
-            No branches are configured yet. Add a branch first to enable market analysis.
+{{-- PRESENTATIONS TABLE --}}
+<div class="bg-white rounded-xl shadow overflow-hidden">
+    @if($presentations->isEmpty())
+        <div class="px-6 py-12 text-center">
+            <p class="text-gray-400 text-sm mb-4">No presentations yet.</p>
+            <a href="{{ route('presentations.create') }}"
+               class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">
+                Create your first presentation
+            </a>
         </div>
     @else
-
-    {{-- Market Analysis Compute Form --}}
-    <div class="bg-white rounded-xl shadow p-6 mb-6">
-        <h2 class="text-base font-semibold text-gray-700 mb-1">Run Market Analysis</h2>
-        <p class="text-xs text-gray-400 mb-4">Computes market metrics + sale probability. Scaffold — Presentation #{{ $presentation->id }}.</p>
-
-        <form method="POST" action="{{ route('presentations.compute', $presentation) }}">
-            @csrf
-            <div class="grid grid-cols-2 gap-4 md:grid-cols-3">
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Suburb <span class="text-red-500">*</span></label>
-                    <input type="text" name="suburb" value="{{ old('suburb') }}" required
-                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="e.g. Ballito">
-                    @error('suburb')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Property Type <span class="text-red-500">*</span></label>
-                    <select name="type" required class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-                        @foreach(['house','unit','land','other'] as $t)
-                            <option value="{{ $t }}" {{ old('type') === $t ? 'selected' : '' }}>{{ ucfirst($t) }}</option>
-                        @endforeach
-                    </select>
-                    @error('type')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Period (months) <span class="text-red-500">*</span></label>
-                    <select name="period_months" required class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-                        @foreach([6,12,24] as $m)
-                            <option value="{{ $m }}" {{ old('period_months', 12) == $m ? 'selected' : '' }}>{{ $m }} months</option>
-                        @endforeach
-                    </select>
-                    @error('period_months')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Asking Price (R, incl. VAT)</label>
-                    <input type="number" name="price" value="{{ old('price') }}" step="1" min="0"
-                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="e.g. 2500000">
-                    @error('price')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Floor Area (m²)</label>
-                    <input type="number" name="size_m2" value="{{ old('size_m2') }}" min="0"
-                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="e.g. 180">
-                    @error('size_m2')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Bedrooms</label>
-                    <input type="number" name="bedrooms" value="{{ old('bedrooms') }}" min="0" max="20"
-                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="e.g. 3">
-                    @error('bedrooms')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Branch</label>
-                    <select name="branch_id" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
-                        <option value="">— Any branch —</option>
-                        @foreach($branches as $branch)
-                            <option value="{{ $branch->id }}" {{ old('branch_id') == $branch->id ? 'selected' : '' }}>
-                                {{ $branch->name }}
-                            </option>
-                        @endforeach
-                    </select>
-                    @error('branch_id')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
-                </div>
-            </div>
-            <div class="mt-4">
-                <button type="submit"
-                        class="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">
-                    Run Analysis
-                </button>
-            </div>
-        </form>
-    </div>
-
-    {{-- Upload Form --}}
-    <div class="bg-white rounded-xl shadow p-6 mb-6">
-        <h2 class="text-base font-semibold text-gray-700 mb-3">Upload Document (Scaffold — Presentation #{{ $presentation->id }})</h2>
-        <p class="text-xs text-gray-400 mb-4">
-            Stores file → extracts text → detects fields. No AI. No PDF output yet.
-        </p>
-
-        <form method="POST"
-              action="{{ route('presentations.upload', $presentation) }}"
-              enctype="multipart/form-data">
-            @csrf
-            <div class="flex items-center gap-4">
-                <input type="file"
-                       name="document"
-                       accept=".pdf,.doc,.docx,.txt"
-                       class="text-sm text-gray-600 border border-gray-300 rounded px-3 py-2 w-full">
-                <button type="submit"
-                        class="shrink-0 px-4 py-2 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">
-                    Upload
-                </button>
-            </div>
-            @error('document')
-                <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
-            @enderror
-        </form>
-    </div>
-
-    @endif {{-- end @if($presentation) --}}
-
-    {{-- Snapshot Listing --}}
-    <div class="bg-white rounded-xl shadow p-6 mb-6">
-        <h2 class="text-base font-semibold text-gray-700 mb-3">Recent Snapshots</h2>
-        @if($snapshots->isEmpty())
-            <p class="text-sm text-gray-400">No snapshots saved yet.</p>
-        @else
-            <table class="w-full text-sm text-left text-gray-600">
-                <thead>
-                    <tr class="border-b">
-                        <th class="pb-2 pr-4">#</th>
-                        <th class="pb-2 pr-4">Presentation</th>
-                        <th class="pb-2 pr-4">MA Run</th>
-                        <th class="pb-2 pr-4">SP Run</th>
-                        <th class="pb-2 pr-4">P60</th>
-                        <th class="pb-2">Saved</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($snapshots as $snap)
-                        @php $snapSummary = $snap->getOutputSummaryArray(); @endphp
-                        <tr class="border-b last:border-0">
-                            <td class="py-2 pr-4">
-                                <a href="{{ route('presentations.snapshots.show', [$snap->presentation_id, $snap]) }}"
-                                   class="text-indigo-600 hover:underline font-medium">#{{ $snap->id }}</a>
-                            </td>
-                            <td class="py-2 pr-4 text-gray-500 text-xs">#{{ $snap->presentation_id }}</td>
-                            <td class="py-2 pr-4 text-gray-400 text-xs">
-                                {{ $snap->market_analytics_run_id ? '#'.$snap->market_analytics_run_id : '—' }}
-                            </td>
-                            <td class="py-2 pr-4 text-gray-400 text-xs">
-                                {{ $snap->sale_probability_run_id ? '#'.$snap->sale_probability_run_id : '—' }}
-                            </td>
-                            <td class="py-2 pr-4">
-                                @if(isset($snapSummary['p60']) && $snapSummary['p60'] !== null)
-                                    <span class="font-semibold text-indigo-700">{{ number_format($snapSummary['p60'] * 100, 0) }}%</span>
-                                @else
-                                    <span class="text-gray-300">—</span>
+        <table class="w-full text-sm text-left text-gray-700">
+            <thead class="bg-gray-50 border-b">
+                <tr>
+                    <th class="px-4 py-3 font-medium text-gray-500">Title</th>
+                    <th class="px-4 py-3 font-medium text-gray-500">Address</th>
+                    <th class="px-4 py-3 font-medium text-gray-500">Property</th>
+                    <th class="px-4 py-3 font-medium text-gray-500">Seller</th>
+                    <th class="px-4 py-3 font-medium text-gray-500">Status</th>
+                    <th class="px-4 py-3 font-medium text-gray-500">Last Updated</th>
+                    <th class="px-4 py-3 font-medium text-gray-500"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                @foreach($presentations as $pres)
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 font-medium text-gray-800">
+                            {{ $pres->title }}
+                        </td>
+                        <td class="px-4 py-3 text-gray-600 text-xs">
+                            {{ $pres->property_address ?? '—' }}
+                        </td>
+                        <td class="px-4 py-3 text-xs">
+                            @if($pres->suburb || $pres->property_type)
+                                <span class="text-gray-700">{{ $pres->suburb ?? '—' }}</span>
+                                @if($pres->property_type)
+                                    <span class="text-gray-400"> · {{ ucfirst($pres->property_type) }}</span>
                                 @endif
-                            </td>
-                            <td class="py-2 text-gray-400 text-xs">{{ $snap->created_at->format('Y-m-d H:i') }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        @endif
-    </div>
-
-    {{-- Uploads List --}}
-    <div class="bg-white rounded-xl shadow p-6">
-        <h2 class="text-base font-semibold text-gray-700 mb-3">Uploaded Documents</h2>
-
-        @if($uploads->isEmpty())
-            <p class="text-sm text-gray-400">No uploads yet.</p>
-        @else
-            <table class="w-full text-sm text-left text-gray-600">
-                <thead>
-                    <tr class="border-b">
-                        <th class="pb-2 pr-4">File</th>
-                        <th class="pb-2 pr-4">Type</th>
-                        <th class="pb-2 pr-4">Extraction</th>
-                        <th class="pb-2">Uploaded</th>
+                            @else
+                                <span class="text-gray-300">—</span>
+                            @endif
+                        </td>
+                        <td class="px-4 py-3 text-gray-600 text-xs">
+                            {{ $pres->seller_name ?? '—' }}
+                        </td>
+                        <td class="px-4 py-3">
+                            @php
+                                $statusClasses = match($pres->status) {
+                                    'presented' => 'bg-blue-100 text-blue-700',
+                                    'locked'    => 'bg-green-100 text-green-700',
+                                    default     => 'bg-gray-100 text-gray-600',
+                                };
+                            @endphp
+                            <span class="px-2 py-0.5 rounded text-xs font-medium {{ $statusClasses }}">
+                                {{ ucfirst($pres->status) }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 text-gray-400 text-xs">
+                            {{ $pres->updated_at->format('Y-m-d H:i') }}
+                        </td>
+                        <td class="px-4 py-3">
+                            <a href="{{ route('presentations.show', $pres) }}"
+                               class="text-indigo-600 hover:underline text-xs font-medium">
+                                Open →
+                            </a>
+                        </td>
                     </tr>
-                </thead>
-                <tbody>
-                    @foreach($uploads as $upload)
-                        <tr class="border-b last:border-0">
-                            <td class="py-2 pr-4">{{ $upload->original_filename }}</td>
-                            <td class="py-2 pr-4 text-gray-400 text-xs">{{ $upload->type }}</td>
-                            <td class="py-2 pr-4">
-                                @if($upload->extraction_status === 'ok')
-                                    <span class="text-green-600 font-medium">OK</span>
-                                @elseif($upload->extraction_status === 'failed')
-                                    <span class="text-red-500">Failed</span>
-                                @else
-                                    <span class="text-yellow-500">Pending</span>
-                                @endif
-                            </td>
-                            <td class="py-2 text-gray-400 text-xs">{{ $upload->created_at->format('Y-m-d H:i') }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
+                @endforeach
+            </tbody>
+        </table>
+
+        @if($presentations->hasPages())
+            <div class="px-4 py-3 border-t">
+                {{ $presentations->links() }}
+            </div>
         @endif
-    </div>
+    @endif
+</div>
+
 @endsection

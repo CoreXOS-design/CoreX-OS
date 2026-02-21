@@ -1,0 +1,98 @@
+@extends('layouts.nexus')
+
+@section('nexus-content')
+
+<div class="mb-6 flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-800">New Presentation</h1>
+        <p class="text-sm text-gray-500 mt-1">Create a seller presentation.</p>
+    </div>
+    <a href="{{ route('presentations.index') }}"
+       class="text-xs text-indigo-600 hover:underline">← Back to Presentations</a>
+</div>
+
+<div class="bg-white rounded-xl shadow p-6 max-w-xl">
+    <form method="POST" action="{{ route('presentations.store') }}">
+        @csrf
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">
+                    Presentation Title <span class="text-red-500">*</span>
+                </label>
+                <input type="text" name="title" value="{{ old('title') }}" required
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                       placeholder="e.g. 12 Ocean Drive — Market Analysis">
+                @error('title')
+                    <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">
+                    Property Address <span class="text-red-500">*</span>
+                </label>
+                <input type="text" name="property_address" value="{{ old('property_address') }}" required
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                       placeholder="e.g. 12 Ocean Drive, Ballito, 4399">
+                @error('property_address')
+                    <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Seller Name</label>
+                <input type="text" name="seller_name" value="{{ old('seller_name') }}"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                       placeholder="e.g. John Smith">
+                @error('seller_name')
+                    <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Seller Email</label>
+                <input type="email" name="seller_email" value="{{ old('seller_email') }}"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                       placeholder="e.g. john@example.com">
+                @error('seller_email')
+                    <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                @enderror
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">
+                    Branch <span class="text-red-500">*</span>
+                </label>
+                @if($branches->isEmpty())
+                    <p class="text-xs text-red-600">No branches configured. Contact an admin.</p>
+                @else
+                    <select name="branch_id" required class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                        <option value="">— Select branch —</option>
+                        @foreach($branches as $branch)
+                            <option value="{{ $branch->id }}" {{ old('branch_id') == $branch->id ? 'selected' : '' }}>
+                                {{ $branch->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                @endif
+                @error('branch_id')
+                    <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                @enderror
+            </div>
+        </div>
+
+        <div class="mt-6 flex items-center gap-3">
+            <button type="submit"
+                    class="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">
+                Save Presentation
+            </button>
+            <a href="{{ route('presentations.index') }}"
+               class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+@endsection

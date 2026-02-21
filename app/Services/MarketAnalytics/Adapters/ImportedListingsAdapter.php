@@ -6,6 +6,7 @@ use App\Services\MarketAnalytics\Contracts\ActiveListingsSource;
 use App\Services\MarketAnalytics\Contracts\HasSourceRecord;
 use App\Services\MarketAnalytics\DTOs\ActiveListingsFilter;
 use App\Services\MarketAnalytics\Helpers\QueryHasher;
+use App\Services\MarketAnalytics\Helpers\SizeExtractor;
 use App\Services\MarketAnalytics\Support\SourceRecord;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -16,11 +17,15 @@ use Illuminate\Support\Facades\DB;
  * "Active as of date" is defined as: rows belonging to the most recent
  * listing_import_run whose created_at date is <= asAtDate.
  *
+ * Run selection: prefer status IN ('applied','ready') over draft runs so that
+ * published snapshots are used when available; falls back to latest run of any status.
+ *
  * Field mapping from listing_import_rows / listing_import_runs:
- *   list_price_inc ← price_cents / 100   (cents to dollars)
- *   suburb_slug    ← filter value        (no structured suburb; LIKE on property field)
- *   property_type  ← null               (not in listing_import_rows)
- *   bedrooms       ← null               (not in listing_import_rows)
+ *   list_price_inc ← price_cents / 100            (cents to dollars)
+ *   size_m2        ← SizeExtractor::fromPayload()  (optional, from row_payload JSON)
+ *   suburb_slug    ← filter value                  (no structured suburb; LIKE on property field)
+ *   property_type  ← null                          (not in listing_import_rows)
+ *   bedrooms       ← null                          (not in listing_import_rows)
  */
 class ImportedListingsAdapter implements ActiveListingsSource, HasSourceRecord
 {
@@ -44,16 +49,25 @@ class ImportedListingsAdapter implements ActiveListingsSource, HasSourceRecord
     {
         $suburbName = mb_strtolower(str_replace('-', ' ', $filter->suburbSlug));
 
-        // Find latest import run on or before as_at_date
-        $runQuery = DB::table('listing_import_runs')
-            ->whereDate('created_at', '<=', $asAtDate)
-            ->orderByDesc('created_at');
+        // Build base query without ordering (shared constraints)
+        $runBase = DB::table('listing_import_runs')
+            ->whereDate('created_at', '<=', $asAtDate);
 
         if ($filter->branchId !== null) {
-            $runQuery->where('branch_id', $filter->branchId);
+            $runBase->where('branch_id', $filter->branchId);
         }
 
-        $latestRun = $runQuery->first();
+        // Prefer published (applied/ready) runs; fall back to latest regardless of status
+        $latestRun = (clone $runBase)
+            ->whereIn('status', ['applied', 'ready'])
+            ->orderByDesc('created_at')
+            ->first();
+
+        if (!$latestRun) {
+            $latestRun = (clone $runBase)
+                ->orderByDesc('created_at')
+                ->first();
+        }
 
         if (!$latestRun) {
             $this->lastSourceRecord = new SourceRecord(
@@ -67,7 +81,7 @@ class ImportedListingsAdapter implements ActiveListingsSource, HasSourceRecord
         $rowQuery = DB::table('listing_import_rows')
             ->where('run_id', $latestRun->id)
             ->whereRaw('LOWER(property) LIKE ?', ['%' . $suburbName . '%'])
-            ->select(['id', 'external_id', 'property', 'price_cents', 'run_id']);
+            ->select(['id', 'external_id', 'property', 'price_cents', 'run_id', 'row_payload']);
 
         $qHash = QueryHasher::hash($rowQuery->toSql(), $rowQuery->getBindings());
 
@@ -85,6 +99,7 @@ class ImportedListingsAdapter implements ActiveListingsSource, HasSourceRecord
             'source_tag'     => self::SOURCE_TAG,
             'external_id'    => $row->external_id,
             'list_price_inc' => isset($row->price_cents) ? (float)$row->price_cents / 100 : null,
+            'size_m2'        => SizeExtractor::fromPayload($row->row_payload ?? null),
             'suburb_slug'    => $filter->suburbSlug,
             'property_type'  => null,  // not in listing_import_rows
             'bedrooms'       => null,  // not in listing_import_rows

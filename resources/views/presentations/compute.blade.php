@@ -496,40 +496,6 @@
 {{-- ══════════════════════════════════════════════════════════════════════════
      SAVE SNAPSHOT
 ══════════════════════════════════════════════════════════════════════════ --}}
-@php
-    $snapInputsJson = json_encode($inputs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-    // Build output summary for snapshot storage
-    $snapBase     = null;
-    $snapDrop50k  = null;
-    $snapDrop100k = null;
-    $snapDrop150k = null;
-    foreach ($spResult->sensitivity as $row) {
-        if ($row['delta_rands'] === 0)       $snapBase     = $row;
-        if ($row['delta_rands'] === -50000)  $snapDrop50k  = $row;
-        if ($row['delta_rands'] === -100000) $snapDrop100k = $row;
-        if ($row['delta_rands'] === -150000) $snapDrop150k = $row;
-    }
-    $snapDomCurve = is_array($maResult->domCurve) ? $maResult->domCurve : [];
-    $snapOutputSummary = [
-        'p30'           => $spResult->p30,
-        'p60'           => $spResult->p60,
-        'p90'           => $spResult->p90,
-        'expected_days' => $spResult->expectedDays,
-        'skip_reason'   => $spResult->skipReason,
-        'months_of_inventory'         => $maResult->monthsOfInventory,
-        'demand_supply_ratio'         => $maResult->demandSupplyRatio,
-        'price_per_sqm_deviation_pct' => $maResult->pricePerSqmDeviationPct,
-        'dom_p50'                     => $snapDomCurve['p50'] ?? null,
-        'dom_p75'                     => $snapDomCurve['p75'] ?? null,
-        'elasticity_days_per_pct'     => $maResult->elasticityDaysPerPct,
-        'sensitivity_drop_50k'  => $snapDrop50k  ? ['p60' => $snapDrop50k['p60'],  'expected_days' => $snapDrop50k['expected_days']]  : null,
-        'sensitivity_drop_100k' => $snapDrop100k ? ['p60' => $snapDrop100k['p60'], 'expected_days' => $snapDrop100k['expected_days']] : null,
-        'sensitivity_drop_150k' => $snapDrop150k ? ['p60' => $snapDrop150k['p60'], 'expected_days' => $snapDrop150k['expected_days']] : null,
-    ];
-    $snapOutputJson = json_encode($snapOutputSummary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-@endphp
-
 <div class="bg-white rounded-xl shadow p-6 mb-6">
     <h2 class="text-base font-semibold text-gray-700 mb-1">Save Snapshot</h2>
     <p class="text-xs text-gray-400 mb-4">
@@ -540,8 +506,8 @@
         @csrf
         <input type="hidden" name="market_run_id"       value="{{ $maRun->id }}">
         <input type="hidden" name="prob_run_id"         value="{{ $spRun->id }}">
-        <input type="hidden" name="inputs_json"         value="{{ $snapInputsJson }}">
-        <input type="hidden" name="output_summary_json" value="{{ $snapOutputJson }}">
+        <input type="hidden" name="inputs_json"         value="{{ $snapshotInputsJson }}">
+        <input type="hidden" name="output_summary_json" value="{{ $snapshotOutputSummaryJson }}">
         <button type="submit"
                 class="px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded hover:bg-emerald-700">
             Save Snapshot

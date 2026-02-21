@@ -13,6 +13,7 @@ class MarketAnalyticsInput
         public readonly ?int    $sourceBranchId  = null,
         public readonly ?int    $subjectSizeM2   = null,  // subject property floor area (m²)
         public readonly ?float  $subjectPriceInc = null,  // subject sold/list price incl. VAT
+        public readonly ?int    $presentationId  = null,  // enables evidence-table fallback
     ) {}
 
     /**

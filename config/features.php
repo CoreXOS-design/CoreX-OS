@@ -1,5 +1,6 @@
 <?php
 
 return [
-    'presentations' => true,
+    'presentations'          => true,
+    'presentation_blueprint' => (bool) env('PRESENTATION_BLUEPRINT_ENABLED', true),
 ];

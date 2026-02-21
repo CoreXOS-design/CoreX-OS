@@ -7,7 +7,7 @@ use App\Services\MarketAnalytics\DTOs\MarketAnalyticsResult;
 class SaleProbabilityInput
 {
     public function __construct(
-        public readonly int                   $marketAnalyticsRunId,
+        public readonly ?int                  $marketAnalyticsRunId,
         public readonly string                $marketAnalyticsModelVersion,
         public readonly string                $marketAnalyticsInputsHash,
         public readonly MarketAnalyticsResult $marketAnalyticsResult,

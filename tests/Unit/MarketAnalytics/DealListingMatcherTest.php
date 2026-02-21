@@ -274,4 +274,127 @@ class DealListingMatcherTest extends TestCase
         $dom = $this->matcher()->computeDomDays('2024-12-31', '2024-01-01');
         $this->assertSame(365, $dom);
     }
+
+    // =========================================================================
+    // streetNumberBonus
+    // =========================================================================
+
+    public function test_street_number_bonus_matching_numbers_returns_15(): void
+    {
+        $m  = $this->matcher();
+        $tA = $m->normalizeAddress('12 Ocean Drive Ballito');
+        $tB = $m->normalizeAddress('12 Ocean Drive, Ballito');
+        $this->assertSame(DealListingMatcher::STREET_NUMBER_MATCH_BONUS, $m->streetNumberBonus($tA, $tB));
+    }
+
+    public function test_street_number_bonus_different_numbers_returns_minus_20(): void
+    {
+        $m  = $this->matcher();
+        $tA = $m->normalizeAddress('12 Ocean Drive Ballito');
+        $tB = $m->normalizeAddress('99 Ocean Drive Ballito');
+        $this->assertSame(DealListingMatcher::STREET_NUMBER_MISMATCH_PENALTY, $m->streetNumberBonus($tA, $tB));
+    }
+
+    public function test_street_number_bonus_missing_in_first_returns_0(): void
+    {
+        $m  = $this->matcher();
+        $tA = $m->normalizeAddress('Ocean Drive Ballito');
+        $tB = $m->normalizeAddress('12 Ocean Drive Ballito');
+        $this->assertSame(0, $m->streetNumberBonus($tA, $tB));
+    }
+
+    public function test_street_number_bonus_missing_in_second_returns_0(): void
+    {
+        $m  = $this->matcher();
+        $tA = $m->normalizeAddress('12 Ocean Drive Ballito');
+        $tB = $m->normalizeAddress('Ocean Drive Ballito');
+        $this->assertSame(0, $m->streetNumberBonus($tA, $tB));
+    }
+
+    public function test_street_number_bonus_both_empty_returns_0(): void
+    {
+        $m = $this->matcher();
+        $this->assertSame(0, $m->streetNumberBonus([], []));
+    }
+
+    public function test_street_number_bonus_constant_values_are_pinned(): void
+    {
+        $this->assertSame(15, DealListingMatcher::STREET_NUMBER_MATCH_BONUS);
+        $this->assertSame(-20, DealListingMatcher::STREET_NUMBER_MISMATCH_PENALTY);
+    }
+
+    // =========================================================================
+    // externalIdBonus
+    // =========================================================================
+
+    public function test_external_id_bonus_returns_25_when_id_in_file_no(): void
+    {
+        $bonus = $this->matcher()->externalIdBonus(
+            dealFileNo:         'PC-12345',
+            dealRemarks:        null,
+            listingExternalId:  'PC-12345',
+            listingExternalRef: null,
+        );
+        $this->assertSame(DealListingMatcher::EXTERNAL_ID_MATCH_BONUS, $bonus);
+    }
+
+    public function test_external_id_bonus_returns_25_when_ref_in_remarks(): void
+    {
+        $bonus = $this->matcher()->externalIdBonus(
+            dealFileNo:         null,
+            dealRemarks:        'Linked to listing ref ABC-999 transferred',
+            listingExternalId:  null,
+            listingExternalRef: 'ABC-999',
+        );
+        $this->assertSame(DealListingMatcher::EXTERNAL_ID_MATCH_BONUS, $bonus);
+    }
+
+    public function test_external_id_bonus_is_case_insensitive(): void
+    {
+        $bonus = $this->matcher()->externalIdBonus(
+            dealFileNo:         'abc-999',
+            dealRemarks:        null,
+            listingExternalId:  'ABC-999',
+            listingExternalRef: null,
+        );
+        $this->assertSame(DealListingMatcher::EXTERNAL_ID_MATCH_BONUS, $bonus);
+    }
+
+    public function test_external_id_bonus_returns_0_when_no_match(): void
+    {
+        $bonus = $this->matcher()->externalIdBonus(
+            dealFileNo:         'PC-99999',
+            dealRemarks:        'Some unrelated remarks',
+            listingExternalId:  'PC-11111',
+            listingExternalRef: 'REF-22222',
+        );
+        $this->assertSame(0, $bonus);
+    }
+
+    public function test_external_id_bonus_returns_0_when_listing_ids_are_null(): void
+    {
+        $bonus = $this->matcher()->externalIdBonus(
+            dealFileNo:         'PC-12345',
+            dealRemarks:        'Some remarks',
+            listingExternalId:  null,
+            listingExternalRef: null,
+        );
+        $this->assertSame(0, $bonus);
+    }
+
+    public function test_external_id_bonus_returns_0_when_listing_ids_are_empty(): void
+    {
+        $bonus = $this->matcher()->externalIdBonus(
+            dealFileNo:         'PC-12345',
+            dealRemarks:        null,
+            listingExternalId:  '',
+            listingExternalRef: '',
+        );
+        $this->assertSame(0, $bonus);
+    }
+
+    public function test_external_id_bonus_constant_is_pinned(): void
+    {
+        $this->assertSame(25, DealListingMatcher::EXTERNAL_ID_MATCH_BONUS);
+    }
 }

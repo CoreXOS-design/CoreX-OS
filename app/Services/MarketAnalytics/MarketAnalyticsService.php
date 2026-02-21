@@ -13,6 +13,8 @@ use App\Services\MarketAnalytics\DTOs\SoldTransactionsFilter;
 use App\Services\MarketAnalytics\Helpers\InputHasher;
 use App\Services\MarketAnalytics\Helpers\SuburbNormalizer;
 use App\Services\MarketAnalytics\Adapters\ImportedListingsAdapter;
+use App\Services\MarketAnalytics\Adapters\PresentationActiveListingsAdapter;
+use App\Services\MarketAnalytics\Adapters\PresentationSoldCompsAdapter;
 use App\Services\MarketAnalytics\Metrics\AbsorptionRateMetric;
 use App\Services\MarketAnalytics\Metrics\DomCurveMetric;
 use App\Services\MarketAnalytics\Metrics\ElasticityProxyMetric;
@@ -68,6 +70,13 @@ class MarketAnalyticsService
 
         $comps = (new ComparableSetBuilder($this->soldSource))->build($soldFilter);
 
+        // ── 3b. Fallback: presentation evidence (if internal returned 0) ──────
+        $presentationSoldAdapter = null;
+        if ($comps->count === 0 && $input->presentationId !== null) {
+            $presentationSoldAdapter = new PresentationSoldCompsAdapter($input->presentationId);
+            $comps = (new ComparableSetBuilder($presentationSoldAdapter))->build($soldFilter);
+        }
+
         // ── 4. Active listings snapshot ──────────────────────────────────────
         $listingsFilter = new ActiveListingsFilter(
             suburbSlug:   $suburbSlug,
@@ -79,9 +88,17 @@ class MarketAnalyticsService
 
         $listings = $this->listingsSource->getRecords($listingsFilter);
 
+        // ── 4b. Fallback: presentation evidence (if imported returned 0) ──────
+        $presentationListingsAdapter = null;
+        if ($listings->count() === 0 && $input->presentationId !== null) {
+            $presentationListingsAdapter = new PresentationActiveListingsAdapter($input->presentationId);
+            $listings = $presentationListingsAdapter->getRecords($listingsFilter);
+        }
+
         // Retrieve snapshot metadata from the listings source record
-        $listingsSR        = ($this->listingsSource instanceof HasSourceRecord)
-            ? $this->listingsSource->getLastSourceRecord()
+        $activeSource      = $presentationListingsAdapter ?? $this->listingsSource;
+        $listingsSR        = ($activeSource instanceof HasSourceRecord)
+            ? $activeSource->getLastSourceRecord()
             : null;
         $snapshotRunId     = $listingsSR?->snapshotRunId;
         $snapshotCreatedAt = $listingsSR?->snapshotCreatedAt;
@@ -95,11 +112,18 @@ class MarketAnalyticsService
             compsHash:         $comps->compsHash,
             snapshotRunId:     $snapshotRunId,
             snapshotCreatedAt: $snapshotCreatedAt,
+            suburbMatchMode:   'like_normalized',
         );
 
         // ── 6. Data source metadata ──────────────────────────────────────────
         $dataSources = [];
-        foreach ([$this->soldSource, $this->listingsSource] as $src) {
+        $sourcesToLog = array_filter([
+            $this->soldSource,
+            $presentationSoldAdapter,
+            $this->listingsSource,
+            $presentationListingsAdapter,
+        ]);
+        foreach ($sourcesToLog as $src) {
             if ($src instanceof HasSourceRecord) {
                 $sr = $src->getLastSourceRecord();
                 if ($sr !== null) {
@@ -185,6 +209,7 @@ class MarketAnalyticsService
         $result->setBreakdown([
             // Context
             'suburb_slug'          => $suburbSlug,
+            'suburb_match_mode'    => 'like_normalized',
             'inputs_hash'          => $inputsHash,
             'sold_date_from'       => $dateFrom,
             'sold_date_to'         => $referenceDate,

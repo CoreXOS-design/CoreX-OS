@@ -18,7 +18,9 @@ use Illuminate\Support\Facades\DB;
  *     - listed_at ≤ sold_date
  *     - listed_at ≥ sold_date − 365 days
  *   Score = Jaccard token-set overlap on normalised address strings (0–100)
- *           + 10 if |deal_price − listing_price| / listing_price ≤ 20%.
+ *           + 10 if |deal_price − listing_price| / listing_price ≤ 20%
+ *           + streetNumberBonus: +15 same leading number, −20 different number
+ *           + externalIdBonus: +25 if listing external_id/ref found in deal file_no/remarks
  *   Accept if best score ≥ SCORE_THRESHOLD (80).
  *
  * DB access is batched (two queries total per call regardless of comp count).
@@ -32,6 +34,10 @@ class DealListingMatcher
     public const SCORE_THRESHOLD      = 80;
     public const MAX_LISTING_AGE_DAYS = 365;
     public const PRICE_TOLERANCE_PCT  = 0.20;
+
+    public const STREET_NUMBER_MATCH_BONUS     = 15;
+    public const STREET_NUMBER_MISMATCH_PENALTY = -20;
+    public const EXTERNAL_ID_MATCH_BONUS       = 25;
 
     /**
      * Build a row_hash → DOM resolution entry map for comp rows that have no listed_date.
@@ -74,10 +80,10 @@ class DealListingMatcher
             return [];
         }
 
-        // 2. Fetch deal property addresses in a single query
+        // 2. Fetch deal data in a single query (address + price + text for external-id matching)
         $dealRows = DB::table('deals')
             ->whereIn('id', array_keys($needsMatch))
-            ->select(['id', 'property_address', 'property_value'])
+            ->select(['id', 'property_address', 'property_value', 'file_no', 'remarks'])
             ->get()
             ->keyBy('id');
 
@@ -91,7 +97,7 @@ class DealListingMatcher
             ->whereNotNull('listed_at')
             ->where('listed_at', '<=', $periodTo)
             ->where('listed_at', '>=', $listingWindowFrom)
-            ->select(['id', 'property', 'price_cents', 'listed_at'])
+            ->select(['id', 'property', 'price_cents', 'listed_at', 'external_id', 'external_ref'])
             ->get()
             ->all();
 
@@ -116,6 +122,8 @@ class DealListingMatcher
             $bestScore   = -1;
             $bestListing = null;
 
+            $dealAddrTokens = $this->normalizeAddress((string)($deal->property_address ?? ''));
+
             foreach ($candidates as $listing) {
                 // listed_at stored as datetime string; take date portion only
                 $listedAt = substr((string)$listing->listed_at, 0, 10);
@@ -125,11 +133,20 @@ class DealListingMatcher
                     continue;
                 }
 
+                $listingAddrTokens = $this->normalizeAddress((string)($listing->property ?? ''));
+
                 $s = $this->score(
                     dealAddress:       (string)($deal->property_address ?? ''),
                     listingAddress:    (string)($listing->property ?? ''),
                     dealPrice:         $dealPrice,
                     listingPriceCents: $listing->price_cents,
+                )
+                + $this->streetNumberBonus($dealAddrTokens, $listingAddrTokens)
+                + $this->externalIdBonus(
+                    dealFileNo:         $deal->file_no ?? null,
+                    dealRemarks:        $deal->remarks ?? null,
+                    listingExternalId:  $listing->external_id ?? null,
+                    listingExternalRef: $listing->external_ref ?? null,
                 );
 
                 if ($s > $bestScore) {
@@ -233,6 +250,79 @@ class DealListingMatcher
         $union        = array_unique(array_merge($a, $b));
 
         return (int)round(count($intersection) / count($union) * 100);
+    }
+
+    /**
+     * Street-number bonus/penalty applied on top of score().
+     *
+     * +STREET_NUMBER_MATCH_BONUS     when both token arrays share the same leading
+     *                                 purely-numeric token (same house number → strong signal).
+     * +STREET_NUMBER_MISMATCH_PENALTY when both have a numeric leader but they differ
+     *                                 (different house number → almost certainly wrong match).
+     * 0                               when either set has no leading numeric token
+     *                                 (cannot determine — no adjustment).
+     *
+     * @param  string[] $tokensA  Normalised tokens for address A
+     * @param  string[] $tokensB  Normalised tokens for address B
+     */
+    public function streetNumberBonus(array $tokensA, array $tokensB): int
+    {
+        $numA = $this->leadingNumericToken($tokensA);
+        $numB = $this->leadingNumericToken($tokensB);
+
+        if ($numA === null || $numB === null) {
+            return 0;
+        }
+
+        return $numA === $numB
+            ? self::STREET_NUMBER_MATCH_BONUS
+            : self::STREET_NUMBER_MISMATCH_PENALTY;
+    }
+
+    /**
+     * External-ID bonus: +EXTERNAL_ID_MATCH_BONUS when the listing's external_id or
+     * external_ref appears verbatim (case-insensitive) in the deal's file_no or remarks.
+     *
+     * This covers the common pattern where the Propcon/MDA listing reference is written
+     * into the deal's file number or remarks field.
+     */
+    public function externalIdBonus(
+        ?string $dealFileNo,
+        ?string $dealRemarks,
+        ?string $listingExternalId,
+        ?string $listingExternalRef,
+    ): int {
+        if ($listingExternalId === null && $listingExternalRef === null) {
+            return 0;
+        }
+
+        $dealText = mb_strtolower(($dealFileNo ?? '') . ' ' . ($dealRemarks ?? ''));
+
+        foreach ([$listingExternalId, $listingExternalRef] as $id) {
+            if ($id !== null && $id !== '' && str_contains($dealText, mb_strtolower($id))) {
+                return self::EXTERNAL_ID_MATCH_BONUS;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * Returns the first purely-numeric token from a normalised address token array,
+     * or null if none is found.
+     * Used to identify the street/erf number component of an address.
+     *
+     * @param  string[] $tokens
+     */
+    private function leadingNumericToken(array $tokens): ?string
+    {
+        foreach ($tokens as $token) {
+            if (ctype_digit($token)) {
+                return $token;
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -445,17 +445,26 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
 Route::get('tools/pdf-splitter/download', [\App\Http\Controllers\Tools\PdfSplitterController::class, 'downloadLastZip'])->name('tools.pdf_splitter.download');
 
 // ===== PRESENTATIONS =====
-Route::middleware(['auth'])->group(function () {
-    Route::get('/presentations', [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])
-        ->name('presentations.index');
-    Route::post('/presentations/{presentation}/upload', [\App\Http\Controllers\Presentation\PresentationController::class, 'upload'])
-        ->name('presentations.upload');
-    Route::post('/presentations/{presentation}/compute', [\App\Http\Controllers\Presentation\PresentationController::class, 'compute'])
-        ->name('presentations.compute');
+Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->group(function () {
+    Route::get('/',       [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])  ->name('index');
+    Route::get('/create', [\App\Http\Controllers\Presentation\PresentationController::class, 'create']) ->name('create');
+    Route::post('/',      [\App\Http\Controllers\Presentation\PresentationController::class, 'store'])  ->name('store');
 
-    // Phase 5.2 — Snapshot Lock
-    Route::post('/presentations/{presentation}/snapshots', [\App\Http\Controllers\Presentation\PresentationSnapshotController::class, 'saveSnapshot'])
-        ->name('presentations.snapshots.save');
-    Route::get('/presentations/{presentation}/snapshots/{snapshot}', [\App\Http\Controllers\Presentation\PresentationSnapshotController::class, 'showSnapshot'])
-        ->name('presentations.snapshots.show');
+    Route::get('/{presentation}',              [\App\Http\Controllers\Presentation\PresentationController::class, 'show'])     ->name('show');
+    Route::get('/{presentation}/analysis',     [\App\Http\Controllers\Presentation\PresentationController::class, 'analysis']) ->name('analysis');
+    Route::post('/{presentation}/analysis/run',[\App\Http\Controllers\Presentation\PresentationController::class, 'compute'])  ->name('analysis.run');
+
+    Route::post('/{presentation}/upload', [\App\Http\Controllers\Presentation\PresentationController::class, 'upload'])
+        ->name('upload');
+
+    Route::post('/{presentation}/links', [\App\Http\Controllers\Presentation\PresentationController::class, 'storeLink'])
+        ->name('links.store');
+    Route::delete('/{presentation}/links/{link}', [\App\Http\Controllers\Presentation\PresentationController::class, 'destroyLink'])
+        ->name('links.destroy');
+
+    // Snapshot routes — names preserved for existing tests
+    Route::post('/{presentation}/snapshots', [\App\Http\Controllers\Presentation\PresentationSnapshotController::class, 'saveSnapshot'])
+        ->name('snapshots.save');
+    Route::get('/{presentation}/snapshots/{snapshot}', [\App\Http\Controllers\Presentation\PresentationSnapshotController::class, 'showSnapshot'])
+        ->name('snapshots.show');
 });

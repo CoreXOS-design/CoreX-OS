@@ -20,6 +20,7 @@ class SaleProbabilityService
     public function run(
         SaleProbabilityInput $input,
         ?int $createdBy = null,
+        bool $persist = true,
     ): SaleProbabilityResult {
         // ── 1. Compute inputs hash ────────────────────────────────────────────
         $canonical  = json_encode($input->toCanonicalArray(), JSON_THROW_ON_ERROR);
@@ -123,24 +124,26 @@ class SaleProbabilityService
         }
 
         // ── 5. Persist ────────────────────────────────────────────────────────
-        SaleProbabilityRun::create([
-            'market_analytics_run_id'        => $input->marketAnalyticsRunId,
-            'market_analytics_model_version' => $input->marketAnalyticsModelVersion,
-            'market_analytics_inputs_hash'   => $input->marketAnalyticsInputsHash,
-            'model_version'                  => ModelConfig::MODEL_VERSION,
-            'inputs_hash'                    => $inputsHash,
-            'inputs_json'                    => $input->toCanonicalArray(),
-            'outputs_json'                   => $result->toValuesArray(),
-            'breakdown_json'                 => $result->toBreakdownArray(),
-            'data_sources_json'              => [
-                'market_analytics' => [
-                    'run_id'        => $input->marketAnalyticsRunId,
-                    'model_version' => $input->marketAnalyticsModelVersion,
-                    'inputs_hash'   => $input->marketAnalyticsInputsHash,
+        if ($persist) {
+            SaleProbabilityRun::create([
+                'market_analytics_run_id'        => $input->marketAnalyticsRunId,
+                'market_analytics_model_version' => $input->marketAnalyticsModelVersion,
+                'market_analytics_inputs_hash'   => $input->marketAnalyticsInputsHash,
+                'model_version'                  => ModelConfig::MODEL_VERSION,
+                'inputs_hash'                    => $inputsHash,
+                'inputs_json'                    => $input->toCanonicalArray(),
+                'outputs_json'                   => $result->toValuesArray(),
+                'breakdown_json'                 => $result->toBreakdownArray(),
+                'data_sources_json'              => [
+                    'market_analytics' => [
+                        'run_id'        => $input->marketAnalyticsRunId,
+                        'model_version' => $input->marketAnalyticsModelVersion,
+                        'inputs_hash'   => $input->marketAnalyticsInputsHash,
+                    ],
                 ],
-            ],
-            'created_by' => $createdBy,
-        ]);
+                'created_by' => $createdBy,
+            ]);
+        }
 
         return $result;
     }

@@ -21,4 +21,14 @@ class PresentationUpload extends Model
     {
         return $this->belongsTo(Presentation::class);
     }
+
+    public function soldComps()
+    {
+        return $this->hasMany(PresentationSoldComp::class, 'source_upload_id');
+    }
+
+    public function activeListings()
+    {
+        return $this->hasMany(PresentationActiveListing::class, 'source_upload_id');
+    }
 }
