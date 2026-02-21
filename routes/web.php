@@ -444,6 +444,17 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
 
 Route::get('tools/pdf-splitter/download', [\App\Http\Controllers\Tools\PdfSplitterController::class, 'downloadLastZip'])->name('tools.pdf_splitter.download');
 
+// ===== PRESENTATION VERSION HISTORY (P17) =====
+Route::middleware(['auth', 'admin_or_bm'])->group(function () {
+    Route::get('/presentations/versions', [\App\Http\Controllers\Presentation\PresentationVersionController::class, 'index'])
+        ->name('presentations.versions.index');
+});
+
+Route::middleware(['auth'])->group(function () {
+    Route::get('/my/presentations/versions', [\App\Http\Controllers\Presentation\PresentationVersionController::class, 'mine'])
+        ->name('presentations.versions.mine');
+});
+
 // ===== PRESENTATIONS =====
 Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->group(function () {
     Route::get('/',       [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])  ->name('index');
@@ -456,15 +467,75 @@ Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->gr
 
     Route::post('/{presentation}/upload', [\App\Http\Controllers\Presentation\PresentationController::class, 'upload'])
         ->name('upload');
+    Route::patch('/{presentation}/uploads/{upload}/type', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateUploadType'])
+        ->name('uploads.update-type');
+    Route::patch('/{presentation}/uploads/{upload}/override', [\App\Http\Controllers\Presentation\PresentationController::class, 'saveUploadOverride'])
+        ->name('uploads.override');
+    Route::delete('/{presentation}/uploads/{upload}/override', [\App\Http\Controllers\Presentation\PresentationController::class, 'clearUploadOverride'])
+        ->name('uploads.override.clear');
+    Route::post('/{presentation}/uploads/{upload}/re-extract', [\App\Http\Controllers\Presentation\PresentationController::class, 'reExtractUpload'])
+        ->name('uploads.re-extract');
 
     Route::post('/{presentation}/links', [\App\Http\Controllers\Presentation\PresentationController::class, 'storeLink'])
         ->name('links.store');
+    Route::patch('/{presentation}/links/{link}/type', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateLinkType'])
+        ->name('links.update-type');
+    Route::patch('/{presentation}/links/{link}/override', [\App\Http\Controllers\Presentation\PresentationController::class, 'saveLinkOverride'])
+        ->name('links.override');
+    Route::delete('/{presentation}/links/{link}/override', [\App\Http\Controllers\Presentation\PresentationController::class, 'clearLinkOverride'])
+        ->name('links.override.clear');
     Route::delete('/{presentation}/links/{link}', [\App\Http\Controllers\Presentation\PresentationController::class, 'destroyLink'])
         ->name('links.destroy');
+    Route::post('/{presentation}/links/{link}/re-extract', [\App\Http\Controllers\Presentation\PresentationController::class, 'reExtractLink'])
+        ->name('links.re-extract');
 
     // Snapshot routes — names preserved for existing tests
     Route::post('/{presentation}/snapshots', [\App\Http\Controllers\Presentation\PresentationSnapshotController::class, 'saveSnapshot'])
         ->name('snapshots.save');
     Route::get('/{presentation}/snapshots/{snapshot}', [\App\Http\Controllers\Presentation\PresentationSnapshotController::class, 'showSnapshot'])
         ->name('snapshots.show');
+
+    // Blueprint compiler + live simulation
+    Route::post('/{presentation}/compile',  [\App\Http\Controllers\Presentation\PresentationController::class, 'compile'])
+        ->name('compile');
+    Route::post('/{presentation}/simulate', [\App\Http\Controllers\Presentation\PresentationController::class, 'simulate'])
+        ->name('simulate');
+
+    // URL snapshot ingestion (P6/P7/P8)
+    Route::post('/{presentation}/url-snapshots', [\App\Http\Controllers\Presentation\PresentationController::class, 'storeUrlSnapshot'])
+        ->name('url-snapshots.store');
+
+    // Holding cost inputs (P15)
+    Route::patch('/{presentation}/holding-cost', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateHoldingCost'])
+        ->name('holding-cost.update');
+
+    // Multi-step price trajectory simulation (C1)
+    Route::post('/{presentation}/simulate-trajectory', [\App\Http\Controllers\Presentation\PresentationController::class, 'simulateTrajectory'])
+        ->name('simulate-trajectory');
+
+    // Optimal price band scan (C2)
+    Route::post('/{presentation}/price-band', [\App\Http\Controllers\Presentation\PresentationController::class, 'priceBand'])
+        ->name('price-band');
+
+    // Competitive threat ranking (C3)
+    Route::post('/{presentation}/competitive-threats', [\App\Http\Controllers\Presentation\PresentationController::class, 'competitiveThreats'])
+        ->name('competitive-threats');
+
+    // Live Brain simulation screen (UI2)
+    Route::get('/{presentation}/brain', [\App\Http\Controllers\Presentation\PresentationController::class, 'brain'])
+        ->name('brain');
+
+    // PDF pack download (P18) — feature-flagged via config('features.presentation_pdf_v1')
+    Route::get('/{presentation}/versions/{version}/pdf', [\App\Http\Controllers\Presentation\PresentationPdfController::class, 'download'])
+        ->name('versions.pdf');
+
+    // Portal captures (extension-based ingestion)
+    Route::get('/{presentation}/portal-captures', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'index'])
+        ->name('portal-captures.index');
+    Route::post('/{presentation}/portal-captures/{capture}/attach', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'attach'])
+        ->name('portal-captures.attach');
 });
+
+// Portal capture ingest endpoint (outside presentation prefix — extension posts here)
+Route::middleware(['auth'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
+    ->name('portal-captures.ingest');

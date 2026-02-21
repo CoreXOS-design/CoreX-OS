@@ -1,0 +1,1105 @@
+@extends('layouts.nexus')
+
+@section('nexus-content')
+
+@php
+    $statusClasses = match($presentation->status) {
+        'presented' => 'bg-blue-100 text-blue-700',
+        'locked'    => 'bg-green-100 text-green-700',
+        default     => 'bg-gray-100 text-gray-600',
+    };
+    $lastSummary = $latestSnapshot ? $latestSnapshot->getOutputSummaryArray() : null;
+@endphp
+
+{{-- PAGE HEADER --}}
+<div class="mb-6 flex items-start justify-between">
+    <div>
+        <div class="flex items-center gap-3 mb-1">
+            <h1 class="text-2xl font-bold text-gray-800">{{ $presentation->title }}</h1>
+            <span class="px-2 py-0.5 rounded text-xs font-medium {{ $statusClasses }}">
+                {{ ucfirst($presentation->status) }}
+            </span>
+        </div>
+        <p class="text-sm text-gray-600">{{ $presentation->property_address ?? 'No address set' }}</p>
+
+        {{-- Property details row --}}
+        @php
+            $propDetails = array_filter([
+                $presentation->suburb,
+                $presentation->property_type ? ucfirst($presentation->property_type) : null,
+                $presentation->bedrooms ? $presentation->bedrooms . ' bed' : null,
+                $presentation->floor_area_m2 ? $presentation->floor_area_m2 . ' m²' : null,
+            ]);
+        @endphp
+        @if(!empty($propDetails))
+            <p class="text-xs text-gray-500 mt-0.5">{{ implode(' · ', $propDetails) }}</p>
+        @endif
+
+        @if($presentation->seller_name)
+            <p class="text-xs text-gray-400 mt-0.5">Seller: {{ $presentation->seller_name }}</p>
+        @endif
+        <p class="text-xs text-gray-400 mt-0.5">Created {{ $presentation->created_at->format('Y-m-d') }}</p>
+    </div>
+    <a href="{{ route('presentations.index') }}"
+       class="text-xs text-indigo-600 hover:underline mt-1">← All Presentations</a>
+</div>
+
+@if(session('success'))
+    <div class="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-800 rounded text-sm">
+        {{ session('success') }}
+    </div>
+@endif
+
+{{-- ACTION BUTTONS --}}
+<div class="flex flex-wrap gap-3 mb-6">
+    @if($readiness['can_compile'])
+        <a href="{{ route('presentations.analysis', $presentation) }}"
+           class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">
+            {{ $latestSnapshot ? 'Re-run Analysis' : 'Run Analysis' }}
+        </a>
+    @else
+        <span class="px-4 py-2 bg-gray-400 text-white text-sm font-medium rounded cursor-not-allowed"
+              title="Complete the required evidence items below before running analysis">
+            {{ $latestSnapshot ? 'Re-run Analysis' : 'Run Analysis' }}
+        </span>
+    @endif
+    @if($latestSnapshot)
+        <a href="{{ route('presentations.snapshots.show', [$presentation, $latestSnapshot]) }}"
+           class="px-4 py-2 border border-gray-300 text-gray-600 text-sm font-medium rounded hover:bg-gray-50">
+            Latest Snapshot →
+        </a>
+    @endif
+    @if(config('features.presentation_brain_ui_v1'))
+        @if($latestSnapshot)
+            <a href="{{ route('presentations.brain', $presentation) }}"
+               class="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded hover:bg-purple-700">
+                Brain Simulation
+            </a>
+        @else
+            <span class="px-4 py-2 bg-gray-400 text-white text-sm font-medium rounded cursor-not-allowed"
+                  title="Run analysis and save a snapshot first">
+                Brain Simulation
+            </span>
+        @endif
+    @endif
+    @if(config('features.presentation_blueprint'))
+        <form method="POST" action="{{ route('presentations.compile', $presentation) }}" class="inline">
+            @csrf
+            <button type="submit"
+                    class="px-4 py-2 {{ $readiness['can_compile'] ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed' }} text-white text-sm font-medium rounded"
+                    {{ $readiness['can_compile'] ? '' : 'disabled title="Missing required evidence — see checklist below"' }}>
+                Compile Pack
+            </button>
+        </form>
+    @endif
+</div>
+
+@if(session('error'))
+    <div class="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-800 rounded text-sm">
+        {{ session('error') }}
+    </div>
+@endif
+
+{{-- ── READINESS CHECKLIST (P16) ──────────────────────────────────────────── --}}
+<div class="mb-6 bg-white rounded-xl shadow p-5">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-gray-700">Pack Readiness</h2>
+        <span class="text-xs font-medium {{ $readiness['completed_percent'] >= 100 ? 'text-green-600' : ($readiness['completed_percent'] >= 57 ? 'text-amber-600' : 'text-red-500') }}">
+            {{ $readiness['completed_percent'] }}% complete
+        </span>
+    </div>
+
+    {{-- Progress bar --}}
+    <div class="w-full bg-gray-100 rounded-full h-1.5 mb-4">
+        <div class="h-1.5 rounded-full {{ $readiness['can_compile'] ? 'bg-green-500' : 'bg-amber-400' }}"
+             style="width: {{ $readiness['completed_percent'] }}%"></div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {{-- Required --}}
+        <div>
+            <p class="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Required</p>
+            <ul class="space-y-1.5">
+                @foreach($readiness['required_items'] as $item)
+                    <li class="flex items-start gap-2 text-xs">
+                        <span class="{{ $item['satisfied'] ? 'text-green-500' : 'text-red-400' }} mt-0.5 shrink-0">
+                            {{ $item['satisfied'] ? '✓' : '✗' }}
+                        </span>
+                        <span class="{{ $item['satisfied'] ? 'text-gray-600' : 'text-gray-700 font-medium' }}">
+                            {{ $item['label'] }}
+                        </span>
+                    </li>
+                @endforeach
+            </ul>
+        </div>
+
+        {{-- Optional --}}
+        <div>
+            <p class="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Optional</p>
+            <ul class="space-y-1.5">
+                @foreach($readiness['optional_items'] as $item)
+                    <li class="flex items-start gap-2 text-xs">
+                        <span class="{{ $item['satisfied'] ? 'text-green-500' : 'text-gray-300' }} mt-0.5 shrink-0">
+                            {{ $item['satisfied'] ? '✓' : '○' }}
+                        </span>
+                        <span class="text-gray-500">{{ $item['label'] }}</span>
+                    </li>
+                @endforeach
+            </ul>
+        </div>
+    </div>
+
+    @if($readiness['can_compile'])
+        <p class="mt-3 text-xs text-green-600 font-medium">All required items present — ready to compile.</p>
+    @else
+        <p class="mt-3 text-xs text-red-500">
+            Missing: {{ implode(', ', array_column($readiness['missing_required'], 'label')) }}
+        </p>
+    @endif
+</div>
+
+{{-- ── POWER PANEL (UI1) ──────────────────────────────────────────────── --}}
+@if($powerPanel)
+<div class="mb-6 bg-white rounded-xl shadow p-5">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-gray-700">Power Panel</h2>
+        <span class="text-xs text-gray-400">Snapshot {{ $powerPanel['snapshot_at']->format('Y-m-d H:i') }}</span>
+    </div>
+
+    {{-- Row 1: Probability + Confidence + PPI --}}
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6 mb-4">
+        {{-- P30 --}}
+        <div class="text-center">
+            <p class="text-xs text-gray-400 mb-1">P30</p>
+            <p class="text-lg font-bold {{ ($powerPanel['p30'] ?? 0) >= 0.5 ? 'text-green-600' : 'text-gray-800' }}">
+                @if($powerPanel['p30'] !== null)
+                    {{ number_format($powerPanel['p30'] * 100, 0) }}%
+                @else
+                    <span class="text-gray-300">--</span>
+                @endif
+            </p>
+        </div>
+        {{-- P60 --}}
+        <div class="text-center">
+            <p class="text-xs text-gray-400 mb-1">P60</p>
+            <p class="text-lg font-bold {{ ($powerPanel['p60'] ?? 0) >= 0.5 ? 'text-green-600' : 'text-gray-800' }}">
+                @if($powerPanel['p60'] !== null)
+                    {{ number_format($powerPanel['p60'] * 100, 0) }}%
+                @else
+                    <span class="text-gray-300">--</span>
+                @endif
+            </p>
+        </div>
+        {{-- P90 --}}
+        <div class="text-center">
+            <p class="text-xs text-gray-400 mb-1">P90</p>
+            <p class="text-lg font-bold {{ ($powerPanel['p90'] ?? 0) >= 0.65 ? 'text-green-600' : 'text-gray-800' }}">
+                @if($powerPanel['p90'] !== null)
+                    {{ number_format($powerPanel['p90'] * 100, 0) }}%
+                @else
+                    <span class="text-gray-300">--</span>
+                @endif
+            </p>
+        </div>
+        {{-- Expected Days --}}
+        <div class="text-center">
+            <p class="text-xs text-gray-400 mb-1">Exp. Days</p>
+            <p class="text-lg font-bold text-gray-800">
+                @if($powerPanel['expected_days'] !== null)
+                    {{ $powerPanel['expected_days'] }}
+                @else
+                    <span class="text-gray-300">--</span>
+                @endif
+            </p>
+        </div>
+        {{-- Confidence --}}
+        <div class="text-center">
+            <p class="text-xs text-gray-400 mb-1">Confidence</p>
+            @if($powerPanel['confidence'])
+                @php
+                    $confScore = $powerPanel['confidence']['confidence_score'] ?? 0;
+                    $confGrade = $powerPanel['confidence']['confidence_grade'] ?? '-';
+                    $confColor = match($confGrade) {
+                        'A' => 'text-green-600',
+                        'B' => 'text-blue-600',
+                        'C' => 'text-amber-600',
+                        default => 'text-red-500',
+                    };
+                @endphp
+                <p class="text-lg font-bold {{ $confColor }}">{{ $confScore }} <span class="text-xs">({{ $confGrade }})</span></p>
+            @else
+                <p class="text-lg font-bold text-gray-300">--</p>
+            @endif
+        </div>
+        {{-- PPI --}}
+        <div class="text-center">
+            <p class="text-xs text-gray-400 mb-1">PPI</p>
+            @if($powerPanel['ppi'])
+                @php
+                    $ppiScore = $powerPanel['ppi']['ppi_score'] ?? 0;
+                    $ppiLabel = $powerPanel['ppi']['ppi_label'] ?? '-';
+                    $ppiColor = match($ppiLabel) {
+                        'Strong' => 'text-green-600',
+                        'Balanced' => 'text-amber-600',
+                        default => 'text-red-500',
+                    };
+                @endphp
+                <p class="text-lg font-bold {{ $ppiColor }}">{{ $ppiScore }} <span class="text-xs">({{ $ppiLabel }})</span></p>
+            @else
+                <p class="text-lg font-bold text-gray-300">--</p>
+            @endif
+        </div>
+    </div>
+
+    {{-- Row 2: Competitive Stock + Holding Cost --}}
+    @php
+        $compStock = $powerPanel['competitive_stock'] ?? null;
+        $holdingCost = $powerPanel['holding_cost'] ?? null;
+    @endphp
+    @if($compStock || $holdingCost)
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 mb-4 pt-3 border-t border-gray-100">
+        @if($compStock)
+            <div>
+                <p class="text-xs text-gray-400">Active Stock</p>
+                <p class="text-sm font-semibold text-gray-700">{{ $compStock['total_active_stock'] ?? '--' }}</p>
+            </div>
+            <div>
+                <p class="text-xs text-gray-400">Below Subject</p>
+                <p class="text-sm font-semibold text-gray-700">{{ $compStock['below_subject_count'] ?? '--' }}</p>
+            </div>
+            <div>
+                <p class="text-xs text-gray-400">Above Subject</p>
+                <p class="text-sm font-semibold text-gray-700">{{ $compStock['above_subject_count'] ?? '--' }}</p>
+            </div>
+        @endif
+        @if($holdingCost)
+            <div>
+                <p class="text-xs text-gray-400">Monthly Hold Cost</p>
+                <p class="text-sm font-semibold text-gray-700">R{{ number_format($holdingCost['monthly_total'] ?? 0, 0) }}</p>
+            </div>
+        @endif
+    </div>
+    @endif
+
+    {{-- Row 3: Explainability --}}
+    @if($powerPanel['explainability'])
+        @php $explain = $powerPanel['explainability']; @endphp
+        <div class="pt-3 border-t border-gray-100">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {{-- Key Drivers --}}
+                @if(!empty($explain['key_drivers']))
+                    <div>
+                        <p class="text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">Key Drivers</p>
+                        <ul class="space-y-1">
+                            @foreach($explain['key_drivers'] as $driver)
+                                <li class="text-xs text-gray-600 flex items-start gap-1.5">
+                                    <span class="text-green-500 mt-0.5 shrink-0">+</span>
+                                    {{ $driver }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+                {{-- Risk Factors --}}
+                @if(!empty($explain['risk_factors']))
+                    <div>
+                        <p class="text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">Risk Factors</p>
+                        <ul class="space-y-1">
+                            @foreach($explain['risk_factors'] as $risk)
+                                <li class="text-xs text-gray-600 flex items-start gap-1.5">
+                                    <span class="text-red-400 mt-0.5 shrink-0">!</span>
+                                    {{ $risk }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            </div>
+            {{-- Position summary --}}
+            @if(!empty($explain['position_summary']))
+                <p class="mt-2 text-xs text-gray-500 italic">{{ $explain['position_summary'] }}</p>
+            @endif
+        </div>
+    @endif
+</div>
+@endif
+
+<div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+
+    {{-- LAST ANALYSIS SUMMARY --}}
+    <div class="bg-white rounded-xl shadow p-5">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Last Analysis</h2>
+        @if($lastSummary)
+            <dl class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                    <dt class="text-gray-400 text-xs">60-day sale probability</dt>
+                    <dd class="font-semibold text-gray-800">
+                        @if(isset($lastSummary['p60']) && $lastSummary['p60'] !== null)
+                            {{ number_format($lastSummary['p60'] * 100, 0) }}%
+                        @else
+                            <span class="text-gray-300">—</span>
+                        @endif
+                    </dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-400 text-xs">Expected Days to Sell</dt>
+                    <dd class="font-semibold text-gray-800">
+                        @if(isset($lastSummary['expected_days']) && $lastSummary['expected_days'] !== null)
+                            {{ $lastSummary['expected_days'] }} days
+                        @else
+                            <span class="text-gray-300">—</span>
+                        @endif
+                    </dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-gray-400 text-xs">Months of Inventory</dt>
+                    <dd class="font-semibold text-gray-800">
+                        @if(isset($lastSummary['months_of_inventory']) && $lastSummary['months_of_inventory'] !== null)
+                            {{ number_format($lastSummary['months_of_inventory'], 1) }} mo
+                        @else
+                            <span class="text-gray-300">—</span>
+                        @endif
+                    </dd>
+                </div>
+            </dl>
+            <p class="mt-3 text-xs text-gray-400">
+                Snapshot saved {{ $latestSnapshot->created_at->format('Y-m-d H:i') }}
+            </p>
+        @else
+            <p class="text-sm text-gray-400 italic">No analysis run yet.</p>
+            @if($readiness['can_compile'])
+                <a href="{{ route('presentations.analysis', $presentation) }}"
+                   class="mt-3 inline-block text-xs text-indigo-600 hover:underline">
+                    Run first analysis →
+                </a>
+            @else
+                <p class="mt-2 text-xs text-gray-400">Complete the required evidence items above to unlock analysis.</p>
+            @endif
+        @endif
+    </div>
+
+    {{-- SNAPSHOTS --}}
+    <div class="bg-white rounded-xl shadow p-5">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Snapshots</h2>
+        <p class="text-2xl font-bold text-gray-800 mb-1">{{ $snapshotCount }}</p>
+        <p class="text-xs text-gray-400">
+            {{ $snapshotCount === 1 ? 'snapshot saved' : 'snapshots saved' }}
+        </p>
+        @if($latestSnapshot)
+            <a href="{{ route('presentations.snapshots.show', [$presentation, $latestSnapshot]) }}"
+               class="mt-3 inline-block text-xs text-indigo-600 hover:underline">
+                View latest →
+            </a>
+        @endif
+    </div>
+
+</div>
+
+{{-- ══════════════════════════════════════════════════════════════════════════
+     DOCUMENTS & LINKS (Prompt D)
+══════════════════════════════════════════════════════════════════════════ --}}
+<div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+
+    {{-- LINKS --}}
+    <div class="bg-white rounded-xl shadow p-5">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Property Links</h2>
+
+        @if($links->isEmpty())
+            <p class="text-xs text-gray-400 italic mb-3">No links added yet.</p>
+        @else
+            @php
+                $linkTypeLabels = [
+                    'property24'         => 'Property24',
+                    'lightstone'         => 'Lightstone',
+                    'active_listing'     => 'Active Listing',
+                    'competitor_listing'  => 'Competitor',
+                    'market_article'     => 'Article',
+                    'other'              => 'Other',
+                ];
+            @endphp
+            <ul class="space-y-3 mb-4">
+                @foreach($links as $link)
+                    <li class="border border-gray-100 rounded-lg p-2 text-xs">
+                        {{-- Row 1: Link header --}}
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0 flex items-center gap-1 flex-wrap">
+                                @php
+                                    $linkColor = in_array($link->type, ['active_listing', 'competitor_listing'])
+                                        ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500';
+                                @endphp
+                                <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium {{ $linkColor }}">
+                                    {{ $linkTypeLabels[$link->type] ?? ucfirst($link->type) }}
+                                </span>
+
+                                {{-- Extraction status badge --}}
+                                @php
+                                    $lExtStatus = $link->extraction_status ?? 'pending';
+                                    $lExtBadge = match($lExtStatus) {
+                                        'ok'     => 'bg-green-100 text-green-700',
+                                        'failed' => 'bg-red-100 text-red-600',
+                                        default  => 'bg-yellow-100 text-yellow-700',
+                                    };
+                                    $lExtLabel = match($lExtStatus) {
+                                        'ok'     => 'Extracted',
+                                        'failed' => 'Failed',
+                                        default  => 'Pending',
+                                    };
+                                @endphp
+                                <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium {{ $lExtBadge }}">
+                                    {{ $lExtLabel }}
+                                </span>
+
+                                <form method="POST"
+                                      action="{{ route('presentations.links.re-extract', [$presentation, $link]) }}"
+                                      class="inline">
+                                    @csrf
+                                    <button type="submit"
+                                            class="inline-block px-1 py-0.5 text-xs text-indigo-500 hover:text-indigo-700"
+                                            title="Re-run extraction">&#x27F3;</button>
+                                </form>
+
+                                @if($link->isOverridden())
+                                    <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
+                                        Override
+                                    </span>
+                                @endif
+
+                                <a href="{{ $link->url }}" target="_blank" rel="noopener noreferrer"
+                                   class="text-indigo-600 hover:underline break-all">
+                                    {{ \Illuminate\Support\Str::limit($link->url, 50) }}
+                                </a>
+                                @if($link->notes)
+                                    <span class="text-gray-400"> — {{ $link->notes }}</span>
+                                @endif
+                            </div>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <form method="POST"
+                                      action="{{ route('presentations.links.update-type', [$presentation, $link]) }}"
+                                      class="flex items-center gap-1">
+                                    @csrf
+                                    @method('PATCH')
+                                    <select name="type" class="border border-gray-200 rounded px-1 py-0.5 text-xs">
+                                        @foreach($linkTypeLabels as $val => $label)
+                                            <option value="{{ $val }}" {{ $link->type === $val ? 'selected' : '' }}>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                    <button type="submit"
+                                            class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Save</button>
+                                </form>
+                                <form method="POST"
+                                      action="{{ route('presentations.links.destroy', [$presentation, $link]) }}">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit"
+                                            class="text-red-400 hover:text-red-600 text-xs"
+                                            onclick="return confirm('Remove this link?')">✕</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        {{-- Row 2: Extraction summary --}}
+                        @php $lVerified = $link->getVerifiedData(); @endphp
+                        @if($lVerified && ($lVerified['link_subtype'] ?? '') === 'search_results')
+                            {{-- Search results summary --}}
+                            @php
+                                $lParts = [];
+                                if (!empty($lVerified['results_count'])) $lParts[] = 'Results: ' . $lVerified['results_count'];
+                                if (!empty($lVerified['price_min']) && !empty($lVerified['price_max'])) {
+                                    $lParts[] = 'Range: R' . number_format($lVerified['price_min'], 0) . ' – R' . number_format($lVerified['price_max'], 0);
+                                }
+                                if (!empty($lVerified['price_median'])) $lParts[] = 'Median: R' . number_format($lVerified['price_median'], 0);
+                            @endphp
+                            @if(!empty($lParts))
+                                <div class="mt-1.5 text-xs text-gray-600 bg-purple-50 rounded px-2 py-1">
+                                    {{ implode(' | ', $lParts) }}
+                                </div>
+                            @endif
+                        @elseif($lVerified && !empty($lVerified['asking_price']))
+                            {{-- Listing summary --}}
+                            @php
+                                $lParts = [];
+                                $lParts[] = 'R' . number_format($lVerified['asking_price'], 0);
+                                if (!empty($lVerified['beds'])) $lParts[] = $lVerified['beds'] . ' bed';
+                                if (!empty($lVerified['baths'])) $lParts[] = $lVerified['baths'] . ' bath';
+                                if (!empty($lVerified['floor_area_m2'])) $lParts[] = $lVerified['floor_area_m2'] . 'm²';
+                                if (!empty($lVerified['suburb'])) $lParts[] = $lVerified['suburb'];
+                            @endphp
+                            <div class="mt-1.5 text-xs text-gray-600 bg-green-50 rounded px-2 py-1">
+                                {{ implode(' | ', $lParts) }}
+                            </div>
+                        @elseif($lVerified)
+                            {{-- Generic key-value fallback --}}
+                            @php
+                                $lSkipKeys = ['extractor_version', 'link_type', 'url', 'source_domain', 'source_site', 'link_subtype', 'snapshot_id', 'extraction_method', 'snapshot_error', 'top_listings', 'blocked_reason', 'timed_out', 'http_status', 'content_bytes'];
+                            @endphp
+                            <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
+                                @foreach($lVerified as $lKey => $lVal)
+                                    @if(!in_array($lKey, $lSkipKeys) && $lVal !== null && $lVal !== '' && !is_array($lVal))
+                                        <span>
+                                            <span class="text-gray-400">{{ str_replace('_', ' ', $lKey) }}:</span>
+                                            @if(is_numeric($lVal) && $lVal >= 10000)
+                                                R{{ number_format($lVal, 0) }}
+                                            @else
+                                                {{ $lVal }}
+                                            @endif
+                                        </span>
+                                    @endif
+                                @endforeach
+                            </div>
+                        @endif
+                        @if($lExtStatus === 'failed')
+                            @php
+                                $lBlockedReason = $lVerified['blocked_reason'] ?? null;
+                                $lHttpStatus    = $lVerified['http_status'] ?? null;
+                                $lTimedOut      = $lVerified['timed_out'] ?? false;
+                                $lErrorMsg      = $link->extraction_error ?? 'check link type';
+
+                                // Determine error category for styling
+                                $lIsBlocked = $lBlockedReason || ($lHttpStatus && $lHttpStatus >= 400);
+                                $lIsTimeout = $lTimedOut;
+                            @endphp
+                            <div class="mt-1.5 {{ $lIsBlocked ? 'bg-red-50 border-red-300' : ($lIsTimeout ? 'bg-orange-50 border-orange-300' : 'bg-red-50 border-red-200') }} border rounded px-2 py-1.5 text-xs {{ $lIsBlocked ? 'text-red-800' : ($lIsTimeout ? 'text-orange-700' : 'text-red-700') }} flex items-center justify-between gap-2">
+                                <div class="flex-1">
+                                    @if($lIsBlocked)
+                                        <span class="font-semibold">Blocked</span> — {{ $lBlockedReason ?? $lErrorMsg }}
+                                        @if($lHttpStatus)
+                                            <span class="text-red-500">(HTTP {{ $lHttpStatus }})</span>
+                                        @endif
+                                    @elseif($lIsTimeout)
+                                        <span class="font-semibold">Timed out</span> — connection to site failed
+                                    @else
+                                        No data extracted — {{ $lErrorMsg }}
+                                    @endif
+                                </div>
+                                <form method="POST"
+                                      action="{{ route('presentations.links.re-extract', [$presentation, $link]) }}"
+                                      class="shrink-0">
+                                    @csrf
+                                    <button type="submit"
+                                            class="px-2 py-0.5 bg-red-600 text-white text-xs rounded hover:bg-red-700 font-medium">
+                                        Retry
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
+
+                        {{-- Override audit info --}}
+                        @if($link->isOverridden())
+                            <p class="mt-1 text-xs text-orange-500">
+                                Overridden {{ $link->override_at ? $link->override_at->format('Y-m-d H:i') : '' }}
+                                @if($link->override_by_user_id)
+                                    by user #{{ $link->override_by_user_id }}
+                                @endif
+                            </p>
+                        @endif
+
+                        {{-- Expand: details + override form --}}
+                        <details class="mt-1.5">
+                            <summary class="text-xs text-indigo-500 cursor-pointer hover:underline">
+                                {{ $link->isOverridden() ? 'Edit override' : 'View details / Override' }}
+                            </summary>
+                            <div class="mt-2 space-y-2">
+                                {{-- Raw extracted JSON --}}
+                                @if($link->extracted_json)
+                                    <div class="bg-gray-50 rounded p-2 text-xs font-mono text-gray-600 overflow-x-auto max-h-40 overflow-y-auto">
+                                        <pre>{{ json_encode($link->extracted_json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                                    </div>
+                                @endif
+
+                                {{-- Override form --}}
+                                <form method="POST"
+                                      action="{{ route('presentations.links.override', [$presentation, $link]) }}"
+                                      class="border border-orange-200 rounded p-2 bg-orange-50">
+                                    @csrf
+                                    @method('PATCH')
+                                    <p class="text-xs font-medium text-orange-700 mb-1.5">Override values</p>
+                                    @php
+                                        $lOverride = $link->override_json ?? $link->extracted_json ?? [];
+                                        $lOverrideFields = array_filter($lOverride, fn($k) => !in_array($k, ['extractor_version', 'link_type', 'url', 'source_domain']), ARRAY_FILTER_USE_KEY);
+                                    @endphp
+                                    <div class="grid grid-cols-2 gap-1.5">
+                                        @if(in_array($link->type, ['property24', 'active_listing', 'competitor_listing']))
+                                            <input type="number" name="override_data[asking_price]" placeholder="Asking price (R)"
+                                                   value="{{ $lOverride['asking_price'] ?? '' }}"
+                                                   class="border border-gray-200 rounded px-2 py-1 text-xs">
+                                            <input type="text" name="override_data[suburb]" placeholder="Suburb"
+                                                   value="{{ $lOverride['suburb'] ?? '' }}"
+                                                   class="border border-gray-200 rounded px-2 py-1 text-xs">
+                                            <input type="number" name="override_data[beds]" placeholder="Beds"
+                                                   value="{{ $lOverride['beds'] ?? '' }}"
+                                                   class="border border-gray-200 rounded px-2 py-1 text-xs">
+                                            <input type="number" name="override_data[baths]" placeholder="Baths"
+                                                   value="{{ $lOverride['baths'] ?? '' }}"
+                                                   class="border border-gray-200 rounded px-2 py-1 text-xs">
+                                            <input type="number" name="override_data[floor_area_m2]" placeholder="Floor m²"
+                                                   value="{{ $lOverride['floor_area_m2'] ?? '' }}"
+                                                   class="border border-gray-200 rounded px-2 py-1 text-xs">
+                                            <input type="number" name="override_data[erf_m2]" placeholder="Erf m²"
+                                                   value="{{ $lOverride['erf_m2'] ?? '' }}"
+                                                   class="border border-gray-200 rounded px-2 py-1 text-xs">
+                                        @elseif($link->type === 'market_article')
+                                            <input type="text" name="override_data[headline]" placeholder="Headline"
+                                                   value="{{ $lOverride['headline'] ?? '' }}"
+                                                   class="col-span-2 border border-gray-200 rounded px-2 py-1 text-xs">
+                                        @else
+                                            <input type="text" name="override_data[notes]" placeholder="Notes"
+                                                   value="{{ $lOverride['notes'] ?? '' }}"
+                                                   class="col-span-2 border border-gray-200 rounded px-2 py-1 text-xs">
+                                        @endif
+                                    </div>
+                                    <div class="flex gap-2 mt-1.5">
+                                        <button type="submit"
+                                                class="px-2 py-1 bg-orange-600 text-white text-xs rounded hover:bg-orange-700">
+                                            Save Override
+                                        </button>
+                                    </div>
+                                </form>
+                                @if($link->isOverridden())
+                                    <form method="POST"
+                                          action="{{ route('presentations.links.override.clear', [$presentation, $link]) }}"
+                                          class="mt-1">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit"
+                                                class="px-2 py-1 text-xs text-gray-500 hover:text-red-600"
+                                                onclick="return confirm('Clear this override?')">
+                                            Clear Override
+                                        </button>
+                                    </form>
+                                @endif
+                            </div>
+                        </details>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+
+        <form method="POST" action="{{ route('presentations.links.store', $presentation) }}" class="space-y-2">
+            @csrf
+            <div class="flex gap-2">
+                <select name="type" id="link-type" class="border border-gray-300 rounded px-2 py-1.5 text-xs">
+                    <option value="property24">Property24</option>
+                    <option value="lightstone">Lightstone</option>
+                    <option value="active_listing">Active Listing</option>
+                    <option value="competitor_listing">Competitor Listing</option>
+                    <option value="market_article">Market Article</option>
+                    <option value="other">Other</option>
+                </select>
+                <input type="url" name="url" id="link-url" placeholder="https://..." required
+                       class="flex-1 border border-gray-300 rounded px-2 py-1.5 text-xs min-w-0">
+                <a href="#" id="open-link-btn" target="_blank" rel="noopener noreferrer"
+                   class="px-2 py-1.5 border border-gray-300 text-xs rounded text-gray-500 hover:bg-gray-50 shrink-0"
+                   title="Open link in new tab">↗</a>
+            </div>
+            <div class="flex gap-2">
+                <input type="text" name="notes" placeholder="Notes (optional)"
+                       class="flex-1 border border-gray-300 rounded px-2 py-1.5 text-xs">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded hover:bg-indigo-700 shrink-0">
+                    Add Link
+                </button>
+            </div>
+
+            {{-- Property24 metadata fields (visible when property24 selected) --}}
+            <div id="p24-fields" class="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100">
+                <p class="col-span-2 text-xs text-gray-400">
+                    Optional: paste key fields from the listing to prefill presentation inputs.
+                </p>
+                <input type="number" name="asking_price_inc" placeholder="Asking price (R)"
+                       class="border border-gray-200 rounded px-2 py-1 text-xs">
+                <input type="text" name="suburb" placeholder="Suburb"
+                       class="border border-gray-200 rounded px-2 py-1 text-xs">
+                <input type="number" name="beds" placeholder="Beds" min="0" max="20"
+                       class="border border-gray-200 rounded px-2 py-1 text-xs">
+                <input type="number" name="baths" placeholder="Baths" min="0" max="20"
+                       class="border border-gray-200 rounded px-2 py-1 text-xs">
+                <input type="number" name="floor_area_m2" placeholder="Floor area (m²)"
+                       class="border border-gray-200 rounded px-2 py-1 text-xs">
+                <input type="number" name="erf_m2" placeholder="Erf / land (m²)"
+                       class="border border-gray-200 rounded px-2 py-1 text-xs">
+                <select name="property_type" class="col-span-2 border border-gray-200 rounded px-2 py-1 text-xs">
+                    <option value="">Property type (optional)</option>
+                    <option value="house">House</option>
+                    <option value="unit">Unit / Apartment</option>
+                    <option value="land">Land / Vacant Erf</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+
+            @error('url')
+                <p class="text-xs text-red-600">{{ $message }}</p>
+            @enderror
+        </form>
+        <script>
+        (function () {
+            var typeEl = document.getElementById('link-type');
+            var urlEl  = document.getElementById('link-url');
+            var openBtn = document.getElementById('open-link-btn');
+            var p24    = document.getElementById('p24-fields');
+
+            function toggleP24() {
+                p24.style.display = typeEl.value === 'property24' ? '' : 'none';
+            }
+            typeEl.addEventListener('change', toggleP24);
+            toggleP24();
+
+            urlEl.addEventListener('input', function () {
+                openBtn.href = urlEl.value || '#';
+            });
+        })();
+        </script>
+    </div>
+
+    {{-- DOCUMENT UPLOAD --}}
+    <div class="bg-white rounded-xl shadow p-5">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Documents</h2>
+
+        @php
+            $docTypeLabels = [
+                'suburb_stats'   => 'Suburb Stats',
+                'vicinity_sales' => 'Vicinity Sales',
+                'cma'            => 'CMA',
+                'market_article' => 'Market Article',
+                'other'          => 'Other',
+            ];
+        @endphp
+
+        @if($presentation->uploads->isEmpty())
+            <p class="text-xs text-gray-400 italic mb-3">No documents uploaded yet.</p>
+        @else
+            <ul class="space-y-3 mb-4 text-xs text-gray-600">
+                @foreach($presentation->uploads as $upload)
+                    <li class="border border-gray-100 rounded-lg p-2">
+                        {{-- Row 1: File header --}}
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0 flex-wrap">
+                                <span class="text-gray-400 shrink-0">📄</span>
+                                <span class="truncate">{{ $upload->original_filename ?? basename($upload->file_path) }}</span>
+                                <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium
+                                    {{ isset($docTypeLabels[$upload->type]) && $upload->type !== 'other' ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-500' }}">
+                                    {{ $docTypeLabels[$upload->type] ?? $upload->type }}
+                                </span>
+
+                                {{-- Extraction status badge --}}
+                                @php
+                                    $uExtStatus = $upload->extraction_status ?? 'pending';
+                                    $uExtBadge = match($uExtStatus) {
+                                        'ok'     => 'bg-green-100 text-green-700',
+                                        'failed' => 'bg-red-100 text-red-600',
+                                        default  => 'bg-yellow-100 text-yellow-700',
+                                    };
+                                    $uExtLabel = match($uExtStatus) {
+                                        'ok'     => 'Extracted',
+                                        'failed' => 'Failed',
+                                        default  => 'Pending',
+                                    };
+                                @endphp
+                                <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium {{ $uExtBadge }}">
+                                    {{ $uExtLabel }}
+                                </span>
+
+                                <form method="POST"
+                                      action="{{ route('presentations.uploads.re-extract', [$presentation, $upload]) }}"
+                                      class="inline">
+                                    @csrf
+                                    <button type="submit"
+                                            class="inline-block px-1 py-0.5 text-xs text-indigo-500 hover:text-indigo-700"
+                                            title="Re-run extraction">&#x27F3;</button>
+                                </form>
+
+                                @if($upload->isOverridden())
+                                    <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
+                                        Override
+                                    </span>
+                                @endif
+                            </div>
+                            <form method="POST"
+                                  action="{{ route('presentations.uploads.update-type', [$presentation, $upload]) }}"
+                                  class="flex items-center gap-1 shrink-0">
+                                @csrf
+                                @method('PATCH')
+                                <select name="type" class="border border-gray-200 rounded px-1 py-0.5 text-xs">
+                                    @foreach($docTypeLabels as $val => $label)
+                                        <option value="{{ $val }}" {{ $upload->type === $val ? 'selected' : '' }}>{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                                <button type="submit"
+                                        class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Save</button>
+                            </form>
+                        </div>
+
+                        {{-- Row 2: Extraction summary --}}
+                        @php
+                            $uVerified  = $upload->getVerifiedData();
+                            $uAgg       = $uVerified['aggregates'] ?? [];
+                            $uCounts    = $uVerified['parsed_counts'] ?? [];
+                        @endphp
+                        @if($uVerified && ($upload->type === 'suburb_stats') && !empty($uAgg))
+                            {{-- Suburb Stats compact summary --}}
+                            @php
+                                $uParts = [];
+                                if (!empty($uAgg['active_listings_count'])) $uParts[] = 'Active: ' . $uAgg['active_listings_count'];
+                                if (!empty($uAgg['median_price'])) $uParts[] = 'Median: R' . number_format($uAgg['median_price'], 0);
+                                if (!empty($uAgg['average_price'])) $uParts[] = 'Avg: R' . number_format($uAgg['average_price'], 0);
+                                if (!empty($uAgg['dom_p50'])) $uParts[] = 'DOM: ' . $uAgg['dom_p50'];
+                                if (!empty($uAgg['months_of_inventory'])) $uParts[] = 'MOI: ' . $uAgg['months_of_inventory'];
+                                if (!empty($uCounts['active_listings'])) $uParts[] = 'Rows: ' . $uCounts['active_listings'];
+                            @endphp
+                            <div class="mt-1.5 text-xs text-gray-600 bg-blue-50 rounded px-2 py-1">
+                                {{ implode(' | ', $uParts) }}
+                            </div>
+                        @elseif($uVerified && ($upload->type === 'vicinity_sales') && !empty($uAgg))
+                            {{-- Vicinity Sales compact summary --}}
+                            @php
+                                $uParts = [];
+                                if (!empty($uAgg['sold_count'])) $uParts[] = 'Sold: ' . $uAgg['sold_count'];
+                                if (!empty($uAgg['median_price'])) $uParts[] = 'Median: R' . number_format($uAgg['median_price'], 0);
+                                if (!empty($uAgg['average_price'])) $uParts[] = 'Avg: R' . number_format($uAgg['average_price'], 0);
+                                if (!empty($uAgg['dom_p50'])) $uParts[] = 'DOM: ' . $uAgg['dom_p50'];
+                                if (!empty($uAgg['price_range_low']) && !empty($uAgg['price_range_high'])) {
+                                    $uParts[] = 'Range: R' . number_format($uAgg['price_range_low'], 0) . '–R' . number_format($uAgg['price_range_high'], 0);
+                                }
+                                if (!empty($uCounts['sold_comps'])) $uParts[] = 'Rows: ' . $uCounts['sold_comps'];
+                            @endphp
+                            <div class="mt-1.5 text-xs text-gray-600 bg-blue-50 rounded px-2 py-1">
+                                {{ implode(' | ', $uParts) }}
+                            </div>
+                        @elseif($uVerified && ($upload->type === 'cma') && !empty($uVerified['suggested_band']))
+                            {{-- CMA compact summary --}}
+                            @php
+                                $band = $uVerified['suggested_band'];
+                            @endphp
+                            <div class="mt-1.5 text-xs text-gray-600 bg-blue-50 rounded px-2 py-1">
+                                Band: R{{ number_format($band['low'], 0) }} – R{{ number_format($band['high'], 0) }}
+                                @if(!empty($uVerified['notes']))
+                                    @foreach($uVerified['notes'] as $note)
+                                        | {{ str_replace('suggested_value:', 'Suggested: R', $note) }}
+                                    @endforeach
+                                @endif
+                            </div>
+                        @elseif($uVerified && !empty($uCounts))
+                            {{-- Fallback: show parsed counts --}}
+                            <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
+                                @foreach($uCounts as $pcKey => $pcVal)
+                                    <span>
+                                        <span class="text-gray-400">{{ str_replace('_', ' ', $pcKey) }}:</span>
+                                        {{ $pcVal }}
+                                    </span>
+                                @endforeach
+                            </div>
+                        @endif
+                        @if($uExtStatus === 'failed')
+                            <div class="mt-1.5 bg-red-50 border border-red-200 rounded px-2 py-1.5 text-xs text-red-700">
+                                No data extracted — {{ $upload->extraction_error ?? 'check PDF format' }}
+                            </div>
+                        @endif
+
+                        {{-- Override audit info --}}
+                        @if($upload->isOverridden())
+                            <p class="mt-1 text-xs text-orange-500">
+                                Overridden {{ $upload->override_at ? $upload->override_at->format('Y-m-d H:i') : '' }}
+                                @if($upload->override_by_user_id)
+                                    by user #{{ $upload->override_by_user_id }}
+                                @endif
+                            </p>
+                        @endif
+
+                        {{-- Expand: details + override form --}}
+                            <details class="mt-1.5">
+                                <summary class="text-xs text-indigo-500 cursor-pointer hover:underline">
+                                    {{ $upload->isOverridden() ? 'Edit override' : 'View details / Override' }}
+                                </summary>
+                                <div class="mt-2 space-y-2">
+                                    {{-- Raw extracted JSON --}}
+                                    @if($upload->extraction_json)
+                                        <div class="bg-gray-50 rounded p-2 text-xs font-mono text-gray-600 overflow-x-auto max-h-40 overflow-y-auto">
+                                            <pre>{{ json_encode($upload->extraction_json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                                        </div>
+                                    @endif
+
+                                    {{-- Override form --}}
+                                    <form method="POST"
+                                          action="{{ route('presentations.uploads.override', [$presentation, $upload]) }}"
+                                          class="border border-orange-200 rounded p-2 bg-orange-50">
+                                        @csrf
+                                        @method('PATCH')
+                                        <p class="text-xs font-medium text-orange-700 mb-1.5">Override values</p>
+                                        @php
+                                            $uOverrideSource = $upload->override_json ?? [];
+                                            // Prefill from aggregates if available and no override set
+                                            $uAggPrefill = $uVerified['aggregates'] ?? [];
+                                            $uOverride = !empty($uOverrideSource) ? $uOverrideSource : $uAggPrefill;
+                                            // Build fields based on doc type
+                                            $uFieldDefs = match($upload->type) {
+                                                'suburb_stats' => [
+                                                    'active_listings_count' => 'Active listings',
+                                                    'median_price' => 'Median price',
+                                                    'average_price' => 'Average price',
+                                                    'dom_p50' => 'DOM p50',
+                                                    'months_of_inventory' => 'Months of inventory',
+                                                ],
+                                                'vicinity_sales' => [
+                                                    'sold_count' => 'Sold count',
+                                                    'median_price' => 'Median price',
+                                                    'average_price' => 'Average price',
+                                                    'dom_p50' => 'DOM p50',
+                                                ],
+                                                'cma' => [
+                                                    'suggested_price_low' => 'Price low',
+                                                    'suggested_price_high' => 'Price high',
+                                                    'comps_count' => 'Comps count',
+                                                ],
+                                                default => [
+                                                    'notes' => 'Notes',
+                                                ],
+                                            };
+                                        @endphp
+                                        <div class="grid grid-cols-2 gap-1.5">
+                                            @foreach($uFieldDefs as $fKey => $fLabel)
+                                                <div>
+                                                    <label class="block text-xs text-gray-400">{{ $fLabel }}</label>
+                                                    <input type="text" name="override_data[{{ $fKey }}]"
+                                                           placeholder="{{ $fLabel }}"
+                                                           value="{{ $uOverride[$fKey] ?? '' }}"
+                                                           class="w-full border border-gray-200 rounded px-2 py-1 text-xs">
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                        <div class="flex gap-2 mt-1.5">
+                                            <button type="submit"
+                                                    class="px-2 py-1 bg-orange-600 text-white text-xs rounded hover:bg-orange-700">
+                                                Save Override
+                                            </button>
+                                        </div>
+                                    </form>
+                                    @if($upload->isOverridden())
+                                        <form method="POST"
+                                              action="{{ route('presentations.uploads.override.clear', [$presentation, $upload]) }}"
+                                              class="mt-1">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit"
+                                                    class="px-2 py-1 text-xs text-gray-500 hover:text-red-600"
+                                                    onclick="return confirm('Clear this override?')">
+                                                Clear Override
+                                            </button>
+                                        </form>
+                                    @endif
+                                </div>
+                            </details>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+
+        <form method="POST" action="{{ route('presentations.upload', $presentation) }}"
+              enctype="multipart/form-data" class="space-y-2">
+            @csrf
+            <div class="flex gap-2 items-center">
+                <select name="doc_type" class="border border-gray-300 rounded px-2 py-1.5 text-xs" required>
+                    <option value="" disabled selected>Document type...</option>
+                    @foreach($docTypeLabels as $val => $label)
+                        <option value="{{ $val }}">{{ $label }}</option>
+                    @endforeach
+                </select>
+                <input type="file" name="documents[]" multiple
+                       class="flex-1 text-xs text-gray-600 border border-gray-300 rounded px-2 py-1.5" required>
+                <button type="submit"
+                        class="px-3 py-1.5 bg-gray-600 text-white text-xs font-medium rounded hover:bg-gray-700 shrink-0">
+                    Upload
+                </button>
+            </div>
+            @error('doc_type')
+                <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+            @enderror
+            @error('documents')
+                <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+            @enderror
+            @error('documents.*')
+                <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+            @enderror
+        </form>
+    </div>
+
+</div>
+
+{{-- ── HOLDING COST INPUTS (P15) ─────────────────────────────────────────── --}}
+<div class="mt-6">
+    <div class="bg-white rounded-xl shadow p-5">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">Holding Cost Inputs (monthly, ZAR)</h2>
+
+        <form method="POST" action="{{ route('presentations.holding-cost.update', $presentation) }}" class="space-y-3">
+            @csrf
+            @method('PATCH')
+
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Bond payment</label>
+                    <input type="number" name="monthly_bond" min="0" step="0.01"
+                           value="{{ $presentation->monthly_bond ?? '' }}"
+                           placeholder="0"
+                           class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Rates</label>
+                    <input type="number" name="monthly_rates" min="0" step="0.01"
+                           value="{{ $presentation->monthly_rates ?? '' }}"
+                           placeholder="0"
+                           class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Levies</label>
+                    <input type="number" name="monthly_levies" min="0" step="0.01"
+                           value="{{ $presentation->monthly_levies ?? '' }}"
+                           placeholder="0"
+                           class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Insurance</label>
+                    <input type="number" name="monthly_insurance" min="0" step="0.01"
+                           value="{{ $presentation->monthly_insurance ?? '' }}"
+                           placeholder="0"
+                           class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Utilities</label>
+                    <input type="number" name="monthly_utilities" min="0" step="0.01"
+                           value="{{ $presentation->monthly_utilities ?? '' }}"
+                           placeholder="0"
+                           class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Opportunity cost</label>
+                    <input type="number" name="monthly_opportunity_cost" min="0" step="0.01"
+                           value="{{ $presentation->monthly_opportunity_cost ?? '' }}"
+                           placeholder="0"
+                           class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs">
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3 pt-1">
+                <button type="submit"
+                        class="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded hover:bg-indigo-700">
+                    Save Holding Cost
+                </button>
+                @php
+                    $hcTotal = collect([
+                        $presentation->monthly_bond,
+                        $presentation->monthly_rates,
+                        $presentation->monthly_levies,
+                        $presentation->monthly_insurance,
+                        $presentation->monthly_utilities,
+                        $presentation->monthly_opportunity_cost,
+                    ])->sum();
+                @endphp
+                @if($hcTotal > 0)
+                    <span class="text-xs text-gray-500">
+                        Monthly total: R{{ number_format($hcTotal, 0) }}
+                    </span>
+                @endif
+            </div>
+        </form>
+    </div>
+</div>
+
+@endsection

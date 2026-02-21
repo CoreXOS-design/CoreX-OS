@@ -5,12 +5,19 @@ namespace App\Domain\Presentation;
 use App\Models\Presentation;
 use App\Models\PresentationField;
 use App\Models\PresentationUpload;
+use App\Services\Presentations\Evidence\UploadExtractionService;
+use App\Services\Presentations\FileNamingService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
 class UploadProcessor
 {
-    public function __construct(private TextExtractionService $extractor) {}
+    public function __construct(
+        private TextExtractionService $extractor,
+        private ?FileNamingService $namingService = null,
+    ) {
+        $this->namingService ??= new FileNamingService();
+    }
 
     /**
      * Store an uploaded file, extract text, and detect structured fields.
@@ -24,17 +31,34 @@ class UploadProcessor
      *
      * Never throws. Never calls AI. Audit-safe: extracted_value is never overwritten.
      */
-    public function process(UploadedFile $file, Presentation $presentation, int $userId): PresentationUpload
+    public function process(UploadedFile $file, Presentation $presentation, int $userId, ?string $docType = null): PresentationUpload
     {
-        $storagePath = $file->store("presentations/{$presentation->id}", 'local');
+        // ── Deterministic naming (Prompt 19) ──────────────────────────
+        $originalFilename = $file->getClientOriginalName();
+        $rawContents      = file_get_contents($file->getRealPath());
+        $contentHash      = $this->namingService->contentHash($rawContents);
+
+        $detectedDocType = (new UploadExtractionService())->detectDocType($originalFilename);
+        $fileSlug = $this->namingService->generate($originalFilename, $rawContents, $detectedDocType);
+
+        // Use user-supplied doc_type if provided; fall back to auto-detected
+        $effectiveDocType = $docType ?? $detectedDocType;
+
+        $directory   = "presentations/{$presentation->id}";
+        $storagePath = $this->namingService->storagePath($presentation->id, $fileSlug);
+
+        // storeAs with deterministic name — same file always lands at the same path
+        $file->storeAs($directory, $fileSlug, 'local');
 
         /** @var PresentationUpload $upload */
         $upload = PresentationUpload::create([
             'presentation_id'     => $presentation->id,
             'uploaded_by_user_id' => $userId,
-            'type'                => $file->getClientMimeType(),
-            'original_filename'   => $file->getClientOriginalName(),
+            'type'                => $effectiveDocType,
+            'original_filename'   => $originalFilename,
             'storage_path'        => $storagePath,
+            'file_slug'           => $fileSlug,
+            'content_hash'        => $contentHash,
             'extraction_status'   => 'pending',
         ]);
 

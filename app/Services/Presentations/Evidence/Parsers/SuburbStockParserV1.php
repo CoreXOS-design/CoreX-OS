@@ -72,8 +72,77 @@ class SuburbStockParserV1
             'parser_version' => self::PARSER_VERSION,
             'doc_type_guess' => self::DOC_TYPE,
             'parsed_counts'  => ['active_listings' => $count],
+            'aggregates'     => $this->extractAggregates($text),
             'errors'         => $errors,
         ];
+    }
+
+    /**
+     * Extract aggregate/summary statistics from full text.
+     * Looks for common patterns like "Median: R1,450,000", "42 active listings", etc.
+     */
+    public function extractAggregates(string $text): array
+    {
+        return array_filter([
+            'active_listings_count' => $this->extractAggrCount($text),
+            'median_price'          => $this->extractAggrPrice($text, 'median'),
+            'average_price'         => $this->extractAggrPrice($text, 'average|avg|mean'),
+            'months_of_inventory'   => $this->extractMOI($text),
+            'dom_p50'               => $this->extractDOM($text),
+        ], fn ($v) => $v !== null);
+    }
+
+    private function extractAggrCount(string $text): ?int
+    {
+        // "42 active listings" or "Total active: 42" or "Active listings: 42"
+        if (preg_match('/(\d+)\s*(?:active|current|available)\s*listing/i', $text, $m)) {
+            return (int) $m[1];
+        }
+        if (preg_match('/(?:active|current|available)\s*listing[s]?\s*[:\-]?\s*(\d+)/i', $text, $m)) {
+            return (int) $m[1];
+        }
+        if (preg_match('/total\s*(?:listings?|stock|properties)\s*[:\-]?\s*(\d+)/i', $text, $m)) {
+            return (int) $m[1];
+        }
+        return null;
+    }
+
+    private function extractAggrPrice(string $text, string $label): ?int
+    {
+        // "Median price: R1,450,000" or "Median: R 1 450 000"
+        if (preg_match('/' . $label . '[\s\w]*?(?:price)?[\s:]*R\s*([\d\s,]+)/i', $text, $m)) {
+            $cleaned = (int) preg_replace('/[\s,]/', '', $m[1]);
+            return ($cleaned >= 10000) ? $cleaned : null;
+        }
+        return null;
+    }
+
+    private function extractMOI(string $text): ?float
+    {
+        // "Months of inventory: 4.2" or "MOI: 4.2" or "Months inventory 4.2"
+        if (preg_match('/months?\s*(?:of\s*)?inventory[\s:\-]*([\d.]+)/i', $text, $m)) {
+            $val = (float) $m[1];
+            return ($val > 0 && $val < 100) ? $val : null;
+        }
+        if (preg_match('/\bMOI[\s:\-]*([\d.]+)/i', $text, $m)) {
+            $val = (float) $m[1];
+            return ($val > 0 && $val < 100) ? $val : null;
+        }
+        return null;
+    }
+
+    private function extractDOM(string $text): ?int
+    {
+        // "Days on market: 61" or "DOM: 61" or "Average DOM 61"
+        if (preg_match('/(?:days\s*on\s*market|DOM)[\s:\-]*(\d+)/i', $text, $m)) {
+            $val = (int) $m[1];
+            return ($val > 0 && $val < 3650) ? $val : null;
+        }
+        if (preg_match('/(?:median|average|avg)\s*(?:days?\s*on\s*market|DOM)[\s:\-]*(\d+)/i', $text, $m)) {
+            $val = (int) $m[1];
+            return ($val > 0 && $val < 3650) ? $val : null;
+        }
+        return null;
     }
 
     // ── Private parsing helpers ───────────────────────────────────────────────

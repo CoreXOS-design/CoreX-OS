@@ -32,6 +32,7 @@ class PresentationCompilerService
             'soldComps',
             'activeListings',
             'snapshots',
+            'articles',
         ])->findOrFail($presentationId);
 
         $latestSnapshot = $presentation->snapshots()->latest()->first();
@@ -42,20 +43,18 @@ class PresentationCompilerService
         $snapshotOutputs   = $latestSnapshot ? ($latestSnapshot->getOutputSummaryArray() ?? []) : [];
         $snapshotInputs    = $latestSnapshot ? ($latestSnapshot->getInputsArray() ?? []) : [];
 
-        // ── Holding cost (from snapshot inputs if available) ───────────────
+        // ── Holding cost: canonical presentation fields first, fallback to snapshot (P15) ──
         $holdingCostResult = null;
-        if (!empty($snapshotInputs)) {
-            $holdingCostInputs = [
-                'bond_payment'     => $snapshotInputs['monthly_bond']               ?? 0,
-                'rates'            => $snapshotInputs['monthly_rates']              ?? 0,
-                'levies'           => $snapshotInputs['monthly_levies']             ?? 0,
-                'insurance'        => $snapshotInputs['monthly_insurance']          ?? 0,
-                'utilities'        => $snapshotInputs['monthly_maintenance_buffer'] ?? 0,
-                'opportunity_cost' => 0,
-            ];
-            if (array_sum(array_values($holdingCostInputs)) > 0) {
-                $holdingCostResult = $this->holdingCost->calculate($holdingCostInputs);
-            }
+        $holdingCostInputs = [
+            'bond_payment'     => (float) ($presentation->monthly_bond             ?? $snapshotInputs['monthly_bond']               ?? 0),
+            'rates'            => (float) ($presentation->monthly_rates            ?? $snapshotInputs['monthly_rates']              ?? 0),
+            'levies'           => (float) ($presentation->monthly_levies           ?? $snapshotInputs['monthly_levies']             ?? 0),
+            'insurance'        => (float) ($presentation->monthly_insurance        ?? $snapshotInputs['monthly_insurance']          ?? 0),
+            'utilities'        => (float) ($presentation->monthly_utilities        ?? $snapshotInputs['monthly_maintenance_buffer'] ?? 0),
+            'opportunity_cost' => (float) ($presentation->monthly_opportunity_cost ?? 0),
+        ];
+        if (array_sum(array_values($holdingCostInputs)) > 0) {
+            $holdingCostResult = $this->holdingCost->calculate($holdingCostInputs);
         }
 
         // ── Assemble snapshot ──────────────────────────────────────────────
@@ -84,7 +83,19 @@ class PresentationCompilerService
             ],
             'analytics'          => $snapshotOutputs,
             'analytics_inputs'   => $snapshotInputs,
+            'competitive_stock'  => $snapshotOutputs['competitive_stock'] ?? null,
             'holding_cost'       => $holdingCostResult,
+            'confidence'         => $snapshotOutputs['confidence']     ?? null,
+            'explainability'     => $snapshotOutputs['explainability'] ?? null,
+            'ppi'                => $snapshotOutputs['ppi']            ?? null,
+            'articles'           => $presentation->articles->map(fn ($a) => [
+                'url'           => $a->url,
+                'summary'       => $a->ai_summary_text,
+                'tags'          => $a->tags_json,
+                'snapshot_hash' => $a->content_hash,
+                'fetched_at'    => $a->fetched_at?->toIso8601String(),
+                'ai_model'      => $a->ai_summary_model,
+            ])->values()->all(),
         ];
 
         return PresentationVersion::create([

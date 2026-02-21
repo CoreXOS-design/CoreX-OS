@@ -59,6 +59,9 @@ class SaleProbabilityService
             $result->skipReason = 'insufficient_signals';
             $skipReasons[]      = 'insufficient_signals';
 
+            // ── 4a. Confidence scoring (post-calculation) ─────────────────────
+            $confidence = (new ConfidenceScoringService())->evaluate($input->marketAnalyticsResult, $result);
+
             $result->setBreakdown([
                 'composite_score'          => null,
                 'weight_redistribution'    => $combined['weight_redistribution'],
@@ -66,6 +69,7 @@ class SaleProbabilityService
                 'signals'                  => $combined['signals'],
                 'required_signals_missing' => $requiredMissing,
                 'skip_reasons'             => $skipReasons,
+                'confidence'               => $confidence,
             ]);
         } else {
             // Sufficient signals — compute probabilities and expected days
@@ -88,15 +92,6 @@ class SaleProbabilityService
                 elasticityDaysPerPct: $ma->elasticityDaysPerPct,
                 priceDeviationPct:    $ma->pricePerSqmDeviationPct,
             );
-
-            $result->setBreakdown([
-                'composite_score'          => $compositeScore,
-                'weight_redistribution'    => $combined['weight_redistribution'],
-                'weights_used'             => $combined['weights_used'],
-                'signals'                  => $combined['signals'],
-                'required_signals_missing' => $requiredMissing,
-                'skip_reasons'             => $skipReasons,
-            ]);
 
             // ── 4b. Price-sensitivity sweep (runtime only, not persisted) ─────
             $result->sensitivity = SensitivityRunner::run(
@@ -121,6 +116,19 @@ class SaleProbabilityService
                     ];
                 },
             );
+
+            // ── 4c. Confidence scoring (post-calculation, before persist) ─────
+            $confidence = (new ConfidenceScoringService())->evaluate($input->marketAnalyticsResult, $result);
+
+            $result->setBreakdown([
+                'composite_score'          => $compositeScore,
+                'weight_redistribution'    => $combined['weight_redistribution'],
+                'weights_used'             => $combined['weights_used'],
+                'signals'                  => $combined['signals'],
+                'required_signals_missing' => $requiredMissing,
+                'skip_reasons'             => $skipReasons,
+                'confidence'               => $confidence,
+            ]);
         }
 
         // ── 5. Persist ────────────────────────────────────────────────────────

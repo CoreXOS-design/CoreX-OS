@@ -9,15 +9,23 @@ class PresentationUrlSnapshot extends Model
     protected $fillable = [
         'presentation_id',
         'url',
+        'final_url',
         'snapshot_html',
         'source_type',
         'http_status',
+        'content_type',
+        'content_bytes',
+        'blocked_reason',
+        'timed_out',
         'content_hash',
+        'response_headers_json',
         'fetched_at',
     ];
 
     protected $casts = [
-        'fetched_at' => 'datetime',
+        'fetched_at'            => 'datetime',
+        'timed_out'             => 'boolean',
+        'response_headers_json' => 'array',
     ];
 
     public function presentation()

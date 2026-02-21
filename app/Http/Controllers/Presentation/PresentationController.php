@@ -17,10 +17,23 @@ use App\Services\MarketAnalytics\Adapters\InternalDealsAdapter;
 use App\Services\MarketAnalytics\DTOs\MarketAnalyticsInput;
 use App\Services\MarketAnalytics\Helpers\InputHasher;
 use App\Services\MarketAnalytics\MarketAnalyticsService;
+use App\Services\Presentations\ArticleIngestionService;
+use App\Services\Presentations\Evidence\LinkExtractionService;
 use App\Services\Presentations\Evidence\UploadExtractionService;
+use App\Services\Presentations\Evidence\UrlIngestionService;
+use App\Services\Presentations\PresentationBlueprintService;
+use App\Services\Presentations\PresentationCompilerService;
 use App\Services\Presentations\PresentationNarrativeService;
+use App\Services\Presentations\PresentationReadinessService;
 use App\Services\Presentations\RecommendationService;
+use App\Services\Presentations\PriceBandService;
+use App\Services\Presentations\TrajectorySimulationService;
+use App\Services\Presentations\UrlSnapshotService;
 use App\Services\SaleProbability\DTOs\SaleProbabilityInput;
+use App\Services\Presentations\ExplainabilityService;
+use App\Services\Presentations\HoldingCostService as PresentationHoldingCostService;
+use App\Services\Presentations\PPIService;
+use App\Services\SaleProbability\ConfidenceScoringService;
 use App\Services\SaleProbability\InterpretationService;
 use App\Services\SaleProbability\SaleProbabilityService;
 use Illuminate\Http\Request;
@@ -94,9 +107,9 @@ class PresentationController extends Controller
             'currency'           => 'ZAR',
         ]);
 
-        // Go straight to analysis screen — no stop at overview (Prompt A)
-        return redirect()->route('presentations.analysis', $presentation)
-            ->with('success', 'Presentation created. Fill in the inputs below and run the analysis.');
+        // Intake-first workflow: land on overview with pack readiness visible
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Presentation created. Upload evidence and add links below, then run analysis when ready.');
     }
 
     /**
@@ -107,8 +120,30 @@ class PresentationController extends Controller
         $latestSnapshot = $presentation->snapshots()->latest()->first();
         $snapshotCount  = $presentation->snapshots()->count();
         $links          = $presentation->links()->orderBy('created_at')->get();
+        $readiness      = (new PresentationReadinessService())->evaluate($presentation);
 
-        return view('presentations.show', compact('presentation', 'latestSnapshot', 'snapshotCount', 'links'));
+        // ── Power Panel (UI1) — feature-flagged ──────────────────────────
+        $powerPanel = null;
+        if (config('features.presentation_power_panel_v1') && $latestSnapshot) {
+            $outputs = $latestSnapshot->getOutputSummaryArray();
+
+            $powerPanel = [
+                'p30'            => $outputs['p30'] ?? null,
+                'p60'            => $outputs['p60'] ?? null,
+                'p90'            => $outputs['p90'] ?? null,
+                'expected_days'  => $outputs['expected_days'] ?? null,
+                'confidence'     => $outputs['confidence'] ?? null,
+                'ppi'            => $outputs['ppi'] ?? null,
+                'explainability' => $outputs['explainability'] ?? null,
+                'holding_cost'   => $outputs['holding_cost'] ?? null,
+                'competitive_stock' => $outputs['competitive_stock'] ?? null,
+                'snapshot_at'    => $latestSnapshot->created_at,
+            ];
+        }
+
+        return view('presentations.show', compact(
+            'presentation', 'latestSnapshot', 'snapshotCount', 'links', 'readiness', 'powerPanel'
+        ));
     }
 
     /**
@@ -118,6 +153,14 @@ class PresentationController extends Controller
      */
     public function analysis(Presentation $presentation)
     {
+        // Readiness gate — redirect to intake if evidence is insufficient
+        if (!$presentation->isAnalysisReady()) {
+            $readiness = (new PresentationReadinessService())->evaluate($presentation);
+            $missing   = implode(', ', array_column($readiness['missing_required'], 'label'));
+            return redirect()->route('presentations.show', $presentation)
+                ->with('error', 'Add the following before running analysis: ' . $missing);
+        }
+
         $isAdmin        = auth()->user()->isEffectiveAdmin();
         $branches       = $isAdmin ? Branch::orderBy('name')->get() : collect();
         $latestSnapshot = $presentation->snapshots()->latest()->first();
@@ -146,7 +189,7 @@ class PresentationController extends Controller
     public function storeLink(Request $request, Presentation $presentation)
     {
         $validated = $request->validate([
-            'type'             => ['required', 'string', 'in:property24,lightstone,other'],
+            'type'             => ['required', 'string', 'in:property24,lightstone,active_listing,competitor_listing,market_article,other'],
             'url'              => ['required', 'url', 'max:2000'],
             'notes'            => ['nullable', 'string', 'max:500'],
             // Optional property metadata (property24 only)
@@ -159,7 +202,7 @@ class PresentationController extends Controller
             'suburb'           => ['nullable', 'string', 'max:100'],
         ]);
 
-        $presentation->links()->create([
+        $link = $presentation->links()->create([
             'type'               => $validated['type'],
             'url'                => $validated['url'],
             'notes'              => $validated['notes'] ?? null,
@@ -172,6 +215,9 @@ class PresentationController extends Controller
             'property_type'      => $validated['property_type'] ?? null,
             'suburb'             => $validated['suburb'] ?? null,
         ]);
+
+        // Run deterministic extraction on the new link
+        (new LinkExtractionService())->run($link);
 
         // Prefill presentation fields from link metadata — only if fields are currently empty.
         // Never overwrites existing values. Only applies to property24 links.
@@ -211,23 +257,198 @@ class PresentationController extends Controller
     }
 
     /**
-     * Handle a document upload for a presentation.
+     * Update the type of an existing link.
+     */
+    public function updateLinkType(Request $request, Presentation $presentation, \App\Models\PresentationLink $link)
+    {
+        abort_if($link->presentation_id !== $presentation->id, 403);
+
+        $validated = $request->validate([
+            'type' => ['required', 'string', 'in:property24,lightstone,active_listing,competitor_listing,market_article,other'],
+        ]);
+
+        $link->update(['type' => $validated['type']]);
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Link type updated.');
+    }
+
+    /**
+     * Save holding cost inputs on the presentation (canonical storage, P15).
+     */
+    public function updateHoldingCost(Request $request, Presentation $presentation)
+    {
+        $validated = $request->validate([
+            'monthly_bond'             => ['nullable', 'numeric', 'min:0'],
+            'monthly_rates'            => ['nullable', 'numeric', 'min:0'],
+            'monthly_levies'           => ['nullable', 'numeric', 'min:0'],
+            'monthly_insurance'        => ['nullable', 'numeric', 'min:0'],
+            'monthly_utilities'        => ['nullable', 'numeric', 'min:0'],
+            'monthly_opportunity_cost' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $presentation->update([
+            'monthly_bond'             => isset($validated['monthly_bond'])             ? (float) $validated['monthly_bond']             : null,
+            'monthly_rates'            => isset($validated['monthly_rates'])            ? (float) $validated['monthly_rates']            : null,
+            'monthly_levies'           => isset($validated['monthly_levies'])           ? (float) $validated['monthly_levies']           : null,
+            'monthly_insurance'        => isset($validated['monthly_insurance'])        ? (float) $validated['monthly_insurance']        : null,
+            'monthly_utilities'        => isset($validated['monthly_utilities'])        ? (float) $validated['monthly_utilities']        : null,
+            'monthly_opportunity_cost' => isset($validated['monthly_opportunity_cost']) ? (float) $validated['monthly_opportunity_cost'] : null,
+        ]);
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Holding cost inputs saved.');
+    }
+
+    /**
+     * Handle document upload(s) for a presentation.
+     * Supports multiple files in one batch with a user-selected doc_type.
      * Stores file, extracts text, and detects structured fields.
      * Never touches finance logic.
      */
     public function upload(Request $request, Presentation $presentation)
     {
         $request->validate([
-            'document' => ['required', 'file', 'max:20480'], // 20 MB
+            'doc_type'    => ['required', 'string', 'in:suburb_stats,vicinity_sales,cma,market_article,other'],
+            'documents'   => ['required', 'array', 'min:1'],
+            'documents.*' => ['file', 'max:20480'], // 20 MB each
         ]);
 
+        $docType   = $request->input('doc_type');
         $processor = new UploadProcessor(new \App\Domain\Presentation\TextExtractionService());
-        $upload    = $processor->process($request->file('document'), $presentation, auth()->id());
+        $count     = 0;
+
+        foreach ($request->file('documents') as $file) {
+            $upload = $processor->process($file, $presentation, auth()->id(), $docType);
+            (new UploadExtractionService())->run($upload);
+            $count++;
+        }
+
+        $label = $count === 1 ? '1 file uploaded' : "{$count} files uploaded";
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', "{$label} and processed.");
+    }
+
+    /**
+     * Update the document type of an existing upload.
+     */
+    public function updateUploadType(Request $request, Presentation $presentation, PresentationUpload $upload)
+    {
+        abort_if($upload->presentation_id !== $presentation->id, 403);
+
+        $validated = $request->validate([
+            'type' => ['required', 'string', 'in:suburb_stats,vicinity_sales,cma,market_article,other'],
+        ]);
+
+        $upload->update(['type' => $validated['type']]);
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Document type updated.');
+    }
+
+    /**
+     * Save user override on an uploaded document's extracted data.
+     * Stores override_json with audit fields (who/when).
+     */
+    public function saveUploadOverride(Request $request, Presentation $presentation, PresentationUpload $upload)
+    {
+        abort_if($upload->presentation_id !== $presentation->id, 403);
+
+        $validated = $request->validate([
+            'override_data' => ['required', 'array'],
+        ]);
+
+        $upload->update([
+            'override_json'       => $validated['override_data'],
+            'override_by_user_id' => auth()->id(),
+            'override_at'         => now(),
+        ]);
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Override saved for ' . ($upload->original_filename ?? 'document') . '.');
+    }
+
+    /**
+     * Clear a user override on an uploaded document, reverting to extracted data.
+     */
+    public function clearUploadOverride(Request $request, Presentation $presentation, PresentationUpload $upload)
+    {
+        abort_if($upload->presentation_id !== $presentation->id, 403);
+
+        $upload->update([
+            'override_json'       => null,
+            'override_by_user_id' => null,
+            'override_at'         => null,
+        ]);
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Override cleared for ' . ($upload->original_filename ?? 'document') . '.');
+    }
+
+    /**
+     * Save user override on a link's extracted data.
+     * Stores override_json with audit fields (who/when).
+     */
+    public function saveLinkOverride(Request $request, Presentation $presentation, \App\Models\PresentationLink $link)
+    {
+        abort_if($link->presentation_id !== $presentation->id, 403);
+
+        $validated = $request->validate([
+            'override_data' => ['required', 'array'],
+        ]);
+
+        $link->update([
+            'override_json'       => $validated['override_data'],
+            'override_by_user_id' => auth()->id(),
+            'override_at'         => now(),
+        ]);
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Override saved for link.');
+    }
+
+    /**
+     * Clear a user override on a link, reverting to extracted data.
+     */
+    public function clearLinkOverride(Request $request, Presentation $presentation, \App\Models\PresentationLink $link)
+    {
+        abort_if($link->presentation_id !== $presentation->id, 403);
+
+        $link->update([
+            'override_json'       => null,
+            'override_by_user_id' => null,
+            'override_at'         => null,
+        ]);
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Override cleared for link.');
+    }
+
+    /**
+     * Re-run extraction on an existing upload.
+     */
+    public function reExtractUpload(Presentation $presentation, PresentationUpload $upload)
+    {
+        abort_if($upload->presentation_id !== $presentation->id, 403);
 
         (new UploadExtractionService())->run($upload);
 
         return redirect()->route('presentations.show', $presentation)
-            ->with('success', 'File uploaded and processed.');
+            ->with('success', 'Re-extracted: ' . ($upload->original_filename ?? 'document') . '.');
+    }
+
+    /**
+     * Re-run extraction on an existing link.
+     */
+    public function reExtractLink(Presentation $presentation, \App\Models\PresentationLink $link)
+    {
+        abort_if($link->presentation_id !== $presentation->id, 403);
+
+        (new LinkExtractionService())->run($link);
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', 'Re-extracted link.');
     }
 
     /**
@@ -236,6 +457,14 @@ class PresentationController extends Controller
      */
     public function compute(Request $request, Presentation $presentation)
     {
+        // Readiness gate — redirect to intake if evidence is insufficient
+        if (!$presentation->isAnalysisReady()) {
+            $readiness = (new PresentationReadinessService())->evaluate($presentation);
+            $missing   = implode(', ', array_column($readiness['missing_required'], 'label'));
+            return redirect()->route('presentations.show', $presentation)
+                ->with('error', 'Add the following before running analysis: ' . $missing);
+        }
+
         // A1: resolve admin status once — used for branch enforcement and branch list
         $isAdmin = auth()->user()->isEffectiveAdmin();
 
@@ -436,5 +665,405 @@ class PresentationController extends Controller
             'isAdmin'                   => $isAdmin,
             'hasSoldData'               => $hasSoldData,
         ]);
+    }
+
+    /**
+     * Compile a frozen presentation version snapshot.
+     * Gated by features.presentation_blueprint config flag.
+     * Optionally gated by readiness checklist (P16).
+     */
+    public function compile(Request $request, Presentation $presentation)
+    {
+        abort_unless(config("features.presentation_blueprint"), 404);
+
+        // Readiness gate (P16) — blocks unless can_compile or admin force-overrides
+        if (config('features.presentation_readiness_check', false)) {
+            $readiness = (new PresentationReadinessService())->evaluate($presentation);
+            if (!$readiness['can_compile']) {
+                $isAdmin   = auth()->user()->isEffectiveAdmin();
+                $hasForce  = $request->boolean('force');
+                if (!($isAdmin && $hasForce)) {
+                    $missing = implode('; ', array_column($readiness['missing_required'], 'label'));
+                    return redirect()->route('presentations.show', $presentation)
+                        ->with('error', 'Cannot compile — missing required evidence: ' . $missing);
+                }
+            }
+        }
+
+        $version = (new PresentationCompilerService())->compile(
+            $presentation->id,
+            auth()->id(),
+        );
+
+        return redirect()->route("presentations.show", $presentation)
+            ->with("success", "Version #" . $version->id . " compiled successfully.");
+    }
+
+    /**
+     * Store a URL snapshot and trigger ingestion if applicable.
+     * Gated by p24_ingestion / private_property_ingestion / article_ingestion feature flags.
+     */
+    public function storeUrlSnapshot(Request $request, Presentation $presentation)
+    {
+        $validated = $request->validate([
+            'url'         => ['required', 'url', 'max:2000'],
+            'source_type' => ['required', 'string', 'in:' . implode(',', UrlSnapshotService::ALLOWED_SOURCE_TYPES)],
+            'tags'        => ['nullable', 'array'],
+            'tags.*'      => ['string', 'max:100'],
+        ]);
+
+        $sourceType = $validated['source_type'];
+
+        // Article flow → ArticleIngestionService handles snapshot + summary
+        if ($sourceType === 'article') {
+            abort_unless(config('features.article_ingestion'), 403, 'Article ingestion is disabled.');
+
+            $result = (new ArticleIngestionService())->ingest(
+                $presentation->id,
+                $validated['url'],
+                $validated['tags'] ?? [],
+            );
+
+            return response()->json([
+                'status'  => 'ok',
+                'article' => $result,
+            ]);
+        }
+
+        // Listing flow → UrlSnapshotService + UrlIngestionService
+        $snapshot  = (new UrlSnapshotService())->storeSnapshot($presentation->id, $validated['url'], $sourceType);
+        $ingestion = null;
+
+        $listingTypes = ['p24_search', 'p24_listing', 'private_property', 'private_property_search', 'private_property_listing'];
+
+        if (in_array($sourceType, $listingTypes, true)) {
+            $featureEnabled = match (true) {
+                str_starts_with($sourceType, 'p24')             => config('features.p24_ingestion', false),
+                str_starts_with($sourceType, 'private_property')=> config('features.private_property_ingestion', false),
+                default                                          => false,
+            };
+
+            if ($featureEnabled) {
+                $ingestion = (new UrlIngestionService())->ingest($presentation->id, $snapshot->id);
+            }
+        }
+
+        return response()->json([
+            'status'    => 'ok',
+            'snapshot'  => [
+                'id'          => $snapshot->id,
+                'url'         => $snapshot->url,
+                'source_type' => $snapshot->source_type,
+                'http_status' => $snapshot->http_status,
+                'hash'        => $snapshot->content_hash,
+            ],
+            'ingestion' => $ingestion,
+        ]);
+    }
+
+    /**
+     * Re-run analytics + probability WITHOUT persisting — live simulation.
+     * Returns the standardised P10 data contract (price, probability, competitive position).
+     * No DB writes occur.
+     */
+    public function simulate(Request $request, Presentation $presentation)
+    {
+        $validated = $request->validate([
+            'suburb'        => ['required', 'string', 'max:100'],
+            'type'          => ['required', 'string', 'in:house,unit,land,other'],
+            'price'         => ['nullable', 'numeric', 'min:0'],
+            'size_m2'       => ['nullable', 'integer', 'min:0'],
+            'bedrooms'      => ['nullable', 'integer', 'min:0', 'max:20'],
+            'period_months' => ['required', 'integer', 'in:6,12,24'],
+            'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
+        ]);
+
+        $isAdmin           = auth()->user()->isEffectiveAdmin();
+        $effectiveBranchId = $isAdmin
+            ? (isset($validated['branch_id']) ? (int) $validated['branch_id'] : null)
+            : (int) auth()->user()->effectiveBranchId();
+
+        $subjectPrice = isset($validated['price']) ? (float) $validated['price'] : null;
+
+        $maInput = new MarketAnalyticsInput(
+            suburb:          $validated['suburb'],
+            propertyType:    $validated['type'],
+            periodMonths:    (int) $validated['period_months'],
+            bedrooms:        isset($validated['bedrooms']) ? (int) $validated['bedrooms'] : null,
+            sourceBranchId:  $effectiveBranchId,
+            subjectSizeM2:   isset($validated['size_m2']) ? (int) $validated['size_m2'] : null,
+            subjectPriceInc: $subjectPrice,
+            presentationId:  $presentation->id,
+        );
+
+        $maService = new MarketAnalyticsService(
+            new InternalDealsAdapter(),
+            new ImportedListingsAdapter(),
+        );
+
+        $maResult   = $maService->run($maInput, persist: false);
+        $inputsHash = InputHasher::hash($maInput);
+
+        $spInput = new SaleProbabilityInput(
+            marketAnalyticsRunId:        null,
+            marketAnalyticsModelVersion: MarketAnalyticsService::MODEL_VERSION,
+            marketAnalyticsInputsHash:   $inputsHash,
+            marketAnalyticsResult:       $maResult,
+        );
+
+        $spResult = (new SaleProbabilityService())->run($spInput, createdBy: null, persist: false);
+
+        // ── Competitive position from breakdown ───────────────────────────────
+        $breakdown       = $maResult->toBreakdownArray();
+        $compStock       = $breakdown['competitive_stock'] ?? null;
+        $totalActive     = $compStock['total_active_stock'] ?? 0;
+        $belowCount      = $compStock['below_subject_count'] ?? null;
+        $aboveCount      = $compStock['above_subject_count'] ?? null;
+        $percentilePos   = ($totalActive > 0 && $belowCount !== null)
+            ? round($belowCount / $totalActive, 4)
+            : null;
+
+        // ── Absorption rate from breakdown ────────────────────────────────────
+        $absorptionRate  = $breakdown['absorption_rate']['monthly_sold'] ?? null;
+
+        // ── Confidence scoring (P11) ──────────────────────────────────────────
+        $confidence = (new ConfidenceScoringService())->evaluate($maResult, $spResult);
+
+        // ── Explainability block (P12) ────────────────────────────────────────
+        $explainability = (new ExplainabilityService())->generate(
+            $maResult,
+            $spResult,
+            $compStock ?? [],
+        );
+
+        // ── Holding cost from presentation canonical fields (P15) ─────────────
+        $holdingCostMonthly = 0.0;
+        $holdingCostResult  = null;
+        $hcInputs = [
+            'bond_payment'     => (float) ($presentation->monthly_bond             ?? 0),
+            'rates'            => (float) ($presentation->monthly_rates            ?? 0),
+            'levies'           => (float) ($presentation->monthly_levies           ?? 0),
+            'insurance'        => (float) ($presentation->monthly_insurance        ?? 0),
+            'utilities'        => (float) ($presentation->monthly_utilities        ?? 0),
+            'opportunity_cost' => (float) ($presentation->monthly_opportunity_cost ?? 0),
+        ];
+        if (array_sum(array_values($hcInputs)) > 0) {
+            $holdingCostResult  = (new PresentationHoldingCostService())->calculate($hcInputs);
+            $holdingCostMonthly = $holdingCostResult['monthly_total'];
+        }
+
+        // ── Presentation Performance Index (P13) ──────────────────────────────
+        $ppi = ($spResult->p60 !== null)
+            ? (new PPIService())->calculate(
+                p60:                $spResult->p60,
+                confidenceScore:    $confidence['confidence_score'],
+                percentilePosition: $percentilePos ?? 0.5,
+                holdingCostMonthly: $holdingCostMonthly,
+            )
+            : null;
+
+        // ── Persist simulation snapshot (feature-flagged, P14) ───────────────
+        if (config('features.presentation_simulate_snapshot', false)) {
+            $simulateInputsPayload = [
+                'suburb'        => $validated['suburb'],
+                'type'          => $validated['type'],
+                'price'         => $subjectPrice,
+                'size_m2'       => isset($validated['size_m2'])  ? (int) $validated['size_m2']  : null,
+                'bedrooms'      => isset($validated['bedrooms']) ? (int) $validated['bedrooms'] : null,
+                'period_months' => (int) $validated['period_months'],
+                'branch_id'     => $effectiveBranchId,
+            ];
+
+            $simulateOutputPayload = [
+                'p30'               => $spResult->p30,
+                'p60'               => $spResult->p60,
+                'p90'               => $spResult->p90,
+                'expected_days'     => $spResult->expectedDays,
+                'skip_reason'       => $spResult->skipReason ?? null,
+                'confidence'        => $confidence,
+                'explainability'    => $explainability,
+                'ppi'               => $ppi,
+                'competitive_stock' => $compStock,
+                'holding_cost'      => $holdingCostResult,
+            ];
+
+            PresentationSnapshot::create([
+                'presentation_id'         => $presentation->id,
+                'generated_by_user_id'    => auth()->id(),
+                'created_by_user_id'      => auth()->id(),
+                'market_analytics_run_id' => null,
+                'sale_probability_run_id' => null,
+                'inputs_json'             => json_encode($simulateInputsPayload, JSON_THROW_ON_ERROR),
+                'output_summary_json'     => json_encode($simulateOutputPayload, JSON_THROW_ON_ERROR),
+                'snapshot_json'           => json_encode(
+                    ['data_sources' => $maResult->toDataSourcesArray(), 'source' => 'simulate'],
+                    JSON_THROW_ON_ERROR
+                ),
+                'generated_at'            => now(),
+            ]);
+        }
+
+        return response()->json([
+            'price_tested' => $subjectPrice,
+            'probability'  => [
+                'p30' => $spResult->p30,
+                'p60' => $spResult->p60,
+                'p90' => $spResult->p90,
+            ],
+            'expected_days'        => $spResult->expectedDays,
+            'competitive_position' => [
+                'below_count'         => $belowCount,
+                'above_count'         => $aboveCount,
+                'percentile_position' => $percentilePos,
+            ],
+            'stock_pressure_index' => $maResult->demandSupplyRatio,
+            'absorption_rate'      => $absorptionRate,
+            'data_sources'         => $maResult->toDataSourcesArray(),
+            'confidence'           => $confidence,
+            'explainability'       => $explainability,
+            'ppi'                  => $ppi,
+            'holding_cost'         => $holdingCostResult,
+        ]);
+    }
+
+    /**
+     * Live "Brain" simulation screen (UI2).
+     * Gated by features.presentation_brain_ui_v1.
+     * Read-only — all mutations happen via the fetch()-called endpoints.
+     */
+    public function brain(Presentation $presentation)
+    {
+        abort_unless(config('features.presentation_brain_ui_v1'), 404);
+
+        $latestSnapshot = $presentation->snapshots()->latest()->first();
+        $lastInputs     = $latestSnapshot ? $latestSnapshot->getInputsArray() : [];
+
+        // Pre-populate defaults from snapshot or presentation fields
+        $defaults = [
+            'suburb'        => $lastInputs['suburb']        ?? $presentation->suburb ?? '',
+            'type'          => $lastInputs['type']          ?? $presentation->property_type ?? 'house',
+            'price'         => $lastInputs['price']         ?? null,
+            'size_m2'       => $lastInputs['size_m2']       ?? $presentation->floor_area_m2 ?? null,
+            'bedrooms'      => $lastInputs['bedrooms']      ?? $presentation->bedrooms ?? null,
+            'period_months' => $lastInputs['period_months'] ?? 12,
+        ];
+
+        return view('presentations.brain', compact('presentation', 'defaults'));
+    }
+
+    /**
+     * Multi-step price trajectory simulation (C1).
+     * Gated by features.trajectory_simulation_v1.
+     * No DB writes.
+     */
+    public function simulateTrajectory(Request $request, Presentation $presentation)
+    {
+        abort_unless(config('features.trajectory_simulation_v1'), 404);
+
+        $validated = $request->validate([
+            'suburb'        => ['required', 'string', 'max:100'],
+            'type'          => ['required', 'string', 'in:house,unit,land,other'],
+            'size_m2'       => ['nullable', 'integer', 'min:0'],
+            'bedrooms'      => ['nullable', 'integer', 'min:0', 'max:20'],
+            'period_months' => ['required', 'integer', 'in:6,12,24'],
+            'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
+            'price_steps'   => ['required', 'array', 'min:1', 'max:10'],
+            'price_steps.*' => ['required', 'numeric', 'min:0'],
+            'days_per_step' => ['nullable', 'integer', 'min:1', 'max:365'],
+        ]);
+
+        $isAdmin           = auth()->user()->isEffectiveAdmin();
+        $effectiveBranchId = $isAdmin
+            ? (isset($validated['branch_id']) ? (int) $validated['branch_id'] : null)
+            : (int) auth()->user()->effectiveBranchId();
+
+        $baseInputs = [
+            'suburb'        => $validated['suburb'],
+            'type'          => $validated['type'],
+            'size_m2'       => isset($validated['size_m2']) ? (int) $validated['size_m2'] : null,
+            'bedrooms'      => isset($validated['bedrooms']) ? (int) $validated['bedrooms'] : null,
+            'period_months' => (int) $validated['period_months'],
+            'branch_id'     => $effectiveBranchId,
+        ];
+
+        $result = (new TrajectorySimulationService())->simulateTrajectory(
+            presentation: $presentation,
+            baseInputs:   $baseInputs,
+            priceSteps:   $validated['price_steps'],
+            daysPerStep:  (int) ($validated['days_per_step'] ?? 30),
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Optimal price band scan (C2).
+     * Gated by features.price_band_v1.
+     * No DB writes.
+     */
+    public function priceBand(Request $request, Presentation $presentation)
+    {
+        abort_unless(config('features.price_band_v1'), 404);
+
+        $validated = $request->validate([
+            'suburb'        => ['required', 'string', 'max:100'],
+            'type'          => ['required', 'string', 'in:house,unit,land,other'],
+            'price'         => ['required', 'numeric', 'min:1'],
+            'size_m2'       => ['nullable', 'integer', 'min:0'],
+            'bedrooms'      => ['nullable', 'integer', 'min:0', 'max:20'],
+            'period_months' => ['required', 'integer', 'in:6,12,24'],
+            'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
+            'range_percent' => ['nullable', 'numeric', 'min:0.01', 'max:0.30'],
+            'steps'         => ['nullable', 'integer', 'min:3', 'max:21'],
+        ]);
+
+        $isAdmin           = auth()->user()->isEffectiveAdmin();
+        $effectiveBranchId = $isAdmin
+            ? (isset($validated['branch_id']) ? (int) $validated['branch_id'] : null)
+            : (int) auth()->user()->effectiveBranchId();
+
+        $baseInputs = [
+            'suburb'        => $validated['suburb'],
+            'type'          => $validated['type'],
+            'size_m2'       => isset($validated['size_m2']) ? (int) $validated['size_m2'] : null,
+            'bedrooms'      => isset($validated['bedrooms']) ? (int) $validated['bedrooms'] : null,
+            'period_months' => (int) $validated['period_months'],
+            'branch_id'     => $effectiveBranchId,
+        ];
+
+        $result = (new PriceBandService())->findOptimalBand(
+            presentation: $presentation,
+            currentPrice: (float) $validated['price'],
+            baseInputs:   $baseInputs,
+            rangePercent:  (float) ($validated['range_percent'] ?? 0.08),
+            steps:         (int) ($validated['steps'] ?? 9),
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Competitive threat ranking (C3).
+     * Gated by features.competitive_threat_v1.
+     * No DB writes.
+     */
+    public function competitiveThreats(Request $request, Presentation $presentation)
+    {
+        abort_unless(config('features.competitive_threat_v1'), 404);
+
+        $validated = $request->validate([
+            'price'   => ['nullable', 'numeric', 'min:0'],
+            'size_m2' => ['nullable', 'integer', 'min:0'],
+            'limit'   => ['nullable', 'integer', 'min:1', 'max:50'],
+        ]);
+
+        $result = (new \App\Services\MarketAnalytics\CompetitiveThreatService())->rankThreats(
+            presentation: $presentation,
+            subjectPrice: isset($validated['price']) ? (float) $validated['price'] : null,
+            subjectSizeM2: isset($validated['size_m2']) ? (int) $validated['size_m2'] : null,
+            limit:         (int) ($validated['limit'] ?? 5),
+        );
+
+        return response()->json($result);
     }
 }

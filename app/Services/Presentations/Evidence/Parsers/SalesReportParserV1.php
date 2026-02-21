@@ -74,8 +74,73 @@ class SalesReportParserV1
             'parser_version' => self::PARSER_VERSION,
             'doc_type_guess' => self::DOC_TYPE,
             'parsed_counts'  => ['sold_comps' => $count],
+            'aggregates'     => $this->extractAggregates($text),
             'errors'         => $errors,
         ];
+    }
+
+    /**
+     * Extract aggregate/summary statistics from full text.
+     * Looks for common patterns like "23 sold", "Median: R1,620,000", etc.
+     */
+    public function extractAggregates(string $text): array
+    {
+        return array_filter([
+            'sold_count'       => $this->extractSoldCount($text),
+            'median_price'     => $this->extractAggrPrice($text, 'median'),
+            'average_price'    => $this->extractAggrPrice($text, 'average|avg|mean'),
+            'dom_p50'          => $this->extractDOM($text),
+            'price_range_low'  => $this->extractPriceRange($text, 'low'),
+            'price_range_high' => $this->extractPriceRange($text, 'high'),
+        ], fn ($v) => $v !== null);
+    }
+
+    private function extractSoldCount(string $text): ?int
+    {
+        if (preg_match('/(\d+)\s*(?:sold|sales|transactions|transfers)/i', $text, $m)) {
+            return (int) $m[1];
+        }
+        if (preg_match('/(?:sold|sales|transactions|transfers)\s*[:\-]?\s*(\d+)/i', $text, $m)) {
+            return (int) $m[1];
+        }
+        if (preg_match('/total\s*(?:sold|sales)\s*[:\-]?\s*(\d+)/i', $text, $m)) {
+            return (int) $m[1];
+        }
+        return null;
+    }
+
+    private function extractAggrPrice(string $text, string $label): ?int
+    {
+        if (preg_match('/' . $label . '[\s\w]*?(?:price|sale)?[\s:]*R\s*([\d\s,]+)/i', $text, $m)) {
+            $cleaned = (int) preg_replace('/[\s,]/', '', $m[1]);
+            return ($cleaned >= 10000) ? $cleaned : null;
+        }
+        return null;
+    }
+
+    private function extractDOM(string $text): ?int
+    {
+        if (preg_match('/(?:days\s*on\s*market|DOM)[\s:\-]*(\d+)/i', $text, $m)) {
+            $val = (int) $m[1];
+            return ($val > 0 && $val < 3650) ? $val : null;
+        }
+        if (preg_match('/(?:median|average|avg)\s*(?:days?\s*on\s*market|DOM)[\s:\-]*(\d+)/i', $text, $m)) {
+            $val = (int) $m[1];
+            return ($val > 0 && $val < 3650) ? $val : null;
+        }
+        return null;
+    }
+
+    private function extractPriceRange(string $text, string $which): ?int
+    {
+        if (preg_match('/R\s*([\d\s,]+)\s*(?:to|\-)\s*R\s*([\d\s,]+)/i', $text, $m)) {
+            $low  = (int) preg_replace('/[\s,]/', '', $m[1]);
+            $high = (int) preg_replace('/[\s,]/', '', $m[2]);
+            if ($low >= 10000 && $high >= $low) {
+                return $which === 'low' ? $low : $high;
+            }
+        }
+        return null;
     }
 
     // ── Private parsing helpers ───────────────────────────────────────────────

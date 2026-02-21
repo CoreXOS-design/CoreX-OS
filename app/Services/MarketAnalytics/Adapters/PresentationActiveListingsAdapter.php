@@ -35,6 +35,11 @@ class PresentationActiveListingsAdapter implements ActiveListingsSource, HasSour
                 'property_type', 'beds', 'size_m2', 'status', 'source_upload_id', 'parser_version',
             ]);
 
+        // Phase B1: when dedupe is enabled, only use active, de-duped rows
+        if (config('features.listing_dedupe_v1', false)) {
+            $query->where('is_active', true);
+        }
+
         // Suburb filter: loose match when suburb is present; include nulls
         if ($suburbName !== '') {
             $query->where(function ($q) use ($suburbName) {

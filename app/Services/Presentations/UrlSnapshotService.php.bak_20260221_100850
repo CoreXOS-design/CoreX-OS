@@ -1,0 +1,67 @@
+<?php
+
+namespace App\Services\Presentations;
+
+use App\Models\PresentationUrlSnapshot;
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
+
+/**
+ * Fetches a URL and stores a raw HTML snapshot with content hash.
+ * No parsing is performed here — the snapshot is stored verbatim
+ * so that parsers can be applied later without re-fetching.
+ */
+class UrlSnapshotService
+{
+    public const ALLOWED_SOURCE_TYPES = [
+        'p24_search',
+        'p24_listing',
+        'private_property',
+        'private_property_search',
+        'private_property_listing',
+        'article',
+        'other',
+    ];
+
+    public function __construct(
+        private Client $http = new Client(['timeout' => 10, 'connect_timeout' => 5]),
+    ) {}
+
+    /**
+     * Fetch the URL and store a snapshot row.
+     *
+     * @throws \InvalidArgumentException if source_type is invalid
+     */
+    public function storeSnapshot(
+        int    $presentationId,
+        string $url,
+        string $sourceType = 'other',
+    ): PresentationUrlSnapshot {
+        if (!in_array($sourceType, self::ALLOWED_SOURCE_TYPES, true)) {
+            throw new \InvalidArgumentException("Invalid source_type: {$sourceType}");
+        }
+
+        $html       = null;
+        $httpStatus = null;
+        $hash       = null;
+
+        try {
+            $response   = $this->http->get($url);
+            $httpStatus = $response->getStatusCode();
+            $html       = (string) $response->getBody();
+            $hash       = hash('sha256', $html);
+        } catch (GuzzleException $e) {
+            // Store the row even on failure so the attempt is recorded
+        }
+
+        return PresentationUrlSnapshot::create([
+            'presentation_id' => $presentationId,
+            'url'             => $url,
+            'snapshot_html'   => $html,
+            'source_type'     => $sourceType,
+            'http_status'     => $httpStatus,
+            'content_hash'    => $hash,
+            'fetched_at'      => now(),
+        ]);
+    }
+}

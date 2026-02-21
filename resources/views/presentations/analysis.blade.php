@@ -94,12 +94,13 @@
                 </select>
             </div>
             <div>
-                <label class="block text-xs text-gray-600 mb-1">Price (R)</label>
+                <label class="block text-xs text-gray-600 mb-1">Asking Price (R) <span class="text-gray-400 font-normal">— optional</span></label>
                 <input type="number" name="price"
                        value="{{ $inputs['price'] ?? $lastInputs['price'] ?? '' }}"
                        step="1" min="0"
                        class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                        placeholder="e.g. 2500000">
+                <p class="mt-0.5 text-xs text-gray-400">Enter your current asking price to test positioning.</p>
             </div>
             <div>
                 <label class="block text-xs text-gray-600 mb-1">Floor Area (m²)</label>

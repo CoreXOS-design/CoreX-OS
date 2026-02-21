@@ -21,11 +21,23 @@ class Presentation extends Model
         'seller_email',
         'status',
         'currency',
+        'monthly_bond',
+        'monthly_rates',
+        'monthly_levies',
+        'monthly_insurance',
+        'monthly_utilities',
+        'monthly_opportunity_cost',
     ];
 
     protected $casts = [
-        'bedrooms'      => 'integer',
-        'floor_area_m2' => 'integer',
+        'bedrooms'                 => 'integer',
+        'floor_area_m2'            => 'integer',
+        'monthly_bond'             => 'float',
+        'monthly_rates'            => 'float',
+        'monthly_levies'           => 'float',
+        'monthly_insurance'        => 'float',
+        'monthly_utilities'        => 'float',
+        'monthly_opportunity_cost' => 'float',
     ];
 
     public function uploads()
@@ -66,5 +78,20 @@ class Presentation extends Model
     public function versions()
     {
         return $this->hasMany(PresentationVersion::class);
+    }
+
+    public function articles()
+    {
+        return $this->hasMany(PresentationArticle::class);
+    }
+
+    /**
+     * Deterministic readiness check — delegates to PresentationReadinessService.
+     * Returns true when all required evidence items are present (same as can_compile).
+     */
+    public function isAnalysisReady(): bool
+    {
+        return (new \App\Services\Presentations\PresentationReadinessService())
+            ->evaluate($this)['can_compile'];
     }
 }

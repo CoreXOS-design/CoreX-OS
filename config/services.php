@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'portal_fetch' => [
+        'url' => env('PORTAL_FETCH_URL', 'http://127.0.0.1:3105'),
+    ],
+
 ];

@@ -27,12 +27,14 @@ class UploadExtractionService
 
         if ($upload->extraction_status !== 'ok') {
             $upload->update([
-                'extraction_json' => json_encode([
+                'extraction_json'  => [
                     'parser_version' => self::SERVICE_VERSION,
                     'doc_type_guess' => $docType,
                     'parsed_counts'  => [],
                     'errors'         => ['text_extraction_failed'],
-                ], JSON_THROW_ON_ERROR),
+                ],
+                'extraction_error' => 'Text extraction failed — parser could not read document.',
+                'extracted_at'     => now(),
             ]);
             return;
         }
@@ -40,9 +42,46 @@ class UploadExtractionService
         $text   = $upload->text_extracted ?? '';
         $result = $this->runParser($docType, $text, $upload);
 
+        $hasUseful = $this->hasUsefulData($result);
+
         $upload->update([
-            'extraction_json' => json_encode($result, JSON_THROW_ON_ERROR),
+            'extraction_json'   => $result,
+            'extraction_status' => $hasUseful ? 'ok' : 'failed',
+            'extraction_error'  => $hasUseful ? null : 'No extractable fields found (check PDF format)',
+            'extracted_at'      => now(),
         ]);
+    }
+
+    /**
+     * Check if parser result contains any useful extracted data.
+     */
+    private function hasUsefulData(array $result): bool
+    {
+        // Check parsed_counts — any value > 0 means rows were extracted
+        $counts = $result['parsed_counts'] ?? [];
+        foreach ($counts as $v) {
+            if (is_int($v) && $v > 0) {
+                return true;
+            }
+        }
+
+        // Check aggregates — any non-null value means summary stats found
+        $aggregates = $result['aggregates'] ?? [];
+        if (count(array_filter($aggregates, fn ($v) => $v !== null)) > 0) {
+            return true;
+        }
+
+        // Check CMA suggested_band
+        if (!empty($result['suggested_band'])) {
+            return true;
+        }
+
+        // Check CMA notes
+        if (!empty($result['notes']) && is_array($result['notes']) && count($result['notes']) > 0) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
