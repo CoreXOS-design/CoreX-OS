@@ -36,15 +36,28 @@ class LinkExtractionService
             // Check if we got any useful data beyond base keys
             $hasUseful = $this->hasUsefulData($extracted);
 
-            $link->update([
-                'extraction_status' => $hasUseful ? 'ok' : 'failed',
-                'extracted_json'    => $extracted,
-                'extracted_at'      => now(),
-                'extraction_error'  => $hasUseful ? null : ($extracted['snapshot_error'] ?? 'No extractable fields found (check link type / URL)'),
-            ]);
+            if ($hasUseful) {
+                $link->update([
+                    'extraction_status' => 'ok',
+                    'extracted_json'    => $extracted,
+                    'extracted_at'      => now(),
+                    'extraction_error'  => null,
+                ]);
+            } else {
+                // Snapshot fetch issues (blocked, timed out, service offline) → 'pending' (retryable)
+                // Genuine extraction failures (HTML fetched, no data found) → 'failed'
+                $isSnapshotIssue = !empty($extracted['snapshot_error']) || !empty($extracted['blocked_reason']) || !empty($extracted['timed_out']);
+                $link->update([
+                    'extraction_status' => $isSnapshotIssue ? 'pending' : 'failed',
+                    'extracted_json'    => $extracted,
+                    'extracted_at'      => now(),
+                    'extraction_error'  => $extracted['snapshot_error'] ?? 'No extractable fields found (check link type / URL)',
+                ]);
+            }
         } catch (\Throwable $e) {
+            // Exception during extraction → keep pending (retryable), log error
             $link->update([
-                'extraction_status' => 'failed',
+                'extraction_status' => 'pending',
                 'extraction_error'  => $e->getMessage(),
                 'extracted_at'      => now(),
             ]);

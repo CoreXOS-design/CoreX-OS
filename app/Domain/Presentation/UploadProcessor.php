@@ -38,7 +38,7 @@ class UploadProcessor
         $rawContents      = file_get_contents($file->getRealPath());
         $contentHash      = $this->namingService->contentHash($rawContents);
 
-        $detectedDocType = (new UploadExtractionService())->detectDocType($originalFilename);
+        $detectedDocType = (new UploadExtractionService())->detectDocumentType($originalFilename);
         $fileSlug = $this->namingService->generate($originalFilename, $rawContents, $detectedDocType);
 
         // Use user-supplied doc_type if provided; fall back to auto-detected

@@ -403,14 +403,40 @@ class Property24SearchExtractorV1
     }
 
     /**
-     * Try to extract total results count from the page (e.g. "Showing : 1 - 20 of 50").
+     * Try to extract total results count from the page.
+     *
+     * P24 patterns:
+     *   - "Showing 1 - 20 of 48"
+     *   - "48 Properties" / "48 properties for sale"
+     *   - "Browse 48 properties"
+     *   - "Results 1 – 20 of 48"
      */
     private function extractTotalCount(string $html): ?int
     {
+        // Strategy 1: "of X" pattern from pagination text (most specific)
+        if (preg_match('/(?:showing|results)[^<]{0,40}of\s+(\d[\d\s,]*)/i', $html, $m)) {
+            $v = (int) preg_replace('/[^\d]/', '', $m[1]);
+            if ($v > 0 && $v < 100000) return $v;
+        }
+
+        // Strategy 2: "X Properties" or "X properties for sale"
+        if (preg_match('/(\d[\d\s,]*)\s*(?:propert(?:y|ies)|results?\s*(?:found|for\s*sale))/i', $html, $m)) {
+            $v = (int) preg_replace('/[^\d]/', '', $m[1]);
+            if ($v > 0 && $v < 100000) return $v;
+        }
+
+        // Strategy 3: "Browse X properties" / "showing X properties"
+        if (preg_match('/(?:browse|found|showing)\s+(\d[\d\s,]*)\s*(?:propert|listing|result)/i', $html, $m)) {
+            $v = (int) preg_replace('/[^\d]/', '', $m[1]);
+            if ($v > 0 && $v < 100000) return $v;
+        }
+
+        // Strategy 4: generic "of X" (broader fallback)
         if (preg_match('/of\s+(\d[\d\s,]*)/i', $html, $m)) {
             $v = (int) preg_replace('/[^\d]/', '', $m[1]);
-            return $v > 0 ? $v : null;
+            if ($v > 0 && $v < 100000) return $v;
         }
+
         return null;
     }
 

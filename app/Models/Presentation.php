@@ -31,6 +31,10 @@ class Presentation extends Model
         'monthly_insurance',
         'monthly_utilities',
         'monthly_opportunity_cost',
+        'cma_selected_range',
+        'vicinity_selected_range',
+        'excluded_active_listing_indices',
+        'simulator_config_json',
     ];
 
     protected $casts = [
@@ -46,6 +50,8 @@ class Presentation extends Model
         'monthly_insurance'        => 'float',
         'monthly_utilities'        => 'float',
         'monthly_opportunity_cost' => 'float',
+        'excluded_active_listing_indices' => 'array',
+        'simulator_config_json'          => 'array',
     ];
 
     public function uploads()

@@ -43,9 +43,14 @@
             cursor: pointer;
             margin-bottom: 6px;
         }
-        .btn-capture { background: #2563eb; color: white; }
-        .btn-capture:hover { background: #1d4ed8; }
-        .btn-capture:disabled { background: #93c5fd; cursor: not-allowed; }
+        .btn-capture { background: #16a34a; color: white; }
+        .btn-capture:hover { background: #15803d; }
+        .btn-capture:disabled { background: #86efac; cursor: not-allowed; }
+        .btn-capture-close { background: #2563eb; color: white; }
+        .btn-capture-close:hover { background: #1d4ed8; }
+        .btn-capture-close:disabled { background: #93c5fd; cursor: not-allowed; }
+        .btn-row { display: flex; gap: 6px; }
+        .btn-row button { flex: 1; }
         label { display: block; font-size: 11px; color: #6b7280; margin-bottom: 2px; }
         input, select {
             width: 100%; box-sizing: border-box;
@@ -59,12 +64,33 @@
             font-size: 11px; font-weight: 600; background: #dbeafe; color: #1e40af;
             margin-bottom: 6px;
         }
+        .saving-to {
+            padding: 6px 8px; border-radius: 6px; margin-bottom: 8px;
+            font-size: 11px; background: #f0fdf4; color: #166534;
+            border: 1px solid #bbf7d0; display: none;
+        }
+        .saving-to strong { font-weight: 700; }
+        .btn-all-pages { background: #7c3aed; color: white; }
+        .btn-all-pages:hover { background: #6d28d9; }
+        .btn-all-pages:disabled { background: #c4b5fd; cursor: not-allowed; }
+        .progress-bar {
+            height: 6px; border-radius: 3px; background: #e5e7eb;
+            margin: 6px 0; overflow: hidden; display: none;
+        }
+        .progress-bar-fill {
+            height: 100%; background: #7c3aed; border-radius: 3px;
+            transition: width 0.3s ease; width: 0%;
+        }
+        .progress-text {
+            font-size: 11px; color: #6b7280; margin-bottom: 6px; display: none;
+        }
     </style>
 </head>
 <body>
     <h1>Portal Capture</h1>
 
     <div id="status" class="status status-info">Checking page...</div>
+    <div id="saving-to" class="saving-to" style="display:none;"></div>
     <div id="site-info" style="display:none;"><span class="site-badge" id="site-badge"></span></div>
 
     <div id="config-section" style="display:none;">
@@ -84,11 +110,22 @@
             <option value="property">Property Detail</option>
             <option value="unknown">Unknown</option>
         </select>
+        <label>API Token <span style="color:#9ca3af">(from Nexus settings)</span></label>
+        <input type="password" id="api-token" placeholder="paste token here">
     </div>
 
     <div id="preview" class="preview" style="display:none;"></div>
 
-    <button id="capture-btn" class="btn-capture" style="display:none;" disabled>Capture</button>
+    <div id="capture-buttons" class="btn-row" style="display:none;">
+        <button id="capture-btn" class="btn-capture" disabled>Capture</button>
+        <button id="capture-close-btn" class="btn-capture-close" disabled>Capture &amp; Close</button>
+    </div>
+
+    <div id="all-pages-section" style="display:none;">
+        <button id="capture-all-btn" class="btn-all-pages" disabled>Capture All Pages</button>
+        <div id="all-pages-progress" class="progress-bar"><div id="all-pages-progress-fill" class="progress-bar-fill"></div></div>
+        <div id="all-pages-text" class="progress-text"></div>
+    </div>
 
     <script src="popup.js"></script>
 </body>

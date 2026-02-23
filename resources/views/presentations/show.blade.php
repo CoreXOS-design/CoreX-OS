@@ -1,5 +1,10 @@
 @extends('layouts.nexus')
 
+@push('head')
+<meta name="hfc-presentation-id" content="{{ $presentation->id }}">
+<meta name="hfc-presentation-title" content="{{ $presentation->title ?? '' }}">
+@endpush
+
 @section('nexus-content')
 
 @php
@@ -26,11 +31,20 @@
 
         {{-- Property details row --}}
         @php
+            $propTypeLabels = [
+                'house' => 'House', 'townhouse' => 'Townhouse', 'apartment' => 'Apartment/Flat',
+                'duplex' => 'Duplex', 'vacant_land' => 'Vacant Land', 'farm' => 'Farm',
+                'unit' => 'Unit/Apartment', 'land' => 'Vacant Land', 'other' => 'Other',
+            ];
             $propDetails = array_filter([
                 $presentation->suburb,
-                $presentation->property_type ? ucfirst($presentation->property_type) : null,
+                $presentation->property_type ? ($propTypeLabels[$presentation->property_type] ?? ucfirst($presentation->property_type)) : null,
                 $presentation->bedrooms ? $presentation->bedrooms . ' bed' : null,
-                $presentation->floor_area_m2 ? $presentation->floor_area_m2 . ' m²' : null,
+                $presentation->bathrooms ? $presentation->bathrooms . ' bath' : null,
+                $presentation->garages_parking ? $presentation->garages_parking . ' garage' : null,
+                $presentation->erf_size_m2 ? number_format($presentation->erf_size_m2) . ' m² erf' : null,
+                $presentation->floor_area_m2 ? $presentation->floor_area_m2 . ' m² floor' : null,
+                $presentation->asking_price_inc ? 'R ' . number_format($presentation->asking_price_inc, 0, '.', ' ') : null,
             ]);
         @endphp
         @if(!empty($propDetails))
@@ -74,19 +88,12 @@
                 Latest Snapshot →
             </a>
         @endif
-        @if(config('features.presentation_brain_ui_v1'))
-            @if($latestSnapshot)
-                <a href="{{ route('presentations.brain', $presentation) }}"
-                   class="pres-btn pres-btn-purple">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>
-                    Brain Simulation
-                </a>
-            @else
-                <span class="pres-btn pres-btn-disabled"
-                      title="Run analysis and save a snapshot first">
-                    Brain Simulation
-                </span>
-            @endif
+        @if(config('features.pricing_simulator_v1'))
+            <a href="{{ route('presentations.pricing-simulator', $presentation) }}"
+               class="pres-btn pres-btn-purple">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>
+                Pricing Simulator
+            </a>
         @endif
         @if(config('features.presentation_blueprint'))
             <form method="POST" action="{{ route('presentations.compile', $presentation) }}" class="inline">
@@ -105,6 +112,11 @@
                target="_blank">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                 Download PDF (v{{ $latestVersion->id }})
+            </a>
+            <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
+               class="pres-btn pres-btn-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
+                Complete Pack (ZIP)
             </a>
         @endif
     </div>
@@ -431,7 +443,7 @@
 ══════════════════════════════════════════════════════════════════════════ --}}
 
     {{-- LINKS (full width) --}}
-    <div class="pres-card mb-8">
+    <div class="pres-card mb-8" id="property-links">
         <div class="pres-card-header">
             <h2>Property Links</h2>
             @if(config('features.portal_extension_capture_v1'))
@@ -448,6 +460,132 @@
             @endif
         </div>
         <div class="pres-card-body">
+
+        {{-- P24 SEARCH BUTTONS --}}
+        @if($presentation->asking_price_inc)
+            @php
+                $p24Suburb = $presentation->suburb ?? '';
+                $p24Beds   = $presentation->bedrooms ?? '';
+                $p24Ask    = (int) $presentation->asking_price_inc;
+                $p24Min    = (int) (floor(($p24Ask * 0.7) / 100000) * 100000);
+                $p24Max    = (int) (ceil(($p24Ask * 1.3) / 100000) * 100000);
+
+                // Property type → P24 URL path segment
+                $p24PathMap = [
+                    'house'       => 'houses-for-sale',
+                    'townhouse'   => 'townhouses-for-sale',
+                    'apartment'   => 'apartments-for-sale',
+                    'duplex'      => 'houses-for-sale',
+                    'vacant_land' => 'vacant-land-for-sale',
+                    'farm'        => 'farms-for-sale',
+                    'unit'        => 'apartments-for-sale',
+                    'land'        => 'vacant-land-for-sale',
+                ];
+                $p24TypeLabel = [
+                    'house'       => 'House',
+                    'townhouse'   => 'Townhouse',
+                    'apartment'   => 'Apartment/Flat',
+                    'duplex'      => 'Duplex',
+                    'vacant_land' => 'Vacant Land',
+                    'farm'        => 'Farm',
+                    'unit'        => 'Apartment/Flat',
+                    'land'        => 'Vacant Land',
+                    'other'       => 'All Types',
+                ];
+                $p24TypeSlug = $p24PathMap[$presentation->property_type] ?? 'for-sale';
+                $p24TypeDisplay = $p24TypeLabel[$presentation->property_type] ?? ucfirst($presentation->property_type ?? '');
+
+                // Look up suburb in P24 config
+                $p24SuburbKey  = strtolower(trim($p24Suburb));
+                $p24Suburbs    = config('p24_suburbs', []);
+                $p24SuburbInfo = $p24Suburbs[$p24SuburbKey] ?? null;
+
+                // Build advanced-search URL: sp=s%3d{ids}%26pf%3d{min}%26pt%3d{max}%26bd%3d{beds}
+                $p24BaseUrl    = 'https://www.property24.com/' . $p24TypeSlug . '/advanced-search/results';
+                $p24Url        = null;  // Suburb-only URL
+                $p24WideUrl    = null;  // Suburb + surrounding URL
+                $p24FallbackUrl = null; // Term-based fallback
+
+                if ($p24SuburbInfo) {
+                    // Suburb-only: s=6357
+                    $p24SpParams = 's%3d' . $p24SuburbInfo['id']
+                        . '%26pf%3d' . $p24Min . '%26pt%3d' . $p24Max;
+                    if ($p24Beds) {
+                        $p24SpParams .= '%26bd%3d' . $p24Beds;
+                    }
+                    $p24Url = $p24BaseUrl . '?sp=' . $p24SpParams;
+
+                    // Wider area: s=6357,6358,33106,6336 (suburb + surrounding)
+                    $surrounding = $p24SuburbInfo['surrounding'] ?? [];
+                    if (!empty($surrounding)) {
+                        $allIds = array_merge([$p24SuburbInfo['id']], $surrounding);
+                        $p24WideSpParams = 's%3d' . implode('%2c', $allIds)
+                            . '%26pf%3d' . $p24Min . '%26pt%3d' . $p24Max;
+                        if ($p24Beds) {
+                            $p24WideSpParams .= '%26bd%3d' . $p24Beds;
+                        }
+                        $p24WideUrl = $p24BaseUrl . '?sp=' . $p24WideSpParams;
+                    }
+                } else {
+                    // Fallback: Term-based search
+                    $p24SpFallback = 'pf%3d' . $p24Min . '%26pt%3d' . $p24Max;
+                    if ($p24Beds) {
+                        $p24SpFallback .= '%26bd%3d' . $p24Beds;
+                    }
+                    $p24FallbackUrl = $p24BaseUrl . '?sp=' . $p24SpFallback;
+                    if ($p24Suburb) {
+                        $p24FallbackUrl .= '&Term=' . urlencode($p24Suburb);
+                    }
+                }
+            @endphp
+            <div class="mb-5 p-4 rounded-xl border-2 border-indigo-200 bg-indigo-50/50">
+                <div class="flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-600 mb-1">Quick Search — find competing listings</p>
+                        <p class="text-xs text-slate-500">
+                            {{ $p24TypeDisplay }},
+                            @if($p24Beds) {{ $p24Beds }}+ beds, @endif
+                            <strong>R {{ number_format($p24Min, 0, '.', ',') }}</strong> &ndash;
+                            <strong>R {{ number_format($p24Max, 0, '.', ',') }}</strong>
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        @if($p24Url)
+                            <a href="{{ $p24Url }}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-xs font-bold shadow-sm hover:shadow transition-all"
+                               style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+                                Search {{ $p24Suburb }}
+                            </a>
+                            @if($p24WideUrl)
+                                <a href="{{ $p24WideUrl }}"
+                                   target="_blank"
+                                   rel="noopener noreferrer"
+                                   class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-indigo-700 text-xs font-bold border border-indigo-300 bg-white hover:bg-indigo-50 shadow-sm hover:shadow transition-all">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+                                    {{ $p24Suburb }} + Surrounding
+                                </a>
+                            @endif
+                        @elseif($p24FallbackUrl)
+                            <a href="{{ $p24FallbackUrl }}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-xs font-bold shadow-sm hover:shadow transition-all"
+                               style="background: linear-gradient(135deg, #4f46e5, #6366f1);">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+                                Search Property24
+                            </a>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        @else
+            <div class="mb-5 p-3 rounded-lg bg-slate-50 border border-slate-200">
+                <p class="text-xs text-slate-400 italic">Enter an asking price to enable the Property24 search button.</p>
+            </div>
+        @endif
 
         @if($links->isEmpty())
             <p class="text-xs text-slate-400 italic mb-3">No links added yet.</p>
@@ -1142,75 +1280,286 @@
     </div>
     </div>
 
-    {{-- PORTAL CAPTURES (admin-only, collapsed) --}}
-    @if($isAdmin && config('features.portal_extension_capture_v1'))
-    <div class="mb-8">
-    <details class="pres-card">
-        <summary class="px-5 py-3.5 text-sm font-semibold text-slate-500 cursor-pointer hover:text-slate-700 select-none">
-            Portal captures (admin)
-        </summary>
-        <div class="px-5 pb-5">
-        <div class="flex items-center justify-end mb-3">
+    {{-- PORTAL CAPTURES — user-friendly display --}}
+    @if(config('features.portal_extension_capture_v1'))
+    <div class="pres-card mb-8" id="portal-captures">
+        <div class="pres-card-header">
+            <h2>Portal Captures</h2>
+            <div class="flex gap-2">
+                <button type="button" id="reclassify-captures-btn"
+                        class="pres-btn pres-btn-secondary text-xs"
+                        title="Re-classify page types using server-side URL patterns">
+                    Reclassify
+                </button>
                 <button type="button" id="refresh-captures-btn"
                         class="pres-btn pres-btn-secondary text-xs">
                     Refresh
                 </button>
+            </div>
+        </div>
+        <div class="pres-card-body">
+
+        {{-- Summary line --}}
+        <div id="captures-summary" class="mb-4 hidden">
+            <div class="flex items-center gap-4 text-xs">
+                <span id="captures-summary-listings" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-semibold"></span>
+                <span id="captures-summary-searches" class="text-slate-400 font-medium"></span>
+            </div>
         </div>
 
-        <div id="captures-container">
-            <p class="text-xs text-gray-400 italic">Loading captures...</p>
+        {{-- Captured Searches --}}
+        <div id="captures-searches" class="hidden mb-5">
+            <p class="text-[11px] font-semibold text-slate-400 mb-2.5 uppercase tracking-widest">Captured Searches</p>
+            <div id="captures-searches-list" class="space-y-2"></div>
         </div>
+
+        {{-- Captured Properties --}}
+        <div id="captures-properties" class="hidden mb-5">
+            <p class="text-[11px] font-semibold text-slate-400 mb-2.5 uppercase tracking-widest">Captured Properties</p>
+            <div id="captures-properties-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+        </div>
+
+        {{-- Unattached captures --}}
+        <div id="captures-unattached" class="hidden mb-4">
+            <p class="text-[11px] font-semibold text-slate-400 mb-2.5 uppercase tracking-widest">Unattached (your recent captures)</p>
+            <div id="captures-unattached-list" class="space-y-2"></div>
+        </div>
+
+        {{-- Empty state --}}
+        <div id="captures-empty">
+            <p class="text-xs text-slate-400 italic">Loading captures...</p>
+        </div>
+
+        {{-- Technical details (admin, collapsed) --}}
+        @if($isAdmin)
+        <details class="mt-4 border-t border-slate-100 pt-3" id="captures-tech-details">
+            <summary class="text-[11px] font-semibold text-slate-400 cursor-pointer hover:text-slate-600 select-none uppercase tracking-widest">
+                Technical Details
+            </summary>
+            <div id="captures-tech-container" class="mt-2">
+                <p class="text-xs text-gray-400 italic">Loading...</p>
+            </div>
+        </details>
+        @endif
 
         <script>
         (function () {
-            var container = document.getElementById('captures-container');
-            var refreshBtn = document.getElementById('refresh-captures-btn');
             var presentationId = {{ $presentation->id }};
             var listUrl = '{{ route("presentations.portal-captures.index", $presentation) }}';
+            var refreshBtn = document.getElementById('refresh-captures-btn');
 
-            function loadCaptures() {
-                container.innerHTML = '<p class="text-xs text-gray-400 italic">Loading...</p>';
-                fetch(listUrl, {
-                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                    credentials: 'same-origin'
-                })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    var html = '';
+            var summaryEl = document.getElementById('captures-summary');
+            var summaryListingsEl = document.getElementById('captures-summary-listings');
+            var summarySearchesEl = document.getElementById('captures-summary-searches');
+            var searchesSection = document.getElementById('captures-searches');
+            var searchesList = document.getElementById('captures-searches-list');
+            var propertiesSection = document.getElementById('captures-properties');
+            var propertiesList = document.getElementById('captures-properties-list');
+            var unattachedSection = document.getElementById('captures-unattached');
+            var unattachedList = document.getElementById('captures-unattached-list');
+            var emptyEl = document.getElementById('captures-empty');
+            var techContainer = document.getElementById('captures-tech-container');
 
-                    if (data.attached && data.attached.length > 0) {
-                        html += '<p class="text-xs font-semibold text-gray-500 mb-1">Attached</p>';
-                        html += buildTable(data.attached, false);
-                    }
+            function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
-                    if (data.unattached && data.unattached.length > 0) {
-                        html += '<p class="text-xs font-semibold text-gray-500 mt-3 mb-1">Unattached (your recent captures)</p>';
-                        html += buildTable(data.unattached, true);
-                    }
-
-                    if (!html) {
-                        html = '<p class="text-xs text-gray-400 italic">No captures yet. Open a portal site and use the capture extension.</p>';
-                    }
-
-                    container.innerHTML = html;
-                })
-                .catch(function () {
-                    container.innerHTML = '<p class="text-xs text-red-500">Failed to load captures.</p>';
-                });
+            function formatPrice(p) {
+                if (!p) return '';
+                var n = parseInt(String(p).replace(/[^\d]/g, ''), 10);
+                if (isNaN(n) || n === 0) return String(p);
+                return 'R ' + n.toLocaleString('en-ZA');
             }
 
-            function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+            function shortDate(iso) {
+                if (!iso) return '';
+                return iso.substring(0, 16).replace('T', ' ');
+            }
 
-            function buildTable(items, showAttach) {
+            function extractSearchDescription(c) {
+                var title = c.page_title || '';
+                // P24 titles: "4 Bedroom houses for sale in Shelly Beach - Property24.com"
+                var desc = title.replace(/\s*[-|–].*(Property24|PrivateProperty).*$/i, '').trim();
+                if (desc.length > 80) desc = desc.substring(0, 77) + '...';
+                return desc || c.source_site || 'Search';
+            }
+
+            function extractListingCount(c) {
+                var ef = c.extracted_fields_json;
+                if (ef && ef.search && ef.search.items_on_page) return ef.search.items_on_page;
+                if (ef && ef.listing_urls_count) return ef.listing_urls_count;
+                return null;
+            }
+
+            function extractPropertyFields(c) {
+                var ef = c.extracted_fields_json || {};
+                // Find a real property image (skip icons, logos, placeholders)
+                var img = ef.image || null;
+                if (!img && c.found_image_urls_json) {
+                    for (var fi = 0; fi < c.found_image_urls_json.length; fi++) {
+                        var u = c.found_image_urls_json[fi];
+                        if (u && /\.(jpg|jpeg|webp|png)/i.test(u) &&
+                            !/icon|logo|blank|sprite|NoImage/i.test(u) &&
+                            u.length > 40) {
+                            img = u;
+                            break;
+                        }
+                    }
+                }
+                return {
+                    name: ef.name || ef.title || ef.suburb || c.page_title || '',
+                    price: ef.price || ef.asking_price || null,
+                    address: ef.address || ef.suburb || '',
+                    bedrooms: ef.bedrooms || ef.beds || null,
+                    bathrooms: ef.bathrooms || ef.baths || null,
+                    garages: ef.garages || ef.parking || null,
+                    lotSize: ef.lot_size || ef.erf_m2 || ef.erf_size || null,
+                    floorSize: ef.floor_size || ef.floor_m2 || null,
+                    image: img,
+                    listingId: ef.listing_id ? ('P24-' + ef.listing_id) : extractP24Id(c.source_url),
+                    agentName: ef.agent_name || null,
+                };
+            }
+
+            function extractP24Id(url) {
+                if (!url) return null;
+                var m = url.match(/\/(\d{6,})\/?(?:\?.*)?$/);
+                return m ? 'P24-' + m[1] : null;
+            }
+
+            function buildSearchCard(c) {
+                var desc = extractSearchDescription(c);
+                var count = extractListingCount(c);
+                var statusClass = c.parse_status === 'parsed' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400';
+                var statusLabel = c.parse_status === 'parsed' ? 'Parsed' : (c.parse_status || 'Pending');
+
+                var html = '<div class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors">';
+                html += '<div class="shrink-0 w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">';
+                html += '<svg class="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>';
+                html += '</div>';
+                html += '<div class="flex-1 min-w-0">';
+                html += '<p class="text-xs font-semibold text-slate-700 truncate">' + esc(desc) + '</p>';
+                html += '<div class="flex items-center gap-2 mt-0.5">';
+                if (count !== null) {
+                    html += '<span class="text-[11px] text-indigo-600 font-medium">' + count + ' properties found</span>';
+                    html += '<span class="text-slate-300">·</span>';
+                }
+                html += '<span class="text-[11px] text-slate-400">' + shortDate(c.captured_at) + '</span>';
+                html += '</div>';
+                html += '</div>';
+                html += '<div class="flex items-center gap-2 shrink-0">';
+                html += '<span class="px-1.5 py-0.5 rounded text-[10px] font-medium ' + statusClass + '">' + esc(statusLabel) + '</span>';
+                html += '<a href="' + esc(c.source_url) + '" target="_blank" class="text-indigo-500 hover:text-indigo-700" title="Open on portal">';
+                html += '<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>';
+                html += '</a>';
+                html += '<button type="button" onclick="deleteCapture(' + c.id + ')" class="text-slate-300 hover:text-red-500 transition-colors" title="Delete capture">';
+                html += '<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>';
+                html += '</button>';
+                html += '</div>';
+                html += '</div>';
+                return html;
+            }
+
+            function buildPropertyCard(c) {
+                var f = extractPropertyFields(c);
+                var statusClass = c.parse_status === 'parsed' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-400';
+                var statusLabel = c.parse_status === 'parsed' ? 'Parsed' : (c.parse_status || 'Pending');
+                var priceStr = formatPrice(f.price);
+                var title = (f.name || '').replace(/\s*[-|–].*(Property24|PrivateProperty).*$/i, '').trim();
+                if (title.length > 60) title = title.substring(0, 57) + '...';
+
+                var html = '<div class="rounded-lg border border-slate-100 overflow-hidden hover:border-slate-200 transition-colors">';
+
+                // Image + overlay
+                if (f.image) {
+                    html += '<div class="relative h-28 bg-slate-100 overflow-hidden">';
+                    html += '<img src="' + esc(f.image) + '" alt="" class="w-full h-full object-cover" loading="lazy" onerror="this.parentElement.style.display=\'none\'">';
+                    if (priceStr) {
+                        html += '<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2.5 py-1.5">';
+                        html += '<span class="text-sm font-bold text-white">' + esc(priceStr) + '</span>';
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                }
+
+                html += '<div class="px-3 py-2.5">';
+
+                // Price (shown here if no image)
+                if (!f.image && priceStr) {
+                    html += '<p class="text-sm font-bold text-slate-800 mb-0.5">' + esc(priceStr) + '</p>';
+                }
+
+                // Title / address
+                html += '<p class="text-xs font-semibold text-slate-700 truncate" title="' + esc(title) + '">' + esc(title || 'Property') + '</p>';
+                if (f.address && f.address !== title) {
+                    html += '<p class="text-[11px] text-slate-400 truncate mt-0.5">' + esc(f.address) + '</p>';
+                }
+
+                // Stats row: beds · baths · garages · erf · floor
+                var stats = [];
+                if (f.bedrooms) stats.push(f.bedrooms + ' bed');
+                if (f.bathrooms) stats.push(f.bathrooms + ' bath');
+                if (f.garages) stats.push(f.garages + ' garage');
+                if (f.lotSize) stats.push(f.lotSize + ' m\u00B2 erf');
+                if (f.floorSize) stats.push(f.floorSize + ' m\u00B2 floor');
+                if (stats.length > 0) {
+                    html += '<p class="text-[11px] text-slate-500 mt-1">' + stats.join(' \u00B7 ') + '</p>';
+                }
+                if (f.agentName) {
+                    html += '<p class="text-[10px] text-slate-400 mt-0.5">' + esc(f.agentName) + '</p>';
+                }
+
+                // Footer: listing ID, date, status, link
+                html += '<div class="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-50">';
+                html += '<div class="flex items-center gap-2">';
+                if (f.listingId) {
+                    html += '<span class="text-[10px] text-slate-400 font-mono">' + esc(f.listingId) + '</span>';
+                }
+                html += '<span class="px-1.5 py-0.5 rounded text-[10px] font-medium ' + statusClass + '">' + esc(statusLabel) + '</span>';
+                html += '</div>';
+                html += '<div class="flex items-center gap-2">';
+                html += '<a href="' + esc(c.source_url) + '" target="_blank" class="text-indigo-500 hover:text-indigo-700" title="View on portal">';
+                html += '<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>';
+                html += '</a>';
+                html += '<button type="button" onclick="deleteCapture(' + c.id + ')" class="text-slate-300 hover:text-red-500 transition-colors" title="Delete capture">';
+                html += '<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>';
+                html += '</button>';
+                html += '</div>';
+                html += '</div>';
+                html += '</div>'; // end px-3 py-2.5
+                html += '</div>'; // end card
+                return html;
+            }
+
+            function buildUnattachedRow(c) {
+                var isSearch = c.page_type === 'search';
+                var label = isSearch ? extractSearchDescription(c) : (c.extracted_fields_json && c.extracted_fields_json.name ? c.extracted_fields_json.name : c.page_title || c.source_url);
+                if (label && label.length > 60) label = label.substring(0, 57) + '...';
+                var typeBadge = isSearch
+                    ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">search</span>'
+                    : '<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-600">property</span>';
+
+                var html = '<div class="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-50">';
+                html += '<div class="flex-1 min-w-0">';
+                html += '<p class="text-xs text-slate-600 truncate">' + esc(label) + '</p>';
+                html += '<span class="text-[11px] text-slate-400">' + shortDate(c.captured_at) + '</span>';
+                html += '</div>';
+                html += '<div class="flex items-center gap-2 shrink-0">';
+                html += typeBadge;
+                html += '<button class="px-2.5 py-1 text-white rounded text-[11px] font-medium" style="background:var(--pres-brand)" onclick="attachCapture(' + c.id + ')">Attach</button>';
+                html += '</div>';
+                html += '</div>';
+                return html;
+            }
+
+            function buildTechTable(items, showAttach) {
                 var t = '<table class="w-full text-xs border-collapse">';
                 t += '<thead><tr class="text-left text-gray-400 border-b">';
                 t += '<th class="py-1 pr-2">Site</th><th class="py-1 pr-2">Type</th><th class="py-1 pr-2">URL</th><th class="py-1 pr-2">Status</th><th class="py-1 pr-2">Captured</th>';
-                t += '<th class="py-1">Action</th>';
+                t += '<th class="py-1">Bytes</th>';
                 t += '</tr></thead><tbody>';
 
                 items.forEach(function (c) {
                     var shortUrl = (c.source_url || '').length > 45 ? c.source_url.substring(0, 45) + '...' : c.source_url;
-                    var capturedAt = c.captured_at ? c.captured_at.substring(0, 16).replace('T', ' ') : '';
+                    var capturedAt = shortDate(c.captured_at);
                     var statusBadge = c.parse_status === 'parsed'
                         ? '<span class="px-1 py-0.5 rounded bg-indigo-50 text-indigo-600" data-capture-status>parsed</span>'
                         : '<span class="px-1 py-0.5 rounded bg-slate-50 text-slate-400" data-capture-status>' + esc(c.parse_status || 'unknown') + '</span>';
@@ -1220,16 +1569,104 @@
                     t += '<td class="py-1.5 pr-2"><a href="' + esc(c.source_url) + '" target="_blank" class="text-indigo-600 hover:underline">' + esc(shortUrl) + '</a></td>';
                     t += '<td class="py-1.5 pr-2">' + statusBadge + '</td>';
                     t += '<td class="py-1.5 pr-2 text-gray-500">' + capturedAt + '</td>';
-                    if (showAttach) {
-                        t += '<td class="py-1.5"><button class="px-2 py-0.5 text-white rounded text-xs" style="background:var(--pres-brand)" onclick="attachCapture(' + c.id + ')">Attach</button></td>';
-                    } else {
-                        t += '<td class="py-1.5 text-gray-500">' + (c.html_bytes ? Number(c.html_bytes).toLocaleString() + 'b' : '-') + '</td>';
-                    }
+                    t += '<td class="py-1.5 text-gray-500">' + (c.html_bytes ? Number(c.html_bytes).toLocaleString() + 'b' : '-') + '</td>';
                     t += '</tr>';
                 });
 
                 t += '</tbody></table>';
                 return t;
+            }
+
+            function loadCaptures() {
+                emptyEl.innerHTML = '<p class="text-xs text-gray-400 italic">Loading...</p>';
+                emptyEl.classList.remove('hidden');
+
+                fetch(listUrl, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin'
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var attached = data.attached || [];
+                    var unattached = data.unattached || [];
+                    var hasContent = false;
+
+                    // Separate attached by page_type
+                    var searches = [];
+                    var properties = [];
+                    attached.forEach(function (c) {
+                        if (c.page_type === 'search') searches.push(c);
+                        else properties.push(c);
+                    });
+
+                    // Summary line
+                    var totalListingsFound = 0;
+                    searches.forEach(function (c) {
+                        var cnt = extractListingCount(c);
+                        if (cnt) totalListingsFound += parseInt(cnt, 10);
+                    });
+
+                    if (attached.length > 0) {
+                        summaryListingsEl.textContent = totalListingsFound + ' active listings found from ' + searches.length + ' search capture' + (searches.length !== 1 ? 's' : '');
+                        summarySearchesEl.textContent = properties.length + ' individual propert' + (properties.length !== 1 ? 'ies' : 'y') + ' captured';
+                        summaryEl.classList.remove('hidden');
+                    } else {
+                        summaryEl.classList.add('hidden');
+                    }
+
+                    // Render search cards
+                    if (searches.length > 0) {
+                        searchesList.innerHTML = searches.map(buildSearchCard).join('');
+                        searchesSection.classList.remove('hidden');
+                        hasContent = true;
+                    } else {
+                        searchesSection.classList.add('hidden');
+                    }
+
+                    // Render property cards
+                    if (properties.length > 0) {
+                        propertiesList.innerHTML = properties.map(buildPropertyCard).join('');
+                        propertiesSection.classList.remove('hidden');
+                        hasContent = true;
+                    } else {
+                        propertiesSection.classList.add('hidden');
+                    }
+
+                    // Render unattached
+                    if (unattached.length > 0) {
+                        unattachedList.innerHTML = unattached.map(buildUnattachedRow).join('');
+                        unattachedSection.classList.remove('hidden');
+                        hasContent = true;
+                    } else {
+                        unattachedSection.classList.add('hidden');
+                    }
+
+                    // Empty state
+                    if (hasContent) {
+                        emptyEl.classList.add('hidden');
+                    } else {
+                        emptyEl.innerHTML = '<p class="text-xs text-slate-400 italic">No captures yet. Open a portal site and use the capture extension.</p>';
+                        emptyEl.classList.remove('hidden');
+                    }
+
+                    // Technical details (admin only)
+                    if (techContainer) {
+                        var techHtml = '';
+                        if (attached.length > 0) {
+                            techHtml += '<p class="text-xs font-semibold text-gray-500 mb-1">Attached (' + attached.length + ')</p>';
+                            techHtml += buildTechTable(attached, false);
+                        }
+                        if (unattached.length > 0) {
+                            techHtml += '<p class="text-xs font-semibold text-gray-500 mt-3 mb-1">Unattached (' + unattached.length + ')</p>';
+                            techHtml += buildTechTable(unattached, false);
+                        }
+                        techContainer.innerHTML = techHtml || '<p class="text-xs text-gray-400 italic">No raw capture data.</p>';
+                    }
+                })
+                .catch(function () {
+                    emptyEl.innerHTML = '<p class="text-xs text-red-500">Failed to load captures.</p>';
+                    emptyEl.classList.remove('hidden');
+                });
             }
 
             window.attachCapture = function (captureId) {
@@ -1252,12 +1689,68 @@
                 .catch(function () { alert('Error attaching capture'); });
             };
 
+            window.deleteCapture = function (captureId) {
+                if (!confirm('Delete this capture? This cannot be undone.')) return;
+                var deleteUrl = '/presentations/' + presentationId + '/portal-captures/' + captureId;
+                fetch(deleteUrl, {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    credentials: 'same-origin'
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.success) loadCaptures();
+                    else alert('Failed to delete capture');
+                })
+                .catch(function () { alert('Error deleting capture'); });
+            };
+
             refreshBtn.addEventListener('click', loadCaptures);
+
+            var reclassifyBtn = document.getElementById('reclassify-captures-btn');
+            reclassifyBtn.addEventListener('click', function () {
+                reclassifyBtn.disabled = true;
+                reclassifyBtn.textContent = 'Reclassifying...';
+                var reclassifyUrl = '/presentations/' + presentationId + '/portal-captures/reclassify';
+                fetch(reclassifyUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    credentials: 'same-origin'
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    reclassifyBtn.disabled = false;
+                    reclassifyBtn.textContent = 'Reclassify';
+                    if (data.success) {
+                        var msg = data.changed + ' capture(s) reclassified';
+                        if (data.re_extracted > 0) msg += ', ' + data.re_extracted + ' re-extracted';
+                        alert(msg);
+                        loadCaptures();
+                    } else {
+                        alert('Reclassify failed');
+                    }
+                })
+                .catch(function () {
+                    reclassifyBtn.disabled = false;
+                    reclassifyBtn.textContent = 'Reclassify';
+                    alert('Error reclassifying captures');
+                });
+            });
+
             loadCaptures();
         })();
         </script>
         </div>
-    </details>
     </div>
     @endif
 
@@ -1270,13 +1763,45 @@
 
         @php
             $docTypeLabels = [
-                'suburb_stats'   => 'Suburb Stats',
-                'vicinity_sales' => 'Vicinity Sales',
-                'cma'            => 'CMA',
+                'suburb_stats'   => 'Suburb Report',
+                'vicinity_sales' => 'Vicinity Sales Report',
+                'cma'            => 'CMA Valuation Report',
                 'market_article' => 'Market Article',
                 'other'          => 'Other',
             ];
+            $docTypeIcons = [
+                'suburb_stats'   => '📊',
+                'vicinity_sales' => '📍',
+                'cma'            => '📋',
+                'market_article' => '📰',
+                'other'          => '📄',
+                'unknown'        => '❓',
+                'application/pdf' => '📄',
+            ];
+
+            // Upload status summary
+            $uploadsByType = $presentation->uploads->groupBy('type');
+            $requiredTypes = ['suburb_stats', 'vicinity_sales', 'cma'];
+            $presentTypes = $uploadsByType->keys()->intersect($requiredTypes)->toArray();
+            $missingTypes = array_diff($requiredTypes, $presentTypes);
+            $totalUploads = $presentation->uploads->count();
         @endphp
+
+        {{-- Upload status summary --}}
+        @if($totalUploads > 0)
+            <div class="mb-4 px-3 py-2 rounded-lg {{ empty($missingTypes) ? 'bg-indigo-50' : 'bg-slate-50' }}">
+                <div class="flex items-center gap-2 text-xs">
+                    @if(empty($missingTypes))
+                        <span class="text-indigo-600 font-semibold">Documents: {{ count($presentTypes) }}/3 uploaded ✓</span>
+                    @else
+                        <span class="text-slate-600 font-semibold">Documents: {{ count($presentTypes) }}/3</span>
+                        <span class="text-slate-400">— missing:
+                            {{ implode(', ', array_map(fn($t) => $docTypeLabels[$t] ?? $t, $missingTypes)) }}
+                        </span>
+                    @endif
+                </div>
+            </div>
+        @endif
 
         @if($presentation->uploads->isEmpty())
             <p class="text-xs text-slate-400 italic mb-3">No documents uploaded yet.</p>
@@ -1285,28 +1810,30 @@
                 @foreach($presentation->uploads as $upload)
                     <li class="pres-doc-row">
                         {{-- Row 1: File header --}}
+                        @php
+                            $uIcon = $docTypeIcons[$upload->type] ?? '📄';
+                            $uTypeLabel = $docTypeLabels[$upload->type] ?? $upload->type;
+                            $uIsKnownType = in_array($upload->type, ['suburb_stats', 'vicinity_sales', 'cma', 'market_article', 'other']);
+                            $uExtStatus = $upload->extraction_status ?? 'pending';
+                            $uExtBadge = match($uExtStatus) {
+                                'ok'     => 'bg-indigo-50 text-indigo-600',
+                                'failed' => 'bg-red-50 text-red-600',
+                                default  => 'bg-amber-50 text-amber-600',
+                            };
+                            $uExtLabel = match($uExtStatus) {
+                                'ok'     => '✅ Extracted',
+                                'failed' => '❌ Failed',
+                                default  => '⏳ Processing',
+                            };
+                        @endphp
                         <div class="flex items-start justify-between gap-2">
                             <div class="flex items-center gap-2 min-w-0 flex-wrap">
-                                <span class="text-gray-400 shrink-0">📄</span>
-                                <span class="truncate">{{ $upload->original_filename ?? basename($upload->file_path) }}</span>
-                                <span class="pres-badge {{ isset($docTypeLabels[$upload->type]) && $upload->type !== 'other' ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-100 text-slate-500' }}">
-                                    {{ $docTypeLabels[$upload->type] ?? $upload->type }}
-                                </span>
+                                <span class="text-lg shrink-0 leading-none">{{ $uIcon }}</span>
+                                <div class="min-w-0">
+                                    <span class="font-semibold text-slate-700">{{ $uTypeLabel }}</span>
+                                    <span class="text-slate-400 ml-1 truncate">{{ $upload->original_filename ?? basename($upload->file_path) }}</span>
+                                </div>
 
-                                {{-- Extraction status badge --}}
-                                @php
-                                    $uExtStatus = $upload->extraction_status ?? 'pending';
-                                    $uExtBadge = match($uExtStatus) {
-                                        'ok'     => 'bg-indigo-50 text-indigo-600',
-                                        'failed' => 'bg-slate-100 text-slate-500',
-                                        default  => 'bg-slate-50 text-slate-400',
-                                    };
-                                    $uExtLabel = match($uExtStatus) {
-                                        'ok'     => 'Extracted',
-                                        'failed' => 'Failed',
-                                        default  => 'Pending',
-                                    };
-                                @endphp
                                 <span class="pres-badge {{ $uExtBadge }}">
                                     {{ $uExtLabel }}
                                 </span>
@@ -1320,25 +1847,60 @@
                                             title="Re-run extraction">&#x27F3;</button>
                                 </form>
 
+                                <form method="POST"
+                                      action="{{ route('presentations.uploads.destroy', [$presentation, $upload]) }}"
+                                      class="inline"
+                                      onsubmit="return confirm('Delete this document? Extracted data will be removed.')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit"
+                                            class="inline-block px-1 py-0.5 text-xs text-red-400 hover:text-red-600"
+                                            title="Delete document">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
+                                    </button>
+                                </form>
+
                                 @if($upload->isOverridden())
                                     <span class="pres-badge pres-badge-warn">
                                         Override
                                     </span>
                                 @endif
                             </div>
-                            <form method="POST"
-                                  action="{{ route('presentations.uploads.update-type', [$presentation, $upload]) }}"
-                                  class="flex items-center gap-1.5 shrink-0">
-                                @csrf
-                                @method('PATCH')
-                                <select name="type" class="pres-select text-xs">
-                                    @foreach($docTypeLabels as $val => $label)
-                                        <option value="{{ $val }}" {{ $upload->type === $val ? 'selected' : '' }}>{{ $label }}</option>
-                                    @endforeach
-                                </select>
-                                <button type="submit"
-                                        class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Save</button>
-                            </form>
+                            @if(!$uIsKnownType || $upload->type === 'other')
+                                {{-- Unknown/other type: show prominent type selector --}}
+                                <form method="POST"
+                                      action="{{ route('presentations.uploads.update-type', [$presentation, $upload]) }}"
+                                      class="flex items-center gap-1.5 shrink-0">
+                                    @csrf
+                                    @method('PATCH')
+                                    <select name="type" class="pres-select text-xs border-amber-300">
+                                        <option value="" disabled>Select type...</option>
+                                        @foreach($docTypeLabels as $val => $label)
+                                            <option value="{{ $val }}" {{ $upload->type === $val ? 'selected' : '' }}>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                    <button type="submit"
+                                            class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Save</button>
+                                </form>
+                            @else
+                                {{-- Known type: small "Change type" toggle --}}
+                                <details class="shrink-0">
+                                    <summary class="text-[11px] text-slate-400 cursor-pointer hover:text-indigo-600">Change type</summary>
+                                    <form method="POST"
+                                          action="{{ route('presentations.uploads.update-type', [$presentation, $upload]) }}"
+                                          class="flex items-center gap-1.5 mt-1">
+                                        @csrf
+                                        @method('PATCH')
+                                        <select name="type" class="pres-select text-xs">
+                                            @foreach($docTypeLabels as $val => $label)
+                                                <option value="{{ $val }}" {{ $upload->type === $val ? 'selected' : '' }}>{{ $label }}</option>
+                                            @endforeach
+                                        </select>
+                                        <button type="submit"
+                                                class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Save</button>
+                                    </form>
+                                </details>
+                            @endif
                         </div>
 
                         {{-- Row 2: Extraction summary (doc_extract_v1 enhanced) --}}
@@ -1640,18 +2202,19 @@
             @csrf
             <div class="flex gap-2 items-center">
                 <select name="doc_type" class="pres-select text-xs" required>
-                    <option value="" disabled selected>Document type...</option>
+                    <option value="auto" selected>Auto-detect (Recommended)</option>
                     @foreach($docTypeLabels as $val => $label)
                         <option value="{{ $val }}">{{ $label }}</option>
                     @endforeach
                 </select>
-                <input type="file" name="documents[]" multiple
+                <input type="file" name="documents[]" multiple accept=".pdf"
                        class="pres-input flex-1 text-xs" required>
                 <button type="submit"
                         class="pres-btn pres-btn-secondary text-xs shrink-0">
                     Upload
                 </button>
             </div>
+            <p class="text-[11px] text-slate-400">CMA Info PDFs are auto-detected by filename. Drop all 3 files at once — type is detected automatically.</p>
             @error('doc_type')
                 <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
             @enderror
@@ -1746,7 +2309,7 @@
 </div>
 
 {{-- ── HOLDING COST INPUTS (P15) ─────────────────────────────────────────── --}}
-<div class="mb-8">
+<div class="mb-8" id="holding-costs">
     <div class="pres-card">
         <div class="pres-card-header">
             <h2>Holding Cost Inputs (monthly, ZAR)</h2>
@@ -2181,27 +2744,33 @@
 })();
 </script>
 
+@endif
+
 {{-- Scroll & focus preservation for form submits --}}
 <script>
 (function () {
     'use strict';
     var STORAGE_KEY = 'pres_show_scroll_{{ $presentation->id }}';
 
-    // On page load: restore scroll + focus
+    // On page load: restore scroll position (also respects URL hash fragments)
     try {
-        var saved = sessionStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            sessionStorage.removeItem(STORAGE_KEY);
-            var state = JSON.parse(saved);
-            if (state.scrollY) {
-                window.scrollTo(0, state.scrollY);
-            }
-            if (state.focusId) {
-                var el = document.getElementById(state.focusId);
-                if (el) el.focus();
-            } else if (state.focusName) {
-                var el2 = document.querySelector('[name="' + state.focusName + '"]');
-                if (el2) el2.focus();
+        if (window.location.hash) {
+            // Browser will auto-scroll to the hash target — let it handle it
+        } else {
+            var saved = sessionStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                sessionStorage.removeItem(STORAGE_KEY);
+                var state = JSON.parse(saved);
+                if (state.scrollY) {
+                    window.scrollTo(0, state.scrollY);
+                }
+                if (state.focusId) {
+                    var el = document.getElementById(state.focusId);
+                    if (el) el.focus();
+                } else if (state.focusName) {
+                    var el2 = document.querySelector('[name="' + state.focusName + '"]');
+                    if (el2) el2.focus();
+                }
             }
         }
     } catch (e) { /* ignore */ }
@@ -2223,9 +2792,23 @@
             sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         } catch (ex) { /* ignore */ }
     });
+
+    // Before link clicks that navigate to the same page: save scroll
+    document.addEventListener('click', function (e) {
+        var link = e.target.closest('a[href]');
+        if (!link) return;
+        var href = link.getAttribute('href');
+        if (!href || href.startsWith('#') || href.startsWith('javascript:') || link.target === '_blank') return;
+        // Only save for same-page navigation (links back to this presentation)
+        try {
+            var linkUrl = new URL(href, window.location.origin);
+            if (linkUrl.pathname === window.location.pathname) {
+                sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ scrollY: window.scrollY }));
+            }
+        } catch (ex) { /* ignore */ }
+    });
 })();
 </script>
-@endif
 
 </div>{{-- /.pres-page --}}
 

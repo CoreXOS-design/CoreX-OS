@@ -14,6 +14,7 @@
         <!-- Scripts & Styles -->
         @vite(['resources/css/app.css', 'resources/css/nexus.css', 'resources/js/app.js'])
         <link rel="stylesheet" href="/css/paye-fix.css">
+        @stack('head')
     </head>
     <body class="font-sans antialiased">
         {{-- Mobile sidebar toggle --}}

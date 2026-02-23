@@ -1,0 +1,210 @@
+@extends('layouts.nexus')
+
+@section('nexus-content')
+
+{{-- ══════════════════════════════════════════════════════════════════════════
+     PAGE HEADER
+══════════════════════════════════════════════════════════════════════════ --}}
+<div class="mb-6 flex items-start justify-between">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-800">Market Analysis</h1>
+        <p class="text-sm text-gray-500 mt-1">
+            {{ $presentation->title }}
+            @if($presentation->property_address)
+                &nbsp;·&nbsp; {{ $presentation->property_address }}
+            @endif
+        </p>
+        @if(isset($latestSnapshot) && $latestSnapshot && $latestSnapshot->generated_at)
+            <p class="text-xs text-emerald-600 mt-1 font-medium">
+                Last analysed: {{ $latestSnapshot->generated_at->format('d M Y, H:i') }}
+            </p>
+        @endif
+    </div>
+    <a href="{{ route('presentations.show', $presentation) }}"
+       class="text-xs text-indigo-600 hover:underline mt-1">← Overview</a>
+</div>
+
+{{-- D1: Prep data summary — links + uploads at a glance --}}
+@php
+    $linkCount   = $presentation->links->count();
+    $uploadCount = $presentation->uploads->count();
+    $lastUpload  = $presentation->uploads->sortByDesc('created_at')->first();
+@endphp
+@if($linkCount > 0 || $uploadCount > 0)
+<div class="mb-4 flex flex-wrap gap-4 text-xs text-gray-500">
+    @if($linkCount > 0)
+        <span>
+            <span class="font-medium text-gray-700">{{ $linkCount }}</span>
+            {{ $linkCount === 1 ? 'link' : 'links' }} attached
+            <a href="{{ route('presentations.show', $presentation) }}#links"
+               class="ml-1 text-indigo-500 hover:underline">manage</a>
+        </span>
+    @endif
+    @if($uploadCount > 0)
+        <span>
+            <span class="font-medium text-gray-700">{{ $uploadCount }}</span>
+            {{ $uploadCount === 1 ? 'document' : 'documents' }} uploaded
+            @if($lastUpload)
+                <span class="text-gray-400">· last {{ $lastUpload->created_at->format('d M') }}</span>
+            @endif
+        </span>
+    @endif
+</div>
+@endif
+
+{{-- ══════════════════════════════════════════════════════════════════════════
+     RUN ANALYSIS PANEL
+══════════════════════════════════════════════════════════════════════════ --}}
+<div class="bg-white rounded-xl shadow p-6 mb-6">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-base font-semibold text-gray-700">Run Analysis</h2>
+        @if(isset($latestSnapshot) && $latestSnapshot && $latestSnapshot->generated_at)
+            <span class="text-xs text-emerald-600 font-medium">
+                Snapshot saved {{ $latestSnapshot->generated_at->diffForHumans() }}
+            </span>
+        @endif
+    </div>
+    <form method="POST" action="{{ route('presentations.analysis.run', $presentation) }}">
+        @csrf
+        <div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+            <div>
+                <label class="block text-xs text-gray-600 mb-1">Asking Price (R)</label>
+                <input type="number" name="asking_price_inc"
+                       value="{{ $presentation->asking_price_inc ?? '' }}"
+                       step="1" min="0"
+                       class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                       placeholder="e.g. 2500000">
+                <p class="mt-0.5 text-xs text-gray-400">Saves to presentation and freezes analysis snapshot.</p>
+                @error('asking_price_inc')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
+            </div>
+            <div class="flex items-end">
+                <button type="submit"
+                        class="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">
+                    @if(isset($latestSnapshot) && $latestSnapshot) Re-run Analysis @else Run Analysis @endif
+                </button>
+            </div>
+        </div>
+
+        {{-- Context fields (read-only, from presentation record) --}}
+        <div class="mt-4 pt-3 border-t grid grid-cols-2 gap-x-8 gap-y-1 text-xs text-gray-500 md:grid-cols-4">
+            <div>Suburb: <span class="font-medium text-gray-700">{{ $presentation->suburb ?? '—' }}</span></div>
+            <div>Type: <span class="font-medium text-gray-700">{{ ucfirst($presentation->property_type ?? '—') }}</span></div>
+            <div>Bedrooms: <span class="font-medium text-gray-700">{{ $presentation->bedrooms ?? '—' }}</span></div>
+            <div>Floor area: <span class="font-medium text-gray-700">{{ $presentation->floor_area_m2 ? $presentation->floor_area_m2 . ' m²' : '—' }}</span></div>
+        </div>
+    </form>
+</div>
+
+{{-- ══════════════════════════════════════════════════════════════════════════
+     READINESS CHECKLIST — reads from presentation record
+══════════════════════════════════════════════════════════════════════════ --}}
+@php
+    $ckSuburb    = !empty($presentation->suburb);
+    $ckType      = !empty($presentation->property_type);
+    $ckPrice     = !empty($presentation->asking_price_inc);
+    $ckFloorArea = !empty($presentation->floor_area_m2);
+    $ckSold      = $presentation->soldComps()->count() > 0
+                   || $presentation->uploads()->whereIn('type', ['vicinity_sales', 'cma'])->where('extraction_status', 'ok')->exists();
+    $ckActive    = $presentation->activeListings()->count() > 0
+                   || \App\Models\PortalCapture::where('presentation_id', $presentation->id)->where('parse_status', 'parsed')->exists();
+@endphp
+
+<div class="bg-white rounded-xl shadow p-5 mb-6" id="readiness">
+    <h2 class="text-sm font-semibold text-gray-700 mb-3">Analysis readiness</h2>
+    <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-xs sm:grid-cols-3">
+        @php
+        $items = [
+            ['label' => 'Suburb', 'ok' => $ckSuburb, 'fix' => 'Set suburb on overview page'],
+            ['label' => 'Property type', 'ok' => $ckType, 'fix' => 'Set property type on overview page'],
+            ['label' => 'Asking price', 'ok' => $ckPrice, 'fix' => 'Enter asking price above'],
+            ['label' => 'Floor area', 'ok' => $ckFloorArea, 'fix' => 'Add floor area on overview page'],
+            ['label' => 'Sold comparables', 'ok' => $ckSold, 'fix' => 'Upload CMA/vicinity sales PDF'],
+            ['label' => 'Active listings', 'ok' => $ckActive, 'fix' => 'Import active listings via extension'],
+        ];
+        @endphp
+        @foreach($items as $item)
+            <div class="flex items-center gap-2">
+                @if($item['ok'])
+                    <span class="text-emerald-500 font-bold">✓</span>
+                    <span class="text-gray-700">{{ $item['label'] }}</span>
+                @else
+                    <span class="text-gray-300 font-bold">○</span>
+                    <span class="text-gray-400">{{ $item['label'] }}
+                        <span class="text-indigo-500"> — {{ $item['fix'] }}</span>
+                    </span>
+                @endif
+            </div>
+        @endforeach
+    </div>
+</div>
+
+{{-- ══════════════════════════════════════════════════════════════════════════
+     EXTRACTED DATA REVIEW — 7 sections from AnalysisDataService
+══════════════════════════════════════════════════════════════════════════ --}}
+<div id="analysis-results">
+@include('presentations.partials.analysis-data-review')
+</div>
+
+{{-- Scroll & focus preservation for form submits --}}
+<script>
+(function () {
+    'use strict';
+    var STORAGE_KEY = 'pres_analysis_scroll_{{ $presentation->id }}';
+
+    // On page load: restore scroll position (also respects URL hash fragments)
+    try {
+        if (window.location.hash) {
+            // Browser will auto-scroll to the hash target
+        } else {
+            var saved = sessionStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                sessionStorage.removeItem(STORAGE_KEY);
+                var state = JSON.parse(saved);
+                if (state.scrollY) {
+                    window.scrollTo(0, state.scrollY);
+                }
+                if (state.focusId) {
+                    var el = document.getElementById(state.focusId);
+                    if (el) el.focus();
+                } else if (state.focusName) {
+                    var el2 = document.querySelector('[name="' + state.focusName + '"]');
+                    if (el2) el2.focus();
+                }
+            }
+        }
+    } catch (e) { /* ignore */ }
+
+    // Before form submit: save scroll + focus
+    document.addEventListener('submit', function (e) {
+        if (!e.target || e.target.tagName !== 'FORM') return;
+        if (e.defaultPrevented) return;
+
+        try {
+            var focused = document.activeElement;
+            var state = { scrollY: window.scrollY };
+            if (focused && focused.id) {
+                state.focusId = focused.id;
+            } else if (focused && focused.name) {
+                state.focusName = focused.name;
+            }
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (ex) { /* ignore */ }
+    });
+
+    // Before link clicks that navigate to the same page: save scroll
+    document.addEventListener('click', function (e) {
+        var link = e.target.closest('a[href]');
+        if (!link) return;
+        var href = link.getAttribute('href');
+        if (!href || href.startsWith('#') || href.startsWith('javascript:') || link.target === '_blank') return;
+        try {
+            var linkUrl = new URL(href, window.location.origin);
+            if (linkUrl.pathname === window.location.pathname) {
+                sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ scrollY: window.scrollY }));
+            }
+        } catch (ex) { /* ignore */ }
+    });
+})();
+</script>
+
+@endsection

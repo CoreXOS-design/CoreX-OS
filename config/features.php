@@ -18,6 +18,7 @@ return [
     'launch_position_v1'             => (bool) env('LAUNCH_POSITION_V1_ENABLED', false),
     'presentation_power_panel_v1'    => (bool) env('PRESENTATION_POWER_PANEL_V1_ENABLED', false),
     'presentation_brain_ui_v1'       => (bool) env('PRESENTATION_BRAIN_UI_V1_ENABLED', false),
+    'pricing_simulator_v1'           => (bool) env('PRICING_SIMULATOR_V1_ENABLED', true),
     'presentation_link_extraction_v2' => (bool) env('PRESENTATION_LINK_EXTRACTION_V2_ENABLED', true),
     'portal_headless_fetch_v1'        => (bool) env('PORTAL_HEADLESS_FETCH_V1', false),
     'portal_extension_capture_v1'     => (bool) env('PORTAL_EXTENSION_CAPTURE_V1', true),

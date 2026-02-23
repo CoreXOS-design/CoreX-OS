@@ -5,13 +5,13 @@
 <div class="mb-6 flex items-center justify-between">
     <div>
         <h1 class="text-2xl font-bold text-gray-800">New Presentation</h1>
-        <p class="text-sm text-gray-500 mt-1">Enter the property details — you'll run the analysis on the next screen.</p>
+        <p class="text-sm text-gray-500 mt-1">Enter the property details — you'll upload evidence and run analysis on the next screen.</p>
     </div>
     <a href="{{ route('presentations.index') }}"
-       class="text-xs text-indigo-600 hover:underline">← Back to Presentations</a>
+       class="text-xs text-indigo-600 hover:underline">&larr; Back to Presentations</a>
 </div>
 
-<div class="bg-white rounded-xl shadow p-6 max-w-2xl">
+<div class="bg-white rounded-xl shadow p-6 max-w-3xl">
     <form method="POST" action="{{ route('presentations.store') }}">
         @csrf
 
@@ -24,7 +24,7 @@
                 </label>
                 <input type="text" name="title" value="{{ old('title') }}" required
                        class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                       placeholder="e.g. 12 Ocean Drive — Market Analysis">
+                       placeholder="e.g. 21 Dee Road — Seller Presentation">
                 @error('title')
                     <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
                 @enderror
@@ -37,13 +37,13 @@
                 </label>
                 <input type="text" name="property_address" value="{{ old('property_address') }}" required
                        class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                       placeholder="e.g. 12 Ocean Drive, Ballito, 4399">
+                       placeholder="e.g. 21 Dee Road">
                 @error('property_address')
                     <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
                 @enderror
             </div>
 
-            {{-- Suburb + property type (used to pre-fill analysis) --}}
+            {{-- Suburb + Property Type --}}
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">
@@ -51,7 +51,7 @@
                     </label>
                     <input type="text" name="suburb" value="{{ old('suburb') }}" required
                            class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
-                           placeholder="e.g. Ballito">
+                           placeholder="e.g. Uvongo">
                     @error('suburb')
                         <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
                     @enderror
@@ -62,7 +62,15 @@
                     </label>
                     <select name="property_type" required class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
                         <option value="">— Select type —</option>
-                        @foreach(['house' => 'House', 'unit' => 'Unit / Apartment', 'land' => 'Vacant Land', 'other' => 'Other'] as $val => $label)
+                        @foreach([
+                            'house'       => 'House',
+                            'townhouse'   => 'Townhouse',
+                            'apartment'   => 'Apartment / Flat',
+                            'duplex'      => 'Duplex',
+                            'vacant_land' => 'Vacant Land',
+                            'farm'        => 'Farm',
+                            'other'       => 'Other',
+                        ] as $val => $label)
                             <option value="{{ $val }}" {{ old('property_type') === $val ? 'selected' : '' }}>
                                 {{ $label }}
                             </option>
@@ -74,14 +82,13 @@
                 </div>
             </div>
 
-            {{-- Bedrooms + floor area (optional — unlocks recommendation) --}}
+            {{-- Bedrooms + Bathrooms --}}
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">
-                        Bedrooms
-                        <span class="text-gray-400 font-normal">(optional)</span>
+                        Bedrooms <span class="text-red-500">*</span>
                     </label>
-                    <input type="number" name="bedrooms" value="{{ old('bedrooms') }}"
+                    <input type="number" name="bedrooms" value="{{ old('bedrooms') }}" required
                            min="0" max="20"
                            class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                            placeholder="e.g. 3">
@@ -91,14 +98,75 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">
-                        Floor Area (m²)
-                        <span class="text-gray-400 font-normal">(optional — unlocks price/m² signal)</span>
+                        Bathrooms
+                        <span class="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="number" name="bathrooms" value="{{ old('bathrooms') }}"
+                           min="0" max="20"
+                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                           placeholder="e.g. 2">
+                    @error('bathrooms')
+                        <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                    @enderror
+                </div>
+            </div>
+
+            {{-- Asking Price --}}
+            <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">
+                    Asking Price (ZAR) <span class="text-red-500">*</span>
+                </label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400 text-sm pointer-events-none">R</span>
+                    <input type="number" name="asking_price_inc" value="{{ old('asking_price_inc') }}" required
+                           min="0" step="1"
+                           class="w-full border border-gray-300 rounded pl-8 pr-3 py-2 text-sm"
+                           placeholder="e.g. 2500000">
+                </div>
+                <p class="mt-0.5 text-xs text-gray-400">Whole rands, no decimals. e.g. 2500000 for R 2,500,000</p>
+                @error('asking_price_inc')
+                    <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                @enderror
+            </div>
+
+            {{-- Erf Size + Floor Area + Garages --}}
+            <div class="grid grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">
+                        Erf Size m&sup2;
+                        <span class="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="number" name="erf_size_m2" value="{{ old('erf_size_m2') }}"
+                           min="0"
+                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                           placeholder="e.g. 1523">
+                    @error('erf_size_m2')
+                        <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                    @enderror
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">
+                        Floor Area m&sup2;
+                        <span class="text-gray-400 font-normal">(optional)</span>
                     </label>
                     <input type="number" name="floor_area_m2" value="{{ old('floor_area_m2') }}"
                            min="0"
                            class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                            placeholder="e.g. 180">
                     @error('floor_area_m2')
+                        <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
+                    @enderror
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">
+                        Garages / Parking
+                        <span class="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input type="number" name="garages_parking" value="{{ old('garages_parking') }}"
+                           min="0" max="10"
+                           class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+                           placeholder="e.g. 2">
+                    @error('garages_parking')
                         <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
                     @enderror
                 </div>
@@ -146,7 +214,7 @@
         <div class="mt-6 flex items-center gap-3">
             <button type="submit"
                     class="px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700">
-                Create &amp; Run Analysis →
+                Create Presentation &rarr;
             </button>
             <a href="{{ route('presentations.index') }}"
                class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">

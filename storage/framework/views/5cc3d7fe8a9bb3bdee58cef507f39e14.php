@@ -7,6 +7,7 @@
     $comps    = $analysisData['comparable_sales'];
     $cma      = $analysisData['cma_valuation'];
     $active   = $analysisData['active_competition'];
+    $stock    = $analysisData['stock_absorption'] ?? [];
     $holding  = $analysisData['holding_cost'];
     $insights = $analysisData['key_insights'];
     $counts   = $analysisData['data_counts'];
@@ -197,6 +198,52 @@
     <?php endif; ?>
 
     
+    <?php if(!empty($stock['total_active_stock']) && !empty($stock['months_of_supply'])): ?>
+    <?php
+        $absColor = match($stock['absorption_color'] ?? '') {
+            'green'  => ['bg' => 'bg-emerald-50', 'border' => 'border-emerald-200', 'text' => 'text-emerald-700', 'badge' => 'bg-emerald-100 text-emerald-800'],
+            'amber'  => ['bg' => 'bg-amber-50',   'border' => 'border-amber-200',   'text' => 'text-amber-700',   'badge' => 'bg-amber-100 text-amber-800'],
+            'orange' => ['bg' => 'bg-orange-50',   'border' => 'border-orange-200',  'text' => 'text-orange-700',  'badge' => 'bg-orange-100 text-orange-800'],
+            'red'    => ['bg' => 'bg-red-50',      'border' => 'border-red-200',     'text' => 'text-red-700',     'badge' => 'bg-red-100 text-red-800'],
+            default  => ['bg' => 'bg-gray-50',     'border' => 'border-gray-200',    'text' => 'text-gray-700',    'badge' => 'bg-gray-100 text-gray-800'],
+        };
+    ?>
+    <div class="<?php echo e($absColor['bg']); ?> <?php echo e($absColor['border']); ?> border rounded-xl p-5 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold <?php echo e($absColor['text']); ?> uppercase tracking-wide">Stock Absorption Rate</h3>
+            <span class="text-xs px-2.5 py-1 rounded-full font-semibold <?php echo e($absColor['badge']); ?>"><?php echo e($stock['absorption_label']); ?></span>
+        </div>
+        <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div class="text-center">
+                <span class="text-xs text-gray-400 block">Active Listings</span>
+                <p class="text-xl font-bold <?php echo e($absColor['text']); ?>"><?php echo e($stock['total_active_stock']); ?></p>
+                <?php if($stock['stock_source'] === 'portal_search'): ?>
+                    <span class="text-xs text-gray-400">from P24 search</span>
+                <?php endif; ?>
+            </div>
+            <div class="text-center">
+                <span class="text-xs text-gray-400 block">Sales / Year</span>
+                <p class="text-xl font-bold text-gray-800"><?php echo e($stock['annual_sales']); ?></p>
+                <span class="text-xs text-gray-400"><?php echo e(number_format($stock['monthly_sales'], 1)); ?> / month</span>
+            </div>
+            <div class="text-center">
+                <span class="text-xs text-gray-400 block">Months of Supply</span>
+                <p class="text-xl font-bold <?php echo e($absColor['text']); ?>"><?php echo e(number_format($stock['months_of_supply'], 1)); ?></p>
+            </div>
+            <div class="text-center">
+                <span class="text-xs text-gray-400 block">Years of Supply</span>
+                <p class="text-xl font-bold <?php echo e($absColor['text']); ?>"><?php echo e(number_format($stock['years_of_supply'], 1)); ?></p>
+            </div>
+        </div>
+        <?php if($stock['search_total_count'] && $stock['listings_with_price'] < $stock['search_total_count']): ?>
+        <p class="text-xs <?php echo e($absColor['text']); ?> mt-3 opacity-75">
+            Price data available for <?php echo e($stock['listings_with_price']); ?> of <?php echo e($stock['search_total_count']); ?> listings &mdash; actual competition may be higher.
+        </p>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    
     <?php if($comps['vicinity']['count'] > 0 || $comps['cma_comps']['count'] > 0 || $comps['street_sales']['count'] > 0): ?>
     <div class="bg-white rounded-xl shadow p-6 mb-4">
         <h3 class="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">3. Comparable Sales</h3>
@@ -295,20 +342,17 @@
             
             <?php if($cma['cma_middle']): ?>
             <div>
-                <p class="text-xs text-gray-400 mb-2 font-medium">CMA Report Range</p>
+                <p class="text-xs text-gray-400 mb-2 font-medium">CMA Report Range <span class="text-indigo-400">(click to select)</span></p>
                 <div class="flex items-center gap-3">
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Lower</span>
-                        <p class="font-semibold text-gray-700">R <?php echo e(number_format($cma['cma_lower'])); ?></p>
+                    <?php $__currentLoopData = ['lower' => $cma['cma_lower'], 'middle' => $cma['cma_middle'], 'upper' => $cma['cma_upper']]; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $range => $val): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                    <?php $isSel = ($cma['selected_range'] ?? 'middle') === $range; ?>
+                    <div class="cma-tile text-center flex-1 rounded-lg p-3 cursor-pointer transition-all
+                        <?php echo e($isSel ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'bg-gray-50 hover:bg-gray-100'); ?>"
+                        data-range="<?php echo e($range); ?>" data-value="<?php echo e($val); ?>">
+                        <span class="text-xs block <?php echo e($isSel ? 'text-indigo-400' : 'text-gray-400'); ?>"><?php echo e(ucfirst($range)); ?></span>
+                        <p class="<?php echo e($isSel ? 'font-bold text-indigo-700 text-lg' : 'font-semibold text-gray-700'); ?>">R <?php echo e(number_format($val)); ?></p>
                     </div>
-                    <div class="text-center flex-1 bg-indigo-50 rounded-lg p-3 ring-1 ring-indigo-200">
-                        <span class="text-xs text-indigo-400 block">Middle</span>
-                        <p class="font-bold text-indigo-700 text-lg">R <?php echo e(number_format($cma['cma_middle'])); ?></p>
-                    </div>
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Upper</span>
-                        <p class="font-semibold text-gray-700">R <?php echo e(number_format($cma['cma_upper'])); ?></p>
-                    </div>
+                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                 </div>
             </div>
             <?php endif; ?>
@@ -316,20 +360,18 @@
             
             <?php if($cma['vicinity_middle']): ?>
             <div>
-                <p class="text-xs text-gray-400 mb-2 font-medium">Vicinity Sales Range</p>
+                <p class="text-xs text-gray-400 mb-2 font-medium">Vicinity Sales Range <span class="text-indigo-400">(click to select)</span></p>
                 <div class="flex items-center gap-3">
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Lower</span>
-                        <p class="font-semibold text-gray-700">R <?php echo e(number_format($cma['vicinity_lower'])); ?></p>
+                    <?php $vicSel = $presentation->vicinity_selected_range ?? 'middle'; ?>
+                    <?php $__currentLoopData = ['lower' => $cma['vicinity_lower'], 'middle' => $cma['vicinity_middle'], 'upper' => $cma['vicinity_upper']]; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $range => $val): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                    <?php $isSel = $vicSel === $range; ?>
+                    <div class="vicinity-tile text-center flex-1 rounded-lg p-3 cursor-pointer transition-all
+                        <?php echo e($isSel ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'bg-gray-50 hover:bg-gray-100'); ?>"
+                        data-range="<?php echo e($range); ?>" data-value="<?php echo e($val); ?>">
+                        <span class="text-xs block <?php echo e($isSel ? 'text-indigo-400' : 'text-gray-400'); ?>"><?php echo e(ucfirst($range)); ?></span>
+                        <p class="<?php echo e($isSel ? 'font-bold text-indigo-700 text-lg' : 'font-semibold text-gray-700'); ?>">R <?php echo e(number_format($val)); ?></p>
                     </div>
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Middle</span>
-                        <p class="font-semibold text-gray-700">R <?php echo e(number_format($cma['vicinity_middle'])); ?></p>
-                    </div>
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Upper</span>
-                        <p class="font-semibold text-gray-700">R <?php echo e(number_format($cma['vicinity_upper'])); ?></p>
-                    </div>
+                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                 </div>
                 <?php if($cma['vicinity_ppm2']): ?>
                 <p class="text-xs text-gray-400 mt-2 text-right">Avg R/m&sup2;: <span class="font-medium text-gray-600">R <?php echo e(number_format($cma['vicinity_ppm2'])); ?></span></p>
@@ -339,24 +381,31 @@
         </div>
 
         
-        <?php if($cma['asking_price'] && $cma['cma_middle']): ?>
-        <div class="mt-4 p-4 rounded-lg border <?php echo e($cma['is_overpriced'] ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'); ?>">
+        <?php if($cma['asking_price'] && $cma['selected_value']): ?>
+        <div id="asking-vs-cma" class="mt-4 p-4 rounded-lg border <?php echo e($cma['is_overpriced'] ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'); ?>"
+             data-asking="<?php echo e($cma['asking_price']); ?>"
+             data-cma-lower="<?php echo e($cma['cma_lower']); ?>"
+             data-cma-middle="<?php echo e($cma['cma_middle']); ?>"
+             data-cma-upper="<?php echo e($cma['cma_upper']); ?>">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-xs font-medium <?php echo e($cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600'); ?>">
-                        Asking Price vs CMA Middle
+                    <p id="asking-cma-label" class="text-xs font-medium <?php echo e($cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600'); ?>">
+                        Asking Price vs CMA <?php echo e(ucfirst($cma['selected_range'] ?? 'middle')); ?>
+
                     </p>
-                    <p class="text-sm text-gray-700 mt-1">
-                        R <?php echo e(number_format($cma['asking_price'])); ?> vs R <?php echo e(number_format($cma['cma_middle'])); ?>
+                    <p id="asking-cma-values" class="text-sm text-gray-700 mt-1">
+                        R <?php echo e(number_format($cma['asking_price'])); ?> vs R <?php echo e(number_format($cma['selected_value'])); ?>
 
                     </p>
                 </div>
                 <div class="text-right">
-                    <p class="text-2xl font-bold <?php echo e($cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600'); ?>">
+                    <p id="asking-cma-pct" class="text-2xl font-bold <?php echo e($cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600'); ?>">
                         <?php if($cma['asking_vs_cma_pct'] > 0): ?>+<?php endif; ?><?php echo e($cma['asking_vs_cma_pct']); ?>%
                     </p>
                     <?php if($cma['is_overpriced']): ?>
-                        <p class="text-xs text-red-500 font-medium">Above CMA valuation</p>
+                        <p id="asking-cma-note" class="text-xs text-red-500 font-medium">Above CMA valuation</p>
+                    <?php else: ?>
+                        <p id="asking-cma-note" class="text-xs text-emerald-500 font-medium hidden"></p>
                     <?php endif; ?>
                 </div>
             </div>
@@ -366,15 +415,20 @@
     <?php endif; ?>
 
     
-    <?php if($active['count'] > 0): ?>
+    <?php if(($active['total_count'] ?? $active['count']) > 0): ?>
     <div class="bg-white rounded-xl shadow p-6 mb-4">
         <h3 class="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">5. Active Market Competition</h3>
         <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="w-full text-sm" id="active-listings-table">
                 <thead>
                     <tr class="text-left text-xs text-gray-400 border-b">
+                        <th class="pb-2 pr-2 font-medium text-center" style="width:32px">
+                            <input type="checkbox" id="active-check-all" checked title="Include/exclude all">
+                        </th>
                         <th class="pb-2 pr-3 font-medium">Address</th>
                         <th class="pb-2 pr-3 font-medium">Type</th>
+                        <th class="pb-2 pr-3 font-medium text-center">Beds</th>
+                        <th class="pb-2 pr-3 font-medium text-center">Baths</th>
                         <th class="pb-2 pr-3 font-medium text-right">Erf m&sup2;</th>
                         <th class="pb-2 pr-3 font-medium">List Date</th>
                         <th class="pb-2 pr-3 font-medium text-right">List Price</th>
@@ -383,9 +437,25 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     <?php $__currentLoopData = $active['rows']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $row): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
-                    <tr class="hover:bg-gray-50">
-                        <td class="py-2 pr-3 text-gray-800 text-xs"><?php echo e($row['address'] ?? '—'); ?></td>
+                    <tr class="hover:bg-gray-50 active-listing-row <?php echo e(!empty($row['is_excluded']) ? 'opacity-50' : ''); ?>"
+                        data-row-index="<?php echo e($row['row_index'] ?? $loop->index); ?>"
+                        data-price="<?php echo e($row['list_price'] ?? 0); ?>">
+                        <td class="py-2 pr-2 text-center">
+                            <input type="checkbox" class="active-listing-check"
+                                   data-row-index="<?php echo e($row['row_index'] ?? $loop->index); ?>"
+                                   <?php echo e(empty($row['is_excluded']) ? 'checked' : ''); ?>>
+                        </td>
+                        <td class="py-2 pr-3 text-gray-800 text-xs max-w-[200px] truncate <?php echo e(!empty($row['is_excluded']) ? 'line-through' : ''); ?>">
+                            <?php if(!empty($row['url'])): ?>
+                                <a href="<?php echo e($row['url']); ?>" target="_blank" class="text-indigo-600 hover:underline" title="<?php echo e($row['address'] ?? ''); ?>"><?php echo e($row['address'] ?? '—'); ?></a>
+                            <?php else: ?>
+                                <?php echo e($row['address'] ?? '—'); ?>
+
+                            <?php endif; ?>
+                        </td>
                         <td class="py-2 pr-3 text-gray-600 text-xs"><?php echo e($row['property_type'] ?? '—'); ?></td>
+                        <td class="py-2 pr-3 text-center text-gray-600"><?php echo e($row['beds'] ?? '—'); ?></td>
+                        <td class="py-2 pr-3 text-center text-gray-600"><?php echo e($row['baths'] ?? '—'); ?></td>
                         <td class="py-2 pr-3 text-right text-gray-600"><?php echo e($row['extent_m2'] ? number_format($row['extent_m2']) : '—'); ?></td>
                         <td class="py-2 pr-3 text-gray-600"><?php echo e($row['list_date'] ?? '—'); ?></td>
                         <td class="py-2 pr-3 text-right font-medium text-gray-800">
@@ -401,16 +471,23 @@
                     <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                 </tbody>
                 <tfoot>
-                    <tr class="border-t-2 border-gray-200 font-semibold text-xs">
-                        <td class="pt-2 text-gray-500" colspan="4">
-                            <?php echo e($active['count']); ?> active <?php echo e($active['count'] === 1 ? 'listing' : 'listings'); ?>
+                    <tr class="border-t-2 border-gray-200 font-semibold text-xs" id="active-summary">
+                        <td class="pt-2" colspan="2"></td>
+                        <td class="pt-2 text-gray-500" colspan="5">
+                            <span id="active-count"><?php echo e($active['count']); ?></span> active
+                            <?php echo e($active['count'] === 1 ? 'listing' : 'listings'); ?>
 
+                            <?php if(($active['total_count'] ?? $active['count']) > $active['count']): ?>
+                                <span class="text-gray-400">(<?php echo e(($active['total_count'] ?? $active['count']) - $active['count']); ?> excluded)</span>
+                            <?php endif; ?>
                         </td>
                         <td class="pt-2 pr-3 text-right text-gray-800">
+                            <span id="active-avg-price">
                             <?php if($active['avg_asking_price']): ?>
                                 R <?php echo e(number_format($active['avg_asking_price'])); ?>
 
                             <?php endif; ?>
+                            </span>
                         </td>
                         <td></td>
                     </tr>
@@ -471,7 +548,7 @@
     <?php endif; ?>
 
     
-    <div class="bg-white rounded-xl shadow p-6 mb-4">
+    <div class="bg-white rounded-xl shadow p-6 mb-4" id="key-insights-container">
         <h3 class="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">7. Key Insights</h3>
 
         <?php if(!$insights['asking_price_set']): ?>
@@ -487,7 +564,7 @@
                 </p>
             </div>
         <?php else: ?>
-            <div class="space-y-3">
+            <div class="space-y-3" id="key-insights-list">
                 <?php $__currentLoopData = $insights['comparisons']; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $comp): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
                     <?php
                         $statusColors = match($comp['status']) {
@@ -501,15 +578,19 @@
                             default   => 'text-emerald-600',
                         };
                     ?>
-                    <div class="flex items-center justify-between p-4 rounded-lg border <?php echo e($statusColors); ?>">
+                    <div class="insight-card flex items-center justify-between p-4 rounded-lg border <?php echo e($statusColors); ?>"
+                         data-label="<?php echo e($comp['label']); ?>"
+                         data-benchmark="<?php echo e($comp['benchmark']); ?>"
+                         data-asking="<?php echo e($comp['asking']); ?>"
+                         data-pct="<?php echo e($comp['pct_difference']); ?>">
                         <div>
-                            <p class="text-xs font-medium opacity-75"><?php echo e($comp['label']); ?></p>
-                            <p class="text-sm mt-1">
+                            <p class="insight-label text-xs font-medium opacity-75"><?php echo e($comp['label']); ?></p>
+                            <p class="insight-values text-sm mt-1">
                                 R <?php echo e(number_format($comp['asking'])); ?> vs R <?php echo e(number_format($comp['benchmark'])); ?>
 
                             </p>
                         </div>
-                        <p class="text-xl font-bold <?php echo e($pctColors); ?>">
+                        <p class="insight-pct text-xl font-bold <?php echo e($pctColors); ?>">
                             <?php if($comp['pct_difference'] > 0): ?>+<?php endif; ?><?php echo e($comp['pct_difference']); ?>%
                         </p>
                     </div>

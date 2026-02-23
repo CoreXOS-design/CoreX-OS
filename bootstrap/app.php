@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
             'branch_manager' => \App\Http\Middleware\BranchManagerMiddleware::class,
                 'admin_or_bm' => \App\Http\Middleware\AdminOrBranchManager::class,
+                'auth.portal_capture' => \App\Http\Middleware\AuthenticatePortalCapture::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

@@ -69,6 +69,7 @@ class PresentationPdfService
         $comps       = $data['comparable_sales']    ?? [];
         $cma         = $data['cma_valuation']       ?? [];
         $competition = $data['active_competition']  ?? [];
+        $stock       = $data['stock_absorption']    ?? [];
         $holding     = $data['holding_cost']        ?? [];
         $insights    = $data['key_insights']        ?? [];
 
@@ -136,16 +137,13 @@ class PresentationPdfService
         // Active listings
         $activeRows    = $competition['rows'] ?? [];
 
-        // Absorption rate calculation
-        $absorptionRate = null;
-        $yearsOfSupply  = null;
-        if ($suburbSales && $suburbSales > 0 && $activeCount > 0) {
-            $monthlySales = $suburbSales / 12;
-            if ($monthlySales > 0) {
-                $absorptionRate = round($monthlySales, 1);
-                $yearsOfSupply = round($activeCount / $suburbSales, 1);
-            }
-        }
+        // Stock absorption from AnalysisDataService (uses portal search total_count)
+        $totalActiveStock  = $stock['total_active_stock'] ?? $activeCount;
+        $absorptionRate    = $stock['monthly_sales'] ?? null;
+        $monthsOfSupply    = $stock['months_of_supply'] ?? null;
+        $yearsOfSupply     = $stock['years_of_supply'] ?? null;
+        $absorptionLabel   = $stock['absorption_label'] ?? null;
+        $absorptionColor   = $stock['absorption_color'] ?? null;
 
         // Links for references
         $p24Links = $presentation->links->where('type', 'property24')->values();
@@ -540,8 +538,8 @@ a:hover { text-decoration: underline; }
         <?php endif ?>
     </div>
     <div class="metric-card highlight">
-        <div class="label">CMA Valuation (Middle)</div>
-        <div class="value"><?= $zar($cmaMiddle) ?></div>
+        <div class="label">CMA Valuation (<?= $esc(ucfirst($cma['selected_range'] ?? 'middle')) ?>)</div>
+        <div class="value"><?= $zar($cma['selected_value'] ?? $cmaMiddle) ?></div>
         <div class="sub">Independent market assessment</div>
     </div>
 </div>
@@ -556,8 +554,8 @@ a:hover { text-decoration: underline; }
     </div>
     <div class="metric-card">
         <div class="label">Active Competition</div>
-        <div class="value"><?= $activeCount ?></div>
-        <div class="sub">listing<?= $activeCount !== 1 ? 's' : '' ?> in area</div>
+        <div class="value"><?= $totalActiveStock ?></div>
+        <div class="sub">listing<?= $totalActiveStock !== 1 ? 's' : '' ?> in area</div>
     </div>
     <div class="metric-card <?= $monthlyTotal > 20000 ? 'danger' : ($monthlyTotal > 10000 ? 'warning' : '') ?>">
         <div class="label">Monthly Holding Cost</div>
@@ -567,14 +565,20 @@ a:hover { text-decoration: underline; }
 </div>
 
 <?php // ABSORPTION RATE ?>
-<?php if ($yearsOfSupply !== null): ?>
-<div class="callout <?= $yearsOfSupply > 3 ? 'callout-danger' : ($yearsOfSupply > 1.5 ? 'callout-warning' : 'callout-info') ?>" style="margin-top:14px;">
+<?php if ($monthsOfSupply !== null): ?>
+<?php
+    $absCalloutClass = match($absorptionColor) {
+        'green' => 'callout-success', 'amber' => 'callout-warning',
+        'orange' => 'callout-warning', 'red' => 'callout-danger',
+        default => 'callout-info',
+    };
+?>
+<div class="callout <?= $absCalloutClass ?>" style="margin-top:14px;">
     <strong>Market Absorption:</strong>
-    At <?= $absorptionRate ?> sales per month, the current stock of <?= $activeCount ?> listing<?= $activeCount !== 1 ? 's' : '' ?>
-    represents approximately <strong><?= $yearsOfSupply ?> year<?= $yearsOfSupply != 1 ? 's' : '' ?> of supply</strong>.
-    <?php if ($yearsOfSupply > 2): ?>
-    This is a buyer's market — pricing strategy is critical.
-    <?php endif ?>
+    <?= $totalActiveStock ?> active listing<?= $totalActiveStock !== 1 ? 's' : '' ?>
+    | <?= (int) ($stock['annual_sales'] ?? 0) ?> sales/year (<?= $absorptionRate ?>/month)
+    | <strong><?= $monthsOfSupply ?> months of supply</strong>
+    — <?= $absorptionLabel ?>
 </div>
 <?php endif ?>
 
@@ -828,7 +832,7 @@ a:hover { text-decoration: underline; }
 
 <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">
     These are the properties buyers are comparing yours against.
-    There <?= $activeCount === 1 ? 'is' : 'are' ?> currently <strong><?= $activeCount ?> active listing<?= $activeCount !== 1 ? 's' : '' ?></strong> in the area.
+    There <?= $totalActiveStock === 1 ? 'is' : 'are' ?> currently <strong><?= $totalActiveStock ?> active listing<?= $totalActiveStock !== 1 ? 's' : '' ?></strong> in the area<?php if ($totalActiveStock > $activeCount && $activeCount > 0): ?> (<?= $activeCount ?> with detailed price data)<?php endif ?>.
     <?php if ($avgAskPrice): ?>Average asking price: <strong><?= $zar($avgAskPrice) ?></strong>.<?php endif ?>
 </p>
 
@@ -846,6 +850,7 @@ a:hover { text-decoration: underline; }
     </thead>
     <tbody>
         <?php foreach ($activeRows as $listing): ?>
+        <?php if (!empty($listing['is_excluded'])) continue; ?>
         <tr>
             <td><?= $esc($listing['address'] ?? '—') ?></td>
             <td><?= $esc($listing['property_type'] ?? '—') ?></td>
@@ -884,12 +889,20 @@ a:hover { text-decoration: underline; }
 </div>
 <?php endif ?>
 
-<?php if ($yearsOfSupply !== null): ?>
-<div class="callout <?= $yearsOfSupply > 3 ? 'callout-danger' : ($yearsOfSupply > 1.5 ? 'callout-warning' : 'callout-info') ?>" style="margin-top:14px;">
+<?php if ($monthsOfSupply !== null): ?>
+<?php
+    $compAbsClass = match($absorptionColor) {
+        'green' => 'callout-success', 'amber' => 'callout-warning',
+        'orange' => 'callout-warning', 'red' => 'callout-danger',
+        default => 'callout-info',
+    };
+?>
+<div class="callout <?= $compAbsClass ?>" style="margin-top:14px;">
     <strong>Stock Absorption:</strong>
-    With <?= (int) $suburbSales ?> sales per year and <?= $activeCount ?> active listings,
-    this represents <strong><?= $yearsOfSupply ?> year<?= $yearsOfSupply != 1 ? 's' : '' ?> of supply</strong>
-    at the current absorption rate.
+    <?= $totalActiveStock ?> active listing<?= $totalActiveStock !== 1 ? 's' : '' ?>
+    | <?= (int) ($stock['annual_sales'] ?? 0) ?> sales/year (<?= number_format($absorptionRate ?? 0, 1) ?>/month)
+    | <strong><?= number_format($monthsOfSupply, 1) ?> months of supply</strong>
+    — <?= $absorptionLabel ?>
 </div>
 <?php endif ?>
 
@@ -1090,6 +1103,113 @@ a:hover { text-decoration: underline; }
 </table>
 </div>
 <?php endif ?>
+
+<?php // ══════════════════════════════════════════════════════════════════════
+      // PAGE 9 — PRICING SCENARIOS (conditional — only if simulator saved with include_in_pdf)
+      // ══════════════════════════════════════════════════════════════════════ ?>
+<?php
+    $simConfig = $presentation->simulator_config_json;
+    if ($simConfig && !empty($simConfig['include_in_pdf']) && !empty($simConfig['scenarios'])):
+        $simScenarios = $simConfig['scenarios'];
+        $simCfg       = $simConfig['config'] ?? [];
+        $simNarrative = $simConfig['narrative'] ?? '';
+?>
+<div class="page-break"></div>
+<div class="section-header">
+    <span class="section-number">8</span>
+    <h2>Pricing Scenarios</h2>
+</div>
+
+<div class="avoid-break" style="margin-bottom:14px;">
+<p style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">
+    Commission: <?= number_format($simCfg['commission_pct'] ?? 5, 1) ?>%
+    &middot; Transfer Cost: <?= number_format($simCfg['transfer_cost_pct'] ?? 4, 1) ?>%
+    &middot; Monthly Holding Cost: <?= $zar((int)($simCfg['monthly_holding_cost'] ?? 0)) ?>
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Scenario</th>
+            <th class="num">Price</th>
+            <th class="num">Competing</th>
+            <th class="num">Est. Months</th>
+            <th class="num">Holding Cost</th>
+            <th class="num">Commission</th>
+            <th class="num">Net Proceeds</th>
+            <th class="num">vs Asking</th>
+            <th>Probability</th>
+        </tr>
+    </thead>
+    <tbody>
+        <?php foreach ($simScenarios as $sc): ?>
+        <tr>
+            <td><?= $esc($sc['label'] ?? '') ?></td>
+            <td class="num"><?= $zar($sc['price'] ?? 0) ?></td>
+            <td class="num"><?= $sc['competing_count'] ?? '—' ?></td>
+            <td class="num"><?= $sc['est_months'] ?? '—' ?></td>
+            <td class="num"><?= $zar($sc['holding_cost_total'] ?? 0) ?></td>
+            <td class="num"><?= $zar($sc['commission'] ?? 0) ?></td>
+            <td class="num" style="font-weight:700;"><?= $zar($sc['net_proceeds'] ?? 0) ?></td>
+            <td class="num">
+                <?php if (isset($sc['vs_asking_net'])): ?>
+                    <?= ($sc['vs_asking_net'] >= 0 ? '+' : '') . $zar($sc['vs_asking_net']) ?>
+                <?php else: ?>—<?php endif ?>
+            </td>
+            <td>
+                <?php
+                    $probLabel = $sc['probability'] ?? '';
+                    $probStyle = match($probLabel) {
+                        'Very Likely' => 'background:#d1fae5;color:#059669',
+                        'Likely'      => 'background:#dcfce7;color:#16a34a',
+                        'Possible'    => 'background:#fef3c7;color:#d97706',
+                        'Unlikely'    => 'background:#fed7aa;color:#ea580c',
+                        default       => 'background:#fecaca;color:#dc2626',
+                    };
+                ?>
+                <span class="cmp-badge" style="<?= $probStyle ?>"><?= $esc($probLabel) ?></span>
+            </td>
+        </tr>
+        <?php endforeach ?>
+    </tbody>
+</table>
+</div>
+
+<?php // Bar chart (CSS only) ?>
+<div class="avoid-break" style="margin-bottom:18px;">
+<h3 style="margin-bottom:10px;">Net Proceeds Comparison</h3>
+<?php
+    $maxNetPdf = max(1, max(array_map(fn($s) => max((int)($s['net_proceeds'] ?? 0), 0), $simScenarios)));
+    $barColorMap = [
+        'Very Likely' => '#059669', 'Likely' => '#16a34a',
+        'Possible'    => '#d97706', 'Unlikely' => '#ea580c', 'Very Unlikely' => '#dc2626',
+    ];
+?>
+<?php foreach ($simScenarios as $sc): ?>
+<?php
+    $netVal = max((int)($sc['net_proceeds'] ?? 0), 0);
+    $barW   = max(2, round($netVal / $maxNetPdf * 100));
+    $barC   = $barColorMap[$sc['probability'] ?? ''] ?? '#dc2626';
+?>
+<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+    <div style="width:100px;text-align:right;font-size:10px;color:var(--text-muted);flex-shrink:0;"><?= $esc($sc['label'] ?? '') ?></div>
+    <div style="flex:1;background:#f3f4f6;border-radius:999px;height:20px;overflow:hidden;">
+        <div style="width:<?= $barW ?>%;height:100%;background:<?= $barC ?>;border-radius:999px;display:flex;align-items:center;padding:0 6px;">
+            <span style="font-size:9px;color:#fff;font-weight:600;white-space:nowrap;"><?= $zar($sc['net_proceeds'] ?? 0) ?></span>
+        </div>
+    </div>
+</div>
+<?php endforeach ?>
+</div>
+
+<?php if ($simNarrative): ?>
+<div class="avoid-break" style="background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:18px;">
+    <h3 style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--brand);margin-bottom:6px;">Key Insight</h3>
+    <p style="font-size:12px;color:var(--text);line-height:1.6;"><?= $esc($simNarrative) ?></p>
+</div>
+<?php endif ?>
+
+<?php endif // end simulator page ?>
 
 <div style="margin-top:24px;padding:20px;background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;text-align:center;">
     <p style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:6px;">

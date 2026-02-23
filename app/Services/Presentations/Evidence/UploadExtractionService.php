@@ -27,7 +27,22 @@ class UploadExtractionService
 
     public function run(PresentationUpload $upload): void
     {
-        $docType = $this->detectDocType($upload->original_filename ?? '');
+        // Detect type: use upload's type if already set to a known value, otherwise auto-detect
+        $uploadType = $upload->type;
+        $needsAutoDetect = in_array($uploadType, ['unknown', 'auto', 'application/pdf', null, ''], true);
+
+        if ($needsAutoDetect) {
+            $uploadType = $this->detectDocumentType(
+                $upload->original_filename ?? '',
+                $upload->text_extracted
+            );
+            // Update the upload type column with detected type
+            if ($uploadType !== 'unknown') {
+                $upload->update(['type' => $uploadType]);
+            }
+        }
+
+        $docType = $this->mapToParserType($uploadType);
 
         // If text extraction failed, try PHP-based extraction via DocumentExtractor
         if ($upload->extraction_status !== 'ok' && config('features.presentation_doc_extract_v1', false)) {
@@ -104,6 +119,11 @@ class UploadExtractionService
             'extraction_error'  => $hasUseful ? null : 'No extractable fields found (check PDF format)',
             'extracted_at'      => now(),
         ]);
+
+        // Always propagate comp/listing rows from text (works independently of doc_extract flag)
+        if ($hasUseful) {
+            $this->propagateRows($upload);
+        }
     }
 
     /**
@@ -141,24 +161,97 @@ class UploadExtractionService
     /**
      * Determine document type from filename keywords.
      * Deterministic; does not read file contents.
+     *
+     * @deprecated Use detectDocumentType() which supports content-based fallback.
      */
     public function detectDocType(string $filename): string
     {
+        return $this->mapToParserType($this->detectDocumentType($filename));
+    }
+
+    /**
+     * Auto-detect document type from filename and optionally text content.
+     * Returns upload-namespace types: 'suburb_stats', 'vicinity_sales', 'cma', 'unknown'.
+     *
+     * Method A: Filename matching (fast, tried first).
+     * Method B: Content matching (fallback when filename doesn't match).
+     */
+    public function detectDocumentType(string $filename, ?string $textContent = null): string
+    {
+        // ── Method A: Filename matching ──
         $lower = mb_strtolower($filename);
 
-        if (str_contains($lower, 'vicinity') || str_contains($lower, 'sales')) {
-            return SalesReportParserV1::DOC_TYPE;
+        // Suburb Stats: "Median" or "Sales.Analysis" or "median_sales"
+        if (str_contains($lower, 'median') || str_contains($lower, 'sales.analysis') || str_contains($lower, 'median_sales')) {
+            return 'suburb_stats';
         }
 
+        // Vicinity Sales: "sales.in" or "Residential.sales.in" or "vicinity" or "within"
+        if (str_contains($lower, 'sales.in') || str_contains($lower, 'residential.sales.in')
+            || str_contains($lower, 'vicinity') || str_contains($lower, 'within')) {
+            return 'vicinity_sales';
+        }
+
+        // CMA: "Valuation" or "Property.Valuation" or "CMA"
+        if (str_contains($lower, 'valuation') || str_contains($lower, 'property.valuation') || str_contains($lower, 'cma')) {
+            return 'cma';
+        }
+
+        // Legacy filename keywords (broader match, lower priority)
         if (str_contains($lower, 'suburb') || str_contains($lower, 'stock')) {
-            return SuburbStockParserV1::DOC_TYPE;
+            return 'suburb_stats';
         }
 
-        if (str_contains($lower, 'cma') || str_contains($lower, 'valuation')) {
-            return CmaParserV1::DOC_TYPE;
+        // Broad "sales" keyword — maps to vicinity_sales (CMA Info vicinity reports contain "sales")
+        if (str_contains($lower, 'sales')) {
+            return 'vicinity_sales';
         }
 
-        return UnknownParser::DOC_TYPE;
+        // ── Method B: Content matching (fallback) ──
+        if ($textContent !== null && $textContent !== '') {
+            return $this->detectFromContent($textContent);
+        }
+
+        return 'unknown';
+    }
+
+    /**
+     * Detect document type from PDF text content.
+     * Used as fallback when filename doesn't match known patterns.
+     */
+    private function detectFromContent(string $text): string
+    {
+        // Suburb Stats: "Residential Sales Analysis" AND "Median Selling Price"
+        if (str_contains($text, 'Residential Sales Analysis') && str_contains($text, 'Median Selling Price')) {
+            return 'suburb_stats';
+        }
+
+        // Vicinity Sales: "Residential sales within" OR ("sales within" AND "m of")
+        if (str_contains($text, 'Residential sales within')
+            || (str_contains($text, 'sales within') && preg_match('/\d+\s*m\s+of/i', $text))) {
+            return 'vicinity_sales';
+        }
+
+        // CMA: "PROPERTY INFORMATION" AND ("Comparative Market Analysis" OR "Indexed Value")
+        if (str_contains($text, 'PROPERTY INFORMATION')
+            && (str_contains($text, 'Comparative Market Analysis') || str_contains($text, 'Indexed Value'))) {
+            return 'cma';
+        }
+
+        return 'unknown';
+    }
+
+    /**
+     * Map upload-namespace type to parser DOC_TYPE constant.
+     */
+    private function mapToParserType(string $uploadType): string
+    {
+        return match ($uploadType) {
+            'vicinity_sales' => SalesReportParserV1::DOC_TYPE,
+            'suburb_stats'   => SuburbStockParserV1::DOC_TYPE,
+            'cma'            => CmaParserV1::DOC_TYPE,
+            default          => UnknownParser::DOC_TYPE,
+        };
     }
 
     /**
@@ -204,9 +297,13 @@ class UploadExtractionService
     private function runParser(string $docType, string $text, PresentationUpload $upload): array
     {
         return match ($docType) {
+            // Parser-namespace types
             SalesReportParserV1::DOC_TYPE  => (new SalesReportParserV1())->parse($text, $upload),
             SuburbStockParserV1::DOC_TYPE  => (new SuburbStockParserV1())->parse($text, $upload),
             CmaParserV1::DOC_TYPE          => (new CmaParserV1())->parse($text, $upload),
+            // Upload-namespace types (from detectDocumentType)
+            'vicinity_sales'               => (new SalesReportParserV1())->parse($text, $upload),
+            'suburb_stats'                 => (new SuburbStockParserV1())->parse($text, $upload),
             default                        => (new UnknownParser())->parse($text),
         };
     }

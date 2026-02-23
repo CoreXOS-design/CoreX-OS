@@ -14,6 +14,7 @@
         <!-- Scripts & Styles -->
         <?php echo app('Illuminate\Foundation\Vite')(['resources/css/app.css', 'resources/css/nexus.css', 'resources/js/app.js']); ?>
         <link rel="stylesheet" href="/css/paye-fix.css">
+        <?php echo $__env->yieldPushContent('head'); ?>
     </head>
     <body class="font-sans antialiased">
         

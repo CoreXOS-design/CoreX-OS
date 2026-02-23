@@ -10,6 +10,7 @@
     $comps    = $analysisData['comparable_sales'];
     $cma      = $analysisData['cma_valuation'];
     $active   = $analysisData['active_competition'];
+    $stock    = $analysisData['stock_absorption'] ?? [];
     $holding  = $analysisData['holding_cost'];
     $insights = $analysisData['key_insights'];
     $counts   = $analysisData['data_counts'];
@@ -190,6 +191,52 @@
     </div>
     @endif
 
+    {{-- ── STOCK ABSORPTION ──────────────────────────────────────────────── --}}
+    @if(!empty($stock['total_active_stock']) && !empty($stock['months_of_supply']))
+    @php
+        $absColor = match($stock['absorption_color'] ?? '') {
+            'green'  => ['bg' => 'bg-emerald-50', 'border' => 'border-emerald-200', 'text' => 'text-emerald-700', 'badge' => 'bg-emerald-100 text-emerald-800'],
+            'amber'  => ['bg' => 'bg-amber-50',   'border' => 'border-amber-200',   'text' => 'text-amber-700',   'badge' => 'bg-amber-100 text-amber-800'],
+            'orange' => ['bg' => 'bg-orange-50',   'border' => 'border-orange-200',  'text' => 'text-orange-700',  'badge' => 'bg-orange-100 text-orange-800'],
+            'red'    => ['bg' => 'bg-red-50',      'border' => 'border-red-200',     'text' => 'text-red-700',     'badge' => 'bg-red-100 text-red-800'],
+            default  => ['bg' => 'bg-gray-50',     'border' => 'border-gray-200',    'text' => 'text-gray-700',    'badge' => 'bg-gray-100 text-gray-800'],
+        };
+    @endphp
+    <div class="{{ $absColor['bg'] }} {{ $absColor['border'] }} border rounded-xl p-5 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold {{ $absColor['text'] }} uppercase tracking-wide">Stock Absorption Rate</h3>
+            <span class="text-xs px-2.5 py-1 rounded-full font-semibold {{ $absColor['badge'] }}">{{ $stock['absorption_label'] }}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div class="text-center">
+                <span class="text-xs text-gray-400 block">Active Listings</span>
+                <p class="text-xl font-bold {{ $absColor['text'] }}">{{ $stock['total_active_stock'] }}</p>
+                @if($stock['stock_source'] === 'portal_search')
+                    <span class="text-xs text-gray-400">from P24 search</span>
+                @endif
+            </div>
+            <div class="text-center">
+                <span class="text-xs text-gray-400 block">Sales / Year</span>
+                <p class="text-xl font-bold text-gray-800">{{ $stock['annual_sales'] }}</p>
+                <span class="text-xs text-gray-400">{{ number_format($stock['monthly_sales'], 1) }} / month</span>
+            </div>
+            <div class="text-center">
+                <span class="text-xs text-gray-400 block">Months of Supply</span>
+                <p class="text-xl font-bold {{ $absColor['text'] }}">{{ number_format($stock['months_of_supply'], 1) }}</p>
+            </div>
+            <div class="text-center">
+                <span class="text-xs text-gray-400 block">Years of Supply</span>
+                <p class="text-xl font-bold {{ $absColor['text'] }}">{{ number_format($stock['years_of_supply'], 1) }}</p>
+            </div>
+        </div>
+        @if($stock['search_total_count'] && $stock['listings_with_price'] < $stock['search_total_count'])
+        <p class="text-xs {{ $absColor['text'] }} mt-3 opacity-75">
+            Price data available for {{ $stock['listings_with_price'] }} of {{ $stock['search_total_count'] }} listings &mdash; actual competition may be higher.
+        </p>
+        @endif
+    </div>
+    @endif
+
     {{-- ── 3. COMPARABLE SALES ──────────────────────────────────────────── --}}
     @if($comps['vicinity']['count'] > 0 || $comps['cma_comps']['count'] > 0 || $comps['street_sales']['count'] > 0)
     <div class="bg-white rounded-xl shadow p-6 mb-4">
@@ -282,44 +329,39 @@
     <div class="bg-white rounded-xl shadow p-6 mb-4">
         <h3 class="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">4. CMA Valuation</h3>
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {{-- CMA Range --}}
+            {{-- CMA Range — clickable tiles --}}
             @if($cma['cma_middle'])
             <div>
-                <p class="text-xs text-gray-400 mb-2 font-medium">CMA Report Range</p>
+                <p class="text-xs text-gray-400 mb-2 font-medium">CMA Report Range <span class="text-indigo-400">(click to select)</span></p>
                 <div class="flex items-center gap-3">
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Lower</span>
-                        <p class="font-semibold text-gray-700">R {{ number_format($cma['cma_lower']) }}</p>
+                    @foreach(['lower' => $cma['cma_lower'], 'middle' => $cma['cma_middle'], 'upper' => $cma['cma_upper']] as $range => $val)
+                    @php $isSel = ($cma['selected_range'] ?? 'middle') === $range; @endphp
+                    <div class="cma-tile text-center flex-1 rounded-lg p-3 cursor-pointer transition-all
+                        {{ $isSel ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'bg-gray-50 hover:bg-gray-100' }}"
+                        data-range="{{ $range }}" data-value="{{ $val }}">
+                        <span class="text-xs block {{ $isSel ? 'text-indigo-400' : 'text-gray-400' }}">{{ ucfirst($range) }}</span>
+                        <p class="{{ $isSel ? 'font-bold text-indigo-700 text-lg' : 'font-semibold text-gray-700' }}">R {{ number_format($val) }}</p>
                     </div>
-                    <div class="text-center flex-1 bg-indigo-50 rounded-lg p-3 ring-1 ring-indigo-200">
-                        <span class="text-xs text-indigo-400 block">Middle</span>
-                        <p class="font-bold text-indigo-700 text-lg">R {{ number_format($cma['cma_middle']) }}</p>
-                    </div>
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Upper</span>
-                        <p class="font-semibold text-gray-700">R {{ number_format($cma['cma_upper']) }}</p>
-                    </div>
+                    @endforeach
                 </div>
             </div>
             @endif
 
-            {{-- Vicinity Range --}}
+            {{-- Vicinity Range — clickable tiles --}}
             @if($cma['vicinity_middle'])
             <div>
-                <p class="text-xs text-gray-400 mb-2 font-medium">Vicinity Sales Range</p>
+                <p class="text-xs text-gray-400 mb-2 font-medium">Vicinity Sales Range <span class="text-indigo-400">(click to select)</span></p>
                 <div class="flex items-center gap-3">
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Lower</span>
-                        <p class="font-semibold text-gray-700">R {{ number_format($cma['vicinity_lower']) }}</p>
+                    @php $vicSel = $presentation->vicinity_selected_range ?? 'middle'; @endphp
+                    @foreach(['lower' => $cma['vicinity_lower'], 'middle' => $cma['vicinity_middle'], 'upper' => $cma['vicinity_upper']] as $range => $val)
+                    @php $isSel = $vicSel === $range; @endphp
+                    <div class="vicinity-tile text-center flex-1 rounded-lg p-3 cursor-pointer transition-all
+                        {{ $isSel ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'bg-gray-50 hover:bg-gray-100' }}"
+                        data-range="{{ $range }}" data-value="{{ $val }}">
+                        <span class="text-xs block {{ $isSel ? 'text-indigo-400' : 'text-gray-400' }}">{{ ucfirst($range) }}</span>
+                        <p class="{{ $isSel ? 'font-bold text-indigo-700 text-lg' : 'font-semibold text-gray-700' }}">R {{ number_format($val) }}</p>
                     </div>
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Middle</span>
-                        <p class="font-semibold text-gray-700">R {{ number_format($cma['vicinity_middle']) }}</p>
-                    </div>
-                    <div class="text-center flex-1 bg-gray-50 rounded-lg p-3">
-                        <span class="text-xs text-gray-400 block">Upper</span>
-                        <p class="font-semibold text-gray-700">R {{ number_format($cma['vicinity_upper']) }}</p>
-                    </div>
+                    @endforeach
                 </div>
                 @if($cma['vicinity_ppm2'])
                 <p class="text-xs text-gray-400 mt-2 text-right">Avg R/m&sup2;: <span class="font-medium text-gray-600">R {{ number_format($cma['vicinity_ppm2']) }}</span></p>
@@ -329,23 +371,29 @@
         </div>
 
         {{-- Asking vs CMA comparison --}}
-        @if($cma['asking_price'] && $cma['cma_middle'])
-        <div class="mt-4 p-4 rounded-lg border {{ $cma['is_overpriced'] ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200' }}">
+        @if($cma['asking_price'] && $cma['selected_value'])
+        <div id="asking-vs-cma" class="mt-4 p-4 rounded-lg border {{ $cma['is_overpriced'] ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200' }}"
+             data-asking="{{ $cma['asking_price'] }}"
+             data-cma-lower="{{ $cma['cma_lower'] }}"
+             data-cma-middle="{{ $cma['cma_middle'] }}"
+             data-cma-upper="{{ $cma['cma_upper'] }}">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-xs font-medium {{ $cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600' }}">
-                        Asking Price vs CMA Middle
+                    <p id="asking-cma-label" class="text-xs font-medium {{ $cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600' }}">
+                        Asking Price vs CMA {{ ucfirst($cma['selected_range'] ?? 'middle') }}
                     </p>
-                    <p class="text-sm text-gray-700 mt-1">
-                        R {{ number_format($cma['asking_price']) }} vs R {{ number_format($cma['cma_middle']) }}
+                    <p id="asking-cma-values" class="text-sm text-gray-700 mt-1">
+                        R {{ number_format($cma['asking_price']) }} vs R {{ number_format($cma['selected_value']) }}
                     </p>
                 </div>
                 <div class="text-right">
-                    <p class="text-2xl font-bold {{ $cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600' }}">
+                    <p id="asking-cma-pct" class="text-2xl font-bold {{ $cma['is_overpriced'] ? 'text-red-600' : 'text-emerald-600' }}">
                         @if($cma['asking_vs_cma_pct'] > 0)+@endif{{ $cma['asking_vs_cma_pct'] }}%
                     </p>
                     @if($cma['is_overpriced'])
-                        <p class="text-xs text-red-500 font-medium">Above CMA valuation</p>
+                        <p id="asking-cma-note" class="text-xs text-red-500 font-medium">Above CMA valuation</p>
+                    @else
+                        <p id="asking-cma-note" class="text-xs text-emerald-500 font-medium hidden"></p>
                     @endif
                 </div>
             </div>
@@ -355,15 +403,20 @@
     @endif
 
     {{-- ── 5. ACTIVE MARKET COMPETITION ─────────────────────────────────── --}}
-    @if($active['count'] > 0)
+    @if(($active['total_count'] ?? $active['count']) > 0)
     <div class="bg-white rounded-xl shadow p-6 mb-4">
         <h3 class="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">5. Active Market Competition</h3>
         <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="w-full text-sm" id="active-listings-table">
                 <thead>
                     <tr class="text-left text-xs text-gray-400 border-b">
+                        <th class="pb-2 pr-2 font-medium text-center" style="width:32px">
+                            <input type="checkbox" id="active-check-all" checked title="Include/exclude all">
+                        </th>
                         <th class="pb-2 pr-3 font-medium">Address</th>
                         <th class="pb-2 pr-3 font-medium">Type</th>
+                        <th class="pb-2 pr-3 font-medium text-center">Beds</th>
+                        <th class="pb-2 pr-3 font-medium text-center">Baths</th>
                         <th class="pb-2 pr-3 font-medium text-right">Erf m&sup2;</th>
                         <th class="pb-2 pr-3 font-medium">List Date</th>
                         <th class="pb-2 pr-3 font-medium text-right">List Price</th>
@@ -372,9 +425,24 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     @foreach($active['rows'] as $row)
-                    <tr class="hover:bg-gray-50">
-                        <td class="py-2 pr-3 text-gray-800 text-xs">{{ $row['address'] ?? '—' }}</td>
+                    <tr class="hover:bg-gray-50 active-listing-row {{ !empty($row['is_excluded']) ? 'opacity-50' : '' }}"
+                        data-row-index="{{ $row['row_index'] ?? $loop->index }}"
+                        data-price="{{ $row['list_price'] ?? 0 }}">
+                        <td class="py-2 pr-2 text-center">
+                            <input type="checkbox" class="active-listing-check"
+                                   data-row-index="{{ $row['row_index'] ?? $loop->index }}"
+                                   {{ empty($row['is_excluded']) ? 'checked' : '' }}>
+                        </td>
+                        <td class="py-2 pr-3 text-gray-800 text-xs max-w-[200px] truncate {{ !empty($row['is_excluded']) ? 'line-through' : '' }}">
+                            @if(!empty($row['url']))
+                                <a href="{{ $row['url'] }}" target="_blank" class="text-indigo-600 hover:underline" title="{{ $row['address'] ?? '' }}">{{ $row['address'] ?? '—' }}</a>
+                            @else
+                                {{ $row['address'] ?? '—' }}
+                            @endif
+                        </td>
                         <td class="py-2 pr-3 text-gray-600 text-xs">{{ $row['property_type'] ?? '—' }}</td>
+                        <td class="py-2 pr-3 text-center text-gray-600">{{ $row['beds'] ?? '—' }}</td>
+                        <td class="py-2 pr-3 text-center text-gray-600">{{ $row['baths'] ?? '—' }}</td>
                         <td class="py-2 pr-3 text-right text-gray-600">{{ $row['extent_m2'] ? number_format($row['extent_m2']) : '—' }}</td>
                         <td class="py-2 pr-3 text-gray-600">{{ $row['list_date'] ?? '—' }}</td>
                         <td class="py-2 pr-3 text-right font-medium text-gray-800">
@@ -389,14 +457,21 @@
                     @endforeach
                 </tbody>
                 <tfoot>
-                    <tr class="border-t-2 border-gray-200 font-semibold text-xs">
-                        <td class="pt-2 text-gray-500" colspan="4">
-                            {{ $active['count'] }} active {{ $active['count'] === 1 ? 'listing' : 'listings' }}
+                    <tr class="border-t-2 border-gray-200 font-semibold text-xs" id="active-summary">
+                        <td class="pt-2" colspan="2"></td>
+                        <td class="pt-2 text-gray-500" colspan="5">
+                            <span id="active-count">{{ $active['count'] }}</span> active
+                            {{ $active['count'] === 1 ? 'listing' : 'listings' }}
+                            @if(($active['total_count'] ?? $active['count']) > $active['count'])
+                                <span class="text-gray-400">({{ ($active['total_count'] ?? $active['count']) - $active['count'] }} excluded)</span>
+                            @endif
                         </td>
                         <td class="pt-2 pr-3 text-right text-gray-800">
+                            <span id="active-avg-price">
                             @if($active['avg_asking_price'])
                                 R {{ number_format($active['avg_asking_price']) }}
                             @endif
+                            </span>
                         </td>
                         <td></td>
                     </tr>
@@ -456,7 +531,7 @@
     @endif
 
     {{-- ── 7. KEY INSIGHTS ──────────────────────────────────────────────── --}}
-    <div class="bg-white rounded-xl shadow p-6 mb-4">
+    <div class="bg-white rounded-xl shadow p-6 mb-4" id="key-insights-container">
         <h3 class="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">7. Key Insights</h3>
 
         @if(!$insights['asking_price_set'])
@@ -472,7 +547,7 @@
                 </p>
             </div>
         @else
-            <div class="space-y-3">
+            <div class="space-y-3" id="key-insights-list">
                 @foreach($insights['comparisons'] as $comp)
                     @php
                         $statusColors = match($comp['status']) {
@@ -486,14 +561,18 @@
                             default   => 'text-emerald-600',
                         };
                     @endphp
-                    <div class="flex items-center justify-between p-4 rounded-lg border {{ $statusColors }}">
+                    <div class="insight-card flex items-center justify-between p-4 rounded-lg border {{ $statusColors }}"
+                         data-label="{{ $comp['label'] }}"
+                         data-benchmark="{{ $comp['benchmark'] }}"
+                         data-asking="{{ $comp['asking'] }}"
+                         data-pct="{{ $comp['pct_difference'] }}">
                         <div>
-                            <p class="text-xs font-medium opacity-75">{{ $comp['label'] }}</p>
-                            <p class="text-sm mt-1">
+                            <p class="insight-label text-xs font-medium opacity-75">{{ $comp['label'] }}</p>
+                            <p class="insight-values text-sm mt-1">
                                 R {{ number_format($comp['asking']) }} vs R {{ number_format($comp['benchmark']) }}
                             </p>
                         </div>
-                        <p class="text-xl font-bold {{ $pctColors }}">
+                        <p class="insight-pct text-xl font-bold {{ $pctColors }}">
                             @if($comp['pct_difference'] > 0)+@endif{{ $comp['pct_difference'] }}%
                         </p>
                     </div>

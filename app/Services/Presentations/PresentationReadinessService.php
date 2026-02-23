@@ -2,6 +2,7 @@
 
 namespace App\Services\Presentations;
 
+use App\Models\PortalCapture;
 use App\Models\Presentation;
 use App\Models\PresentationUrlSnapshot;
 
@@ -51,21 +52,27 @@ class PresentationReadinessService
             'satisfied' => $hasSuburbUpload || $hasSuburbSnapshot,
         ];
 
-        // 3. Vicinity sales: upload with type vicinity_sales OR sold comps in DB
-        $hasVicinityUpload = $presentation->uploads->where('type', 'vicinity_sales')->count() >= 1;
+        // 3. Vicinity sales: upload with type vicinity_sales/cma OR sold comps in DB
+        $hasVicinityUpload = $presentation->uploads->whereIn('type', ['vicinity_sales', 'cma'])->count() >= 1;
+        $hasExtractedVicinityUpload = $presentation->uploads->whereIn('type', ['vicinity_sales', 'cma'])
+            ->where('extraction_status', 'ok')->count() >= 1;
         $required['vicinity_sales'] = [
             'key'       => 'vicinity_sales',
             'label'     => 'Vicinity sales evidence',
-            'satisfied' => $hasVicinityUpload || $presentation->soldComps->count() >= self::SOLD_COMPS_THRESHOLD,
+            'satisfied' => $hasVicinityUpload || $hasExtractedVicinityUpload
+                || $presentation->soldComps->count() >= self::SOLD_COMPS_THRESHOLD,
         ];
 
-        // 4. Competitive stock: link tagged active_listing/competitor_listing OR active listings in DB OR listing URL snapshot
+        // 4. Competitive stock: link tagged active_listing/competitor_listing OR active listings in DB OR listing URL snapshot OR parsed portal captures
         $hasCompetitiveLink = $presentation->links->whereIn('type', ['active_listing', 'competitor_listing'])->count() >= 1;
         $hasListingSnapshot = $urlSnapshots->whereIn('source_type', self::LISTING_SOURCE_TYPES)->count() >= 1;
+        $hasPortalCaptures = PortalCapture::where('presentation_id', $presentation->id)
+            ->where('parse_status', 'parsed')->exists();
         $required['competitive_stock'] = [
             'key'       => 'competitive_stock',
             'label'     => 'Competitive stock (listing link or active listings)',
-            'satisfied' => $hasCompetitiveLink || $presentation->activeListings->count() >= self::ACTIVE_LISTINGS_THRESHOLD || $hasListingSnapshot,
+            'satisfied' => $hasCompetitiveLink || $presentation->activeListings->count() >= self::ACTIVE_LISTINGS_THRESHOLD
+                || $hasListingSnapshot || $hasPortalCaptures,
         ];
 
         // ── Optional items ────────────────────────────────────────────────────

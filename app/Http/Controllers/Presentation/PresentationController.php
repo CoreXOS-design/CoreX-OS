@@ -26,6 +26,7 @@ use App\Services\Presentations\PresentationCompilerService;
 use App\Services\Presentations\PresentationNarrativeService;
 use App\Services\Presentations\PresentationReadinessService;
 use App\Services\Presentations\AnalysisDataService;
+use App\Services\Presentations\PricingSimulatorService;
 use App\Services\Presentations\RecommendationService;
 use App\Services\Presentations\PriceBandService;
 use App\Services\Presentations\TrajectorySimulationService;
@@ -79,9 +80,13 @@ class PresentationController extends Controller
             'title'            => ['required', 'string', 'max:255'],
             'property_address' => ['required', 'string', 'max:500'],
             'suburb'           => ['required', 'string', 'max:100'],
-            'property_type'    => ['required', 'string', 'in:house,unit,land,other'],
-            'bedrooms'         => ['nullable', 'integer', 'min:0', 'max:20'],
+            'property_type'    => ['required', 'string', 'in:house,townhouse,apartment,duplex,vacant_land,farm,other'],
+            'bedrooms'         => ['required', 'integer', 'min:0', 'max:20'],
+            'bathrooms'        => ['nullable', 'integer', 'min:0', 'max:20'],
+            'asking_price_inc' => ['required', 'integer', 'min:0'],
+            'erf_size_m2'      => ['nullable', 'integer', 'min:0'],
             'floor_area_m2'    => ['nullable', 'integer', 'min:0'],
+            'garages_parking'  => ['nullable', 'integer', 'min:0', 'max:10'],
             'seller_name'      => ['nullable', 'string', 'max:255'],
         ];
 
@@ -100,8 +105,12 @@ class PresentationController extends Controller
             'property_address'   => $validated['property_address'],
             'suburb'             => $validated['suburb'],
             'property_type'      => $validated['property_type'],
-            'bedrooms'           => $validated['bedrooms'] ?? null,
+            'bedrooms'           => $validated['bedrooms'],
+            'bathrooms'          => $validated['bathrooms'] ?? null,
+            'asking_price_inc'   => $validated['asking_price_inc'],
+            'erf_size_m2'        => $validated['erf_size_m2'] ?? null,
             'floor_area_m2'      => $validated['floor_area_m2'] ?? null,
+            'garages_parking'    => $validated['garages_parking'] ?? null,
             'seller_name'        => $validated['seller_name'] ?? null,
             'branch_id'          => $branchId,
             'created_by_user_id' => auth()->id(),
@@ -188,8 +197,11 @@ class PresentationController extends Controller
         // AnalysisDataService reads asking_price directly from the presentation record
         $analysisData = (new AnalysisDataService())->compile($presentation);
 
+        $latestVersion = $presentation->versions()->latest('compiled_at')->first();
+        $readiness     = (new PresentationReadinessService())->evaluate($presentation);
+
         return view('presentations.analysis', compact(
-            'presentation', 'analysisData', 'latestSnapshot'
+            'presentation', 'analysisData', 'latestSnapshot', 'latestVersion', 'readiness'
         ));
     }
 
@@ -202,9 +214,10 @@ class PresentationController extends Controller
             'asking_price_inc' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        // Save asking price to the presentation record
+        // Save asking price + reset exclusions (row indices may shift on re-run)
         $presentation->update([
-            'asking_price_inc' => $validated['asking_price_inc'] ?? null,
+            'asking_price_inc'              => $validated['asking_price_inc'] ?? null,
+            'excluded_active_listing_indices' => null,
         ]);
         $presentation->refresh();
 
@@ -223,6 +236,36 @@ class PresentationController extends Controller
 
         return redirect()->route('presentations.analysis', $presentation)
             ->with('success', 'Analysis complete — snapshot saved.');
+    }
+
+    /**
+     * AJAX: save analysis selection changes (CMA range, vicinity range, excluded listings).
+     */
+    public function updateAnalysisSelections(Request $request, Presentation $presentation)
+    {
+        $validated = $request->validate([
+            'cma_selected_range'             => ['sometimes', 'string', 'in:lower,middle,upper'],
+            'vicinity_selected_range'        => ['sometimes', 'string', 'in:lower,middle,upper'],
+            'excluded_active_listing_indices' => ['sometimes', 'nullable', 'array'],
+            'excluded_active_listing_indices.*' => ['integer', 'min:0'],
+        ]);
+
+        $updates = [];
+        if ($request->has('cma_selected_range')) {
+            $updates['cma_selected_range'] = $validated['cma_selected_range'];
+        }
+        if ($request->has('vicinity_selected_range')) {
+            $updates['vicinity_selected_range'] = $validated['vicinity_selected_range'];
+        }
+        if ($request->has('excluded_active_listing_indices')) {
+            $updates['excluded_active_listing_indices'] = $validated['excluded_active_listing_indices'];
+        }
+
+        if (!empty($updates)) {
+            $presentation->update($updates);
+        }
+
+        return response()->json(['success' => true]);
     }
 
     /**
@@ -258,8 +301,12 @@ class PresentationController extends Controller
             'suburb'             => $validated['suburb'] ?? null,
         ]);
 
-        // Run deterministic extraction on the new link
-        (new LinkExtractionService())->run($link);
+        // Attempt extraction — non-blocking. Link stays 'pending' if fetch fails.
+        try {
+            (new LinkExtractionService())->run($link);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Link extraction failed for link #' . $link->id . ': ' . $e->getMessage());
+        }
 
         // Prefill presentation fields from link metadata — only if fields are currently empty.
         // Never overwrites existing values. Only applies to property24 links.
@@ -381,17 +428,19 @@ class PresentationController extends Controller
     public function upload(Request $request, Presentation $presentation)
     {
         $request->validate([
-            'doc_type'    => ['required', 'string', 'in:suburb_stats,vicinity_sales,cma,market_article,other'],
+            'doc_type'    => ['required', 'string', 'in:auto,suburb_stats,vicinity_sales,cma,market_article,other'],
             'documents'   => ['required', 'array', 'min:1'],
             'documents.*' => ['file', 'max:20480'], // 20 MB each
         ]);
 
         $docType   = $request->input('doc_type');
+        // 'auto' means let the system detect — pass null to UploadProcessor
+        $effectiveDocType = $docType === 'auto' ? null : $docType;
         $processor = new UploadProcessor(new \App\Domain\Presentation\TextExtractionService());
         $count     = 0;
 
         foreach ($request->file('documents') as $file) {
-            $upload = $processor->process($file, $presentation, auth()->id(), $docType);
+            $upload = $processor->process($file, $presentation, auth()->id(), $effectiveDocType);
             (new UploadExtractionService())->run($upload);
             $count++;
         }
@@ -417,6 +466,33 @@ class PresentationController extends Controller
 
         return redirect()->route('presentations.show', $presentation)
             ->with('success', 'Document type updated.');
+    }
+
+    /**
+     * Delete an uploaded document and all related extracted data.
+     * Removes: presentation_fields, presentation_sold_comps, presentation_active_listings
+     * that originated from this upload (via source_upload_id).
+     */
+    public function destroyUpload(Presentation $presentation, PresentationUpload $upload)
+    {
+        abort_if($upload->presentation_id !== $presentation->id, 403);
+
+        $filename = $upload->original_filename ?? 'document';
+
+        // Delete related extracted data
+        \App\Models\PresentationField::where('source_upload_id', $upload->id)->delete();
+        \App\Models\PresentationSoldComp::where('source_upload_id', $upload->id)->delete();
+        \App\Models\PresentationActiveListing::where('source_upload_id', $upload->id)->delete();
+
+        // Delete the stored file
+        if ($upload->storage_path) {
+            \Illuminate\Support\Facades\Storage::disk('local')->delete($upload->storage_path);
+        }
+
+        $upload->delete();
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', "Deleted \"{$filename}\" and related extracted data.");
     }
 
     /**
@@ -1002,28 +1078,11 @@ class PresentationController extends Controller
     }
 
     /**
-     * Live "Brain" simulation screen (UI2).
-     * Gated by features.presentation_brain_ui_v1.
-     * Read-only — all mutations happen via the fetch()-called endpoints.
+     * Legacy Brain route → redirect to Pricing Simulator.
      */
     public function brain(Presentation $presentation)
     {
-        abort_unless(config('features.presentation_brain_ui_v1'), 404);
-
-        $latestSnapshot = $presentation->snapshots()->latest()->first();
-        $lastInputs     = $latestSnapshot ? $latestSnapshot->getInputsArray() : [];
-
-        // Pre-populate defaults from snapshot or presentation fields
-        $defaults = [
-            'suburb'        => $lastInputs['suburb']        ?? $presentation->suburb ?? '',
-            'type'          => $lastInputs['type']          ?? $presentation->property_type ?? 'house',
-            'price'         => $lastInputs['price']         ?? null,
-            'size_m2'       => $lastInputs['size_m2']       ?? $presentation->floor_area_m2 ?? null,
-            'bedrooms'      => $lastInputs['bedrooms']      ?? $presentation->bedrooms ?? null,
-            'period_months' => $lastInputs['period_months'] ?? 12,
-        ];
-
-        return view('presentations.brain', compact('presentation', 'defaults'));
+        return redirect()->route('presentations.pricing-simulator', $presentation);
     }
 
     /**
@@ -1140,5 +1199,139 @@ class PresentationController extends Controller
         );
 
         return response()->json($result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // PRICING SIMULATOR
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Pricing Simulator page — deterministic scenario comparison.
+     */
+    public function pricingSimulator(Presentation $presentation)
+    {
+        abort_unless(config('features.pricing_simulator_v1'), 404);
+
+        $analysisService  = new AnalysisDataService();
+        $simulatorService = new PricingSimulatorService();
+
+        $analysisData    = $analysisService->compile($presentation);
+        $defaultScenarios = $simulatorService->defaultScenarios($analysisData);
+
+        // Load saved config if exists
+        $savedConfig = $presentation->simulator_config_json;
+
+        // Use saved scenarios if available, otherwise compute fresh defaults
+        if ($savedConfig && !empty($savedConfig['scenarios'])) {
+            $scenarios = $savedConfig['scenarios'];
+            $config = $savedConfig['config'] ?? [
+                'commission_pct'      => 5.0,
+                'transfer_cost_pct'   => 4.0,
+                'monthly_holding_cost' => $analysisData['holding_cost']['monthly_total'] ?? 0,
+            ];
+            $narrative = $savedConfig['narrative'] ?? '';
+        } else {
+            $config = [
+                'commission_pct'      => 5.0,
+                'transfer_cost_pct'   => 4.0,
+                'monthly_holding_cost' => $analysisData['holding_cost']['monthly_total'] ?? 0,
+            ];
+            $scenarios = $simulatorService->compute($defaultScenarios, $config, $analysisData);
+            $narrative = $simulatorService->generateNarrative($scenarios, $config, $analysisData);
+        }
+
+        $includeInPdf = $savedConfig['include_in_pdf'] ?? false;
+
+        return view('presentations.pricing-simulator', compact(
+            'presentation', 'analysisData', 'scenarios', 'config',
+            'narrative', 'defaultScenarios', 'includeInPdf'
+        ));
+    }
+
+    /**
+     * Compute pricing simulator scenarios (AJAX).
+     */
+    public function computePricingSimulator(Request $request, Presentation $presentation)
+    {
+        abort_unless(config('features.pricing_simulator_v1'), 404);
+
+        $validated = $request->validate([
+            'commission_pct'       => ['required', 'numeric', 'min:0', 'max:15'],
+            'transfer_cost_pct'    => ['required', 'numeric', 'min:0', 'max:10'],
+            'monthly_holding_cost' => ['required', 'integer', 'min:0'],
+            'scenarios'            => ['required', 'array', 'min:1', 'max:8'],
+            'scenarios.*.label'    => ['required', 'string', 'max:50'],
+            'scenarios.*.price'    => ['required', 'integer', 'min:1'],
+        ]);
+
+        $analysisService  = new AnalysisDataService();
+        $simulatorService = new PricingSimulatorService();
+
+        $analysisData = $analysisService->compile($presentation);
+        $config = [
+            'commission_pct'      => $validated['commission_pct'],
+            'transfer_cost_pct'   => $validated['transfer_cost_pct'],
+            'monthly_holding_cost' => $validated['monthly_holding_cost'],
+        ];
+
+        $computed  = $simulatorService->compute($validated['scenarios'], $config, $analysisData);
+        $narrative = $simulatorService->generateNarrative($computed, $config, $analysisData);
+
+        return response()->json([
+            'scenarios' => $computed,
+            'narrative' => $narrative,
+        ]);
+    }
+
+    /**
+     * Save pricing simulator configuration + results (AJAX).
+     */
+    public function savePricingSimulator(Request $request, Presentation $presentation)
+    {
+        abort_unless(config('features.pricing_simulator_v1'), 404);
+
+        $validated = $request->validate([
+            'config'         => ['required', 'array'],
+            'scenarios'      => ['required', 'array'],
+            'narrative'      => ['required', 'string'],
+            'include_in_pdf' => ['required', 'boolean'],
+        ]);
+
+        $presentation->update([
+            'simulator_config_json' => [
+                'config'         => $validated['config'],
+                'scenarios'      => $validated['scenarios'],
+                'narrative'      => $validated['narrative'],
+                'include_in_pdf' => $validated['include_in_pdf'],
+                'computed_at'    => now()->toISOString(),
+            ],
+        ]);
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Standalone presenter view for pricing simulator.
+     */
+    public function pricingSimulatorPresent(Presentation $presentation)
+    {
+        abort_unless(config('features.pricing_simulator_v1'), 404);
+
+        $savedConfig = $presentation->simulator_config_json;
+        abort_unless($savedConfig && !empty($savedConfig['scenarios']), 404);
+
+        $agent = \App\Models\User::find($presentation->created_by_user_id);
+
+        // Compile stock absorption data for context display
+        $analysisData = (new AnalysisDataService())->compile($presentation);
+
+        return view('presentations.pricing-simulator-present', [
+            'presentation' => $presentation,
+            'config'       => $savedConfig['config'],
+            'scenarios'    => $savedConfig['scenarios'],
+            'narrative'    => $savedConfig['narrative'] ?? '',
+            'agentName'    => $agent->name ?? 'Agent',
+            'stock'        => $analysisData['stock_absorption'] ?? [],
+        ]);
     }
 }

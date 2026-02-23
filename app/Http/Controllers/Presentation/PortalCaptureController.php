@@ -99,6 +99,15 @@ class PortalCaptureController extends Controller
                     $extractionResult['_page_type'] = 'search';
                     $extractionResult['listing_urls_count'] = $extractionResult['search']['items_on_page'] ?? 0;
 
+                    // Merge extension's total_result_count if server-side didn't find one
+                    $extFields = $validated['extracted_fields'] ?? [];
+                    $extTotalCount = isset($extFields['total_result_count']) ? (int) $extFields['total_result_count'] : null;
+                    $serverTotalCount = $extractionResult['search']['total_count'] ?? null;
+
+                    if ($serverTotalCount === null && $extTotalCount !== null && $extTotalCount > 0) {
+                        $extractionResult['search']['total_count'] = $extTotalCount;
+                    }
+
                     $capture->update([
                         'parse_status'          => 'parsed',
                         'extracted_fields_json' => $extractionResult,
@@ -370,23 +379,22 @@ class PortalCaptureController extends Controller
      */
     public function index(Presentation $presentation)
     {
+        $selectCols = [
+            'id', 'source_site', 'page_type', 'source_url', 'page_title',
+            'captured_at', 'extractor_version', 'html_bytes', 'dom_hash_sha256',
+            'parse_status', 'extracted_fields_json', 'screenshot_path',
+            'found_image_urls_json',
+        ];
+
         $attached = PortalCapture::where('presentation_id', $presentation->id)
             ->orderByDesc('captured_at')
-            ->get([
-                'id', 'source_site', 'page_type', 'source_url', 'page_title',
-                'captured_at', 'extractor_version', 'html_bytes', 'dom_hash_sha256',
-                'parse_status', 'extracted_fields_json', 'screenshot_path',
-            ]);
+            ->get($selectCols);
 
         $unattached = PortalCapture::where('user_id', auth()->id())
             ->whereNull('presentation_id')
             ->orderByDesc('captured_at')
             ->limit(20)
-            ->get([
-                'id', 'source_site', 'page_type', 'source_url', 'page_title',
-                'captured_at', 'extractor_version', 'html_bytes', 'dom_hash_sha256',
-                'parse_status', 'extracted_fields_json', 'screenshot_path',
-            ]);
+            ->get($selectCols);
 
         return response()->json([
             'attached'   => $attached,
@@ -405,6 +413,101 @@ class PortalCaptureController extends Controller
         $this->linkCaptureToLink($capture);
 
         return response()->json(['success' => true, 'capture_id' => $capture->id]);
+    }
+
+    /**
+     * DELETE /presentations/{presentation}/portal-captures/{capture}
+     * Removes a portal capture and cleans up stored files.
+     */
+    public function destroy(Presentation $presentation, PortalCapture $capture)
+    {
+        // Ensure capture belongs to this presentation
+        if ($capture->presentation_id !== $presentation->id) {
+            return response()->json(['success' => false, 'error' => 'Capture does not belong to this presentation'], 403);
+        }
+
+        // Unlink from any presentation_links that reference this capture
+        PresentationLink::where('portal_capture_id', $capture->id)->update([
+            'portal_capture_id' => null,
+            'extraction_status' => null,
+            'extracted_json'    => null,
+            'extracted_at'      => null,
+        ]);
+
+        // Delete stored HTML and screenshot files
+        if ($capture->raw_html_path && Storage::disk('local')->exists($capture->raw_html_path)) {
+            Storage::disk('local')->delete($capture->raw_html_path);
+        }
+        if ($capture->screenshot_path && Storage::disk('local')->exists($capture->screenshot_path)) {
+            Storage::disk('local')->delete($capture->screenshot_path);
+        }
+
+        Log::info('[PortalCapture:destroy] Capture deleted', [
+            'capture_id'      => $capture->id,
+            'presentation_id' => $presentation->id,
+            'page_type'       => $capture->page_type,
+        ]);
+
+        $capture->delete();
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * POST /presentations/{presentation}/portal-captures/reclassify
+     * Re-classify all captures for a presentation using server-side URL patterns.
+     * Fixes captures where the extension guessed wrong page_type.
+     */
+    public function reclassify(Presentation $presentation)
+    {
+        $captures = PortalCapture::where('presentation_id', $presentation->id)->get();
+        $changed = 0;
+        $reExtracted = 0;
+
+        foreach ($captures as $capture) {
+            $newType = $this->classifyPageType($capture);
+            $oldType = $capture->page_type;
+
+            if ($newType !== $oldType) {
+                $capture->update(['page_type' => $newType]);
+                $changed++;
+
+                // If reclassified to 'property', re-extract as listing
+                if ($newType === 'property' && $this->isProperty24Capture($capture)) {
+                    try {
+                        $listingFields = $this->extractProperty24ListingFields($capture);
+                        if ($listingFields !== null) {
+                            $capture->update([
+                                'parse_status'          => 'parsed',
+                                'extracted_fields_json' => $listingFields,
+                            ]);
+                            $reExtracted++;
+
+                            // Re-link to presentation link if applicable
+                            $this->linkCaptureToLink($capture);
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('Reclassify re-extraction failed', [
+                            'capture_id' => $capture->id,
+                            'error'      => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                Log::info('[PortalCapture:reclassify] Changed page_type', [
+                    'capture_id' => $capture->id,
+                    'old_type'   => $oldType,
+                    'new_type'   => $newType,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'success'      => true,
+            'total'        => $captures->count(),
+            'changed'      => $changed,
+            're_extracted' => $reExtracted,
+        ]);
     }
 
     /**
@@ -622,7 +725,8 @@ class PortalCaptureController extends Controller
     /**
      * Determine if a URL is a Property24 individual listing page.
      * Listing URLs: /for-sale/.../12345678 (5-12 digit ID at end of path)
-     * Must NOT have search query params like plId, plt, plsIds.
+     * Tracking params (plId, plt, plsIds) are ignored — they indicate referral
+     * from search results but the page is still a listing detail page.
      */
     private function isProperty24ListingUrl(string $url): bool
     {
@@ -633,20 +737,15 @@ class PortalCaptureController extends Controller
         }
 
         $path = $parsed['path'] ?? '';
-        $query = $parsed['query'] ?? '';
 
         // Must have a listing ID in the path (5-12 digit numeric segment at end)
         if (!preg_match('#/(\d{5,12})(?:/|$)#', $path)) {
             return false;
         }
 
-        // Must NOT have search-specific query params
-        $searchParams = ['plid', 'plt', 'plsids', 'sp'];
-        $queryLower = strtolower($query);
-        foreach ($searchParams as $param) {
-            if (str_contains($queryLower, $param . '=')) {
-                return false;
-            }
+        // Exclude advanced-search result pages which never have listing IDs
+        if (str_contains(strtolower($path), '/advanced-search/')) {
+            return false;
         }
 
         return true;

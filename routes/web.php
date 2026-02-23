@@ -464,6 +464,8 @@ Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->gr
     Route::get('/{presentation}',              [\App\Http\Controllers\Presentation\PresentationController::class, 'show'])     ->name('show');
     Route::get('/{presentation}/analysis',     [\App\Http\Controllers\Presentation\PresentationController::class, 'analysis']) ->name('analysis');
     Route::post('/{presentation}/analysis/run',[\App\Http\Controllers\Presentation\PresentationController::class, 'runAnalysis'])  ->name('analysis.run');
+    Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])
+        ->name('analysis-selections.update');
 
     Route::post('/{presentation}/upload', [\App\Http\Controllers\Presentation\PresentationController::class, 'upload'])
         ->name('upload');
@@ -475,6 +477,8 @@ Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->gr
         ->name('uploads.override.clear');
     Route::post('/{presentation}/uploads/{upload}/re-extract', [\App\Http\Controllers\Presentation\PresentationController::class, 'reExtractUpload'])
         ->name('uploads.re-extract');
+    Route::delete('/{presentation}/uploads/{upload}', [\App\Http\Controllers\Presentation\PresentationController::class, 'destroyUpload'])
+        ->name('uploads.destroy');
 
     Route::post('/{presentation}/links', [\App\Http\Controllers\Presentation\PresentationController::class, 'storeLink'])
         ->name('links.store');
@@ -521,19 +525,35 @@ Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->gr
     Route::post('/{presentation}/competitive-threats', [\App\Http\Controllers\Presentation\PresentationController::class, 'competitiveThreats'])
         ->name('competitive-threats');
 
-    // Live Brain simulation screen (UI2)
+    // Pricing Simulator (replaces Brain Simulation)
+    Route::get('/{presentation}/pricing-simulator', [\App\Http\Controllers\Presentation\PresentationController::class, 'pricingSimulator'])
+        ->name('pricing-simulator');
+    Route::post('/{presentation}/pricing-simulator/compute', [\App\Http\Controllers\Presentation\PresentationController::class, 'computePricingSimulator'])
+        ->name('pricing-simulator.compute');
+    Route::post('/{presentation}/pricing-simulator/save', [\App\Http\Controllers\Presentation\PresentationController::class, 'savePricingSimulator'])
+        ->name('pricing-simulator.save');
+    Route::get('/{presentation}/pricing-simulator/present', [\App\Http\Controllers\Presentation\PresentationController::class, 'pricingSimulatorPresent'])
+        ->name('pricing-simulator.present');
+
+    // Legacy Brain route → redirect to Pricing Simulator
     Route::get('/{presentation}/brain', [\App\Http\Controllers\Presentation\PresentationController::class, 'brain'])
         ->name('brain');
 
     // PDF pack download (P18) — feature-flagged via config('features.presentation_pdf_v1')
     Route::get('/{presentation}/versions/{version}/pdf', [\App\Http\Controllers\Presentation\PresentationPdfController::class, 'download'])
         ->name('versions.pdf');
+    Route::get('/{presentation}/versions/{version}/complete-pack', [\App\Http\Controllers\Presentation\PresentationPdfController::class, 'downloadCompletePack'])
+        ->name('versions.complete-pack');
 
     // Portal captures (extension-based ingestion)
     Route::get('/{presentation}/portal-captures', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'index'])
         ->name('portal-captures.index');
+    Route::post('/{presentation}/portal-captures/reclassify', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'reclassify'])
+        ->name('portal-captures.reclassify');
     Route::post('/{presentation}/portal-captures/{capture}/attach', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'attach'])
         ->name('portal-captures.attach');
+    Route::delete('/{presentation}/portal-captures/{capture}', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'destroy'])
+        ->name('portal-captures.destroy');
 
     // Live snapshot polling (B1 — zero-refresh updates)
     Route::get('/{presentation}/live-snapshot', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'liveSnapshot'])
@@ -553,5 +573,6 @@ Route::middleware(['auth'])->prefix('documents')->name('documents.')->group(func
 });
 
 // Portal capture ingest endpoint (outside presentation prefix — extension posts here)
-Route::middleware(['auth'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
+// Uses auth.portal_capture: session auth OR bearer token (for Chrome extension)
+Route::middleware(['auth.portal_capture'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
     ->name('portal-captures.ingest');
