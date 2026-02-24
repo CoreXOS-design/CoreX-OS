@@ -43,7 +43,7 @@ class NamedFieldController extends Controller
             'name' => $request->input('name'),
             'field_type' => $request->input('field_type'),
             'default_options' => $options,
-            'sort_order' => $request->input('sort_order', 0),
+            'sort_order' => $request->input('sort_order') ?? ((int) NamedField::max('sort_order') + 10),
         ]);
 
         return redirect()->route('docuperfect.settings.namedFields')
