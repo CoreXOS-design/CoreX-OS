@@ -69,6 +69,7 @@
 
         {{-- STATUS TILES --}}
         <div class="space-y-3">
+            <h2 class="ds-section-header">Deal Status</h2>
             {{-- Set 1: Period (counts) --}}
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
 
@@ -138,6 +139,7 @@
 
             </div>
 
+            <h2 class="ds-section-header">Outstanding Commission</h2>
             {{-- Set 2: Outstanding (Not Paid) — Company ex VAT --}}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <a href="/admin/deals?status=Pending&commission_status=Not%20Paid" class="block">
@@ -194,31 +196,33 @@
                 <a href="{{ route('admin.listings.stock') }}" class="ds-link text-sm hover:underline">View all</a>
             </div>
 
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <a href="{{ route('admin.listings.stock', ['filter' => 'active']) }}" class="ds-status-card hover:shadow-md transition block">
-                    <div class="ds-label">Active</div>
-                    <div class="ds-value-lg mt-1">{{ (int)($listingStats['total'] ?? 0) }}</div>
-                </a>
+            <div class="ds-status-card">
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <a href="{{ route('admin.listings.stock', ['filter' => 'active']) }}" class="ds-status-card hover:shadow-md transition block">
+                        <div class="ds-label">Active</div>
+                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['total'] ?? 0) }}</div>
+                    </a>
 
-                <a href="{{ route('admin.listings.stock', ['filter' => 'dom']) }}" class="ds-status-card hover:shadow-md transition block">
-                    <div class="ds-label">Avg DOM</div>
-                    <div class="ds-value-lg mt-1">{{ (int)($listingStats['avg_days_on_market'] ?? 0) }}</div>
-                </a>
+                    <a href="{{ route('admin.listings.stock', ['filter' => 'dom']) }}" class="ds-status-card hover:shadow-md transition block">
+                        <div class="ds-label">Avg DOM</div>
+                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['avg_days_on_market'] ?? 0) }}</div>
+                    </a>
 
-                <a href="{{ route('admin.listings.stock', ['filter' => 'stale']) }}" class="ds-status-card hover:shadow-md transition block">
-                    <div class="ds-label">Stale</div>
-                    <div class="ds-value-lg mt-1">{{ (int)($listingStats['stale'] ?? 0) }}</div>
-                </a>
+                    <a href="{{ route('admin.listings.stock', ['filter' => 'stale']) }}" class="ds-status-card hover:shadow-md transition block">
+                        <div class="ds-label">Stale</div>
+                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['stale'] ?? 0) }}</div>
+                    </a>
 
-                <a href="{{ route('admin.listings.stock', ['filter' => 'expiring']) }}" class="ds-status-card hover:shadow-md transition block">
-                    <div class="ds-label">Expiring</div>
-                    <div class="ds-value-lg mt-1">{{ (int)($listingStats['expiring_soon'] ?? 0) }}</div>
-                </a>
+                    <a href="{{ route('admin.listings.stock', ['filter' => 'expiring']) }}" class="ds-status-card hover:shadow-md transition block">
+                        <div class="ds-label">Expiring</div>
+                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['expiring_soon'] ?? 0) }}</div>
+                    </a>
 
-                <a href="{{ route('admin.listings.stock', ['filter' => 'expired']) }}" class="ds-status-card hover:shadow-md transition block">
-                    <div class="ds-label">Expired</div>
-                    <div class="ds-value-lg mt-1">{{ (int)($listingStats['expired'] ?? 0) }}</div>
-                </a>
+                    <a href="{{ route('admin.listings.stock', ['filter' => 'expired']) }}" class="ds-status-card hover:shadow-md transition block">
+                        <div class="ds-label">Expired</div>
+                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['expired'] ?? 0) }}</div>
+                    </a>
+                </div>
             </div>
         </div>
 
@@ -231,7 +235,7 @@
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="card">
+                <div class="ds-status-card">
                     <div class="ds-label mb-1">Company Value (Actual / Agent-Sum Target)</div>
                     <div class="ds-value-xl">
                         R {{ number_format($companyValueActual, 0) }}
@@ -243,7 +247,7 @@
                     <div class="mt-2 text-sm ds-value">Progress {{ number_format($valuePct, 1) }}%</div>
                 </div>
 
-                <div class="card">
+                <div class="ds-status-card">
                     <div class="ds-label mb-1">Company Deals (Actual / Agent-Sum Target)</div>
                     <div class="ds-value-xl">
                         {{ (int)$companyDealsActual }}
@@ -284,7 +288,7 @@
                     @endphp
 
                     <a href="{{ route('admin.branch.performance', ['branchId' => $bid, 'period' => ($r['period'] ?? now()->format('Y-m'))]) }}"
-                       class="card block hover:shadow-lg transition">
+                       class="ds-status-card block hover:shadow-lg transition">
                         <div class="ds-label">BRANCH</div>
                         <div class="text-lg font-bold" style="color:#0b2a4a">{{ $bName }}</div>
 
@@ -317,7 +321,7 @@
             <div class="ds-section-header">Agents — Targets vs Actuals</div>
             <div class="ds-section-sub mb-4">This is the management view: who is on pace, who is behind, and where to intervene.</div>
 
-            <div class="card overflow-hidden" style="padding:0">
+            <div class="ds-status-card overflow-hidden" style="padding:0">
                 <div class="overflow-x-auto">
                     <table class="ds-table min-w-full text-sm">
                         <thead>
@@ -425,7 +429,7 @@
         <div class="space-y-3">
             <h3 class="ds-section-header">TV Access Codes</h3>
 
-            <div class="card p-5">
+            <div class="ds-status-card p-5">
                 @if(isset($tvCodes) && $tvCodes->count())
                     <div class="overflow-x-auto">
                         <table class="ds-table w-full text-sm">

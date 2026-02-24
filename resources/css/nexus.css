@@ -637,7 +637,7 @@
     border: 1px solid var(--ds-border);
     border-radius: 12px;
     padding: 1rem;
-    border-left: 4px solid var(--ds-border);
+    border-left: 4px solid var(--nexus-cyan, #00b4d8);
     box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     transition: box-shadow 150ms ease;
 }

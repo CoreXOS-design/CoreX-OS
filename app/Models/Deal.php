@@ -267,9 +267,9 @@ public function listingPool()
 
             // Status logic per DEAL (counts must be DISTINCT deal_id per branch)
             $isDeclined   = ($deal->accepted_status === 'D');
-            $isRegistered = !empty($deal->registration_date);
-            $isGranted    = !$isRegistered && !empty($deal->granted_at) && !$isDeclined;
-            $isPending    = !$isRegistered && empty($deal->granted_at) && !$isDeclined;
+            $isRegistered = !empty($deal->registration_date) || $deal->accepted_status === 'R';
+            $isGranted    = !$isRegistered && (!empty($deal->granted_at) || $deal->accepted_status === 'G') && !$isDeclined;
+            $isPending    = !$isRegistered && !$isGranted && !$isDeclined;
 
             $isPaid = (string)($deal->commission_status ?? '') === 'Paid';
 
@@ -392,11 +392,15 @@ public function listingPool()
                 $qq->orWhereNotNull('registration_date');
             }
 
-            // Granted (not declined)
+            // Granted (not declined) — honour both granted_at date and accepted_status = 'G'
             if ($incGranted) {
                 $qq->orWhere(function ($g) {
                     $g->whereNull('registration_date')
-                      ->whereNotNull('granted_at')
+                      ->where('accepted_status', '!=', 'R')
+                      ->where(function ($gInner) {
+                          $gInner->whereNotNull('granted_at')
+                                 ->orWhere('accepted_status', 'G');
+                      })
                       ->where(function ($s) {
                           $s->whereNull('accepted_status')
                             ->orWhere('accepted_status', '!=', 'D');
@@ -404,15 +408,15 @@ public function listingPool()
                 });
             }
 
-            // Pending (not declined)
+            // Pending (not declined, not granted, not registered)
             if ($incPending) {
                 $qq->orWhere(function ($p) {
                     $p->whereNull('registration_date')
-                      ->whereNull('granted_at')
                       ->where(function ($s) {
                           $s->whereNull('accepted_status')
-                            ->orWhere('accepted_status', '!=', 'D');
-                      });
+                            ->orWhereNotIn('accepted_status', ['D', 'G', 'R']);
+                      })
+                      ->whereNull('granted_at');
                 });
             }
         });
@@ -498,9 +502,9 @@ public function listingPool()
             }
 
             $isDeclined   = ($deal->accepted_status === 'D');
-            $isRegistered = !empty($deal->registration_date);
-            $isGranted    = !$isRegistered && !empty($deal->granted_at) && !$isDeclined;
-            $isPending    = !$isRegistered && empty($deal->granted_at) && !$isDeclined;
+            $isRegistered = !empty($deal->registration_date) || $deal->accepted_status === 'R';
+            $isGranted    = !$isRegistered && (!empty($deal->granted_at) || $deal->accepted_status === 'G') && !$isDeclined;
+            $isPending    = !$isRegistered && !$isGranted && !$isDeclined;
             $isPaid       = (string)($deal->commission_status ?? '') === 'Paid';
 
             if ($isDeclined) {

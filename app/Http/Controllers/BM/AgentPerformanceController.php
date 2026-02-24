@@ -36,8 +36,14 @@ class AgentPerformanceController extends Controller
 
         $deals = DB::table('deal_user')
             ->join('deals','deals.id','=','deal_user.deal_id')
+            ->leftJoin('deal_money_lines as dml', function ($join) {
+                $join->on('dml.deal_id', '=', 'deals.id')
+                     ->on('dml.user_id', '=', 'deal_user.user_id')
+                     ->on('dml.side', '=', 'deal_user.side');
+            })
             ->where('deal_user.user_id', (int)$userId)
             ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
+            ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
             ->orderBy('deals.deal_date','desc')
             ->select(
                 'deals.id as deal_id',
@@ -45,30 +51,32 @@ class AgentPerformanceController extends Controller
                 'deals.property_value','deals.total_commission',
                 'deals.listing_external','deals.listing_our_share_percent',
                 'deals.selling_external','deals.selling_our_share_percent',
-                'deal_user.side','deal_user.agent_split_percent','deal_user.agent_cut_percent'
+                'deal_user.side','deal_user.agent_split_percent','deal_user.agent_cut_percent',
+                'dml.pool_share_ex_vat as dml_company_income',
+                'dml.agent_gross_ex_vat as dml_agent_income',
+                'dml.company_gross_ex_vat as dml_company_retained'
             )
             ->get();
 
-        // Compute per-deal income columns for WOW table (ex VAT, split, retained)
+        // Per-deal income columns: settlement truth from deal_money_lines (primary), inline calc fallback
         $dealsComputed = $deals->map(function ($d) {
-            $sideIncomeExVat = (float) CommissionCalculator::companyIncomeExVatForSide($d, $d->side ?? null);
-            $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
-            $vatRate = $vatRatePercent / 100;
-            $grossIncVat = (float)($d->total_commission ?? 0);
-            $grossExVat = ($grossIncVat > 0) ? ($grossIncVat / (1 + $vatRate)) : 0.0;
+            if (!is_null($d->dml_company_income)) {
+                $d->company_income_ex_vat = round((float)$d->dml_company_income, 2);
+                $d->agent_income_ex_vat = round((float)$d->dml_agent_income, 2);
+                $d->company_retained_ex_vat = round((float)$d->dml_company_retained, 2);
+            } else {
+                $sideIncomeExVat = (float) CommissionCalculator::companyIncomeExVatForSide($d, $d->side ?? null);
+                $cut = (float)($d->agent_cut_percent ?? 0);
+                if ($cut < 0) $cut = 0;
+                if ($cut > 100) $cut = 100;
 
+                $agentIncome = round($sideIncomeExVat * ($cut / 100.0), 2);
+                $companyRetained = round($sideIncomeExVat - $agentIncome, 2);
 
-            $split = (float)($d->agent_split_percent ?? 0);
-            if ($split < 0) $split = 0;
-            if ($split > 100) $split = 100;
-
-            $agentIncome = round($sideIncomeExVat * ($split / 100.0), 2);
-            $companyRetained = round($sideIncomeExVat - $agentIncome, 2);
-
-            $d->company_income_ex_vat = round($sideIncomeExVat, 2);
-            $d->agent_income_ex_vat = $agentIncome;
-            $d->company_retained_ex_vat = $companyRetained;
-
+                $d->company_income_ex_vat = round($sideIncomeExVat, 2);
+                $d->agent_income_ex_vat = $agentIncome;
+                $d->company_retained_ex_vat = $companyRetained;
+            }
             return $d;
         });
 
@@ -96,10 +104,10 @@ class AgentPerformanceController extends Controller
                 'daily_rows' => (int)($agentRow['actuals']['daily_rows'] ?? 0),
                 'points' => (float)($agentRow['actuals']['points'] ?? 0),
 
-                // Money-first truth (ex VAT)
-                'company_income' => (float)($agentRow['actuals']['company_income'] ?? 0),
-                'agent_income' => (float)($agentRow['actuals']['agent_income'] ?? 0),
-                'company_retained' => (float)($agentRow['actuals']['company_retained'] ?? 0),
+                // Money-first truth (ex VAT) — from deal_money_lines settlement
+                'company_income' => round((float)$dealsComputed->sum('company_income_ex_vat'), 2),
+                'agent_income' => round((float)$dealsComputed->sum('agent_income_ex_vat'), 2),
+                'company_retained' => round((float)$dealsComputed->sum('company_retained_ex_vat'), 2),
             ],
             'progress' => [
                 'deals_pct' => (float)($agentRow['progress']['deals_pct'] ?? 0),

@@ -82,30 +82,30 @@
             Business truth (ex VAT) from Deal Register &rarr; side share/external flags &rarr; agent split.
         </div>
 
-        <div class="card">
+        <div class="ds-status-card">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
-                    <div class="ds-label">RETAINED</div>
+                    <div class="ds-label">COMPANY RETAINED</div>
                     <div class="text-sm text-gray-600 mt-1">Company retained (ex VAT)</div>
                     <div class="ds-value-xl mt-1">R {{ number_format($moneyCompanyRetained, 0) }}</div>
 
                     <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-700">
                         <div class="rounded-xl bg-white border border-black/10 p-2">
-                            <div class="ds-label">Income</div>
+                            <div class="ds-label">Side Pool</div>
                             <div class="font-extrabold">R {{ number_format($moneyCompanyIncome, 0) }}</div>
                         </div>
                         <div class="rounded-xl bg-white border border-black/10 p-2">
-                            <div class="ds-label">Agent share</div>
+                            <div class="ds-label">Agent Income</div>
                             <div class="font-extrabold">R {{ number_format($moneyAgentIncome, 0) }}</div>
                         </div>
                         <div class="rounded-xl bg-white border border-black/10 p-2">
-                            <div class="ds-label">Retained</div>
+                            <div class="ds-label">Company Retained</div>
                             <div class="font-extrabold">R {{ number_format($moneyCompanyRetained, 0) }}</div>
                         </div>
                     </div>
 
                     <div class="mt-3 text-xs text-gray-600">
-                        Deals table totals: Income <span class="font-bold">R {{ number_format($dealsCompanyIncome, 0) }}</span>,
+                        Deals table totals: Side Pool <span class="font-bold">R {{ number_format($dealsCompanyIncome, 0) }}</span>,
                         Agent <span class="font-bold">R {{ number_format($dealsAgentIncome, 0) }}</span>,
                         Retained <span class="font-bold">R {{ number_format($dealsRetained, 0) }}</span>
                     </div>
@@ -159,7 +159,7 @@
         <div class="ds-section-header">Activity focus — Momentum</div>
         <div class="ds-section-sub mb-4">Last 7 days points + today breakdown (agent scoped).</div>
 
-        <div class="card">
+        <div class="ds-status-card">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
                     <div class="ds-label">Momentum (last 7 days)</div>
@@ -214,7 +214,7 @@
         <div class="ds-section-header">Deals</div>
         <div class="ds-section-sub mb-4">Includes per-deal company income (ex VAT), agent share, retained.</div>
 
-        <div class="card">
+        <div class="ds-status-card">
             <div class="rounded-2xl border border-black/10 bg-gray-50 overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="ds-table min-w-full text-sm">
@@ -226,9 +226,9 @@
                                 <th class="px-4 py-3">Side</th>
                                 <th class="px-4 py-3 text-right">Value</th>
                                 <th class="px-4 py-3 text-right">Commission (inc VAT)</th>
-                                <th class="px-4 py-3 text-right">Company Income (ex VAT)</th>
+                                <th class="px-4 py-3 text-right">Side Pool (ex VAT)</th>
                                 <th class="px-4 py-3 text-right">Agent Income (ex VAT)</th>
-                                <th class="px-4 py-3 text-right">Retained (ex VAT)</th>
+                                <th class="px-4 py-3 text-right">Company Retained (ex VAT)</th>
                                 <th class="px-4 py-3 text-right">Split / Cut</th>
                             </tr>
                         </thead>

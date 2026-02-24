@@ -74,10 +74,13 @@ class FinanceComputeService
     }
 
     /**
-     * Compute deal.agent_income_ex_vat.by_agent.
+     * Compute deal.agent_income_ex_vat.by_agent (3-tier model).
      * Returns [user_id => agent_income_ex_vat] from deal_user pivot rows.
      * Requires $deal->agents relationship to be eager-loaded.
-     * No fallback split: if agent_split_percent is null/0, treat as 0.
+     *
+     * Tier 1: side_pool = commission × side_split × our_share (CommissionCalculator)
+     * Tier 2: allocation = side_pool × agent_split_percent (agent's share of the side)
+     * Tier 3: agent_income = allocation × agent_cut_percent (what agent keeps)
      */
     public static function dealAgentIncomeByAgentExVat(Deal $deal): array
     {
@@ -85,12 +88,20 @@ class FinanceComputeService
 
         foreach ($deal->agents as $agent) {
             $side  = $agent->pivot->side ?? null;
-            $split = (float) ($agent->pivot->agent_split_percent ?? 0);
-            if ($split < 0)   $split = 0.0;
-            if ($split > 100) $split = 100.0;
+
+            // Tier 2: agent's share of the side pool
+            $allocPct = (float) ($agent->pivot->agent_split_percent ?? 0);
+            if ($allocPct < 0)   $allocPct = 0.0;
+            if ($allocPct > 100) $allocPct = 100.0;
+
+            // Tier 3: agent/company split (pivot → user default → 0)
+            $cutPct = (float) ($agent->pivot->agent_cut_percent ?? $agent->agent_cut_percent ?? 0);
+            if ($cutPct < 0)   $cutPct = 0.0;
+            if ($cutPct > 100) $cutPct = 100.0;
 
             $sideIncome  = CommissionCalculator::companyIncomeExVatForSide($deal, $side);
-            $agentIncome = round($sideIncome * ($split / 100.0), 2);
+            $allocation  = round($sideIncome * ($allocPct / 100.0), 2);
+            $agentIncome = round($allocation * ($cutPct / 100.0), 2);
 
             $uid = (int) $agent->id;
             $byAgent[$uid] = ($byAgent[$uid] ?? 0.0) + $agentIncome;

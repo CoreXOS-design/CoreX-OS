@@ -90,6 +90,7 @@ class AgentPerformanceService
               ->fromSub($dealIdsSub, 'du')
               ->join('deals', 'deals.id', '=', 'du.deal_id')
               ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
+              ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'") // Exclude declined deals
               ->selectRaw('COUNT(*) as deals_count')
               ->selectRaw('COALESCE(SUM(deals.property_value),0) as sales_value')
               ->selectRaw('COALESCE(SUM(deals.total_commission),0) as total_commission')
@@ -101,12 +102,17 @@ class AgentPerformanceService
 
           $avgSalePriceActual = $actualDealsCount > 0 ? ($actualSalesValue / $actualDealsCount) : 0.0;
 
-          // Commission % (as written on deals): INCL VAT commission / selling price
-          $effectiveCommissionPercent = $actualSalesValue > 0 ? (($totalCommission / $actualSalesValue) * 100.0) : 0.0;
+          // Commission % ex VAT: strip VAT from commission before dividing by sale price
+          $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
+          $vatDiv = 1.0 + ($vatRatePercent / 100.0);
+          $commissionExVat = $vatDiv > 0 ? ($totalCommission / $vatDiv) : 0.0;
+          $effectiveCommissionPercent = $actualSalesValue > 0 ? (($commissionExVat / $actualSalesValue) * 100.0) : 0.0;
+
           // --- ALL-TIME Actuals from deals (same rules, no date filter) ---
           $qAll = DB::query()
               ->fromSub($dealIdsSub, 'du_all')
               ->join('deals', 'deals.id', '=', 'du_all.deal_id')
+              ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'") // Exclude declined deals
               ->selectRaw('COUNT(*) as deals_count')
               ->selectRaw('COALESCE(SUM(deals.property_value),0) as sales_value')
               ->selectRaw('COALESCE(SUM(deals.total_commission),0) as total_commission')
@@ -118,8 +124,9 @@ class AgentPerformanceService
 
           $avgSalePriceAll = $actualDealsCountAll > 0 ? ($actualSalesValueAll / $actualDealsCountAll) : 0.0;
 
-          // Commission % (as written on deals): INCL VAT commission / selling price
-          $effectiveCommissionPercentAll = $actualSalesValueAll > 0 ? (($totalCommissionAll / $actualSalesValueAll) * 100.0) : 0.0;
+          // Commission % ex VAT: strip VAT from commission before dividing by sale price
+          $commissionExVatAll = $vatDiv > 0 ? ($totalCommissionAll / $vatDiv) : 0.0;
+          $effectiveCommissionPercentAll = $actualSalesValueAll > 0 ? (($commissionExVatAll / $actualSalesValueAll) * 100.0) : 0.0;
 
         // --- Actuals from daily activities (V2) ---
         $period = $month->format('Y-m');

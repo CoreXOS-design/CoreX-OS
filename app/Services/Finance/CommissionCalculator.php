@@ -85,11 +85,15 @@ class CommissionCalculator
     }
 
     /**
-     * Per-agent company retained (ex VAT) from a deal.
+     * Per-agent company retained (ex VAT) from a deal (3-tier model).
      * Returns [user_id => retained_ex_vat].
-     * Retained = side_income - agent_income for each pivot row.
+     * Retained = allocation - agent_income for each pivot row.
      * Requires $deal->agents relationship to be eager-loaded.
      * Mirrors FinanceComputeService::dealAgentIncomeByAgentExVat() logic.
+     *
+     * Tier 2: allocation = side_pool × agent_split_percent
+     * Tier 3: agent_income = allocation × agent_cut_percent
+     *         retained = allocation - agent_income
      */
     public static function dealRetainedByAgentExVat(Deal $deal): array
     {
@@ -97,13 +101,21 @@ class CommissionCalculator
 
         foreach ($deal->agents as $agent) {
             $side  = $agent->pivot->side ?? null;
-            $split = (float) ($agent->pivot->agent_split_percent ?? 0);
-            if ($split < 0)   $split = 0.0;
-            if ($split > 100) $split = 100.0;
+
+            // Tier 2: agent's share of the side pool
+            $allocPct = (float) ($agent->pivot->agent_split_percent ?? 0);
+            if ($allocPct < 0)   $allocPct = 0.0;
+            if ($allocPct > 100) $allocPct = 100.0;
+
+            // Tier 3: agent/company split (pivot → user default → 0)
+            $cutPct = (float) ($agent->pivot->agent_cut_percent ?? $agent->agent_cut_percent ?? 0);
+            if ($cutPct < 0)   $cutPct = 0.0;
+            if ($cutPct > 100) $cutPct = 100.0;
 
             $sideIncome  = self::companyIncomeExVatForSide($deal, $side);
-            $agentIncome = round($sideIncome * ($split / 100.0), 2);
-            $retained    = round($sideIncome - $agentIncome, 2);
+            $allocation  = round($sideIncome * ($allocPct / 100.0), 2);
+            $agentIncome = round($allocation * ($cutPct / 100.0), 2);
+            $retained    = round($allocation - $agentIncome, 2);
 
             $uid = (int) $agent->id;
             $byAgent[$uid] = ($byAgent[$uid] ?? 0.0) + $retained;

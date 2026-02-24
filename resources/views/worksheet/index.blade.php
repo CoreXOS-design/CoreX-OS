@@ -1,26 +1,21 @@
 <x-app-layout>
 
-<div class="max-w-5xl mx-auto p-6">
-    <h1 class="text-2xl font-bold mb-2">Income → Sales → Stock (Worksheet)</h1>
+<x-slot name="header">
+    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+            <div>
+                <h2 class="text-xl font-bold text-white leading-tight">Worksheet &mdash; {{ $user->name }}</h2>
+                <div class="text-sm text-white/60">Income &rarr; Sales &rarr; Stock</div>
+            </div>
+            <div class="text-sm text-white/80 font-medium">{{ $w->period ?? now()->format('Y-m') }}</div>
+        </div>
+    </div>
+</x-slot>
 
-<div class="bg-white shadow rounded p-5 mb-6 border-l-4 {{ (data_get($companyRequirement, 'shortfall', 0) > 0) ? 'border-red-600' : 'border-green-600' }}">
-    
-<h2 class="text-lg font-semibold mb-3">Company Requirement</h2>
-
-    @php
-        $latestNet = 0;
-        if (!empty($latest)) {
-            $latestNet = (float)$latest->personal_net_target + (float)$latest->business_net_target + (float)$latest->want_net_target;
-        }
-    @endphp
-@endif
-
-
-
-    <p class="text-sm text-gray-600 mb-6">Fill in your numbers for the month. Save. Your required sales and stock levels will calculate automatically.</p>
+<div class="max-w-6xl mx-auto px-4 py-6 space-y-6">
 
     @if (session('status'))
-        <div class="mb-4 p-3 rounded bg-green-100 text-green-800">
+        <div class="mb-4 p-3 rounded-lg bg-green-100 text-green-800 font-medium text-sm">
             {{ session('status') }}
         </div>
     @endif
@@ -39,447 +34,467 @@
             : 'Percentage: ' . number_format($payeValue, 2) . '%';
     @endphp
 
+    @php
+        $latestNet = 0;
+        if (!empty($latest)) {
+            $latestNet = (float)$latest->personal_net_target + (float)$latest->business_net_target + (float)$latest->want_net_target;
+        }
+    @endphp
+
+    {{-- ============================================================ --}}
+    {{-- RENTALS (conditional) --}}
+    {{-- ============================================================ --}}
     @if(auth()->user()->can_capture_rentals || in_array(auth()->user()->role, ['admin','branch_manager']))
-    {{-- Rentals (Display-only for now) --}}
     @php
         $rentalsActive = (int)($calc['rentals_active_count'] ?? 0);
         $rentalsAssist = (int)($calc['rentals_assist_count'] ?? 0);
         $rentalsCommExcl = (float)($calc['rentals_commission_excl_total'] ?? 0);
     @endphp
 
-    <div class="bg-white border rounded p-4 mb-6">
-        <div class="flex items-center justify-between mb-2">
-            <div class="text-sm font-semibold">Rentals (This Period)</div>
-            <div class="text-xs text-gray-500">Ex VAT</div>
+    <div class="ds-status-card" style="border-left-color: var(--ds-cyan);">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="ds-section-header" style="margin-bottom:0;">Rentals (This Period)</h3>
+            <span class="ds-badge ds-badge-default">Ex VAT</span>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-                <div class="text-gray-500">Active Rentals</div>
-                <div class="font-bold">{{ $rentalsActive }}</div>
+                <div class="ds-label">Active Rentals</div>
+                <div class="ds-value text-lg">{{ $rentalsActive }}</div>
             </div>
-
             <div>
-                <div class="text-gray-500">Rental Assist</div>
-                <div class="font-bold">{{ $rentalsAssist }}</div>
+                <div class="ds-label">Rental Assist</div>
+                <div class="ds-value text-lg">{{ $rentalsAssist }}</div>
             </div>
-
             <div>
-                <div class="text-gray-500">Commission (Excl VAT)</div>
-                <div class="font-bold">R {{ number_format($rentalsCommExcl, 2) }}</div>
+                <div class="ds-label">Commission (Excl VAT)</div>
+                <div class="ds-value text-lg">R {{ number_format($rentalsCommExcl, 2) }}</div>
             </div>
         </div>
 
         <div class="text-xs text-gray-500 mt-3">
             Display-only: rentals are not yet integrated into budgets.
         </div>
+    </div>
     @endif
 
+    {{-- ============================================================ --}}
+    {{-- COMPANY REQUIREMENT --}}
+    {{-- ============================================================ --}}
+    @if(!empty($companyRequirement))
+    <div class="ds-status-card {{ (data_get($companyRequirement, 'shortfall', 0) > 0) ? 'ds-status-declined' : 'ds-status-granted' }}">
+        <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Company Requirement</h3>
+
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div>
+                <div class="ds-label">Branch Budget</div>
+                <div class="ds-value">R {{ number_format($companyRequirement['branch_budget'], 2) }}</div>
+                <div class="text-xs text-gray-500">Ex VAT</div>
+            </div>
+            <div>
+                <div class="ds-label">Agents in Branch</div>
+                <div class="ds-value">{{ $companyRequirement['agents'] }}</div>
+            </div>
+            <div>
+                <div class="ds-label">Required per Agent</div>
+                <div class="ds-value">R {{ number_format($companyRequirement['required_per_agent'], 2) }}</div>
+                <div class="text-xs text-gray-500">Ex VAT</div>
+            </div>
+            <div>
+                <div class="ds-label">Company Earns from You</div>
+                <div class="ds-value">R {{ number_format($companyRequirement['current_company_income'], 2) }}</div>
+                <div class="text-xs text-gray-500">Ex VAT &bull; if you hit your current budget</div>
+            </div>
+            <div>
+                <div class="ds-label">Shortfall</div>
+                <div class="ds-value {{ $companyRequirement['shortfall'] > 0 ? 'text-red-600' : 'text-green-600' }}">
+                    R {{ number_format($companyRequirement['shortfall'], 2) }}
+                </div>
+                <div class="text-xs text-gray-500">Ex VAT</div>
+            </div>
+        </div>
+
+        @if($companyRequirement['shortfall'] > 0)
+            <div class="mt-3 text-sm text-red-600 font-medium">
+                Your targets do not currently meet the branch/company requirement.
+            </div>
+        @else
+            <div class="mt-3 text-sm text-green-600 font-medium">
+                Your targets meet or exceed the company requirement.
+            </div>
+        @endif
     </div>
+    @endif
 
-
-@if(!empty($companyRequirement))
-    <form method="POST" action="{{ route('worksheet.store') }}" class="bg-white shadow rounded p-5 mb-8">
+    {{-- ============================================================ --}}
+    {{-- MAIN FORM --}}
+    {{-- ============================================================ --}}
+    @if(!empty($companyRequirement))
+    <form method="POST" action="{{ route('worksheet.store') }}">
         @csrf
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-                <label class="block text-sm font-medium">Period (YYYY-MM)</label>
-                <input type="month" name="period" value="{{ old('period', $w->period ?? now()->format('Y-m')) }}" class="mt-1 w-full border rounded p-2" />
-                @error('period') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
-            </div>
+        {{-- Section: Period + Inputs --}}
+        <div class="ds-status-card mb-6" style="border-left-color: var(--ds-navy);">
+            <h3 class="ds-section-header" style="margin-bottom:0.5rem;">Planning Inputs</h3>
+            <p class="text-sm text-gray-500 mb-4">Fill in your numbers for the month. Save. Your required sales and stock levels will calculate automatically.</p>
 
-            <div>
-                <label class="block text-sm font-medium">Current Active Listings</label>
-                @php $lockedListings = isset($activeListings) ? (int)$activeListings : (int)($w->current_listings ?? 0); @endphp
-                <input type="hidden" name="current_listings" value="{{ $lockedListings }}" />
-                <input type="number" value="{{ $lockedListings }}"
-                       class="mt-1 w-full border rounded p-2 bg-gray-100 text-gray-700 cursor-not-allowed"
-                       readonly disabled />
-                <div class="text-xs text-gray-500 mt-1">Locked from imported stock (Propcon).</div>
-            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="ds-label block mb-1">Period (YYYY-MM)</label>
+                    <input type="month" name="period" value="{{ old('period', $w->period ?? now()->format('Y-m')) }}" class="w-full border rounded-lg p-2 text-sm" />
+                    @error('period') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+                </div>
 
-            <div>
-                <label class="block text-sm font-medium">Correctly Priced Stock (%)</label>
-
-                @if(isset($cmaCount) && (int)$cmaCount > 0)
-                    <input type="hidden" name="correctly_priced_percent" value="{{ (float)$cmaCorrectlyPricedPercent }}" />
-                    <input type="number" step="0.01" value="{{ (float)$cmaCorrectlyPricedPercent }}"
-                           class="mt-1 w-full border rounded p-2 bg-gray-100 text-gray-700 cursor-not-allowed"
+                <div>
+                    <label class="ds-label block mb-1">Current Active Listings</label>
+                    @php $lockedListings = isset($activeListings) ? (int)$activeListings : (int)($w->current_listings ?? 0); @endphp
+                    <input type="hidden" name="current_listings" value="{{ $lockedListings }}" />
+                    <input type="number" value="{{ $lockedListings }}"
+                           class="w-full border rounded-lg p-2 text-sm bg-gray-100 text-gray-700 cursor-not-allowed"
                            readonly disabled />
-                    <div class="text-xs text-gray-500 mt-1">Calculated from listings with CMA captured.</div>
-                @else
-                    <input type="number" step="0.01" name="correctly_priced_percent" value="{{ old('correctly_priced_percent', $w->correctly_priced_percent ?? 40) }}"
-                           class="mt-1 w-full border rounded p-2" />
-                    @error('correctly_priced_percent') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
-                
+                    <div class="text-xs text-gray-500 mt-1">Locked from imported stock (Propcon).</div>
+                </div>
 
-                @include('worksheet._cma_pricing_info')
+                <div>
+                    <label class="ds-label block mb-1">Correctly Priced Stock (%)</label>
+                    @if(isset($cmaCount) && (int)$cmaCount > 0)
+                        <input type="hidden" name="correctly_priced_percent" value="{{ (float)$cmaCorrectlyPricedPercent }}" />
+                        <input type="number" step="0.01" value="{{ (float)$cmaCorrectlyPricedPercent }}"
+                               class="w-full border rounded-lg p-2 text-sm bg-gray-100 text-gray-700 cursor-not-allowed"
+                               readonly disabled />
+                        <div class="text-xs text-gray-500 mt-1">Calculated from listings with CMA captured.</div>
+                    @else
+                        <input type="number" step="0.01" name="correctly_priced_percent" value="{{ old('correctly_priced_percent', $w->correctly_priced_percent ?? 40) }}"
+                               class="w-full border rounded-lg p-2 text-sm" />
+                        @error('correctly_priced_percent') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+                    @endif
+
+                    @include('worksheet._cma_pricing_info')
+                </div>
             </div>
         </div>
 
-    <div class="bg-white shadow rounded p-5 mb-8">
+        {{-- Section: Net Monthly Targets --}}
+        <div class="ds-status-card mb-6" style="border-left-color: var(--ds-cyan);">
+            <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Net Monthly Targets</h3>
 
+            @if(!empty($companyRequirement))
+                @php
+                    $canApplyBranchDefault = (!empty($companyRequirement) && $latestNet <= 0.0 && ($companyRequirement['required_per_agent'] ?? 0) > 0);
+                    $canAlignToCompany = (!empty($companyRequirement) && ($companyRequirement['shortfall'] ?? 0) > 1);
+                @endphp
 
+                <div class="bg-gray-50 border rounded-lg p-4 mb-4">
+                    <div class="text-sm font-semibold mb-2 text-gray-700">Budget / Company Requirement Actions</div>
 
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-        <div>
-            <div class="text-gray-500">Branch Budget</div>
-            <div class="font-bold">R {{ number_format($companyRequirement['branch_budget'], 2) }}</div>
-              <div class="text-xs text-gray-500">Ex VAT</div>
-        </div>
+                    <div class="flex flex-col md:flex-row gap-3">
+                        <button type="submit"
+                                formaction="{{ route('worksheet.applyBranchDefault') }}"
+                                formmethod="POST"
+                                class="px-4 py-2 rounded-lg text-sm font-semibold text-white {{ $canApplyBranchDefault ? 'bg-[#0b2a4a] hover:bg-[#143d66]' : 'bg-gray-400 opacity-50 cursor-not-allowed' }}"
+                                {{ $canApplyBranchDefault ? '' : 'disabled' }}>
+                            Set my budget to the required minimum
+                        </button>
 
-        <div>
-            <div class="text-gray-500">Agents in Branch</div>
-            <div class="font-bold">{{ $companyRequirement['agents'] }}</div>
-        </div>
+                        <button type="submit"
+                                formaction="{{ route('worksheet.align') }}"
+                                formmethod="POST"
+                                class="px-4 py-2 rounded-lg text-sm font-semibold text-white {{ $canAlignToCompany ? 'bg-[#c41e3a] hover:bg-[#a01830]' : 'bg-gray-400 opacity-50 cursor-not-allowed' }}"
+                                {{ $canAlignToCompany ? '' : 'disabled' }}>
+                            Scale my targets to meet company requirement
+                        </button>
+                    </div>
 
-        <div>
-            <div class="text-gray-500">Required per Agent</div>
-            <div class="font-bold">R {{ number_format($companyRequirement['required_per_agent'], 2) }}</div>
-              <div class="text-xs text-gray-500">Ex VAT</div>
-        </div>
+                    <div class="text-xs text-gray-600 mt-2 space-y-0.5">
+                        <div><strong>Set my budget</strong> is only available when your Net Monthly Targets are still zero (no budget captured yet).</div>
+                        <div><strong>Scale my targets</strong> is available when you have a remaining shortfall against the company requirement.</div>
+                    </div>
+                </div>
+            @endif
 
-        <div>
-            <div class="text-gray-500">Company Earns from You</div>
-            <div class="font-bold">R {{ number_format($companyRequirement['current_company_income'], 2) }}</div>
-            <div class="text-xs text-gray-500">Ex VAT • if you hit your current budget</div>
-        </div>
-
-        <div>
-            <div class="text-gray-500">Shortfall</div>
-            <div class="font-bold {{ $companyRequirement['shortfall'] > 0 ? 'text-red-600' : 'text-green-600' }}">
-                R {{ number_format($companyRequirement['shortfall'], 2) }}
-                  <div class="text-xs text-gray-500">Ex VAT</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="ds-label block mb-1">Personal (Take-home)</label>
+                    <input type="number" step="0.01" name="personal_net_target" value="{{ old('personal_net_target', $w->personal_net_target ?? 0) }}"
+                           class="w-full border rounded-lg p-2 text-sm" />
+                    @error('personal_net_target') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+                </div>
+                <div>
+                    <label class="ds-label block mb-1">Business (Fuel/Marketing/etc.)</label>
+                    <input type="number" step="0.01" name="business_net_target" value="{{ old('business_net_target', $w->business_net_target ?? 0) }}"
+                           class="w-full border rounded-lg p-2 text-sm" />
+                    @error('business_net_target') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+                </div>
+                <div>
+                    <label class="ds-label block mb-1">Want (Savings/Holiday/Buffer)</label>
+                    <input type="number" step="0.01" name="want_net_target" value="{{ old('want_net_target', $w->want_net_target ?? 0) }}"
+                           class="w-full border rounded-lg p-2 text-sm" />
+                    @error('want_net_target') <div class="text-red-600 text-sm mt-1">{{ $message }}</div> @enderror
+                </div>
             </div>
         </div>
-    </div>
 
-    @if($companyRequirement['shortfall'] > 0)
-        <div class="mt-3 text-sm text-red-600 font-medium">
-            ⚠ Your targets do not currently meet the branch/company requirement.
-        </div>
-    @else
-        <div class="mt-3 text-sm text-green-600 font-medium">
-            ✓ Your targets meet or exceed the company requirement.
-        </div>
-</div>
-@endif
+        {{-- ============================================================ --}}
+        {{-- DEAL REGISTER SUMMARY --}}
+        {{-- ============================================================ --}}
+        <div class="ds-status-card mb-6" style="border-left-color: var(--ds-green);">
+            <h3 class="ds-section-header" style="margin-bottom:0.25rem;">Deal Register Summary (What's Happening)</h3>
+            <div class="ds-section-sub mb-4">
+                This section reports your captured Deal Register performance for the selected period (sales, commission, stages, and pipeline).
+            </div>
 
-        @endif
-
-        <h2 class="text-lg font-semibold mb-2">Net Monthly Targets</h2>
-
-        @if(!empty($companyRequirement))
             @php
-                $canApplyBranchDefault = (!empty($companyRequirement) && $latestNet <= 0.0 && ($companyRequirement['required_per_agent'] ?? 0) > 0);
-                $canAlignToCompany = (!empty($companyRequirement) && ($companyRequirement['shortfall'] ?? 0) > 1);
+                // All-time block added by dealRegisterStats()
+                $all = $dealStats['all_time'] ?? [];
+                $pipeAll = $dealStats['pipeline_not_paid_all_time_counts'] ?? ($all['pipeline_not_paid_counts'] ?? []);
+
+                // Tiny helpers (Blade-only)
+                $fmtR = fn($v) => 'R ' . number_format((float)($v ?? 0), 2);
+                $fmtPct = fn($v) => number_format((float)($v ?? 0), 2) . '%';
+                $stageLine = function(array $arr, string $k) use ($fmtR) {
+                    return $fmtR(($arr[$k] ?? 0));
+                };
             @endphp
 
-            <div class="bg-gray-50 border rounded p-4 mb-4">
-                <div class="text-sm font-semibold mb-2">Budget / Company Requirement Actions</div>
+            {{-- Column Headers --}}
+            <div class="grid grid-cols-3 gap-3 mb-3">
+                <div></div>
+                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-lg px-3 py-2" style="background:#0b2a4a;">Plan Inputs (BM / Worksheet)</div>
+                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-lg px-3 py-2" style="background:#059669;">Deal Register (Actuals)</div>
+            </div>
 
-                <div class="flex flex-col md:flex-row gap-3">
-                    <button type="submit"
-                            formaction="{{ route('worksheet.applyBranchDefault') }}"
-                            formmethod="POST"
-                            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm {{ $canApplyBranchDefault ? '' : 'opacity-50 cursor-not-allowed' }}"
-                            {{ $canApplyBranchDefault ? '' : 'disabled' }}>
-                        Set my budget to the required minimum
-                    </button>
+            {{-- ROW: Avg Sale Price --}}
+            <div class="grid grid-cols-3 gap-3 items-start py-3 border-b border-gray-200">
+                <div class="ds-label self-center">Avg Sale Price</div>
 
-                    <button type="submit"
-                            formaction="{{ route('worksheet.align') }}"
-                            formmethod="POST"
-                            class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm {{ $canAlignToCompany ? '' : 'opacity-50 cursor-not-allowed' }}"
-                            {{ $canAlignToCompany ? '' : 'disabled' }}>
-                        Scale my targets to meet company requirement
-                    </button>
+                <div class="bg-gray-50 rounded-lg p-3">
+                    <div class="ds-value">R {{ number_format((float)($w->avg_sale_price_admin ?? $w->avg_sale_price ?? 1060000), 2) }}</div>
+                    <div class="text-xs text-gray-500 mt-1">Set by Branch Manager (per agent, per month).</div>
+                    <input type="hidden" name="avg_sale_price" value="{{ old('avg_sale_price', $w->avg_sale_price ?? 1060000) }}" />
+                    @error('avg_sale_price') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
                 </div>
 
-                <div class="text-xs text-gray-600 mt-2">
-                    <div>
-                        <strong>Set my budget</strong> is only available when your Net Monthly Targets are still zero (no budget captured yet).
+                <div class="space-y-2">
+                    <div class="rounded-lg p-3" style="background: rgba(5, 150, 105, 0.06);">
+                        <div class="ds-value">R {{ number_format((float)($dealStats['avg_sale_price_inc_vat'] ?? 0), 2) }}</div>
+                        <div class="text-xs text-gray-500 mt-1"><b>Ex VAT:</b> R {{ number_format((float)($dealStats['avg_sale_price_ex_vat'] ?? 0), 2) }}</div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            From Deal Register ({{ (int)(($dealStats['counts']['total'] ?? 0)) }} deals in {{ $dealStats['period'] ?? '' }}).
+                        </div>
                     </div>
-                    <div>
-                        <strong>Scale my targets</strong> is available when you have a remaining shortfall against the company requirement.
+
+                    <div class="rounded-lg p-3" style="background: rgba(5, 150, 105, 0.06);">
+                        <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
+                        <div class="ds-value">{{ $fmtR($all['avg_sale_price_inc_vat'] ?? 0) }}</div>
+                        <div class="text-xs text-gray-500 mt-1"><b>Ex VAT:</b> {{ $fmtR($all['avg_sale_price_ex_vat'] ?? 0) }}</div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            From Deal Register ({{ (int)($all['counts']['total'] ?? 0) }} deals all time).
+                        </div>
                     </div>
                 </div>
             </div>
-        @endif
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-                <label class="block text-sm font-medium">Personal (Take-home)</label>
-                <input type="number" step="0.01" name="personal_net_target" value="{{ old('personal_net_target', $w->personal_net_target ?? 0) }}"
-                       class="mt-1 w-full border rounded p-2" />
-                @error('personal_net_target') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
-            </div>
-            <div>
-                <label class="block text-sm font-medium">Business (Fuel/Marketing/etc.)</label>
-                <input type="number" step="0.01" name="business_net_target" value="{{ old('business_net_target', $w->business_net_target ?? 0) }}"
-                       class="mt-1 w-full border rounded p-2" />
-                @error('business_net_target') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
-            </div>
-            <div>
-                <label class="block text-sm font-medium">Want (Savings/Holiday/Buffer)</label>
-                <input type="number" step="0.01" name="want_net_target" value="{{ old('want_net_target', $w->want_net_target ?? 0) }}"
-                       class="mt-1 w-full border rounded p-2" />
-                @error('want_net_target') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
-            </div>
-        </div>
+            {{-- ROW: Commission % --}}
+            <div class="grid grid-cols-3 gap-3 items-start py-3 border-b border-gray-200">
+                <div class="ds-label self-center">Commission % (Excl VAT)</div>
 
-        
-        <h2 class="text-lg font-semibold mb-2">Deal Register Summary (What's Happening)</h2>
-          <div class="text-xs text-gray-600 mb-3">
-              This section reports your captured Deal Register performance for the selected period (sales, commission, stages, and pipeline).
-          </div>
-
-        @php
-            // All-time block added by dealRegisterStats()
-            $all = $dealStats['all_time'] ?? [];
-            $pipeAll = $dealStats['pipeline_not_paid_all_time_counts'] ?? ($all['pipeline_not_paid_counts'] ?? []);
-
-            // Tiny helpers (Blade-only)
-            $fmtR = fn($v) => 'R ' . number_format((float)($v ?? 0), 2);
-            $fmtPct = fn($v) => number_format((float)($v ?? 0), 2) . '%';
-            $stageLine = function(array $arr, string $k) use ($fmtR) {
-                return $fmtR(($arr[$k] ?? 0));
-            };
-        @endphp
-
-<div class="bg-white border rounded p-4 mb-6">
-    <div class="grid grid-cols-3 gap-3 text-sm font-semibold border-b pb-2 mb-3">
-        <div></div>
-        <div>Plan Inputs (BM / Worksheet)</div>
-        <div>Deal Register (Actuals)</div>
-    </div>
-
-    {{-- ROW: Avg Sale Price --}}
-    <div class="grid grid-cols-3 gap-3 items-start py-2 border-b">
-        <div class="text-sm font-medium">Avg Sale Price</div>
-
-        <div>
-            <div class="w-full border rounded p-2 bg-gray-100 text-gray-800">
-                R {{ number_format((float)($w->avg_sale_price_admin ?? $w->avg_sale_price ?? 1060000), 2) }}
-                <div class="text-xs text-gray-600 mt-1">Set by Branch Manager (per agent, per month).</div>
-            </div>
-
-            {{-- Keep legacy field submitted so validation/store stays stable --}}
-            <input type="hidden" name="avg_sale_price" value="{{ old('avg_sale_price', $w->avg_sale_price ?? 1060000) }}" />
-            @error('avg_sale_price') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
-        </div>
-
-        <div>
-            <div class="w-full border rounded p-2 bg-blue-50 text-gray-900">
-                R {{ number_format((float)($dealStats['avg_sale_price_inc_vat'] ?? 0), 2) }}
-                <div class="text-xs text-gray-600 mt-1"><b>Ex VAT:</b> R {{ number_format((float)($dealStats['avg_sale_price_ex_vat'] ?? 0), 2) }}</div>
-                <div class="text-xs text-gray-600 mt-1">
-                    From Deal Register ({{ (int)(($dealStats['counts']['total'] ?? 0)) }} deals in {{ $dealStats['period'] ?? '' }}).
+                <div class="bg-gray-50 rounded-lg p-3">
+                    <input type="number" step="0.01" name="commission_percent"
+                           value="{{ old('commission_percent', $w->commission_percent ?? 7.5) }}"
+                           class="w-full border rounded-lg p-2 text-sm" />
+                    @error('commission_percent') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
+                    <div class="text-xs text-gray-500 mt-1">Planning % (default 7.5%).</div>
                 </div>
-            </div>
 
-            <div class="w-full border rounded p-2 bg-blue-50 text-gray-900 mt-2">
-                <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
-                {{ $fmtR($all['avg_sale_price_inc_vat'] ?? 0) }}
-                <div class="text-xs text-gray-600 mt-1"><b>Ex VAT:</b> {{ $fmtR($all['avg_sale_price_ex_vat'] ?? 0) }}</div>
-                <div class="text-xs text-gray-600 mt-1">
-                    From Deal Register ({{ (int)($all['counts']['total'] ?? 0) }} deals all time).
-                </div>
-            </div>
-        </div>
-    </div>
-
-    {{-- ROW: Commission % --}}
-    <div class="grid grid-cols-3 gap-3 items-start py-2 border-b">
-        <div class="text-sm font-medium">Commission % (Excl VAT)</div>
-
-        <div>
-            <input type="number" step="0.01" name="commission_percent"
-                   value="{{ old('commission_percent', $w->commission_percent ?? 7.5) }}"
-                   class="w-full border rounded p-2" />
-            @error('commission_percent') <div class="text-red-600 text-sm">{{ $message }}</div> @enderror
-            <div class="text-xs text-gray-600 mt-1">Planning % (default 7.5%).</div>
-        </div>
-
-        <div>
-            <div class="w-full border rounded p-2 bg-blue-50 text-gray-900">
-                {{ number_format((float)($dealStats['effective_commission_percent_ex_vat'] ?? 0), 2) }}%
-                <div class="text-xs text-gray-600 mt-1">
-                    Actual commission ÷ sales value (based on captured totals).
-                </div>
-                <div class="text-xs text-gray-700 mt-2">
-                    Lost vs 7.5%: <b>R {{ number_format((float)($dealStats['lost_commission_ex_vat_vs_7_5'] ?? 0), 2) }}</b>
-                </div>
-            </div>
-
-            <div class="w-full border rounded p-2 bg-blue-50 text-gray-900 mt-2">
-                <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
-                {{ $fmtPct($all['effective_commission_percent_ex_vat'] ?? 0) }}
-                <div class="text-xs text-gray-600 mt-1">
-                    Actual commission ÷ sales value (all captured totals).
-                </div>
-                @if(array_key_exists('lost_commission_ex_vat_vs_7_5', $all))
-                    <div class="text-xs text-gray-700 mt-2">
-                        Lost vs 7.5%: <b>{{ $fmtR($all['lost_commission_ex_vat_vs_7_5'] ?? 0) }}</b>
+                <div class="space-y-2">
+                    <div class="rounded-lg p-3" style="background: rgba(5, 150, 105, 0.06);">
+                        <div class="ds-value">{{ number_format((float)($dealStats['effective_commission_percent_ex_vat'] ?? 0), 2) }}%</div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            Actual commission / sales value (based on captured totals).
+                        </div>
+                        <div class="text-xs text-gray-700 mt-2">
+                            Lost vs 7.5%: <b>R {{ number_format((float)($dealStats['lost_commission_ex_vat_vs_7_5'] ?? 0), 2) }}</b>
+                        </div>
                     </div>
-                @endif
-            </div>
-        </div>
-    </div>
 
-    {{-- ROW: Deals --}}
-    <div class="grid grid-cols-3 gap-3 items-start py-2 border-b">
-        <div class="text-sm font-medium">Deals (count)</div>
-        <div class="w-full border rounded p-2 bg-gray-50 text-gray-500">—</div>
-
-        <div class="text-sm">
-            <div><b>Period total:</b> {{ (int)($dealStats['counts']['total'] ?? 0) }}</div>
-            <div class="text-xs text-gray-600 mt-1">
-                Pending: {{ (int)($dealStats['counts']['pending'] ?? 0) }} |
-                Granted: {{ (int)($dealStats['counts']['granted'] ?? 0) }} |
-                Registered: {{ (int)($dealStats['counts']['registered'] ?? 0) }} |
-                Declined: {{ (int)($dealStats['counts']['declined'] ?? 0) }}
-            </div>
-
-            <div class="mt-2">
-                <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
-                <div><b>Total:</b> {{ (int)($all['counts']['total'] ?? 0) }}</div>
-                <div class="text-xs text-gray-600 mt-1">
-                    Pending: {{ (int)($all['counts']['pending'] ?? 0) }} |
-                    Granted: {{ (int)($all['counts']['granted'] ?? 0) }} |
-                    Registered: {{ (int)($all['counts']['registered'] ?? 0) }} |
-                    Declined: {{ (int)($all['counts']['declined'] ?? 0) }}
+                    <div class="rounded-lg p-3" style="background: rgba(5, 150, 105, 0.06);">
+                        <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
+                        <div class="ds-value">{{ $fmtPct($all['effective_commission_percent_ex_vat'] ?? 0) }}</div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            Actual commission / sales value (all captured totals).
+                        </div>
+                        @if(array_key_exists('lost_commission_ex_vat_vs_7_5', $all))
+                            <div class="text-xs text-gray-700 mt-2">
+                                Lost vs 7.5%: <b>{{ $fmtR($all['lost_commission_ex_vat_vs_7_5'] ?? 0) }}</b>
+                            </div>
+                        @endif
+                    </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    {{-- ROW: Sales Value --}}
-    <div class="grid grid-cols-3 gap-3 items-start py-2 border-b">
-        <div class="text-sm font-medium">Sales Value</div>
-        <div class="w-full border rounded p-2 bg-gray-50 text-gray-500">—</div>
+            {{-- ROW: Deals --}}
+            <div class="grid grid-cols-3 gap-3 items-start py-3 border-b border-gray-200">
+                <div class="ds-label self-center">Deals (count)</div>
+                <div class="bg-gray-50 rounded-lg p-3 text-gray-400 text-sm">&mdash;</div>
 
-        <div class="text-sm">
-            <div><b>Period (Sale Price):</b> R {{ number_format((float)($dealStats['sales_value_inc_vat'] ?? 0), 2) }}</div>
-            <div class="text-xs text-gray-600 mt-1">
-                Pending: R {{ number_format((float)($dealStats['stage_sales_inc_vat']['pending'] ?? 0), 2) }} |
-                Granted: R {{ number_format((float)($dealStats['stage_sales_inc_vat']['granted'] ?? 0), 2) }} |
-                Registered: R {{ number_format((float)($dealStats['stage_sales_inc_vat']['registered'] ?? 0), 2) }} |
-                Declined: R {{ number_format((float)($dealStats['stage_sales_inc_vat']['declined'] ?? 0), 2) }}
-            </div>
+                <div class="text-sm">
+                    <div><b>Period total:</b> {{ (int)($dealStats['counts']['total'] ?? 0) }}</div>
+                    <div class="text-xs text-gray-600 mt-1">
+                        Pending: {{ (int)($dealStats['counts']['pending'] ?? 0) }} |
+                        Granted: {{ (int)($dealStats['counts']['granted'] ?? 0) }} |
+                        Registered: {{ (int)($dealStats['counts']['registered'] ?? 0) }} |
+                        Declined: {{ (int)($dealStats['counts']['declined'] ?? 0) }}
+                    </div>
 
-            <div class="mt-2">
-                <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
-                <div><b>Sale Price:</b> {{ $fmtR($all['sales_value_inc_vat'] ?? 0) }}</div>
-                <div class="text-xs text-gray-600 mt-1">
-                    Pending: {{ $fmtR(($all['stage_sales_inc_vat']['pending'] ?? 0)) }} |
-                    Granted: {{ $fmtR(($all['stage_sales_inc_vat']['granted'] ?? 0)) }} |
-                    Registered: {{ $fmtR(($all['stage_sales_inc_vat']['registered'] ?? 0)) }} |
-                    Declined: {{ $fmtR(($all['stage_sales_inc_vat']['declined'] ?? 0)) }}
+                    <div class="mt-2">
+                        <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
+                        <div><b>Total:</b> {{ (int)($all['counts']['total'] ?? 0) }}</div>
+                        <div class="text-xs text-gray-600 mt-1">
+                            Pending: {{ (int)($all['counts']['pending'] ?? 0) }} |
+                            Granted: {{ (int)($all['counts']['granted'] ?? 0) }} |
+                            Registered: {{ (int)($all['counts']['registered'] ?? 0) }} |
+                            Declined: {{ (int)($all['counts']['declined'] ?? 0) }}
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    {{-- ROW: Total Commission --}}
-    <div class="grid grid-cols-3 gap-3 items-start py-2 border-b">
-        <div class="text-sm font-medium">Total Commission</div>
-        <div class="w-full border rounded p-2 bg-gray-50 text-gray-500">—</div>
+            {{-- ROW: Sales Value --}}
+            <div class="grid grid-cols-3 gap-3 items-start py-3 border-b border-gray-200">
+                <div class="ds-label self-center">Sales Value</div>
+                <div class="bg-gray-50 rounded-lg p-3 text-gray-400 text-sm">&mdash;</div>
 
-        <div class="text-sm">
-            <div><b>Period Incl VAT:</b> R {{ number_format((float)($dealStats['total_commission_inc_vat'] ?? 0), 2) }}</div>
-            <div class="text-xs text-gray-600 mt-1"><b>Period Ex VAT:</b> R {{ number_format((float)($dealStats['total_commission_ex_vat'] ?? 0), 2) }}</div>
+                <div class="text-sm">
+                    <div><b>Period (Sale Price):</b> R {{ number_format((float)($dealStats['sales_value_inc_vat'] ?? 0), 2) }}</div>
+                    <div class="text-xs text-gray-600 mt-1">
+                        Pending: R {{ number_format((float)($dealStats['stage_sales_inc_vat']['pending'] ?? 0), 2) }} |
+                        Granted: R {{ number_format((float)($dealStats['stage_sales_inc_vat']['granted'] ?? 0), 2) }} |
+                        Registered: R {{ number_format((float)($dealStats['stage_sales_inc_vat']['registered'] ?? 0), 2) }} |
+                        Declined: R {{ number_format((float)($dealStats['stage_sales_inc_vat']['declined'] ?? 0), 2) }}
+                    </div>
 
-            <div class="mt-2">
-                <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
-                <div><b>Incl VAT:</b> {{ $fmtR($all['total_commission_inc_vat'] ?? 0) }}</div>
-                <div class="text-xs text-gray-600 mt-1"><b>Ex VAT:</b> {{ $fmtR($all['total_commission_ex_vat'] ?? 0) }}</div>
-            </div>
-        </div>
-    </div>
-    {{-- ROW: Pipeline (ALL-TIME, NOT PAID) --}}
-    <div class="grid grid-cols-3 gap-3 items-start py-2">
-        <div>
-            <div class="text-sm font-medium">Pipeline (Net)</div>
-            <div class="text-xs text-gray-500">Always ALL-TIME • only NOT PAID deals</div>
-        </div>
-
-        <div class="w-full border rounded p-2 bg-gray-50 text-gray-500">—</div>
-
-        <div class="text-sm">
-            @php
-                $pipe = $dealStats['pipeline_not_paid_all_time'] ?? [];
-                $pipeMoney = $pipe['agent_net_ex_vat_by_stage'] ?? [];
-                $pipeCounts = $pipe['counts'] ?? [];
-            @endphp
-
-            <div class="text-xs text-gray-600 mb-1"><b>Outstanding (ex VAT)</b></div>
-
-            <div class="text-sm font-semibold">
-                Total: <b>{{ $fmtR($pipe['agent_net_ex_vat_total'] ?? 0) }}</b>
+                    <div class="mt-2">
+                        <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
+                        <div><b>Sale Price:</b> {{ $fmtR($all['sales_value_inc_vat'] ?? 0) }}</div>
+                        <div class="text-xs text-gray-600 mt-1">
+                            Pending: {{ $fmtR(($all['stage_sales_inc_vat']['pending'] ?? 0)) }} |
+                            Granted: {{ $fmtR(($all['stage_sales_inc_vat']['granted'] ?? 0)) }} |
+                            Registered: {{ $fmtR(($all['stage_sales_inc_vat']['registered'] ?? 0)) }} |
+                            Declined: {{ $fmtR(($all['stage_sales_inc_vat']['declined'] ?? 0)) }}
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="mt-2 text-xs text-gray-700 space-y-1">
+            {{-- ROW: Total Commission --}}
+            <div class="grid grid-cols-3 gap-3 items-start py-3 border-b border-gray-200">
+                <div class="ds-label self-center">Total Commission</div>
+                <div class="bg-gray-50 rounded-lg p-3 text-gray-400 text-sm">&mdash;</div>
+
+                <div class="text-sm">
+                    <div><b>Period Incl VAT:</b> R {{ number_format((float)($dealStats['total_commission_inc_vat'] ?? 0), 2) }}</div>
+                    <div class="text-xs text-gray-600 mt-1"><b>Period Ex VAT:</b> R {{ number_format((float)($dealStats['total_commission_ex_vat'] ?? 0), 2) }}</div>
+
+                    <div class="mt-2">
+                        <div class="text-xs text-gray-600 mb-1"><b>All-time</b></div>
+                        <div><b>Incl VAT:</b> {{ $fmtR($all['total_commission_inc_vat'] ?? 0) }}</div>
+                        <div class="text-xs text-gray-600 mt-1"><b>Ex VAT:</b> {{ $fmtR($all['total_commission_ex_vat'] ?? 0) }}</div>
+                    </div>
+                </div>
+            </div>
+
+            {{-- ROW: Pipeline (ALL-TIME, NOT PAID) --}}
+            <div class="grid grid-cols-3 gap-3 items-start py-3">
                 <div>
-                    <b>Pending:</b> {{ $fmtR($pipeMoney['pending'] ?? 0) }}
-                    <span class="text-gray-400">({{ (int)($pipeCounts['pending'] ?? 0) }} deals)</span>
+                    <div class="ds-label">Pipeline (Net)</div>
+                    <div class="text-xs text-gray-500">Always ALL-TIME &bull; only NOT PAID deals</div>
+                </div>
+
+                <div class="bg-gray-50 rounded-lg p-3 text-gray-400 text-sm">&mdash;</div>
+
+                <div class="text-sm">
+                    @php
+                        $pipe = $dealStats['pipeline_not_paid_all_time'] ?? [];
+                        $pipeMoney = $pipe['agent_net_ex_vat_by_stage'] ?? [];
+                        $pipeCounts = $pipe['counts'] ?? [];
+                    @endphp
+
+                    <div class="text-xs text-gray-600 mb-1"><b>Outstanding (ex VAT)</b></div>
+
+                    <div class="ds-value">
+                        Total: <b>{{ $fmtR($pipe['agent_net_ex_vat_total'] ?? 0) }}</b>
+                    </div>
+
+                    <div class="mt-2 text-xs text-gray-700 space-y-1">
+                        <div>
+                            <b>Pending:</b> {{ $fmtR($pipeMoney['pending'] ?? 0) }}
+                            <span class="text-gray-400">({{ (int)($pipeCounts['pending'] ?? 0) }} deals)</span>
+                        </div>
+                        <div>
+                            <b>Granted:</b> {{ $fmtR($pipeMoney['granted'] ?? 0) }}
+                            <span class="text-gray-400">({{ (int)($pipeCounts['granted'] ?? 0) }} deals)</span>
+                        </div>
+                        <div>
+                            <b>Registered:</b> {{ $fmtR($pipeMoney['registered'] ?? 0) }}
+                            <span class="text-gray-400">({{ (int)($pipeCounts['registered'] ?? 0) }} deals)</span>
+                        </div>
+                    </div>
+
+                    @if(($pipeCounts['total'] ?? 0) > 0)
+                    <div class="text-xs text-gray-600 mt-2">
+                        Includes <b>{{ (int)($pipeCounts['total'] ?? 0) }}</b> not-paid deals (all-time).
+                    </div>
+                    @endif
+                </div>
+            </div>
+
+            <div class="mt-3 text-xs text-gray-600 border-t pt-3">
+                Stock model used: <b>1 sale per {{ (float)\App\Models\PerformanceSetting::get('listings_per_sale', 5) }} correctly priced listings</b>
+            </div>
+        </div>
+
+        {{-- Section: Admin Controls --}}
+        <div class="ds-status-card mb-6" style="border-left-color: var(--ds-label);">
+            <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Admin Controls</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="ds-label block mb-1">PAYE (Admin)</label>
+                    <div class="bg-gray-50 border rounded-lg p-3 text-sm text-gray-800">
+                        {{ $payeDisplay }}
+                        <div class="text-xs text-gray-500 mt-1">This value is set by admin on the User record.</div>
+                    </div>
                 </div>
                 <div>
-                    <b>Granted:</b> {{ $fmtR($pipeMoney['granted'] ?? 0) }}
-                    <span class="text-gray-400">({{ (int)($pipeCounts['granted'] ?? 0) }} deals)</span>
-                </div>
-                <div>
-                    <b>Registered:</b> {{ $fmtR($pipeMoney['registered'] ?? 0) }}
-                    <span class="text-gray-400">({{ (int)($pipeCounts['registered'] ?? 0) }} deals)</span>
-                </div>
-            </div>
-
-            <div class="text-xs text-gray-600 mt-2">
-                Includes <b>{{ (int)($pipeCounts['total'] ?? 0) }}</b> not-paid deals (all-time).
-            </div>
-        </div>
-    </div>
-
-    <div class="mt-3 text-xs text-gray-600">
-        Stock model used: <b>1 sale per {{ (float)\App\Models\PerformanceSetting::get('listings_per_sale', 5) }} correctly priced listings</b>
-    </div>
-</div>
-
-
-        {{-- Common admin controls (not duplicated) --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div>
-                <label class="block text-sm font-medium">PAYE (Admin)</label>
-                <div class="mt-1 w-full border rounded p-2 bg-gray-100 text-gray-800">
-                    {{ $payeDisplay }}
-                    <div class="text-xs text-gray-600 mt-1">This value is set by admin on the User record.</div>
-                </div>
-            </div>
-
-            <div>
-                <label class="block text-sm font-medium">Agent Cut % (Admin)</label>
-                <div class="mt-1 w-full border rounded p-2 bg-gray-100 text-gray-800">
-                    {{ number_format($agentCut, 2) }}%
-                    <div class="text-xs text-gray-600 mt-1">This value is set by admin on the User record.</div>
+                    <label class="ds-label block mb-1">Agent Cut % (Admin)</label>
+                    <div class="bg-gray-50 border rounded-lg p-3 text-sm text-gray-800">
+                        {{ number_format($agentCut, 2) }}%
+                        <div class="text-xs text-gray-500 mt-1">This value is set by admin on the User record.</div>
+                    </div>
                 </div>
             </div>
         </div>
-<div class="mt-8 flex flex-col md:flex-row items-start md:items-center gap-4">
+
+        {{-- Save Button --}}
+        <div class="flex flex-col md:flex-row items-start md:items-center gap-4 mb-6">
             <button id="saveWorksheetBtn" class="bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-lg font-bold text-lg shadow-lg border-2 border-green-800">
-                💾 SAVE WORKSHEET
+                SAVE WORKSHEET
             </button>
 
-            <div class="text-sm text-gray-700 bg-yellow-100 border border-yellow-300 px-3 py-2 rounded">
+            <div class="text-sm text-gray-700 bg-yellow-50 border border-yellow-300 px-3 py-2 rounded-lg">
                 After changing any numbers, click <b>SAVE WORKSHEET</b> to update your results.
             </div>
         </div>
     </form>
+    @endif
 
-<h2 class="text-lg font-semibold mb-3">Target Requirements (Plan vs Market Reality)</h2>
-          <div class="text-xs text-gray-600 mb-3">
-              This section recalculates what you need to do (sales/listings/gap) based on (1) your plan inputs vs (2) market reality from Deal Register averages.
-          </div>
+    {{-- ============================================================ --}}
+    {{-- TARGET REQUIREMENTS (Plan vs Market Reality) --}}
+    {{-- ============================================================ --}}
+    <div class="ds-status-card" style="border-left-color: var(--ds-amber);">
+        <h3 class="ds-section-header" style="margin-bottom:0.25rem;">Target Requirements (Plan vs Market Reality)</h3>
+        <div class="ds-section-sub mb-4">
+            This section recalculates what you need to do (sales/listings/gap) based on (1) your plan inputs vs (2) market reality from Deal Register averages.
+        </div>
 
         @if(!isset($w) || !$w)
             <p class="text-gray-600">No worksheet saved yet.</p>
@@ -495,16 +510,14 @@
 
                 // -------------------------------------------------------
                 // Budget-driven targets (with company floor)
-                // If your budget is lower than what is required to meet the company requirement,
-                // we lift the "budget used" to the company-floor equivalent.
                 // -------------------------------------------------------
-                $req = (float)($companyRequirement['required_per_agent'] ?? 0); // ex VAT company requirement per agent (per month)
+                $req = (float)($companyRequirement['required_per_agent'] ?? 0);
                 $listingsPerSale = (float) \App\Models\PerformanceSetting::get('listings_per_sale', 5);
 
                 $cp = (isset($cmaCorrectlyPricedPercent) && $cmaCorrectlyPricedPercent !== null)
-    ? (float)$cmaCorrectlyPricedPercent
-    : (float)($w->correctly_priced_percent ?? 0);
-$cp = max(0.01, $cp);
+                    ? (float)$cmaCorrectlyPricedPercent
+                    : (float)($w->correctly_priced_percent ?? 0);
+                $cp = max(0.01, $cp);
                 $cpFactor = ($cp / 100.0);
                 $currentListings = (int)($w->current_listings ?? 0);
 
@@ -517,36 +530,27 @@ $cp = max(0.01, $cp);
                 $plannedCompanyIncomePerSale = (float)($planned['company_income_per_sale'] ?? 0);
                 $actualCompanyIncomePerSale  = (float)($actual['company_income_per_sale'] ?? 0);
 
-                // Company-floor: MINIMUM net budget required so that the COMPANY earns req (ex VAT) from you.
-                // Depends only on: split + PAYE + requirement (NOT on plan vs market).
+                // Company-floor
                 $payePercent = (float)($w->paye_percent ?? 0);
                 $payeFactor = 1.0 - ($payePercent / 100.0);
 
                 $agentSplitPercent = (float)($w->agent_split_percent ?? 0);
-                $agentShareFactor = ($agentSplitPercent / 100.0); // agent share of commission pool
+                $agentShareFactor = ($agentSplitPercent / 100.0);
                 $companyShareFactor = 1.0 - $agentShareFactor;
 
-                // Commission pool needed (ex VAT) so company earns req: req / company_share
                 $commissionPoolFloorEx = ($companyShareFactor > 0) ? ($req / $companyShareFactor) : 0;
-
-                // Agent gross income from that pool (ex VAT): pool * agent_share
                 $agentGrossFloorEx = $commissionPoolFloorEx * $agentShareFactor;
-
-                // Net floor after PAYE: gross * (1 - paye%)
                 $netFloor = $agentGrossFloorEx * $payeFactor;
 
                 $plannedNetFloor = $netFloor;
                 $actualNetFloor  = $netFloor;
 
-                // Budget used is whichever is higher: your own budget vs the company-floor equivalent
                 $plannedBudgetUsed = max($plannedNetNeed, $plannedNetFloor);
                 $actualBudgetUsed  = max($actualNetNeed,  $actualNetFloor);
 
-                // Sales needed to hit the budget used
                 $plannedSalesNeeded = ($plannedAgentNetPerSale > 0) ? ($plannedBudgetUsed / $plannedAgentNetPerSale) : 0;
                 $actualSalesNeeded  = ($actualAgentNetPerSale  > 0) ? ($actualBudgetUsed  / $actualAgentNetPerSale)  : 0;
 
-                // Listings needed (stock math)
                 $plannedListingsNeeded = ($cpFactor > 0) ? (($plannedSalesNeeded * $listingsPerSale) / $cpFactor) : 0;
                 $actualListingsNeeded  = ($cpFactor > 0) ? (($actualSalesNeeded  * $listingsPerSale) / $cpFactor) : 0;
 
@@ -560,7 +564,6 @@ $cp = max(0.01, $cp);
                 $deltaGap          = $actualGap - $plannedGap;
 
                 // -------------------------------------------------------
-                // "What must I do to hit the budget used?"
                 // Reverse-calc: Net budget -> Gross agent -> Total commission -> Sales value
                 // -------------------------------------------------------
                 $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
@@ -571,147 +574,143 @@ $cp = max(0.01, $cp);
                 $payeFactor = 1.0 - ($payePercent / 100.0);
 
                 $agentSplitPercent = (float)($w->agent_split_percent ?? 0);
-                $agentShareFactor = ($agentSplitPercent / 100.0); // agent share of commission pool
+                $agentShareFactor = ($agentSplitPercent / 100.0);
 
-                // Gross agent income needed (ex VAT) to hit the chosen net budget
                 $plannedAgentGrossNeeded = ($payeFactor > 0) ? ($plannedBudgetUsed / $payeFactor) : 0;
                 $actualAgentGrossNeeded  = ($payeFactor > 0) ? ($actualBudgetUsed  / $payeFactor) : 0;
 
-                // Total commission pool needed (ex VAT) to pay the agent that gross (depends on split)
                 $plannedTotalCommissionNeededEx = ($agentShareFactor > 0) ? ($plannedAgentGrossNeeded / $agentShareFactor) : 0;
                 $actualTotalCommissionNeededEx  = ($agentShareFactor > 0) ? ($actualAgentGrossNeeded  / $agentShareFactor) : 0;
 
-                // Convert commission pool needed -> sales value needed
-                // Plan commission % comes from worksheet (applied on INC VAT price, then money converted to EX VAT)
                 $planCommissionPercent = (float)($w->commission_percent ?? 0);
-
-                // Market commission % is derived from Deal Register totals (on EX VAT basis)
                 $marketCommissionPercentEx = (float)($dealStats['effective_commission_percent_ex_vat'] ?? 0);
 
-                // Sales value needed (EX VAT)
                 $plannedSalesValueNeededEx = ($planCommissionPercent > 0) ? ($plannedTotalCommissionNeededEx / ($planCommissionPercent / 100.0)) : 0;
                 $actualSalesValueNeededEx  = ($marketCommissionPercentEx > 0) ? ($actualTotalCommissionNeededEx / ($marketCommissionPercentEx / 100.0)) : 0;
 
-                // Convert to INC VAT for display / consistency with deal property values
                 $plannedSalesValueNeededInc = $plannedSalesValueNeededEx * $vatDiv;
                 $actualSalesValueNeededInc  = $actualSalesValueNeededEx  * $vatDiv;
-
             @endphp
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 
-                  {{-- PLANNED --}}
-                  <div class="border rounded p-4 bg-white">
-                      <div class="text-sm font-semibold mb-3">Plan (Worksheet Inputs)</div>
+            {{-- Three Column Headers --}}
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-1">
+                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-lg px-3 py-2" style="background:#0b2a4a;">Plan (Worksheet Inputs)</div>
+                <div class="text-xs font-bold uppercase tracking-wide text-white rounded-t-lg px-3 py-2" style="background:#00b4d8;">Market-Based (Deal Register Averages)</div>
+                <div class="text-xs font-bold uppercase tracking-wide text-gray-700 rounded-t-lg px-3 py-2 bg-amber-100">Difference (Market - Plan)</div>
+            </div>
 
-                      <div class="grid grid-cols-1 gap-2 text-sm">
-                          <div><b>Period:</b> {{ $w->period }}</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 
-                          <div class="mt-2"><b>Nett Take-home at Company Budget:</b> R {{ number_format($plannedBudgetUsed, 2) }}</div>
+                {{-- PLANNED --}}
+                <div class="border rounded-b-lg p-4 bg-white" style="border-top: 3px solid #0b2a4a;">
+                    <div class="space-y-2 text-sm">
+                        <div><span class="ds-label">Period:</span> <span class="ds-value">{{ $w->period }}</span></div>
 
-                          <div class="text-xs {{ ($plannedBudgetUsed > $plannedNetNeed) ? 'text-red-600' : 'text-gray-500' }}">
-                              @if($plannedBudgetUsed > $plannedNetNeed)
-                                  Budget lifted to meet company requirement.
-                              @else
-                                  Uses your budget (above company requirement).
-                              @endif
-                          </div>
-                          <div class="mt-2"><b>Gross Commission Needed (Ex VAT):</b> R {{ number_format($plannedTotalCommissionNeededEx, 2) }}</div>
-                          <div><b>Sales Value Needed:</b> R {{ number_format($plannedSalesValueNeededInc, 2) }} <span class="text-xs text-gray-500">(Inc VAT)</span></div>
-                          <div class="text-xs text-gray-500">Ex VAT: R {{ number_format($plannedSalesValueNeededEx, 2) }} • Comm% used: {{ number_format($planCommissionPercent, 2) }}%</div>
+                        <div class="mt-2"><span class="ds-label">Nett Take-home at Company Budget:</span></div>
+                        <div class="ds-value-lg">R {{ number_format($plannedBudgetUsed, 2) }}</div>
 
-                          <div class="text-xs text-gray-500">
-                              Uses your budget unless the company-floor requires more.
-                          </div>
+                        <div class="text-xs {{ ($plannedBudgetUsed > $plannedNetNeed) ? 'text-red-600' : 'text-gray-500' }}">
+                            @if($plannedBudgetUsed > $plannedNetNeed)
+                                Budget lifted to meet company requirement.
+                            @else
+                                Uses your budget (above company requirement).
+                            @endif
+                        </div>
+                        <div class="mt-2"><span class="ds-label">Gross Commission Needed (Ex VAT):</span> <span class="ds-value">R {{ number_format($plannedTotalCommissionNeededEx, 2) }}</span></div>
+                        <div><span class="ds-label">Sales Value Needed:</span> <span class="ds-value">R {{ number_format($plannedSalesValueNeededInc, 2) }}</span> <span class="text-xs text-gray-500">(Inc VAT)</span></div>
+                        <div class="text-xs text-gray-500">Ex VAT: R {{ number_format($plannedSalesValueNeededEx, 2) }} &bull; Comm% used: {{ number_format($planCommissionPercent, 2) }}%</div>
 
-                          <div class="mt-2"><b>Sales Needed / Month:</b> {{ number_format($plannedSalesNeeded, 2) }}</div>
-                          <div><b>Total Listings Needed:</b> {{ number_format($plannedListingsNeeded, 2) }}</div>
-                          <div><b>Gap (Needed - Current):</b> {{ number_format($plannedGap, 2) }}</div>
+                        <div class="text-xs text-gray-500">
+                            Uses your budget unless the company-floor requires more.
+                        </div>
 
+                        <div class="border-t pt-2 mt-2">
+                            <div><span class="ds-label">Sales Needed / Month:</span> <span class="ds-value">{{ number_format($plannedSalesNeeded, 2) }}</span></div>
+                            <div><span class="ds-label">Total Listings Needed:</span> <span class="ds-value">{{ number_format($plannedListingsNeeded, 2) }}</span></div>
+                            <div><span class="ds-label">Gap (Needed - Current):</span> <span class="ds-value {{ $plannedGap > 0 ? 'text-red-600' : 'text-green-600' }}">{{ number_format($plannedGap, 2) }}</span></div>
+                        </div>
+                    </div>
+                </div>
 
-                      </div>
-                  </div>
+                {{-- ACTUAL / MARKET --}}
+                <div class="border rounded-b-lg p-4 bg-white" style="border-top: 3px solid #00b4d8;">
+                    <div class="space-y-2 text-sm">
+                        <div><span class="ds-label">Period:</span> <span class="ds-value">{{ $dealStats['period'] ?? $w->period }}</span></div>
 
-                  {{-- ACTUAL --}}
-                  <div class="border rounded p-4 bg-white">
-                      <div class="text-sm font-semibold mb-3">Market-Based (Deal Register Averages)</div>
+                        <div class="mt-2"><span class="ds-label">Nett Take-home at Company Budget:</span></div>
+                        <div class="ds-value-lg">R {{ number_format($actualBudgetUsed, 2) }}</div>
 
-                      <div class="grid grid-cols-1 gap-2 text-sm">
-                          <div><b>Period:</b> {{ $dealStats['period'] ?? $w->period }}</div>
+                        <div class="text-xs {{ ($actualBudgetUsed > $actualNetNeed) ? 'text-red-600' : 'text-gray-500' }}">
+                            @if($actualBudgetUsed > $actualNetNeed)
+                                Budget lifted to meet company requirement.
+                            @else
+                                Uses your budget (above company requirement).
+                            @endif
+                        </div>
+                        <div class="mt-2"><span class="ds-label">Gross Commission Needed (Ex VAT):</span> <span class="ds-value">R {{ number_format($actualTotalCommissionNeededEx, 2) }}</span></div>
+                        <div><span class="ds-label">Sales Value Needed:</span> <span class="ds-value">R {{ number_format($actualSalesValueNeededInc, 2) }}</span> <span class="text-xs text-gray-500">(Inc VAT)</span></div>
+                        <div class="text-xs text-gray-500">Ex VAT: R {{ number_format($actualSalesValueNeededEx, 2) }} &bull; Comm% used: {{ number_format($marketCommissionPercentEx, 2) }}%</div>
 
-                          <div class="mt-2"><b>Nett Take-home at Company Budget:</b> R {{ number_format($actualBudgetUsed, 2) }}</div>
+                        <div class="text-xs text-gray-500">
+                            Same budget logic, but per-sale performance comes from Deal Register averages.
+                        </div>
 
-                          <div class="text-xs {{ ($actualBudgetUsed > $actualNetNeed) ? 'text-red-600' : 'text-gray-500' }}">
-                              @if($actualBudgetUsed > $actualNetNeed)
-                                  Budget lifted to meet company requirement.
-                              @else
-                                  Uses your budget (above company requirement).
-                              @endif
-                          </div>
-                          <div class="mt-2"><b>Gross Commission Needed (Ex VAT):</b> R {{ number_format($actualTotalCommissionNeededEx, 2) }}</div>
-                          <div><b>Sales Value Needed:</b> R {{ number_format($actualSalesValueNeededInc, 2) }} <span class="text-xs text-gray-500">(Inc VAT)</span></div>
-                          <div class="text-xs text-gray-500">Ex VAT: R {{ number_format($actualSalesValueNeededEx, 2) }} • Comm% used: {{ number_format($marketCommissionPercentEx, 2) }}%</div>
+                        <div class="border-t pt-2 mt-2">
+                            <div><span class="ds-label">Sales Needed / Month:</span> <span class="ds-value">{{ number_format($actualSalesNeeded, 2) }}</span></div>
+                            <div><span class="ds-label">Total Listings Needed:</span> <span class="ds-value">{{ number_format($actualListingsNeeded, 2) }}</span></div>
+                            <div><span class="ds-label">Gap (Needed - Current):</span> <span class="ds-value {{ $actualGap > 0 ? 'text-red-600' : 'text-green-600' }}">{{ number_format($actualGap, 2) }}</span></div>
+                        </div>
+                    </div>
 
-                          <div class="text-xs text-gray-500">
-                              Same budget logic, but per-sale performance comes from Deal Register averages.
-                          </div>
+                    <div class="mt-3 text-xs text-gray-700 bg-blue-50 border rounded-lg p-2">
+                        Uses: Avg Price = R {{ number_format((float)($dealStats['avg_sale_price_inc_vat'] ?? 0), 2) }}
+                        <div class="text-xs text-gray-600 mt-1"><b>Ex VAT:</b> R {{ number_format((float)($dealStats['avg_sale_price_ex_vat'] ?? 0), 2) }}</div>,
+                        Comm % = {{ number_format((float)($dealStats['effective_commission_percent_ex_vat'] ?? 0), 2) }}%
+                    </div>
+                </div>
 
-                          <div class="mt-2"><b>Sales Needed / Month:</b> {{ number_format($actualSalesNeeded, 2) }}</div>
-                          <div><b>Total Listings Needed:</b> {{ number_format($actualListingsNeeded, 2) }}</div>
-                          <div><b>Gap (Needed - Current):</b> {{ number_format($actualGap, 2) }}</div>
+                {{-- DIFFERENCE --}}
+                @php
+                    $delta_comm_per_sale = (float)($actual['commission_per_sale'] ?? 0) - (float)($planned['commission_per_sale'] ?? 0);
+                    $delta_net_per_sale = (float)($actual['agent_net_per_sale'] ?? 0) - (float)($planned['agent_net_per_sale'] ?? 0);
+                    $delta_net_need = (float)($actualNetNeed ?? 0) - (float)($plannedNetNeed ?? 0);
+                @endphp
 
+                <div class="border rounded-b-lg p-4 bg-amber-50" style="border-top: 3px solid #f59e0b;">
+                    <div class="space-y-2 text-sm">
+                        <div><span class="ds-label">Period:</span> <span class="ds-value">{{ $dealStats['period'] ?? $w->period }}</span></div>
+                        <div><span class="ds-label">Nett Take-home at Company Budget:</span> <span class="ds-value">R {{ number_format($deltaBudgetUsed, 2) }}</span></div>
+                        <div class="mt-2"><span class="ds-label">Commission / Sale (Ex VAT):</span> <span class="ds-value">R {{ number_format($delta_comm_per_sale, 2) }}</span></div>
+                        <div><span class="ds-label">Your Net / Sale (Ex VAT):</span> <span class="ds-value">R {{ number_format($delta_net_per_sale, 2) }}</span></div>
 
-                      </div>
+                        <div class="border-t pt-2 mt-2">
+                            <div><span class="ds-label">Sales Needed / Month:</span> <span class="ds-value">{{ number_format($deltaSalesNeeded, 2) }}</span></div>
+                            <div><span class="ds-label">Total Listings Needed:</span> <span class="ds-value">{{ number_format($deltaListingsNeed, 2) }}</span></div>
+                            <div><span class="ds-label">Gap (Needed - Current):</span> <span class="ds-value">{{ number_format($deltaGap, 2) }}</span></div>
+                        </div>
+                    </div>
 
-                      <div class="mt-3 text-xs text-gray-700 bg-blue-50 border rounded p-2">
-                          Uses: Avg Price = R {{ number_format((float)($dealStats['avg_sale_price_inc_vat'] ?? 0), 2) }}
-                          <div class="text-xs text-gray-600 mt-1"><b>Ex VAT:</b> R {{ number_format((float)($dealStats['avg_sale_price_ex_vat'] ?? 0), 2) }}</div>,
-                          Comm % = {{ number_format((float)($dealStats['effective_commission_percent_ex_vat'] ?? 0), 2) }}%
-                      </div>
-                  </div>
-
-                  {{-- DIFFERENCE --}}
-                  @php
-                      // Keep these for reference deltas
-                      $delta_comm_per_sale = (float)($actual['commission_per_sale'] ?? 0) - (float)($planned['commission_per_sale'] ?? 0);
-                      $delta_net_per_sale = (float)($actual['agent_net_per_sale'] ?? 0) - (float)($planned['agent_net_per_sale'] ?? 0);
-                      $delta_net_need = (float)($actualNetNeed ?? 0) - (float)($plannedNetNeed ?? 0);
-                  @endphp
-
-                  <div class="border rounded p-4 bg-yellow-50">
-                      <div class="text-sm font-semibold mb-3">Difference (Market - Plan)</div>
-
-                      <div class="grid grid-cols-1 gap-2 text-sm">
-                          <div><b>Period:</b> {{ $dealStats['period'] ?? $w->period }}</div>
-                            <div><b>Nett Take-home at Company Budget:</b> R {{ number_format($deltaBudgetUsed, 2) }}</div>
-                          <div class="mt-2"><b>Commission / Sale (Ex VAT):</b> R {{ number_format($delta_comm_per_sale, 2) }}</div>
-                          <div><b>Your Net / Sale (Ex VAT):</b> R {{ number_format($delta_net_per_sale, 2) }}</div>
-
-                          <div class="mt-2"><b>Sales Needed / Month:</b> {{ number_format($deltaSalesNeeded, 2) }}</div>
-                          <div><b>Total Listings Needed:</b> {{ number_format($deltaListingsNeed, 2) }}</div>
-                          <div><b>Gap (Needed - Current):</b> {{ number_format($deltaGap, 2) }}</div>
-                      </div>
-
-                      <div class="mt-2 text-xs text-gray-700">
-                          Negative = Market requires <b>less</b>. Positive = Market requires <b>more</b>.
-                      </div>
-                  </div>
-
-              </div>
-
-          @endif
-
-
+                    <div class="mt-2 text-xs text-gray-700">
+                        Negative = Market requires <b>less</b>. Positive = Market requires <b>more</b>.
+                    </div>
+                </div>
+            </div>
+        @endif
     </div>
-<div class="bg-white shadow rounded p-5">
-        <h2 class="text-lg font-semibold mb-3">Your Saved Months</h2>
+
+    {{-- ============================================================ --}}
+    {{-- SAVED MONTHS --}}
+    {{-- ============================================================ --}}
+    <div class="ds-status-card" style="border-left-color: var(--ds-navy);">
+        <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Your Saved Months</h3>
 
         @if($worksheets->isEmpty())
             <p class="text-gray-600">No saved records yet.</p>
         @else
             <div class="overflow-x-auto">
-                <table class="min-w-full text-sm">
+                <table class="w-full text-sm ds-table">
                     <thead>
-                        <tr class="border-b">
+                        <tr>
                             <th class="text-left p-2">Period</th>
                             <th class="text-left p-2">Net Need</th>
                             <th class="text-left p-2">Current Listings</th>
@@ -722,12 +721,12 @@ $cp = max(0.01, $cp);
                     <tbody>
                         @foreach($worksheets as $row)
                             @php $c = \App\Http\Controllers\WorksheetController::calculate($row); @endphp
-                            <tr class="border-b">
-                                <td class="p-2">{{ $row->period }}</td>
-                                <td class="p-2">R {{ number_format($c['net_need'], 2) }}</td>
+                            <tr>
+                                <td class="p-2 ds-value">{{ $row->period }}</td>
+                                <td class="p-2 ds-value">R {{ number_format($c['net_need'], 2) }}</td>
                                 <td class="p-2">{{ $row->current_listings }}</td>
                                 <td class="p-2">{{ number_format($row->correctly_priced_percent, 2) }}%</td>
-                                <td class="p-2">{{ $row->updated_at->format('Y-m-d H:i') }}</td>
+                                <td class="p-2 text-gray-500">{{ $row->updated_at->format('Y-m-d H:i') }}</td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -735,6 +734,7 @@ $cp = max(0.01, $cp);
             </div>
         @endif
     </div>
+
 </div>
 
 </x-app-layout>

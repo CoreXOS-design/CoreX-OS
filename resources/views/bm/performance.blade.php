@@ -103,6 +103,7 @@
     {{-- BM_STATUS_TILES --}}
 
 <div class="space-y-3">
+    <h2 class="ds-section-header">Deal Status</h2>
     {{-- Set 1: Period (counts) --}}
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
 
@@ -172,7 +173,8 @@
 
       </div>
 
-{{-- Set 2: Outstanding (Not Paid) — Company ex VAT --}}
+    <h2 class="ds-section-header">Outstanding Commission</h2>
+    {{-- Set 2: Outstanding (Not Paid) — Company ex VAT --}}
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <a href="/admin/deals?status=Pending&commission_status=Not%20Paid" class="block">
             <div class="ds-status-card ds-money-pending">
@@ -216,7 +218,7 @@
   <div class="ds-section-header">Listing Stock (Branch)</div>
   <div class="ds-section-sub mb-3">Active Propcon listings for this branch. Click a metric to drill in.</div>
 
-  <div class="card">
+  <div class="ds-status-card">
       <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
           <a href="{{ route('bm.listings', ['filter' => 'active']) }}" class="ds-status-card hover:shadow-md transition block">
               <div class="ds-label">Active</div>
@@ -259,7 +261,7 @@
             Use these to set smarter planned budgets and planned avg sale prices for agents.
         </div>
 
-        <div class="card">
+        <div class="ds-status-card">
             <div class="flex items-end justify-between gap-4 flex-wrap mb-4">
                 <div class="ds-label">
                     Deals counted: <span class="ds-value">{{ $avgCount }}</span>
@@ -339,7 +341,7 @@
             Value is priority. Targets below are based on what agents planned for the month (agent target sum).
         </div>
 
-        <div class="card">
+        <div class="ds-status-card">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div class="ds-status-card">
                     <div class="ds-label">Branch Value (Actual / Agent-Sum Target)</div>
@@ -378,7 +380,7 @@
             <span class="text-gray-500">(Income projection = Agent Value Target Sum × commission rate × company share)</span>
         </div>
 
-        <div class="card">
+        <div class="ds-status-card">
             <div class="flex items-center justify-between gap-4 flex-wrap">
                 <div></div>
 
@@ -495,7 +497,7 @@
         <div class="ds-section-header">Agents (targets vs actuals)</div>
         <div class="ds-section-sub mb-3">This is the management view: who is on pace, who is behind, and where to intervene.</div>
 
-        <div class="card overflow-hidden">
+        <div class="ds-status-card overflow-hidden">
             <div class="overflow-x-auto">
                 @php
     // BRANCH TOTAL Sales Value must match the agent rows (split-correct).

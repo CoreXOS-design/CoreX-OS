@@ -361,11 +361,11 @@ class WorksheetController extends Controller
             ])
             ->get();
 
-        // Stage classifier
+        // Stage classifier (check declined first; also honour accepted_status = G/R when date fields are null)
         $stageOf = function($d): string {
-            if (!empty($d->registration_date)) return 'registered';
-            if (!empty($d->granted_at)) return 'granted';
             if (($d->accepted_status ?? '') === 'D') return 'declined';
+            if (!empty($d->registration_date) || ($d->accepted_status ?? '') === 'R') return 'registered';
+            if (!empty($d->granted_at) || ($d->accepted_status ?? '') === 'G') return 'granted';
             return 'pending';
         };
 
@@ -389,26 +389,28 @@ class WorksheetController extends Controller
         $stageCommEx   = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
 
         foreach ($deals as $d) {
-            $counts['total']++;
-
             $stage = $stageOf($d);
             $counts[$stage] = ($counts[$stage] ?? 0) + 1;
 
             $pvInc = (float)($d->property_value ?? 0);
             $pvEx = $pvInc; // Sale price is not VAT-rated; keep ex-VAT sales equal to sale price
 
-
             // Assume stored commission is INCL VAT, derive EXCL VAT for calc
             $cInc = (float)($d->total_commission ?? 0);
             $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
 
-            $salesInc += $pvInc; $salesEx += $pvEx;
-            $commInc  += $cInc;  $commEx  += $cEx;
-
+            // Per-stage breakdown (includes declined for visibility)
             $stageSalesInc[$stage] += $pvInc;
             $stageSalesEx[$stage]  += $pvEx;
             $stageCommInc[$stage]  += $cInc;
             $stageCommEx[$stage]   += $cEx;
+
+            // Overall totals EXCLUDE declined deals
+            if ($stage !== 'declined') {
+                $counts['total']++;
+                $salesInc += $pvInc; $salesEx += $pvEx;
+                $commInc  += $cInc;  $commEx  += $cEx;
+            }
         }
 
         $dealsCount = (int)$counts['total'];
@@ -429,9 +431,9 @@ class WorksheetController extends Controller
 ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
             ->selectRaw("
                 CASE
-                    WHEN deals.registration_date IS NOT NULL AND deals.registration_date <> '' THEN 'registered'
-                    WHEN deals.granted_at IS NOT NULL AND deals.granted_at <> '' THEN 'granted'
                     WHEN deals.accepted_status = 'D' THEN 'declined'
+                    WHEN deals.registration_date IS NOT NULL AND deals.registration_date <> '' THEN 'registered'
+                    WHEN (deals.granted_at IS NOT NULL AND deals.granted_at <> '') OR deals.accepted_status = 'G' THEN 'granted'
                     ELSE 'pending'
                 END AS stage,
                 SUM(deal_money_lines.agent_net_ex_vat) AS agent_net_ex_vat,
@@ -466,21 +468,22 @@ class WorksheetController extends Controller
             ->get();
 
         foreach ($pipeDeals as $d) {
-            $pipeCounts['total']++;
             $stage = $stageOf($d);
+            if ($stage === 'declined') continue; // Declined deals excluded from pipeline
+            $pipeCounts['total']++;
             $pipeCounts[$stage] = ($pipeCounts[$stage] ?? 0) + 1;
         }
 
-        // money: sum agent_net_ex_vat for NOT PAID deals (deal-level; do NOT join deal_user)
+        // money: sum agent_net_ex_vat for NOT PAID, NOT DECLINED deals
         $pipeMoney = DB::table('deal_money_lines')
             ->join('deals', 'deals.id', '=', 'deal_money_lines.deal_id')
             ->where('deal_money_lines.user_id', $userId)
             ->whereRaw("LOWER(COALESCE(deals.commission_status,'')) != 'paid'")
+            ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
             ->selectRaw("
                 CASE
                     WHEN deals.registration_date IS NOT NULL AND deals.registration_date <> '' THEN 'registered'
-                    WHEN deals.granted_at IS NOT NULL AND deals.granted_at <> '' THEN 'granted'
-                    WHEN deals.accepted_status = 'D' THEN 'declined'
+                    WHEN (deals.granted_at IS NOT NULL AND deals.granted_at <> '') OR deals.accepted_status = 'G' THEN 'granted'
                     ELSE 'pending'
                 END AS stage,
                 SUM(deal_money_lines.agent_net_ex_vat) AS agent_net_ex_vat
@@ -495,7 +498,10 @@ class WorksheetController extends Controller
         }
 
         $pipeAgentNetTotal = 0.0;
-        foreach ($pipeAgentNetByStage as $v) $pipeAgentNetTotal += (float)$v;
+        foreach ($pipeAgentNetByStage as $st => $v) {
+            if ($st === 'declined') continue;
+            $pipeAgentNetTotal += (float)$v;
+        }
 
 
 // compare to 7.5% "ideal" (ex VAT)
@@ -538,25 +544,25 @@ class WorksheetController extends Controller
         $stageCommExAll   = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
 
         foreach ($dealsAll as $d) {
-            $countsAll['total']++;
-
             $stage = $stageOf($d);
             $countsAll[$stage] = ($countsAll[$stage] ?? 0) + 1;
 
             $pvInc = (float)($d->property_value ?? 0);
-            $pvEx = $pvInc; // Sale price is not VAT-rated; keep ex-VAT sales equal to sale price
-
+            $pvEx = $pvInc;
 
             $cInc = (float)($d->total_commission ?? 0);
             $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
-
-            $salesIncAll += $pvInc; $salesExAll += $pvEx;
-            $commIncAll  += $cInc;  $commExAll  += $cEx;
 
             $stageSalesIncAll[$stage] += $pvInc;
             $stageSalesExAll[$stage]  += $pvEx;
             $stageCommIncAll[$stage]  += $cInc;
             $stageCommExAll[$stage]   += $cEx;
+
+            if ($stage !== 'declined') {
+                $countsAll['total']++;
+                $salesIncAll += $pvInc; $salesExAll += $pvEx;
+                $commIncAll  += $cInc;  $commExAll  += $cEx;
+            }
         }
 
         $dealsCountAll = (int)($countsAll['total'] ?? 0);
@@ -595,8 +601,9 @@ class WorksheetController extends Controller
         ];
 
         foreach ($pipelineNotPaidDeals as $d) {
-            $pipelineNotPaidAllTimeCounts['total']++;
             $stage = $stageOf($d);
+            if ($stage === 'declined') continue; // Declined deals excluded from pipeline
+            $pipelineNotPaidAllTimeCounts['total']++;
             $pipelineNotPaidAllTimeCounts[$stage] = ($pipelineNotPaidAllTimeCounts[$stage] ?? 0) + 1;
         }
 
@@ -635,25 +642,25 @@ class WorksheetController extends Controller
         $stageCommExAll   = ['pending'=>0.0,'granted'=>0.0,'registered'=>0.0,'declined'=>0.0];
 
         foreach ($dealsAll as $d) {
-            $countsAll['total']++;
-
             $stage = $stageOf($d);
             $countsAll[$stage] = ($countsAll[$stage] ?? 0) + 1;
 
             $pvInc = (float)($d->property_value ?? 0);
-            $pvEx = $pvInc; // Sale price is not VAT-rated; keep ex-VAT sales equal to sale price
-
+            $pvEx = $pvInc;
 
             $cInc = (float)($d->total_commission ?? 0);
             $cEx  = $vatDiv > 0 ? ($cInc / $vatDiv) : 0.0;
-
-            $salesIncAll += $pvInc; $salesExAll += $pvEx;
-            $commIncAll  += $cInc;  $commExAll  += $cEx;
 
             $stageSalesIncAll[$stage] += $pvInc;
             $stageSalesExAll[$stage]  += $pvEx;
             $stageCommIncAll[$stage]  += $cInc;
             $stageCommExAll[$stage]   += $cEx;
+
+            if ($stage !== 'declined') {
+                $countsAll['total']++;
+                $salesIncAll += $pvInc; $salesExAll += $pvEx;
+                $commIncAll  += $cInc;  $commExAll  += $cEx;
+            }
         }
 
         $dealsCountAll = (int)($countsAll['total'] ?? 0);
@@ -694,8 +701,9 @@ class WorksheetController extends Controller
         ];
 
         foreach ($pipeDeals as $d) {
-            $pipelineNotPaidAllTimeCounts['total']++;
             $stage = $stageOf($d);
+            if ($stage === 'declined') continue; // Declined deals excluded from pipeline
+            $pipelineNotPaidAllTimeCounts['total']++;
             $pipelineNotPaidAllTimeCounts[$stage] = ($pipelineNotPaidAllTimeCounts[$stage] ?? 0) + 1;
         }
 

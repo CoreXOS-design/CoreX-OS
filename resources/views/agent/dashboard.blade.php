@@ -87,7 +87,7 @@
 
     <div class="space-y-6">
         {{-- HERO / MOTIVATION --}}
-        <div class="card">
+        <div class="ds-status-card">
             <div class="flex flex-col gap-4">
                 <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div>
@@ -192,7 +192,7 @@
             </div>
         </div>
 
-<div class="card">
+<div class="ds-status-card">
                 <h3 class="ds-section-header mb-4">Your Actuals</h3>
                     <div class="text-xs text-gray-500 -mt-2 mb-4">What you’ve done so far — updated from Deals + Daily Activity + Points.</div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -250,7 +250,7 @@
         </div>
 
                 {{-- YOU vs BRANCH vs COMPANY (WOW scorecards, totals only) --}}
-        <div class="card">
+        <div class="ds-status-card">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="ds-section-header">You vs Branch vs Company</h3>
                 <div class="text-xs text-gray-500">Totals only (privacy safe)</div>
@@ -391,7 +391,7 @@
             </div>
         </div>
 
-        <div class="card">
+        <div class="ds-status-card">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="ds-section-header">Momentum — last 7 days</h3>
                 <div class="text-xs text-gray-500">Points per day + streak (no JS)</div>

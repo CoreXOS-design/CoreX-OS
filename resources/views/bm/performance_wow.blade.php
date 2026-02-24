@@ -80,8 +80,9 @@
         @endif
 
         {{-- TOP SCOREBOARD (TV-friendly) --}}
+        <h2 class="ds-section-header">Branch Scoreboard</h2>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="card">
+            <div class="ds-status-card">
                 <div class="ds-label">Branch Points</div>
                 <div class="ds-value-xl">
                     {{ number_format($pointsActual, 0) }}
@@ -93,7 +94,7 @@
                 <div class="mt-2 ds-value">Progress {{ number_format($pointsPct, 1) }}%</div>
             </div>
 
-            <div class="card">
+            <div class="ds-status-card">
                 <div class="ds-label">Today</div>
                 <div class="ds-value-xl">{{ number_format($todayPoints, 0) }}</div>
                 <div class="ds-label mt-1">points captured</div>
@@ -102,7 +103,7 @@
                 </div>
             </div>
 
-            <div class="card">
+            <div class="ds-status-card">
                 <div class="ds-label">Coaching Number</div>
                 <div class="ds-value-xl">{{ number_format($pointsPerDayNeeded, 1) }}</div>
                 <div class="ds-label mt-1">points needed per day</div>
@@ -111,7 +112,7 @@
                 </div>
             </div>
 
-            <div class="card">
+            <div class="ds-status-card">
                 <div class="ds-label">Days Left</div>
                 <div class="ds-value-xl">{{ $daysLeft }}</div>
                 <div class="ds-label mt-1">this month</div>
@@ -121,7 +122,7 @@
         {{-- INTERVENTION NOW --}}
         <div class="ds-section-header">Intervention Now</div>
         <div class="ds-section-sub mb-4">Agents behind pace — focus here first.</div>
-        <div class="card">
+        <div class="ds-status-card">
             <div class="flex items-center justify-between gap-4 flex-wrap">
                 <div class="text-sm text-gray-700">
                     Rule of thumb: <span class="font-bold">Behind</span> = needs action today.
@@ -156,7 +157,7 @@
 
         {{-- MOMENTUM + TODAY --}}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="card">
+            <div class="ds-status-card">
                 <div class="ds-section-header" style="font-size:1.25rem">Momentum (last 7 days)</div>
                 <div class="ds-section-sub">Quick pulse — are we accelerating?</div>
 
@@ -177,7 +178,7 @@
                 </div>
             </div>
 
-            <div class="card">
+            <div class="ds-status-card">
                 <div class="ds-section-header" style="font-size:1.25rem">Today Breakdown</div>
                 <div class="ds-section-sub">What was loaded today (counts). Points already included above.</div>
 
@@ -199,7 +200,7 @@
         {{-- Branch Targets (BM-set) --}}
         <div class="ds-section-header">Branch Targets (BM controls)</div>
         <div class="ds-section-sub mb-4">These are branch-level goals. Agent targets below should sum close to this — if not, it highlights misalignment (agents set lower/higher targets).</div>
-        <div class="card">
+        <div class="ds-status-card">
             <div class="flex items-center justify-end gap-4 flex-wrap">
                 <form method="POST" action="{{ route('bm.performance.save') }}" class="flex items-center gap-2 flex-wrap">
                     @csrf
@@ -233,7 +234,7 @@
         {{-- Excel-style Agents table — ENHANCED (status + pace) --}}
         <div class="ds-section-header">Agents (targets vs actuals)</div>
         <div class="ds-section-sub mb-4">Management view: pace + status + intervention cues.</div>
-        <div class="card overflow-hidden">
+        <div class="ds-status-card overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="ds-table min-w-full text-sm">
                     <thead>

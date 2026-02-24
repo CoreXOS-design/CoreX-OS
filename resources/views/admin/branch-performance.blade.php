@@ -66,6 +66,7 @@
 
         <!-- ADMIN_BRANCH_STATUS_TILES -->
         <div class="space-y-3">
+            <h2 class="ds-section-header">Deal Status</h2>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <a href="/admin/deals?status=Declined&period={{ $r['period'] ?? now()->format('Y-m') }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-status-declined">
@@ -96,6 +97,7 @@
                 </a>
             </div>
 
+            <h2 class="ds-section-header">Outstanding Commission</h2>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <a href="/admin/deals?status=Pending&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-money-pending">
@@ -125,6 +127,7 @@
 
         <!-- ADMIN_BRANCH_STATUS_TILES -->
         <div class="space-y-3">
+            <h2 class="ds-section-header">Deal Status</h2>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <a href="/admin/deals?status=Declined&period={{ $r['period'] ?? now()->format('Y-m') }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-status-declined">
@@ -155,6 +158,7 @@
                 </a>
             </div>
 
+            <h2 class="ds-section-header">Outstanding Commission</h2>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <a href="/admin/deals?status=Pending&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block">
                     <div class="ds-status-card ds-money-pending">
@@ -186,7 +190,7 @@
         <div class="ds-section-sub">
             Targets are based on what agents planned for the month (agent target sum).
         </div>
-        <div class="card">
+        <div class="ds-status-card">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div class="rounded-2xl border border-black/10 bg-gray-50 p-4">
                     <div class="ds-label">Branch Value (Actual / Agent-Sum Target)</div>
@@ -220,7 +224,7 @@
             <span class="font-semibold">Team retained</span> = what your branch agents produced (BM reality).
             <span class="font-semibold">Ledger retained</span> = deals recorded against this branch.
         </div>
-        <div class="card">
+        <div class="ds-status-card">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
 
                 {{-- TEAM --}}
@@ -291,7 +295,7 @@
         {{-- Agents (drilldown to agent detail) --}}
         <div class="ds-section-header">Agents</div>
         <div class="ds-section-sub">Click an agent to drill down.</div>
-        <div class="card">
+        <div class="ds-status-card">
             <div class="rounded-2xl border border-black/10 bg-gray-50 overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="ds-table min-w-full text-sm">

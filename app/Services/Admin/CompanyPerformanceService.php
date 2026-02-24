@@ -239,6 +239,7 @@ $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
             if (!empty($allocUserIds)) {
                 $allocRows = DB::table('deal_user')
                     ->join('deals','deals.id','=','deal_user.deal_id')
+                    ->leftJoin('users','users.id','=','deal_user.user_id')
                     ->whereIn('deal_user.user_id', $allocUserIds)
                     ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
                     ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
@@ -247,6 +248,8 @@ $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
                         'deal_user.deal_id',
                         'deal_user.side',
                         'deal_user.agent_split_percent',
+                        'deal_user.agent_cut_percent',
+                        'users.agent_cut_percent as user_default_cut_percent',
                         'deals.total_commission',
                         'deals.listing_external',
                         'deals.listing_our_share_percent',
@@ -264,12 +267,20 @@ $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
                     }
 
                     $sideIncomeExVat = (float) CommissionCalculator::companyIncomeExVatForSide($ar, $ar->side ?? null);
-                    $split = (float)($ar->agent_split_percent ?? 0);
-                    if ($split < 0) $split = 0;
-                    if ($split > 100) $split = 100;
 
-                    $agentIncome = round($sideIncomeExVat * ($split / 100.0), 2);
-                    $companyRetained = round($sideIncomeExVat - $agentIncome, 2);
+                    // Tier 2: agent's share of the side pool
+                    $allocPct = (float)($ar->agent_split_percent ?? 0);
+                    if ($allocPct < 0) $allocPct = 0;
+                    if ($allocPct > 100) $allocPct = 100;
+                    $allocation = round($sideIncomeExVat * ($allocPct / 100.0), 2);
+
+                    // Tier 3: agent/company split (pivot → user default → 0)
+                    $cutPct = (float)($ar->agent_cut_percent ?? $ar->user_default_cut_percent ?? 0);
+                    if ($cutPct < 0) $cutPct = 0;
+                    if ($cutPct > 100) $cutPct = 100;
+
+                    $agentIncome = round($allocation * ($cutPct / 100.0), 2);
+                    $companyRetained = round($allocation - $agentIncome, 2);
 
                     $allocByUser[$uid]['company_income'] += $sideIncomeExVat;
                     $allocByUser[$uid]['agent_income'] += $agentIncome;
@@ -441,7 +452,8 @@ foreach ($rows as &$r) {
                     ->select(
                         'deal_user.side',
                         'deal_user.agent_split_percent',
-                        'users.agent_cut_percent as user_default_split_percent',
+                        'deal_user.agent_cut_percent',
+                        'users.agent_cut_percent as user_default_cut_percent',
                         'deals.total_commission',
                         'deals.listing_external',
                         'deals.listing_our_share_percent',
@@ -453,14 +465,23 @@ foreach ($rows as &$r) {
 
                 foreach ($ledgerRows as $lr) {
                     $sideIncome = (float) CommissionCalculator::companyIncomeExVatForSide($lr, $lr->side ?? null);
-                    $split = $lr->agent_split_percent;
-                    if ($split === null || $split === '') {
-                        $split = $lr->user_default_split_percent;
+
+                    // Tier 2: agent's share of the side pool
+                    $allocPct = (float)($lr->agent_split_percent ?? 0);
+                    if ($allocPct < 0) $allocPct = 0;
+                    if ($allocPct > 100) $allocPct = 100;
+                    $allocation = round($sideIncome * ($allocPct / 100.0), 2);
+
+                    // Tier 3: agent/company split (pivot → user default → 0)
+                    $cutPct = $lr->agent_cut_percent;
+                    if ($cutPct === null || $cutPct === '') {
+                        $cutPct = $lr->user_default_cut_percent;
                     }
-                    $split = (float)($split ?? 0);
-                    if ($split < 0) $split = 0;
-                    if ($split > 100) $split = 100;
-                    $ledgerAgent += round($sideIncome * ($split / 100.0), 2);
+                    $cutPct = (float)($cutPct ?? 0);
+                    if ($cutPct < 0) $cutPct = 0;
+                    if ($cutPct > 100) $cutPct = 100;
+
+                    $ledgerAgent += round($allocation * ($cutPct / 100.0), 2);
                 }
 
                 $b['actuals']['ledger_agent_income'] = round($ledgerAgent, 2);
@@ -696,7 +717,8 @@ foreach ($rows as &$r) {
                     'deal_user.user_id',
                     'deal_user.side',
                     'deal_user.agent_split_percent',
-                    'users.agent_cut_percent as user_default_split_percent',
+                    'deal_user.agent_cut_percent',
+                    'users.agent_cut_percent as user_default_cut_percent',
                     'deals.total_commission',
                     'deals.listing_external',
                     'deals.listing_our_share_percent',
@@ -709,14 +731,23 @@ foreach ($rows as &$r) {
 
             foreach ($ledgerRows as $lr) {
                 $sideIncomeExVat = (float) CommissionCalculator::companyIncomeExVatForSide($lr, $lr->side ?? null);
-                $split = $lr->agent_split_percent;
-                if ($split === null || $split === '') {
-                    $split = $lr->user_default_split_percent;
+
+                // Tier 2: agent's share of the side pool
+                $allocPct = (float)($lr->agent_split_percent ?? 0);
+                if ($allocPct < 0) $allocPct = 0;
+                if ($allocPct > 100) $allocPct = 100;
+                $allocation = round($sideIncomeExVat * ($allocPct / 100.0), 2);
+
+                // Tier 3: agent/company split (pivot → user default → 0)
+                $cutPct = $lr->agent_cut_percent;
+                if ($cutPct === null || $cutPct === '') {
+                    $cutPct = $lr->user_default_cut_percent;
                 }
-                $split = (float)($split ?? 0);
-                if ($split < 0) $split = 0;
-                if ($split > 100) $split = 100;
-                $ledgerAgentIncomeTotal += round($sideIncomeExVat * ($split / 100.0), 2);
+                $cutPct = (float)($cutPct ?? 0);
+                if ($cutPct < 0) $cutPct = 0;
+                if ($cutPct > 100) $cutPct = 100;
+
+                $ledgerAgentIncomeTotal += round($allocation * ($cutPct / 100.0), 2);
             }
 
             $ledgerAgentIncomeTotal = round($ledgerAgentIncomeTotal, 2);
