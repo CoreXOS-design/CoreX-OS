@@ -257,7 +257,8 @@
 }
 
 .dp-inline-toolbar select { width: 90px; }
-.dp-inline-toolbar select.dp-named-field-select { width: 120px; margin-left: 4px; }
+.dp-inline-toolbar select.dp-named-field-select { width: 120px; margin-left: 4px; background-color: #1e293b; color: #fff; }
+.dp-inline-toolbar select.dp-named-field-select option { background: #1e293b; color: #fff; }
 .dp-inline-toolbar input[type="number"] { width: 48px; }
 
 .dp-inline-toolbar button {
