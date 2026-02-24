@@ -150,6 +150,21 @@
     z-index: 5;
 }
 
+/* Named field badge */
+.dp-named-badge {
+    position: absolute;
+    top: -16px;
+    left: 0;
+    background: #00b4d8;
+    color: #fff;
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 25;
+}
+
 /* Field type background colours */
 .dp-field[data-type="placeholder"]   { background: rgba(59,130,246,0.25); }
 .dp-field[data-type="strikethrough"] { background: rgba(239,68,68,0.25); }
@@ -242,6 +257,7 @@
 }
 
 .dp-inline-toolbar select { width: 90px; }
+.dp-inline-toolbar select.dp-named-field-select { width: 120px; margin-left: 4px; }
 .dp-inline-toolbar input[type="number"] { width: 48px; }
 
 .dp-inline-toolbar button {

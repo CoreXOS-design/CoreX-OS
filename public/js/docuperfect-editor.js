@@ -206,6 +206,14 @@
         el.style.width  = field.size.width + '%';
         el.style.height = field.size.height + '%';
 
+        // Named field badge (visible at all times in both modes)
+        if (field.named_field_id) {
+            var nBadge = document.createElement('div');
+            nBadge.className = 'dp-named-badge';
+            nBadge.textContent = field.named_field_name || 'Linked';
+            el.appendChild(nBadge);
+        }
+
         if (C.mode === 'template') {
             buildTemplateField(field, el);
         } else {
@@ -482,6 +490,40 @@
         if (style.solidBackground) bgBtn.classList.add('active');
         bgBtn.addEventListener('click', function () { var s = ensureStyle(field); s.solidBackground = !s.solidBackground; isDirty = true; renderFieldsForPage(field.pageIndex); });
         bar.appendChild(bgBtn);
+
+        // Named Field dropdown (template mode only)
+        if (C.mode === 'template' && C.namedFields && C.namedFields.length > 0) {
+            var nfSel = document.createElement('select');
+            nfSel.className = 'dp-named-field-select';
+
+            var defOpt = document.createElement('option');
+            defOpt.value = '';
+            defOpt.textContent = 'Link field\u2026';
+            nfSel.appendChild(defOpt);
+
+            C.namedFields.forEach(function (nf) {
+                var o = document.createElement('option');
+                o.value = nf.id;
+                o.textContent = nf.name;
+                if (field.named_field_id && field.named_field_id == nf.id) o.selected = true;
+                nfSel.appendChild(o);
+            });
+
+            nfSel.addEventListener('change', function () {
+                if (this.value) {
+                    var selOpt = this.options[this.selectedIndex];
+                    field.named_field_id = parseInt(this.value);
+                    field.named_field_name = selOpt.textContent;
+                } else {
+                    delete field.named_field_id;
+                    delete field.named_field_name;
+                }
+                isDirty = true;
+                renderFieldsForPage(field.pageIndex);
+            });
+
+            bar.appendChild(nfSel);
+        }
 
         return bar;
     }
@@ -1099,7 +1141,7 @@
                 item.className = 'dp-quick-fill-item';
 
                 var label = document.createElement('label');
-                label.textContent = namedField ? namedField.label : 'Field #' + nfId;
+                label.textContent = namedField ? namedField.name : 'Field #' + nfId;
                 item.appendChild(label);
 
                 var input = document.createElement('input');
