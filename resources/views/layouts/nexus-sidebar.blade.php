@@ -2,7 +2,9 @@
     $currentPath = request()->path();
     $nexusSection = 'agency-tracker'; // default for all existing routes
 
-    if (str_starts_with($currentPath, 'documents/library')) {
+    if (str_starts_with($currentPath, 'docuperfect')) {
+        $nexusSection = 'docuperfect';
+    } elseif (str_starts_with($currentPath, 'documents/library')) {
         $nexusSection = 'document-library';
     } elseif ($currentPath === 'nexus' || $currentPath === 'nexus/') {
         $nexusSection = 'dashboard';
@@ -138,6 +140,28 @@
             <span>Client Portal</span>
             <svg class="nexus-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
         </a>
+        @endif
+
+        {{-- Docuperfect (expandable group) --}}
+        @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard'))
+        @php $dpExpanded = ($nexusSection === 'docuperfect'); @endphp
+        <div x-data="{ dpOpen: {{ $dpExpanded ? 'true' : 'false' }} }">
+            <button type="button" @click="dpOpen = !dpOpen" class="nexus-nav-item nexus-nav-group-toggle {{ $dpExpanded ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m0 0a2.625 2.625 0 1 1 5.25 0" />
+                </svg>
+                <span>Documents</span>
+                <svg class="nexus-chevron transition-transform duration-200" :class="dpOpen && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="dpOpen" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="nexus-nav-children">
+                <a href="{{ route('docuperfect.dashboard') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.dashboard') ? 'active' : '' }}">My Documents</a>
+                @if($navIsAdmin || $navIsBM)
+                <a href="{{ route('docuperfect.templates.index') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Templates</a>
+                @endif
+                <a href="{{ route('docuperfect.clauses.index') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.clauses.*') ? 'active' : '' }}">Clause Library</a>
+            </div>
+        </div>
         @endif
 
         {{-- Franchise Admin --}}
