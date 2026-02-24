@@ -50,10 +50,10 @@ class CompanyPerformanceLegacyReader
             ->get()
             ->keyBy('id');
 
-        // Fetch deal_user rows for these deals (side + agent_split_percent only)
+        // Fetch deal_user rows for these deals (3-tier: allocation + cut)
         $duRows = DB::table('deal_user')
             ->whereIn('deal_id', $dealIds)
-            ->select('deal_id', 'user_id', 'side', 'agent_split_percent')
+            ->select('deal_id', 'user_id', 'side', 'agent_split_percent', 'agent_cut_percent')
             ->get();
 
         $map = [];
@@ -77,8 +77,9 @@ class CompanyPerformanceLegacyReader
             ];
         }
 
-        // Aggregate agent income per deal from deal_user rows
-        // Matches legacy Block 1: sideIncome * agent_split_percent / 100, no fallback split
+        // Aggregate agent income per deal from deal_user rows (3-tier model)
+        // Tier 2: allocation = sideIncome × agent_split_percent / 100
+        // Tier 3: agentIncome = allocation × agent_cut_percent / 100
         foreach ($duRows as $ar) {
             $dealId = (int) $ar->deal_id;
             if (!isset($map[$dealId])) {
@@ -91,11 +92,19 @@ class CompanyPerformanceLegacyReader
             }
 
             $sideIncome = CommissionCalculator::companyIncomeExVatForSide($deal, $ar->side ?? null);
-            $split      = (float) ($ar->agent_split_percent ?? 0);
+
+            // Tier 2: agent's share of the side pool
+            $split = (float) ($ar->agent_split_percent ?? 0);
             if ($split < 0)   $split = 0.0;
             if ($split > 100) $split = 100.0;
 
-            $agentIncome = round($sideIncome * ($split / 100.0), 2);
+            // Tier 3: agent/company split (what agent keeps)
+            $cut = (float) ($ar->agent_cut_percent ?? 0);
+            if ($cut < 0)   $cut = 0.0;
+            if ($cut > 100) $cut = 100.0;
+
+            $allocation  = round($sideIncome * ($split / 100.0), 2);
+            $agentIncome = round($allocation * ($cut / 100.0), 2);
 
             $uid = (int) $ar->user_id;
             $map[$dealId]['agent_income_total']              += $agentIncome;

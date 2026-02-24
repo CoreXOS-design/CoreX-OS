@@ -33,6 +33,7 @@ class CompanyRollupLegacyReader
             ->select(
                 'deal_user.side',
                 'deal_user.agent_split_percent',
+                'deal_user.agent_cut_percent',
                 'deals.total_commission',
                 'deals.listing_external',
                 'deals.listing_our_share_percent',
@@ -47,11 +48,19 @@ class CompanyRollupLegacyReader
 
         foreach ($rows as $ar) {
             $sideIncome = CommissionCalculator::companyIncomeExVatForSide($ar, $ar->side ?? null);
-            $split      = (float) ($ar->agent_split_percent ?? 0);
+
+            // Tier 2: agent's share of the side pool
+            $split = (float) ($ar->agent_split_percent ?? 0);
             if ($split < 0)   $split = 0.0;
             if ($split > 100) $split = 100.0;
 
-            $total += round($sideIncome * ($split / 100.0), 2);
+            // Tier 3: agent/company split (what agent keeps)
+            $cut = (float) ($ar->agent_cut_percent ?? 0);
+            if ($cut < 0)   $cut = 0.0;
+            if ($cut > 100) $cut = 100.0;
+
+            $allocation = round($sideIncome * ($split / 100.0), 2);
+            $total += round($allocation * ($cut / 100.0), 2);
         }
 
         return ['team_agent_income_ex_vat' => round($total, 2)];

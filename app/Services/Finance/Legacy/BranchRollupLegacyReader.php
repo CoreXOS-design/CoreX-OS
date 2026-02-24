@@ -37,6 +37,7 @@ class BranchRollupLegacyReader
                 'users.branch_id',
                 'deal_user.side',
                 'deal_user.agent_split_percent',
+                'deal_user.agent_cut_percent',
                 'deals.total_commission',
                 'deals.listing_external',
                 'deals.listing_our_share_percent',
@@ -52,11 +53,19 @@ class BranchRollupLegacyReader
         foreach ($rows as $ar) {
             $branchId   = (int) $ar->branch_id;
             $sideIncome = CommissionCalculator::companyIncomeExVatForSide($ar, $ar->side ?? null);
-            $split      = (float) ($ar->agent_split_percent ?? 0);
+
+            // Tier 2: agent's share of the side pool
+            $split = (float) ($ar->agent_split_percent ?? 0);
             if ($split < 0)   $split = 0.0;
             if ($split > 100) $split = 100.0;
 
-            $agentIncome = round($sideIncome * ($split / 100.0), 2);
+            // Tier 3: agent/company split (what agent keeps)
+            $cut = (float) ($ar->agent_cut_percent ?? 0);
+            if ($cut < 0)   $cut = 0.0;
+            if ($cut > 100) $cut = 100.0;
+
+            $allocation  = round($sideIncome * ($split / 100.0), 2);
+            $agentIncome = round($allocation * ($cut / 100.0), 2);
 
             if (!isset($result[$branchId])) {
                 $result[$branchId] = ['team_agent_income_ex_vat' => 0.0];
