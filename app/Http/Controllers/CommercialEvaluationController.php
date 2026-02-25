@@ -10,6 +10,8 @@ use App\Models\CommercialEvaluationUnit;
 use App\Models\CommercialEvaluationCrop;
 use App\Models\CommercialEvaluationLivestock;
 use App\Models\Branch;
+use App\Services\CommercialEvaluation\CommercialEvaluationService;
+use App\Services\CommercialEvaluation\CommercialEvaluationPdfService;
 use Illuminate\Http\Request;
 
 class CommercialEvaluationController extends Controller
@@ -615,22 +617,60 @@ class CommercialEvaluationController extends Controller
     }
 
     // ══════════════════════════════════════════
-    //  Run Evaluation (Phase 2 placeholder)
+    //  Run Evaluation
     // ══════════════════════════════════════════
 
     public function evaluate(CommercialEvaluation $evaluation)
     {
+        $service = new CommercialEvaluationService();
+        $result  = $service->evaluate($evaluation);
+
+        $evaluation->update([
+            'evaluation_json'       => $result,
+            'recommended_range_low' => $result['recommended']['low'],
+            'recommended_range_mid' => $result['recommended']['mid'],
+            'recommended_range_high'=> $result['recommended']['high'],
+            'primary_method'        => $result['recommended']['primary_method'],
+            'evaluated_at'          => now(),
+        ]);
+
+        $methodCount = count($result['methods_used'] ?? []);
+
         return redirect()->route('commercial-evaluations.show', $evaluation)
-            ->with('info', 'Evaluation engine coming in Phase 2.');
+            ->with('success', "Market evaluation complete — {$methodCount} method(s) applied.");
     }
 
     // ══════════════════════════════════════════
-    //  PDF Download (Phase 2 placeholder)
+    //  PDF Download
     // ══════════════════════════════════════════
 
     public function downloadPdf(CommercialEvaluation $evaluation)
     {
-        return redirect()->route('commercial-evaluations.show', $evaluation)
-            ->with('info', 'PDF download coming in Phase 2.');
+        // Run evaluation if not already done
+        if (!$evaluation->evaluated_at) {
+            $service = new CommercialEvaluationService();
+            $result  = $service->evaluate($evaluation);
+
+            $evaluation->update([
+                'evaluation_json'       => $result,
+                'recommended_range_low' => $result['recommended']['low'],
+                'recommended_range_mid' => $result['recommended']['mid'],
+                'recommended_range_high'=> $result['recommended']['high'],
+                'primary_method'        => $result['recommended']['primary_method'],
+                'evaluated_at'          => now(),
+            ]);
+        }
+
+        $pdfService = new CommercialEvaluationPdfService();
+        $html       = $pdfService->generate($evaluation);
+
+        $filename = 'Commercial_Evaluation_'
+            . preg_replace('/[^A-Za-z0-9_-]/', '_', $evaluation->property_name ?? 'Report')
+            . '_' . now()->format('Y-m-d')
+            . '.html';
+
+        return response($html, 200, [
+            'Content-Type' => 'text/html; charset=UTF-8',
+        ]);
     }
 }

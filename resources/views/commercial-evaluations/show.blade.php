@@ -1086,33 +1086,529 @@
     {{-- ═══════════════════════════════════════════
          EVALUATION RESULTS
     ═══════════════════════════════════════════ --}}
-    <div class="ds-status-card mb-6">
-        <div class="px-5 py-4">
-            <h3 class="text-sm font-semibold text-gray-700 mb-3">Evaluation Results</h3>
-            @if($evaluation->evaluated_at)
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-                    <div class="p-3 bg-gray-50 rounded-lg text-center">
-                        <span class="text-xs text-gray-400 block mb-1">Low</span>
-                        <span class="text-lg font-bold text-gray-800 font-mono">{{ $formatZar($evaluation->recommended_range_low) }}</span>
-                    </div>
-                    <div class="p-3 bg-emerald-50 rounded-lg text-center border border-emerald-200">
-                        <span class="text-xs text-emerald-600 block mb-1">Mid (Recommended)</span>
-                        <span class="text-lg font-bold text-emerald-700 font-mono">{{ $formatZar($evaluation->recommended_range_mid) }}</span>
-                    </div>
-                    <div class="p-3 bg-gray-50 rounded-lg text-center">
-                        <span class="text-xs text-gray-400 block mb-1">High</span>
-                        <span class="text-lg font-bold text-gray-800 font-mono">{{ $formatZar($evaluation->recommended_range_high) }}</span>
+    @if($evaluation->evaluated_at && $evaluation->evaluation_json)
+        @php
+            $ej = $evaluation->evaluation_json;
+            $rec = $ej['recommended'] ?? [];
+            $methods = $ej['methods'] ?? [];
+            $methodsUsed = $ej['methods_used'] ?? [];
+            $methodsSkipped = $ej['methods_skipped'] ?? [];
+
+            $methodLabels = [
+                'income_capitalisation' => 'Income Capitalisation',
+                'comparable_sales'      => 'Comparable Sales',
+                'revenue_multiple'      => 'Revenue / Income Multiple',
+                'asset_based'           => 'Asset-Based / Cost Approach',
+                'productive_value'      => 'Agricultural Productive Value',
+                'gross_rent_multiplier' => 'Gross Rent Multiplier',
+            ];
+
+            $methodDescriptions = [
+                'income_capitalisation' => 'NOI divided by capitalisation rate — the primary method for income-producing properties.',
+                'comparable_sales'      => 'Based on recent sales of similar properties in the area.',
+                'revenue_multiple'      => 'Applies industry revenue/EBITDA multiples to gross income.',
+                'asset_based'           => 'Replacement cost of land + buildings + assets, less depreciation.',
+                'productive_value'      => 'Values the farm based on productive capacity of crops and livestock.',
+                'gross_rent_multiplier' => 'Quick-check method: annual rent × GRM factor.',
+            ];
+
+            $confidenceColors = [
+                'high'     => 'bg-emerald-100 text-emerald-700',
+                'moderate' => 'bg-amber-100 text-amber-700',
+                'low'      => 'bg-red-100 text-red-700',
+            ];
+
+            // Helper to determine card border color based on deviation from recommendation
+            $recMid = $rec['mid'] ?? 0;
+            $cardBorder = function(string $key, array $m) use ($rec, $recMid, $formatZar) {
+                if ($key === ($rec['primary_method'] ?? '')) return 'border-l-4 border-l-blue-500';
+                $mid = 0;
+                if (isset($m['evaluation_mid'])) $mid = $m['evaluation_mid'];
+                elseif ($key === 'asset_based' && isset($m['total'])) $mid = $m['total'];
+                elseif ($key === 'revenue_multiple') $mid = $m['evaluation_ebitda'][1] ?? $m['evaluation_revenue'][1] ?? 0;
+                elseif ($key === 'gross_rent_multiplier') $mid = $m['evaluation'][1] ?? 0;
+                if ($mid <= 0 || $recMid <= 0) return 'border-l-4 border-l-gray-200';
+                $dev = abs($mid - $recMid) / $recMid;
+                if ($dev <= 0.15) return 'border-l-4 border-l-emerald-400';
+                if ($dev <= 0.30) return 'border-l-4 border-l-amber-400';
+                return 'border-l-4 border-l-red-400';
+            };
+        @endphp
+
+        {{-- Summary Card --}}
+        <div class="ds-status-card mb-6" style="border-top:3px solid #0b2a4a;">
+            <div class="px-5 py-4">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold text-gray-700">Recommended Market Evaluation</h3>
+                    <div class="flex items-center gap-2">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ $confidenceColors[$rec['confidence'] ?? 'low'] ?? 'bg-gray-100 text-gray-600' }}">
+                            {{ ucfirst($rec['confidence'] ?? 'unknown') }} confidence
+                        </span>
+                        <span class="text-xs text-gray-400">{{ $evaluation->evaluated_at->format('Y-m-d H:i') }}</span>
                     </div>
                 </div>
-                <p class="text-xs text-gray-400">Primary method: {{ $evaluation->primary_method ?? '—' }} | Evaluated {{ $evaluation->evaluated_at->format('Y-m-d H:i') }}</p>
-            @else
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div class="p-4 bg-gray-50 rounded-lg text-center">
+                        <span class="text-xs text-gray-400 block mb-1">Conservative</span>
+                        <span class="text-xl font-bold text-gray-800 font-mono">{{ $formatZar($rec['low'] ?? null) }}</span>
+                    </div>
+                    <div class="p-4 bg-emerald-50 rounded-lg text-center border-2 border-emerald-300">
+                        <span class="text-xs text-emerald-600 font-semibold block mb-1">Market Evaluation</span>
+                        <span class="text-xl font-bold text-emerald-700 font-mono">{{ $formatZar($rec['mid'] ?? null) }}</span>
+                    </div>
+                    <div class="p-4 bg-gray-50 rounded-lg text-center">
+                        <span class="text-xs text-gray-400 block mb-1">Optimistic</span>
+                        <span class="text-xl font-bold text-gray-800 font-mono">{{ $formatZar($rec['high'] ?? null) }}</span>
+                    </div>
+                </div>
+
+                <div class="text-sm text-gray-600 mb-1">
+                    <strong>Primary method:</strong> {{ $methodLabels[$rec['primary_method'] ?? ''] ?? ($rec['primary_method'] ?? '—') }}
+                </div>
+                <p class="text-xs text-gray-400">{{ $rec['primary_reason'] ?? '' }}</p>
+                @if($rec['confidence_reason'] ?? false)
+                    <p class="text-xs text-gray-400 mt-0.5">Basis: {{ $rec['confidence_reason'] }}</p>
+                @endif
+            </div>
+        </div>
+
+        {{-- Method Comparison Bar --}}
+        @if(count($methodsUsed) >= 2)
+        @php
+            // Collect all method mid values for the comparison chart
+            $barData = [];
+            foreach ($methods as $mk => $mv) {
+                if (!$mv['applicable']) continue;
+                $mid = 0;
+                if (isset($mv['evaluation_mid'])) $mid = $mv['evaluation_mid'];
+                elseif ($mk === 'asset_based' && isset($mv['total'])) $mid = $mv['total'];
+                elseif ($mk === 'revenue_multiple') $mid = $mv['evaluation_ebitda'][1] ?? $mv['evaluation_revenue'][1] ?? 0;
+                elseif ($mk === 'gross_rent_multiplier') $mid = $mv['evaluation'][1] ?? 0;
+                if ($mid > 0) $barData[$mk] = $mid;
+            }
+            $barMax = !empty($barData) ? max($barData) : 1;
+        @endphp
+        <div class="ds-status-card mb-6">
+            <div class="px-5 py-4">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Method Comparison</h3>
+                <div class="space-y-2">
+                    @foreach($barData as $bk => $bv)
+                        <div class="flex items-center gap-3">
+                            <div class="w-40 text-xs text-gray-500 text-right truncate">{{ $methodLabels[$bk] ?? $bk }}</div>
+                            <div class="flex-1 bg-gray-100 rounded-full h-5 relative overflow-hidden">
+                                <div class="h-full rounded-full {{ $bk === ($rec['primary_method'] ?? '') ? 'bg-blue-500' : 'bg-[#00b4d8]' }}"
+                                     style="width:{{ round(($bv / $barMax) * 100) }}%"></div>
+                            </div>
+                            <div class="w-32 text-xs font-mono text-gray-700 text-right">{{ $formatZar($bv) }}</div>
+                        </div>
+                    @endforeach
+                    {{-- Recommended line --}}
+                    @if($recMid > 0)
+                        <div class="flex items-center gap-3 pt-1 border-t border-dashed border-gray-200">
+                            <div class="w-40 text-xs text-emerald-600 text-right font-semibold">Recommended</div>
+                            <div class="flex-1 bg-gray-100 rounded-full h-5 relative overflow-hidden">
+                                <div class="h-full rounded-full bg-emerald-500"
+                                     style="width:{{ round(($recMid / $barMax) * 100) }}%"></div>
+                            </div>
+                            <div class="w-32 text-xs font-mono text-emerald-700 text-right font-semibold">{{ $formatZar($recMid) }}</div>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
+        @endif
+
+        {{-- Individual Method Cards --}}
+        <div class="space-y-4 mb-6">
+
+            {{-- Income Capitalisation --}}
+            @if(($methods['income_capitalisation']['applicable'] ?? false))
+                @php $ic = $methods['income_capitalisation']; @endphp
+                <div class="ds-status-card {{ $cardBorder('income_capitalisation', $ic) }}">
+                    <div class="px-5 py-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-sm font-semibold text-gray-700">{{ $methodLabels['income_capitalisation'] }}</h4>
+                            @if('income_capitalisation' === ($rec['primary_method'] ?? ''))
+                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                            @endif
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">{{ $methodDescriptions['income_capitalisation'] }}</p>
+
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+                            <div>
+                                <span class="text-xs text-gray-400 block">Gross Income</span>
+                                <span class="font-mono font-medium">{{ $formatZar($ic['breakdown']['gross_income'] ?? null) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-400 block">Vacancy ({{ $ic['breakdown']['vacancy_rate'] ?? 0 }}%)</span>
+                                <span class="font-mono font-medium text-red-600">-{{ $formatZar($ic['breakdown']['vacancy_allowance'] ?? null) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-400 block">Operating Expenses</span>
+                                <span class="font-mono font-medium text-red-600">-{{ $formatZar($ic['breakdown']['operating_expenses'] ?? null) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-400 block">Net Operating Income</span>
+                                <span class="font-mono font-bold text-emerald-700">{{ $formatZar($ic['noi'] ?? null) }}</span>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="text-xs text-gray-400 mb-2">Cap Rate: {{ $ic['cap_rate_low'] }}% — {{ $ic['cap_rate_mid'] }}% — {{ $ic['cap_rate_high'] }}% &nbsp; <span class="text-gray-300">(FY {{ $ic['breakdown']['financial_year'] ?? '?' }})</span></div>
+                            <div class="grid grid-cols-3 gap-3 text-center">
+                                <div>
+                                    <span class="text-xs text-gray-400 block">@ {{ $ic['cap_rate_high'] }}% (Conservative)</span>
+                                    <span class="font-mono font-semibold text-sm">{{ $formatZar($ic['evaluation_low'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">@ {{ $ic['cap_rate_mid'] }}% (Mid)</span>
+                                    <span class="font-mono font-bold text-sm text-emerald-700">{{ $formatZar($ic['evaluation_mid'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">@ {{ $ic['cap_rate_low'] }}% (Optimistic)</span>
+                                    <span class="font-mono font-semibold text-sm">{{ $formatZar($ic['evaluation_high'] ?? null) }}</span>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-300 mt-2">Lower cap rate = higher perceived quality / lower risk</p>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Comparable Sales --}}
+            @if(($methods['comparable_sales']['applicable'] ?? false))
+                @php $cs = $methods['comparable_sales']; @endphp
+                <div class="ds-status-card {{ $cardBorder('comparable_sales', $cs) }}">
+                    <div class="px-5 py-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-sm font-semibold text-gray-700">{{ $methodLabels['comparable_sales'] }}</h4>
+                            @if('comparable_sales' === ($rec['primary_method'] ?? ''))
+                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                            @endif
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">{{ $methodDescriptions['comparable_sales'] }}</p>
+
+                        @php $metric = $cs['metric'] ?? 'price_per_m2'; @endphp
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+                            <div>
+                                <span class="text-xs text-gray-400 block">Comparables</span>
+                                <span class="font-medium">{{ $cs['comp_count'] ?? 0 }}</span>
+                            </div>
+                            @if($metric === 'price_per_m2')
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Avg R/m&sup2;</span>
+                                    <span class="font-mono font-medium">{{ $formatZar($cs['avg_price_per_m2'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Median R/m&sup2;</span>
+                                    <span class="font-mono font-medium">{{ $formatZar($cs['median_price_per_m2'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Subject Size</span>
+                                    <span class="font-medium">{{ number_format($cs['subject_size_m2'] ?? 0) }} m&sup2;</span>
+                                </div>
+                            @else
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Avg R/ha</span>
+                                    <span class="font-mono font-medium">{{ $formatZar($cs['avg_price_per_ha'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Median R/ha</span>
+                                    <span class="font-mono font-medium">{{ $formatZar($cs['median_price_per_ha'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Subject Size</span>
+                                    <span class="font-medium">{{ number_format($cs['subject_size_ha'] ?? 0, 2) }} ha</span>
+                                </div>
+                            @endif
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="grid grid-cols-3 gap-3 text-center">
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Low</span>
+                                    <span class="font-mono font-semibold text-sm">{{ $formatZar($cs['evaluation_low'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Average</span>
+                                    <span class="font-mono font-bold text-sm text-emerald-700">{{ $formatZar($cs['evaluation_mid'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">High</span>
+                                    <span class="font-mono font-semibold text-sm">{{ $formatZar($cs['evaluation_high'] ?? null) }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if($cs['note'] ?? false)
+                            <p class="text-xs text-amber-600 mt-2">{{ $cs['note'] }}</p>
+                        @endif
+                    </div>
+                </div>
+            @endif
+
+            {{-- Revenue / Income Multiple --}}
+            @if(($methods['revenue_multiple']['applicable'] ?? false))
+                @php $rm = $methods['revenue_multiple']; @endphp
+                <div class="ds-status-card {{ $cardBorder('revenue_multiple', $rm) }}">
+                    <div class="px-5 py-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-sm font-semibold text-gray-700">{{ $methodLabels['revenue_multiple'] }}</h4>
+                            @if('revenue_multiple' === ($rec['primary_method'] ?? ''))
+                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                            @endif
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">{{ $methodDescriptions['revenue_multiple'] }}</p>
+
+                        @if(isset($rm['evaluation_revenue']))
+                            <div class="mb-3">
+                                <div class="text-xs text-gray-500 font-medium mb-1">Revenue Multiple (Gross Revenue: {{ $formatZar($rm['gross_revenue'] ?? null) }})</div>
+                                <div class="bg-gray-50 rounded-lg p-3">
+                                    <div class="text-xs text-gray-400 mb-2">Multiple: {{ $rm['revenue_multiple_range'][0] ?? '?' }}× — {{ $rm['revenue_multiple_range'][1] ?? '?' }}× — {{ $rm['revenue_multiple_range'][2] ?? '?' }}×</div>
+                                    <div class="grid grid-cols-3 gap-3 text-center">
+                                        <div>
+                                            <span class="text-xs text-gray-400 block">Low</span>
+                                            <span class="font-mono font-semibold text-sm">{{ $formatZar($rm['evaluation_revenue'][0] ?? null) }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-xs text-gray-400 block">Mid</span>
+                                            <span class="font-mono font-bold text-sm">{{ $formatZar($rm['evaluation_revenue'][1] ?? null) }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-xs text-gray-400 block">High</span>
+                                            <span class="font-mono font-semibold text-sm">{{ $formatZar($rm['evaluation_revenue'][2] ?? null) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
+                        @if(isset($rm['evaluation_ebitda']))
+                            <div>
+                                <div class="text-xs text-gray-500 font-medium mb-1">EBITDA Multiple (EBITDA: {{ $formatZar($rm['ebitda'] ?? null) }})</div>
+                                <div class="bg-gray-50 rounded-lg p-3">
+                                    <div class="text-xs text-gray-400 mb-2">Multiple: {{ $rm['ebitda_multiple_range'][0] ?? '?' }}× — {{ $rm['ebitda_multiple_range'][1] ?? '?' }}× — {{ $rm['ebitda_multiple_range'][2] ?? '?' }}×</div>
+                                    <div class="grid grid-cols-3 gap-3 text-center">
+                                        <div>
+                                            <span class="text-xs text-gray-400 block">Low</span>
+                                            <span class="font-mono font-semibold text-sm">{{ $formatZar($rm['evaluation_ebitda'][0] ?? null) }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-xs text-gray-400 block">Mid</span>
+                                            <span class="font-mono font-bold text-sm text-emerald-700">{{ $formatZar($rm['evaluation_ebitda'][1] ?? null) }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-xs text-gray-400 block">High</span>
+                                            <span class="font-mono font-semibold text-sm">{{ $formatZar($rm['evaluation_ebitda'][2] ?? null) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            @endif
+
+            {{-- Asset-Based / Cost Approach --}}
+            @if(($methods['asset_based']['applicable'] ?? false))
+                @php $ab = $methods['asset_based']; @endphp
+                <div class="ds-status-card {{ $cardBorder('asset_based', $ab) }}">
+                    <div class="px-5 py-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-sm font-semibold text-gray-700">{{ $methodLabels['asset_based'] }}</h4>
+                            @if('asset_based' === ($rec['primary_method'] ?? ''))
+                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                            @endif
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">{{ $methodDescriptions['asset_based'] }}</p>
+
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <table class="w-full text-sm">
+                                <tbody>
+                                    <tr class="border-b border-gray-100">
+                                        <td class="py-1.5 text-gray-500">Land Value</td>
+                                        <td class="py-1.5 text-right font-mono">{{ $formatZar($ab['land_value'] ?? null) }}</td>
+                                    </tr>
+                                    <tr class="border-b border-gray-100">
+                                        <td class="py-1.5 text-gray-500">Building Replacement ({{ number_format($ab['building_m2'] ?? 0) }} m&sup2; @ R {{ number_format($ab['building_cost_per_m2'] ?? 0) }}/m&sup2;)</td>
+                                        <td class="py-1.5 text-right font-mono">{{ $formatZar($ab['building_replacement'] ?? null) }}</td>
+                                    </tr>
+                                    <tr class="border-b border-gray-100">
+                                        <td class="py-1.5 text-gray-500">Less: Depreciation ({{ round(($ab['depreciation_rate'] ?? 0) * 100) }}% — {{ ucfirst($ab['condition'] ?? 'fair') }})</td>
+                                        <td class="py-1.5 text-right font-mono text-red-600">-{{ $formatZar($ab['depreciation'] ?? null) }}</td>
+                                    </tr>
+                                    <tr class="border-b border-gray-100">
+                                        <td class="py-1.5 text-gray-500">Movable Assets</td>
+                                        <td class="py-1.5 text-right font-mono">{{ $formatZar($ab['movable_assets'] ?? null) }}</td>
+                                    </tr>
+                                    @if(($ab['goodwill'] ?? 0) > 0)
+                                    <tr class="border-b border-gray-100">
+                                        <td class="py-1.5 text-gray-500">Goodwill (2 years net profit)</td>
+                                        <td class="py-1.5 text-right font-mono">{{ $formatZar($ab['goodwill'] ?? null) }}</td>
+                                    </tr>
+                                    @endif
+                                    <tr class="font-bold">
+                                        <td class="py-2 text-gray-800">Total Asset-Based Evaluation</td>
+                                        <td class="py-2 text-right font-mono text-emerald-700">{{ $formatZar($ab['total'] ?? null) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Agricultural Productive Value --}}
+            @if(($methods['productive_value']['applicable'] ?? false))
+                @php $pv = $methods['productive_value']; @endphp
+                <div class="ds-status-card {{ $cardBorder('productive_value', $pv) }}">
+                    <div class="px-5 py-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-sm font-semibold text-gray-700">{{ $methodLabels['productive_value'] }}</h4>
+                            @if('productive_value' === ($rec['primary_method'] ?? ''))
+                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                            @endif
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">{{ $methodDescriptions['productive_value'] }}</p>
+
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm mb-3">
+                            <div>
+                                <span class="text-xs text-gray-400 block">Crop Revenue</span>
+                                <span class="font-mono font-medium">{{ $formatZar($pv['crop_revenue'] ?? null) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-400 block">Crop Costs</span>
+                                <span class="font-mono font-medium text-red-600">-{{ $formatZar($pv['crop_cost'] ?? null) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-400 block">Crop Net Income</span>
+                                <span class="font-mono font-bold">{{ $formatZar($pv['crop_net_income'] ?? null) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-400 block">Livestock Revenue</span>
+                                <span class="font-mono font-medium">{{ $formatZar($pv['livestock_revenue'] ?? null) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-400 block">Livestock Costs</span>
+                                <span class="font-mono font-medium text-red-600">-{{ $formatZar($pv['livestock_cost'] ?? null) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-xs text-gray-400 block">Net Farm Income</span>
+                                <span class="font-mono font-bold text-emerald-700">{{ $formatZar($pv['total_net_farm_income'] ?? null) }}</span>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-3 mb-3">
+                            <div class="text-xs text-gray-400 mb-2">Capitalised at {{ $pv['required_return_rate'] ?? '?' }}% required return</div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Arable ({{ number_format($pv['arable_ha'] ?? 0, 1) }} ha)</span>
+                                    <span class="font-mono text-xs">{{ $formatZar($pv['arable_land_value'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Grazing ({{ number_format($pv['grazing_ha'] ?? 0, 1) }} ha)</span>
+                                    <span class="font-mono text-xs">{{ $formatZar($pv['grazing_land_value'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Productive Value</span>
+                                    <span class="font-mono text-xs">{{ $formatZar($pv['productive_value'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Livestock Capital</span>
+                                    <span class="font-mono text-xs">{{ $formatZar($pv['livestock_capital'] ?? null) }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="grid grid-cols-3 gap-3 text-center">
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Low</span>
+                                    <span class="font-mono font-semibold text-sm">{{ $formatZar($pv['evaluation_low'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Mid</span>
+                                    <span class="font-mono font-bold text-sm text-emerald-700">{{ $formatZar($pv['evaluation_mid'] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">High</span>
+                                    <span class="font-mono font-semibold text-sm">{{ $formatZar($pv['evaluation_high'] ?? null) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Gross Rent Multiplier --}}
+            @if(($methods['gross_rent_multiplier']['applicable'] ?? false))
+                @php $grm = $methods['gross_rent_multiplier']; @endphp
+                <div class="ds-status-card {{ $cardBorder('gross_rent_multiplier', $grm) }}">
+                    <div class="px-5 py-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-sm font-semibold text-gray-700">{{ $methodLabels['gross_rent_multiplier'] }}</h4>
+                            @if('gross_rent_multiplier' === ($rec['primary_method'] ?? ''))
+                                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Primary Method</span>
+                            @endif
+                        </div>
+                        <p class="text-xs text-gray-400 mb-3">{{ $methodDescriptions['gross_rent_multiplier'] }}</p>
+
+                        <div class="text-sm mb-3">
+                            <span class="text-xs text-gray-400">Annual Rental Income:</span>
+                            <span class="font-mono font-medium ml-1">{{ $formatZar($grm['annual_rent'] ?? null) }}</span>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="text-xs text-gray-400 mb-2">GRM: {{ $grm['grm_range'][0] ?? '?' }}× — {{ $grm['grm_range'][1] ?? '?' }}× — {{ $grm['grm_range'][2] ?? '?' }}×</div>
+                            <div class="grid grid-cols-3 gap-3 text-center">
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Low ({{ $grm['grm_range'][0] ?? '?' }}×)</span>
+                                    <span class="font-mono font-semibold text-sm">{{ $formatZar($grm['evaluation'][0] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">Mid ({{ $grm['grm_range'][1] ?? '?' }}×)</span>
+                                    <span class="font-mono font-bold text-sm text-emerald-700">{{ $formatZar($grm['evaluation'][1] ?? null) }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-xs text-gray-400 block">High ({{ $grm['grm_range'][2] ?? '?' }}×)</span>
+                                    <span class="font-mono font-semibold text-sm">{{ $formatZar($grm['evaluation'][2] ?? null) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Skipped Methods --}}
+            @if(!empty($methodsSkipped))
+                <div class="ds-status-card">
+                    <div class="px-5 py-3">
+                        <h4 class="text-xs font-semibold text-gray-400 mb-2">Methods Not Applied</h4>
+                        <div class="space-y-1">
+                            @foreach($methodsSkipped as $sk => $reason)
+                                <div class="text-xs text-gray-400">
+                                    <span class="font-medium text-gray-500">{{ $methodLabels[$sk] ?? $sk }}:</span> {{ $reason }}
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+            @endif
+        </div>
+
+    @else
+        {{-- No evaluation yet --}}
+        <div class="ds-status-card mb-6">
+            <div class="px-5 py-4">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">Evaluation Results</h3>
                 <div class="text-center py-6">
                     <p class="text-sm text-gray-400 mb-3">No evaluation has been run yet.</p>
                     <p class="text-xs text-gray-300">Add financial data and comparable sales, then click "Run Evaluation" above.</p>
                 </div>
-            @endif
+            </div>
         </div>
-    </div>
+    @endif
 
 </div>
 @endsection
