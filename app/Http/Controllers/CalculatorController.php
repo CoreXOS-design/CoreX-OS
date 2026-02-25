@@ -11,10 +11,63 @@ class CalculatorController extends Controller
     public function index()
     {
         $primeRate = (float) PerformanceSetting::get('sa_prime_rate', 11.75);
+        $feeInfo = PropertyCostService::getFeeScaleInfo();
 
         return view('calculators.index', [
             'primeRate' => $primeRate,
+            'feeEffectiveDate' => $feeInfo['effective_date'],
+            'feeSourceDocument' => $feeInfo['source_document'],
         ]);
+    }
+
+    public function uploadFeeSheet(Request $request)
+    {
+        if (!auth()->user()->isEffectiveAdmin()) {
+            abort(403);
+        }
+
+        $request->validate([
+            'fee_sheet' => 'required|file|mimes:pdf|max:10240',
+            'effective_date' => 'nullable|date',
+        ]);
+
+        try {
+            $path = $request->file('fee_sheet')->store('fee-sheets', 'local');
+            $fullPath = storage_path('app/' . $path);
+
+            $parser = new \App\Services\FeeSheetParserService();
+            $parsed = $parser->parse($fullPath);
+
+            $effectiveDate = $request->input('effective_date', now()->format('Y-m-d'));
+            $filename = $request->file('fee_sheet')->getClientOriginalName();
+
+            foreach (['conveyancing', 'deeds_office', 'transfer_duty'] as $type) {
+                if (!empty($parsed[$type])) {
+                    \DB::table('calculator_fee_scales')->insert([
+                        'type' => $type,
+                        'brackets' => json_encode($parsed[$type]),
+                        'source_document' => $filename,
+                        'effective_date' => $effectiveDate,
+                        'additional_costs_note' => $parsed['additional_costs'] ?? null,
+                        'uploaded_by' => auth()->id(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
+            PropertyCostService::clearCache();
+
+            return back()->with('fee_upload_success',
+                "Fee scales updated from {$filename}. " .
+                "Parsed: " . count($parsed['conveyancing']) . " conveyancing brackets, " .
+                count($parsed['deeds_office']) . " deeds office brackets."
+            );
+        } catch (\Throwable $e) {
+            return back()->with('fee_upload_error',
+                "Failed to parse fee sheet: " . $e->getMessage()
+            );
+        }
     }
 
     public function calculateCommission(Request $request)
@@ -72,26 +125,6 @@ class CalculatorController extends Controller
             'total_repaid_plus_1' => round($monthlyPlus1 * $years * 12, 2),
             'monthly_plus_2' => round($monthlyPlus2, 2),
             'total_repaid_plus_2' => round($monthlyPlus2 * $years * 12, 2),
-        ]);
-    }
-
-    public function calculateTransferDuty(Request $request)
-    {
-        $data = $request->validate([
-            'purchase_price' => 'required|numeric|min:0',
-        ]);
-
-        $price = (float) $data['purchase_price'];
-        $duty = PropertyCostService::calcTransferDuty($price);
-        $effectiveRate = $price > 0 ? ($duty / $price) * 100 : 0;
-
-        $bracket = PropertyCostService::getTransferDutyBracket($price);
-
-        return response()->json([
-            'ok' => true,
-            'transfer_duty' => round($duty, 2),
-            'effective_rate' => round($effectiveRate, 2),
-            'bracket' => $bracket,
         ]);
     }
 

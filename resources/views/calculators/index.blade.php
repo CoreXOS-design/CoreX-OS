@@ -6,8 +6,44 @@
     {{-- Navy Header --}}
     <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 mb-6">
         <h2 class="text-xl font-bold text-white leading-tight">Calculators</h2>
-        <div class="text-sm text-white/60">Commission, bond repayments, transfer duty, costs & overpayment savings</div>
+        <div class="text-sm text-white/60">Commission, bond repayments, transfer costs & overpayment savings</div>
     </div>
+
+    {{-- Admin: Fee Scale Management --}}
+    @if(auth()->user()->isEffectiveAdmin())
+    <div class="ds-status-card mb-6">
+        <div class="ds-section-header" style="margin-bottom:0.5rem;">Fee Scale Management (Admin)</div>
+        <p class="text-sm text-slate-500 mb-3">
+            Upload the annual attorney cost sheet to update all calculator fees.
+            Current fees effective: <strong>{{ $feeEffectiveDate ?? 'Default' }}</strong>
+            | Source: <strong>{{ $feeSourceDocument ?? 'Built-in defaults' }}</strong>
+        </p>
+        <form action="{{ route('calculators.uploadFeeSheet') }}" method="POST"
+              enctype="multipart/form-data" class="flex items-end gap-4 flex-wrap">
+            @csrf
+            <div>
+                <label class="ds-label block mb-1">Cost Sheet PDF</label>
+                <input type="file" name="fee_sheet" accept=".pdf" required
+                       class="border border-slate-300 rounded px-3 py-2 text-sm">
+            </div>
+            <div>
+                <label class="ds-label block mb-1">Effective Date</label>
+                <input type="date" name="effective_date"
+                       value="{{ date('Y-01-01') }}"
+                       class="border border-slate-300 rounded px-3 py-2 text-sm">
+            </div>
+            <button type="submit" class="nexus-btn-primary px-4 py-2 text-sm font-semibold rounded-lg">
+                Upload & Update Fees
+            </button>
+        </form>
+        @if(session('fee_upload_success'))
+            <div class="mt-3 text-green-600 text-sm font-medium">{{ session('fee_upload_success') }}</div>
+        @endif
+        @if(session('fee_upload_error'))
+            <div class="mt-3 text-red-600 text-sm font-medium">{{ session('fee_upload_error') }}</div>
+        @endif
+    </div>
+    @endif
 
     {{-- 2-column grid --}}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -113,38 +149,7 @@
             </div>
         </div>
 
-        {{-- CARD 3: Transfer Duty --}}
-        <div class="ds-status-card flex flex-col" style="min-height: 420px;">
-            <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Transfer Duty</h3>
-
-            <div class="space-y-3 flex-1">
-                <div>
-                    <label class="ds-label block mb-1">Purchase Price</label>
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-semibold text-gray-500">R</span>
-                        <input type="text" x-model="duty.purchasePrice" @input="formatInput($event)" placeholder="e.g. 2,500,000"
-                               class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-cyan-500 focus:outline-none" />
-                    </div>
-                </div>
-
-                <button type="button" @click="calcTransferDuty()" class="nexus-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
-                    Calculate
-                </button>
-            </div>
-
-            {{-- Results --}}
-            <div x-show="duty.result" x-transition class="mt-4 pt-4 border-t border-slate-200 space-y-2">
-                <div class="flex justify-between items-baseline">
-                    <span class="ds-label">Transfer Duty</span>
-                    <span class="ds-value-lg" x-text="'R ' + fmt(duty.result?.transfer_duty)"></span>
-                </div>
-                <div class="flex justify-between"><span class="ds-label">Effective rate</span><span class="ds-value" x-text="duty.result?.effective_rate?.toFixed(2) + '%'"></span></div>
-                <div class="mt-2 text-xs text-gray-600 bg-gray-50 rounded-lg p-2" x-text="duty.result?.bracket"></div>
-                <div class="text-xs text-gray-500 mt-2">Transfer duty paid by the BUYER. Properties under R1,210,000 = R0 duty. (2025 brackets, effective 1 March 2025)</div>
-            </div>
-        </div>
-
-        {{-- CARD 4: Transfer & Bond Cost Calculator --}}
+        {{-- CARD 3: Transfer & Bond Cost Calculator --}}
         <div class="ds-status-card flex flex-col" style="min-height: 420px;">
             <h3 class="ds-section-header" style="margin-bottom:0.75rem;">Transfer & Bond Costs</h3>
 
@@ -225,7 +230,7 @@
                     </div>
                 </div>
 
-                <div class="text-xs text-gray-500 mt-2">Fees based on Van Dyk & Swart Inc. — Guideline Tariff 2025. Actual fees may vary by attorney. Additional costs apply (bank fees, FICA, certificates — see above).</div>
+                <div class="text-xs text-amber-700 bg-amber-50 rounded p-2 mt-3">These are ESTIMATES based on guideline tariffs. Actual costs vary by attorney. Always request a formal quotation from your conveyancer. Fees based on Van Dyk & Swart Inc. — Guideline Tariff 2025.</div>
             </div>
         </div>
 
@@ -376,10 +381,6 @@ function calculatorsApp() {
             termYears: 20,
             result: null,
         },
-        duty: {
-            purchasePrice: '',
-            result: null,
-        },
         costs: {
             purchasePrice: '',
             needsBond: true,
@@ -447,13 +448,6 @@ function calculatorsApp() {
                 term_years: parseInt(this.bond.termYears) || 20,
             });
             if (res.ok) this.bond.result = res;
-        },
-
-        async calcTransferDuty() {
-            const res = await this.post('{{ route("calculators.transferDuty") }}', {
-                purchase_price: this.parseAmount(this.duty.purchasePrice),
-            });
-            if (res.ok) this.duty.result = res;
         },
 
         async calcTransferCosts() {
