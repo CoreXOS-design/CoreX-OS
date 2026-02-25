@@ -8,6 +8,7 @@ use App\Models\KnowledgeDocument;
 use App\Services\AI\DocumentProcessingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class KnowledgeController extends Controller
 {
@@ -132,5 +133,93 @@ class KnowledgeController extends Controller
         }, 'category', 'uploader'])->findOrFail($documentId);
 
         return view('admin.knowledge.preview', compact('document'));
+    }
+
+    public function storeCategory(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string|max:2000',
+            'icon' => 'nullable|string|max:100',
+        ]);
+
+        $maxOrder = KnowledgeCategory::max('sort_order') ?? 0;
+
+        KnowledgeCategory::create([
+            'name' => $request->input('name'),
+            'slug' => Str::slug($request->input('name')),
+            'description' => $request->input('description'),
+            'icon' => $request->input('icon'),
+            'sort_order' => $maxOrder + 1,
+        ]);
+
+        return redirect()->back()->with('status', 'Category created successfully.');
+    }
+
+    public function updateCategory(Request $request, $id)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string|max:2000',
+            'icon' => 'nullable|string|max:100',
+        ]);
+
+        $category = KnowledgeCategory::findOrFail($id);
+        $category->update([
+            'name' => $request->input('name'),
+            'slug' => Str::slug($request->input('name')),
+            'description' => $request->input('description'),
+            'icon' => $request->input('icon'),
+        ]);
+
+        return redirect()->back()->with('status', "Category '{$category->name}' updated.");
+    }
+
+    public function deleteCategory($id)
+    {
+        $category = KnowledgeCategory::withCount('documents')->findOrFail($id);
+
+        if ($category->documents_count > 0) {
+            return redirect()->back()->with('error', "Cannot delete — category '{$category->name}' has {$category->documents_count} document(s). Move or delete them first.");
+        }
+
+        $name = $category->name;
+        $category->delete();
+
+        return redirect()->back()->with('status', "Category '{$name}' deleted.");
+    }
+
+    public function reorderCategories(Request $request)
+    {
+        // Swap two categories' sort_order (from arrow buttons)
+        if ($request->has('swap')) {
+            $request->validate([
+                'swap' => 'required|array|size:2',
+                'swap.*' => 'required|integer|exists:knowledge_categories,id',
+            ]);
+
+            $ids = $request->input('swap');
+            $a = KnowledgeCategory::findOrFail($ids[0]);
+            $b = KnowledgeCategory::findOrFail($ids[1]);
+
+            $tmpOrder = $a->sort_order;
+            $a->update(['sort_order' => $b->sort_order]);
+            $b->update(['sort_order' => $tmpOrder]);
+
+            return response()->json(['success' => true]);
+        }
+
+        // Bulk reorder (from drag-drop or programmatic)
+        $request->validate([
+            'order' => 'required|array',
+            'order.*.id' => 'required|integer|exists:knowledge_categories,id',
+            'order.*.sort_order' => 'required|integer|min:0',
+        ]);
+
+        foreach ($request->input('order') as $item) {
+            KnowledgeCategory::where('id', $item['id'])->update(['sort_order' => $item['sort_order']]);
+        }
+
+        return response()->json(['success' => true]);
     }
 }
