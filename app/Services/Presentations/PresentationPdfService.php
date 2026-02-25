@@ -53,7 +53,7 @@ class PresentationPdfService
     {
         // Load the presentation with all relations
         $presentation = Presentation::with([
-            'fields', 'soldComps', 'activeListings', 'links',
+            'fields', 'soldComps', 'activeListings', 'links', 'articles',
         ])->findOrFail($version->presentation_id);
 
         // Get the agent who created this presentation
@@ -1701,6 +1701,56 @@ a:hover { text-decoration: underline; }
 <?php endif ?>
 
 <?php endif // end simulator page ?>
+
+<?php // ══════════════════════════════════════════════════════════════════════
+      // MARKET NEWS & ARTICLES (conditional — only if articles attached)
+      // ══════════════════════════════════════════════════════════════════════ ?>
+<?php
+    $pdfArticles = $presentation->articles;
+    if ($pdfArticles->isNotEmpty()):
+?>
+<div class="page-break"></div>
+<div class="section-header">
+    <span class="section-number">&bull;</span>
+    <h2>Market Context</h2>
+</div>
+
+<p style="font-size:11px;color:var(--text-muted);margin-bottom:16px;">
+    Relevant market news and commentary supporting this analysis.
+</p>
+
+<?php foreach ($pdfArticles as $pdfArticle):
+    $artTags   = $pdfArticle->tags_json ?? [];
+    $artTitle  = $esc($artTags['title'] ?? '');
+    $artSource = $esc($artTags['source'] ?? 'Unknown source');
+    $artDate   = '';
+    if (!empty($artTags['published_at'])) {
+        try { $artDate = (new \DateTimeImmutable($artTags['published_at']))->format('d M Y'); } catch (\Throwable) {}
+    }
+    $artSummary = $pdfArticle->ai_summary_text ?? $pdfArticle->snapshot_text ?? '';
+    $artUrl     = $pdfArticle->url ?? '';
+?>
+<div class="avoid-break" style="background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:12px;">
+    <?php if ($artTitle): ?>
+    <h3 style="font-size:12px;font-weight:700;color:var(--brand);margin-bottom:4px;line-height:1.4;"><?= $artTitle ?></h3>
+    <?php endif ?>
+    <p style="font-size:9px;color:var(--text-light);margin-bottom:8px;">
+        <?= $artSource ?><?= $artDate ? ' &middot; ' . $artDate : '' ?>
+    </p>
+    <?php if ($artSummary): ?>
+    <p style="font-size:11px;color:var(--text);line-height:1.6;margin-bottom:6px;">
+        <?= $esc(mb_substr($artSummary, 0, 500)) ?>
+    </p>
+    <?php endif ?>
+    <?php if ($artUrl): ?>
+    <p style="font-size:8.5px;color:var(--text-light);word-break:break-all;">
+        <a href="<?= $esc($artUrl) ?>" style="color:var(--brand-light);text-decoration:none;"><?= $esc($artUrl) ?></a>
+    </p>
+    <?php endif ?>
+</div>
+<?php endforeach ?>
+
+<?php endif // end articles ?>
 
 <div style="margin-top:24px;padding:20px;background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;text-align:center;">
     <p style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:6px;">
