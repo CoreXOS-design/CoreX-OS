@@ -5,7 +5,6 @@ namespace App\Services\Presentations\Analytics;
 use App\Models\P24Listing;
 use App\Models\P24Suburb;
 use App\Models\Presentation;
-use App\Support\SuburbMapper;
 use Carbon\Carbon;
 
 /**
@@ -34,9 +33,8 @@ class AbsorptionInflowService
             return $this->emptyResult('Missing suburb or asking price on presentation.');
         }
 
-        // Build list of target suburb names (presentation suburb + nearby suburbs via town mapping)
+        // Build list of target suburb names (presentation suburb + nearby suburbs)
         $targetSuburbs = $this->resolveTargetSuburbs($suburb);
-        $townLabel = SuburbMapper::townLabel($suburb);
 
         // Map presentation property_type to P24 property_type values
         $targetTypes = $this->mapPropertyTypes($propertyType);
@@ -128,7 +126,6 @@ class AbsorptionInflowService
             'has_data'               => true,
             'total_p24_listings'     => $totalP24Listings,
             'target_suburbs'         => $targetSuburbs,
-            'town_label'             => $townLabel,
             'target_types'           => $targetTypes,
             'price_range'            => ['low' => $priceLow, 'high' => $priceHigh],
             'count_7d'               => $count7d,
@@ -179,25 +176,26 @@ class AbsorptionInflowService
     }
 
     /**
-     * Resolve target suburbs using town-level expansion (SuburbMapper first, P24Suburb fallback).
-     *
-     * SuburbMapper gives us all suburbs in the same town (e.g., Manaba Beach → all Margate-area suburbs).
-     * P24Suburb provides surrounding suburbs from portal data as a secondary source.
+     * Resolve a list of suburb names to match against, including nearby suburbs.
      */
     private function resolveTargetSuburbs(string $suburb): array
     {
-        // Primary: town-level expansion via SuburbMapper
-        $targets = SuburbMapper::expandToTownArea($suburb);
+        $targets = [$suburb];
 
-        // Secondary: P24 surrounding suburbs (may include areas the mapper doesn't have)
         $record = P24Suburb::lookup($suburb);
-        if ($record) {
-            $surroundingIds = $record->surrounding_ids;
-            if (!empty($surroundingIds) && is_array($surroundingIds)) {
-                $p24Surrounding = P24Suburb::whereIn('p24_id', $surroundingIds)->pluck('name')->toArray();
-                $targets = array_merge($targets, $p24Surrounding);
-            }
+        if (!$record) {
+            return $targets;
         }
+
+        // Get surrounding suburb IDs
+        $surroundingIds = $record->surrounding_ids;
+        if (empty($surroundingIds) || !is_array($surroundingIds)) {
+            return $targets;
+        }
+
+        // Look up surrounding suburb names by p24_id
+        $surrounding = P24Suburb::whereIn('p24_id', $surroundingIds)->pluck('name')->toArray();
+        $targets = array_merge($targets, $surrounding);
 
         return array_unique($targets);
     }
