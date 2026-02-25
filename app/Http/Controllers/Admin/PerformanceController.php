@@ -135,9 +135,16 @@ class PerformanceController extends Controller
                 $q->whereNull('expires_at')
                   ->orWhere('expires_at', '>', now());
             })
+            ->whereNotNull('branch_id')
             ->with(['branch:id,name', 'creator:id,name'])
             ->orderBy('branch_id')
             ->get();
+
+        // Active company TV code (branch_id IS NULL)
+        $companyTvCode = \App\Models\TvAccessCode::forCompany()
+            ->active()
+            ->with(['creator:id,name'])
+            ->first();
 
         $branches = \App\Models\Branch::orderBy('name')->get(['id', 'name']);
 
@@ -145,6 +152,7 @@ class PerformanceController extends Controller
             'rollup' => $rollup,
             'listingStats' => $listingStats,
             'tvCodes' => $tvCodes,
+            'companyTvCode' => $companyTvCode,
             'branches' => $branches,
 'statusSummary' => $statusSummary,
         ]);

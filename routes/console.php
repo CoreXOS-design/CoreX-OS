@@ -31,3 +31,6 @@ Artisan::command('rentals:test-inclusion {branchId} {periodStart} {periodEnd}', 
 
 // P24 alert email import — runs hourly
 Schedule::command('p24:import')->hourly();
+
+// Article pool scraper — runs daily
+Schedule::command('articles:scrape')->daily();

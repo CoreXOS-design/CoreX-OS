@@ -240,6 +240,347 @@
     </div>
     @endif
 
+    {{-- ── NEW LISTING INFLOW & ABSORPTION ──────────────────────────────── --}}
+    @php $inflow = $analysisData['inflow_absorption'] ?? []; @endphp
+    @if(!empty($inflow))
+    <div class="ds-status-card mb-4" style="border-left-color: var(--ds-cyan);" id="inflow-absorption">
+        <h3 class="ds-section-header">New Listing Inflow &amp; Absorption</h3>
+
+        @if(empty($inflow['has_data']))
+            {{-- No data state --}}
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <p class="text-sm text-gray-500">
+                    No P24 alert data available yet.
+                    @if(!empty($inflow['reason']))
+                        {{ $inflow['reason'] }}
+                    @endif
+                    @if(($inflow['total_p24_listings'] ?? 0) === 0)
+                        Import P24 alert emails to see new listing inflow data.
+                    @endif
+                </p>
+            </div>
+        @else
+            {{-- Row 1: Period cards --}}
+            <div class="grid grid-cols-3 gap-3 mb-4">
+                <div class="bg-gray-50 rounded-lg p-3 text-center">
+                    <span class="text-xs text-gray-400 block">Last 7 Days</span>
+                    <p class="text-xl font-bold text-gray-800">{{ $inflow['count_7d'] }}</p>
+                    <span class="text-xs text-gray-400">new listings</span>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-3 text-center">
+                    <span class="text-xs text-gray-400 block">Last 30 Days</span>
+                    <p class="text-xl font-bold text-gray-800">{{ $inflow['count_30d'] }}</p>
+                    <span class="text-xs text-gray-400">new listings</span>
+                </div>
+                <div class="bg-sky-50 rounded-lg p-3 text-center ring-1 ring-sky-200">
+                    <span class="text-xs text-[#38bfe0] block">Last 90 Days</span>
+                    <p class="text-xl font-bold text-[#0b2a4a]">{{ $inflow['count_90d'] }}</p>
+                    <span class="text-xs text-[#38bfe0]">new listings</span>
+                </div>
+            </div>
+
+            {{-- Row 2: Inflow rate callout --}}
+            @if($inflow['new_listing_rate'] > 0)
+            <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-700">Average inflow rate</p>
+                        <p class="text-xs text-gray-400 mt-0.5">
+                            Based on {{ $inflow['count_90d'] }} similar listings over the past 90 days
+                        </p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-2xl font-bold text-[#0b2a4a]">{{ $inflow['new_listing_rate'] }}</p>
+                        <p class="text-xs text-gray-400">per month</p>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 mt-2">
+                    That's {{ number_format($inflow['new_listing_rate'] * 12, 0) }} new competing listings per year entering the market
+                </p>
+                @if(!empty($inflow['target_suburbs']))
+                <p class="text-xs text-gray-400 mt-1">
+                    Matching: {{ $inflow['town_label'] ?? implode(', ', $inflow['target_suburbs']) }}
+                    @if(!empty($inflow['target_types']))
+                        &middot; {{ implode('/', $inflow['target_types']) }}
+                    @endif
+                    @if(!empty($inflow['price_range']))
+                        &middot; R {{ number_format($inflow['price_range']['low']) }} &ndash; R {{ number_format($inflow['price_range']['high']) }}
+                    @endif
+                </p>
+                @endif
+            </div>
+            @endif
+
+            {{-- Row 3: Absorption impact --}}
+            @if($inflow['net_absorption'] !== null)
+            @php
+                $trendColor = match($inflow['stock_trend'] ?? '') {
+                    'growing'   => ['bg' => 'bg-red-50', 'border' => 'border-red-200', 'text' => 'text-red-700', 'badge' => 'bg-red-100 text-red-800'],
+                    'depleting' => ['bg' => 'bg-emerald-50', 'border' => 'border-emerald-200', 'text' => 'text-emerald-700', 'badge' => 'bg-emerald-100 text-emerald-800'],
+                    default     => ['bg' => 'bg-amber-50', 'border' => 'border-amber-200', 'text' => 'text-amber-700', 'badge' => 'bg-amber-100 text-amber-800'],
+                };
+                $trendLabel = match($inflow['stock_trend'] ?? '') {
+                    'growing'   => 'Stock Growing',
+                    'depleting' => 'Stock Depleting',
+                    default     => 'Stock Stable',
+                };
+            @endphp
+            <div class="grid grid-cols-1 gap-4 mb-4 md:grid-cols-2">
+                {{-- Left: Standard vs Adjusted --}}
+                <div class="{{ $trendColor['bg'] }} {{ $trendColor['border'] }} border rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <p class="text-xs font-semibold {{ $trendColor['text'] }} uppercase tracking-wide">Adjusted Absorption</p>
+                        <span class="text-xs px-2.5 py-1 rounded-full font-semibold {{ $trendColor['badge'] }}">{{ $trendLabel }}</span>
+                    </div>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Standard supply</span>
+                            <span class="font-medium text-gray-800">
+                                {{ $inflow['active_listings'] }} &divide; {{ $inflow['monthly_sales'] }}/mo
+                                @if(!empty($stock['months_of_supply']))
+                                    = {{ number_format($stock['months_of_supply'], 1) }} months
+                                @endif
+                            </span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Net absorption</span>
+                            <span class="font-medium {{ $trendColor['text'] }}">
+                                {{ $inflow['monthly_sales'] }} sold &minus; {{ $inflow['new_listing_rate'] }} new
+                                = {{ $inflow['net_absorption'] > 0 ? '+' : '' }}{{ $inflow['net_absorption'] }}/mo
+                            </span>
+                        </div>
+                        @if($inflow['adjusted_months_supply'] !== null)
+                        <div class="flex justify-between pt-1 border-t {{ $trendColor['border'] }}">
+                            <span class="text-gray-600 font-medium">Adjusted supply</span>
+                            <span class="font-bold {{ $trendColor['text'] }}">{{ $inflow['adjusted_months_supply'] }} months</span>
+                        </div>
+                        @endif
+                        @if($inflow['pool_after_3_months'] !== null)
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Pool after 3 months</span>
+                            <span class="font-medium {{ $trendColor['text'] }}">~{{ $inflow['pool_after_3_months'] }} properties</span>
+                        </div>
+                        @endif
+                    </div>
+                </div>
+
+                {{-- Right: Selling probability --}}
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Selling Probability</p>
+                    <div class="space-y-3">
+                        @if($inflow['monthly_probability'] !== null)
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-600">Monthly chance</span>
+                                <span class="font-bold text-gray-800">{{ $inflow['monthly_probability'] }}%</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="bg-[#00b4d8] h-2 rounded-full" style="width: {{ min($inflow['monthly_probability'], 100) }}%"></div>
+                            </div>
+                        </div>
+                        @endif
+                        @if($inflow['prob_3_months'] !== null)
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-600">3-month chance</span>
+                                <span class="font-bold text-gray-800">{{ $inflow['prob_3_months'] }}%</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="bg-[#0b2a4a] h-2 rounded-full" style="width: {{ min($inflow['prob_3_months'], 100) }}%"></div>
+                            </div>
+                        </div>
+                        @endif
+                        @if($inflow['adjusted_prob_3_months'] !== null && $inflow['adjusted_prob_3_months'] != $inflow['prob_3_months'])
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-gray-600">Adjusted 3-month <span class="text-xs text-gray-400">(with inflow)</span></span>
+                                <span class="font-bold {{ $inflow['adjusted_prob_3_months'] < ($inflow['prob_3_months'] ?? 0) ? 'text-red-600' : 'text-emerald-600' }}">{{ $inflow['adjusted_prob_3_months'] }}%</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div class="{{ $inflow['adjusted_prob_3_months'] < ($inflow['prob_3_months'] ?? 0) ? 'bg-red-400' : 'bg-emerald-400' }} h-2 rounded-full"
+                                     style="width: {{ min($inflow['adjusted_prob_3_months'], 100) }}%"></div>
+                            </div>
+                        </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+            @endif
+
+            {{-- Row 4: Key insight narrative --}}
+            @if(!empty($inflow['narrative']))
+            @php
+                $narrativeBg = match($inflow['stock_trend'] ?? '') {
+                    'growing'   => 'bg-red-50 border-red-200 text-red-800',
+                    'depleting' => 'bg-emerald-50 border-emerald-200 text-emerald-800',
+                    default     => 'bg-amber-50 border-amber-200 text-amber-800',
+                };
+            @endphp
+            <div class="{{ $narrativeBg }} border rounded-lg p-4">
+                <p class="text-sm font-medium leading-relaxed">{{ $inflow['narrative'] }}</p>
+            </div>
+            @endif
+
+            {{-- Data source note --}}
+            <p class="text-xs text-gray-400 mt-3">
+                Source: P24 alert email imports ({{ number_format($inflow['total_p24_listings']) }} total listings in database)
+            </p>
+        @endif
+    </div>
+    @endif
+
+    {{-- ── PROPCON LISTING PERFORMANCE ────────────────────────────────────── --}}
+    @php $propcon = $analysisData['propcon_insights'] ?? []; @endphp
+    @if(!empty($propcon))
+    <div class="ds-status-card mb-4" style="border-left-color: var(--ds-cyan);" id="propcon-insights">
+        <h3 class="ds-section-header">Listing Performance &mdash; Similar Properties</h3>
+
+        @if(empty($propcon['has_data']))
+            {{-- Empty state --}}
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <p class="text-sm text-gray-500">
+                    {{ $propcon['reason'] ?? 'No similar PropCon listings found matching your criteria.' }}
+                </p>
+            </div>
+        @else
+            {{-- Criteria label --}}
+            @if(!empty($propcon['criteria']))
+            <p class="text-xs text-gray-400 mb-3">
+                Matching: <span class="font-medium text-gray-500">{{ $propcon['criteria'] }}</span>
+                &middot; {{ $propcon['similar_count'] }} similar {{ $propcon['similar_count'] === 1 ? 'listing' : 'listings' }}
+            </p>
+            @endif
+
+            {{-- Row 1: Benchmark cards --}}
+            <div class="grid grid-cols-2 gap-3 mb-4 md:grid-cols-4">
+                <div class="bg-gray-50 rounded-lg p-3 text-center">
+                    <span class="text-xs text-gray-400 block">Avg Views</span>
+                    <p class="text-xl font-bold text-gray-800">{{ $propcon['avg_views'] !== null ? number_format($propcon['avg_views']) : '—' }}</p>
+                    @if($propcon['min_views'] !== null && $propcon['max_views'] !== null)
+                    <span class="text-xs text-gray-400">{{ number_format($propcon['min_views']) }} – {{ number_format($propcon['max_views']) }}</span>
+                    @endif
+                </div>
+                <div class="bg-gray-50 rounded-lg p-3 text-center">
+                    <span class="text-xs text-gray-400 block">Avg Buyer Matches</span>
+                    <p class="text-xl font-bold text-gray-800">{{ $propcon['avg_matches'] !== null ? number_format($propcon['avg_matches']) : '—' }}</p>
+                    @if($propcon['min_matches'] !== null && $propcon['max_matches'] !== null)
+                    <span class="text-xs text-gray-400">{{ $propcon['min_matches'] }} – {{ $propcon['max_matches'] }}</span>
+                    @endif
+                </div>
+                <div class="bg-gray-50 rounded-lg p-3 text-center">
+                    <span class="text-xs text-gray-400 block">Avg Days on Market</span>
+                    <p class="text-xl font-bold text-gray-800">{{ $propcon['avg_days_on_market'] !== null ? $propcon['avg_days_on_market'] . ' days' : '—' }}</p>
+                    @if($propcon['min_days'] !== null && $propcon['max_days'] !== null)
+                    <span class="text-xs text-gray-400">{{ $propcon['min_days'] }} – {{ $propcon['max_days'] }} days</span>
+                    @endif
+                </div>
+                <div class="bg-sky-50 rounded-lg p-3 text-center ring-1 ring-sky-200">
+                    <span class="text-xs text-[#38bfe0] block">Avg Views/Day</span>
+                    <p class="text-xl font-bold text-[#0b2a4a]">{{ $propcon['avg_views_per_day'] !== null ? $propcon['avg_views_per_day'] . '/day' : '—' }}</p>
+                </div>
+            </div>
+
+            {{-- Row 2: Similar listings table --}}
+            @if(!empty($propcon['listings']))
+            <div class="overflow-x-auto mb-4">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-xs text-gray-400 border-b">
+                            <th class="pb-2 pr-3 font-medium">Address</th>
+                            <th class="pb-2 pr-3 font-medium">Type</th>
+                            <th class="pb-2 pr-3 font-medium text-right">Price</th>
+                            <th class="pb-2 pr-3 font-medium text-center">Beds</th>
+                            <th class="pb-2 pr-3 font-medium text-right">Views</th>
+                            <th class="pb-2 pr-3 font-medium text-right">Matches</th>
+                            <th class="pb-2 pr-3 font-medium text-right">Days</th>
+                            <th class="pb-2 font-medium text-right">Views/Day</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        @foreach($propcon['listings'] as $row)
+                        <tr class="{{ $row['is_subject'] ? 'bg-sky-50 font-semibold' : 'hover:bg-gray-50' }}">
+                            <td class="py-2 pr-3 text-gray-800 text-xs max-w-[220px] truncate">
+                                {{ $row['address'] ?? '—' }}
+                                @if($row['is_subject'])
+                                    <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 font-medium">YOUR LISTING</span>
+                                @endif
+                            </td>
+                            <td class="py-2 pr-3 text-gray-600 text-xs">{{ $row['type'] ?? '—' }}</td>
+                            <td class="py-2 pr-3 text-right font-medium text-gray-800">
+                                @if($row['price'])
+                                    R {{ number_format($row['price']) }}
+                                @else
+                                    —
+                                @endif
+                            </td>
+                            <td class="py-2 pr-3 text-center text-gray-600">{{ $row['beds'] ?? '—' }}</td>
+                            <td class="py-2 pr-3 text-right text-gray-600">{{ $row['views'] !== null ? number_format($row['views']) : '—' }}</td>
+                            <td class="py-2 pr-3 text-right text-gray-600">{{ $row['matches'] ?? '—' }}</td>
+                            <td class="py-2 pr-3 text-right text-gray-600">{{ $row['days_on_market'] ?? '—' }}</td>
+                            <td class="py-2 text-right text-gray-600">{{ $row['views_per_day'] ?? '—' }}</td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            @endif
+
+            {{-- Subject property stats (if found) --}}
+            @if($propcon['subject_found'] && $propcon['subject_stats'])
+            @php $ss = $propcon['subject_stats']; @endphp
+            <div class="bg-sky-50 border border-sky-200 rounded-lg p-4 mb-4">
+                <p class="text-xs font-semibold text-sky-700 uppercase tracking-wide mb-2">Your Listing Performance</p>
+                <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+                    <div class="text-center">
+                        <span class="text-xs text-gray-400 block">Views</span>
+                        <p class="text-lg font-bold text-[#0b2a4a]">{{ $ss['views'] !== null ? number_format($ss['views']) : '—' }}</p>
+                        @if($ss['rank_views'])
+                        <span class="text-xs text-sky-600">{{ $ss['rank_views'] }}</span>
+                        @endif
+                    </div>
+                    <div class="text-center">
+                        <span class="text-xs text-gray-400 block">Matches</span>
+                        <p class="text-lg font-bold text-[#0b2a4a]">{{ $ss['matches'] ?? '—' }}</p>
+                        @if($ss['rank_matches'])
+                        <span class="text-xs text-sky-600">{{ $ss['rank_matches'] }}</span>
+                        @endif
+                    </div>
+                    <div class="text-center">
+                        <span class="text-xs text-gray-400 block">Days on Market</span>
+                        <p class="text-lg font-bold text-[#0b2a4a]">{{ $ss['days_on_market'] ?? '—' }}</p>
+                    </div>
+                    <div class="text-center">
+                        <span class="text-xs text-gray-400 block">Views/Day</span>
+                        <p class="text-lg font-bold text-[#0b2a4a]">{{ $ss['views_per_day'] ?? '—' }}</p>
+                    </div>
+                </div>
+            </div>
+            @endif
+
+            {{-- Row 3: Market signal insight bar --}}
+            @if(!empty($propcon['market_signal_text']))
+            @php
+                $signalStyle = match($propcon['market_signal'] ?? '') {
+                    'price_issue'       => 'bg-red-50 border-red-200 text-red-800',
+                    'visibility_issue'  => 'bg-amber-50 border-amber-200 text-amber-800',
+                    'healthy'           => 'bg-emerald-50 border-emerald-200 text-emerald-800',
+                    'new_listing'       => 'bg-blue-50 border-blue-200 text-blue-800',
+                    default             => 'bg-gray-50 border-gray-200 text-gray-800',
+                };
+            @endphp
+            <div class="{{ $signalStyle }} border rounded-lg p-4 mb-3">
+                <p class="text-sm font-medium leading-relaxed">{{ $propcon['market_signal_text'] }}</p>
+            </div>
+            @endif
+
+            {{-- Source note --}}
+            <p class="text-xs text-gray-400 mt-2">
+                Source: PropCon agency data &middot; {{ number_format($propcon['total_propcon_listings']) }} active listings in database &middot; Updated weekly
+            </p>
+        @endif
+    </div>
+    @endif
+
     {{-- ── PRICE POSITION & BRACKETS ─────────────────────────────────────── --}}
     @php
         $pricePos = $analysisData['price_position'] ?? [];

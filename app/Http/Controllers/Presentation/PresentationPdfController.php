@@ -7,7 +7,6 @@ use App\Models\Presentation;
 use App\Models\PresentationVersion;
 use App\Services\Presentations\PresentationPdfService;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -22,29 +21,33 @@ class PresentationPdfController extends Controller
     public function __construct(private readonly PresentationPdfService $pdfService) {}
 
     /**
-     * Serve the pack HTML inline in the browser for viewing/printing.
+     * Generate and download the market analysis as a real PDF file.
      *
      * GET /presentations/{presentation}/versions/{version}/pdf
      */
-    public function download(Request $request, Presentation $presentation, PresentationVersion $version): Response
+    public function download(Request $request, Presentation $presentation, PresentationVersion $version): BinaryFileResponse
     {
         abort_unless(config('features.presentation_pdf_v1', false), 404);
 
         // Ensure the version belongs to this presentation
         abort_if($version->presentation_id !== $presentation->id, 404);
 
-        $path = $this->pdfService->storagePath($version);
+        // Always regenerate HTML to ensure latest data/sections are included
+        $htmlStoragePath = $this->pdfService->generate($version);
 
-        // Regenerate if missing
-        if (!Storage::disk(PresentationPdfService::STORAGE_DISK)->exists($path)) {
-            $path = $this->pdfService->generate($version);
-        }
+        // Convert HTML to PDF via headless Edge/Chromium
+        $htmlFullPath = Storage::disk(PresentationPdfService::STORAGE_DISK)->path($htmlStoragePath);
+        $pdfPath = $this->convertHtmlToPdf($htmlFullPath);
 
-        $html = Storage::disk(PresentationPdfService::STORAGE_DISK)->get($path);
+        // Build a clean filename from the property address
+        $address = $presentation->property_address ?? $presentation->suburb ?? 'Property';
+        $cleanAddress = preg_replace('/[^A-Za-z0-9_ -]/', '', $address);
+        $cleanAddress = str_replace(' ', '_', trim(substr($cleanAddress, 0, 60)));
+        $filename = 'Market_Analysis_' . $cleanAddress . '.pdf';
 
-        return response($html, 200, [
-            'Content-Type' => 'text/html; charset=UTF-8',
-        ]);
+        return response()->download($pdfPath, $filename, [
+            'Content-Type' => 'application/pdf',
+        ])->deleteFileAfterSend(true);
     }
 
     /**

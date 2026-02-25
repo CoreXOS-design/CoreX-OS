@@ -119,7 +119,6 @@
     {{-- Download PDF --}}
     @if(isset($latestVersion) && $latestVersion)
     <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
-       target="_blank"
        class="nexus-btn-primary">
         Download PDF
     </a>

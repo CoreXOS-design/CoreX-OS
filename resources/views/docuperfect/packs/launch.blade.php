@@ -26,8 +26,22 @@
         </div>
     </div>
 
-    <form method="POST" action="{{ route('docuperfect.packs.launch', $pack->id) }}" class="space-y-4">
+    <form method="POST" action="{{ route('docuperfect.packs.launch', $pack->id) }}"
+          class="space-y-4"
+          x-data="{ prefix: @js($pack->name) }"
+          x-effect="document.querySelectorAll('[data-template-name]').forEach(function(el) {
+              el.value = prefix ? prefix + ' \u2014 ' + el.dataset.templateName : el.dataset.templateName;
+          })">
         @csrf
+
+        {{-- Document name prefix --}}
+        <div class="ds-status-card p-4">
+            <label class="block text-sm font-semibold text-slate-700 mb-1">Document name prefix</label>
+            <input type="text" x-model="prefix"
+                   class="w-full rounded border border-slate-200 bg-slate-50 text-slate-700 px-3 py-2 text-sm focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:bg-white"
+                   placeholder="e.g. Oats" maxlength="200">
+            <div class="text-xs text-slate-400 mt-1">This will be added to the front of every document name.</div>
+        </div>
 
         @foreach($pack->slots as $slot)
             <div class="ds-status-card p-4">
@@ -44,6 +58,7 @@
                                 <input type="hidden" name="selected_templates[]" value="{{ $slot->template->id }}">
                                 <input type="text"
                                        name="document_names[{{ $slot->template->id }}]"
+                                       data-template-name="{{ $slot->template->name }}"
                                        value="{{ $pack->name }} — {{ $slot->template->name }}"
                                        class="mt-1.5 w-full rounded border border-slate-200 bg-slate-50 text-slate-700 px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:bg-white"
                                        placeholder="Document name" maxlength="255">
@@ -94,6 +109,7 @@
                                     <div x-show="checked" x-cloak class="ml-8 mt-1">
                                         <input type="text"
                                                name="document_names[{{ $tpl->id }}]"
+                                               data-template-name="{{ $tpl->name }}"
                                                value="{{ $pack->name }} — {{ $tpl->name }}"
                                                class="w-full rounded border border-slate-200 bg-slate-50 text-slate-700 px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:bg-white"
                                                placeholder="Document name" maxlength="255">

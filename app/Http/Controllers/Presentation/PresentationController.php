@@ -124,6 +124,73 @@ class PresentationController extends Controller
     }
 
     /**
+     * Show form to edit presentation property details.
+     */
+    public function edit(Presentation $presentation)
+    {
+        $isAdmin = auth()->user()->isEffectiveAdmin();
+        $branches = $isAdmin ? Branch::orderBy('name')->get() : collect();
+
+        return view('presentations.edit', compact('presentation', 'branches', 'isAdmin'));
+    }
+
+    /**
+     * Update presentation property details.
+     */
+    public function update(Request $request, Presentation $presentation)
+    {
+        $isAdmin = auth()->user()->isEffectiveAdmin();
+
+        $rules = [
+            'title'            => ['required', 'string', 'max:255'],
+            'property_address' => ['required', 'string', 'max:500'],
+            'suburb'           => ['required', 'string', 'max:100'],
+            'property_type'    => ['required', 'string', 'in:house,townhouse,apartment,duplex,vacant_land,farm,other'],
+            'bedrooms'         => ['required', 'integer', 'min:0', 'max:20'],
+            'bathrooms'        => ['nullable', 'integer', 'min:0', 'max:20'],
+            'asking_price_inc' => ['required', 'integer', 'min:0'],
+            'erf_size_m2'      => ['nullable', 'integer', 'min:0'],
+            'floor_area_m2'    => ['nullable', 'integer', 'min:0'],
+            'garages_parking'  => ['nullable', 'integer', 'min:0', 'max:10'],
+            'seller_name'      => ['nullable', 'string', 'max:255'],
+        ];
+
+        if ($isAdmin) {
+            $rules['branch_id'] = ['required', 'integer', 'exists:branches,id'];
+        }
+
+        $validated = $request->validate($rules);
+
+        $updateData = [
+            'title'            => $validated['title'],
+            'property_address' => $validated['property_address'],
+            'suburb'           => $validated['suburb'],
+            'property_type'    => $validated['property_type'],
+            'bedrooms'         => $validated['bedrooms'],
+            'bathrooms'        => $validated['bathrooms'] ?? null,
+            'asking_price_inc' => $validated['asking_price_inc'],
+            'erf_size_m2'      => $validated['erf_size_m2'] ?? null,
+            'floor_area_m2'    => $validated['floor_area_m2'] ?? null,
+            'garages_parking'  => $validated['garages_parking'] ?? null,
+            'seller_name'      => $validated['seller_name'] ?? null,
+        ];
+
+        if ($isAdmin && isset($validated['branch_id'])) {
+            $updateData['branch_id'] = (int) $validated['branch_id'];
+        }
+
+        $presentation->update($updateData);
+
+        $message = 'Details updated.';
+        if ($presentation->wasChanged(['suburb', 'asking_price_inc', 'bedrooms', 'bathrooms', 'property_type', 'erf_size_m2', 'floor_area_m2'])) {
+            $message .= ' Run Analysis again to refresh calculations.';
+        }
+
+        return redirect()->route('presentations.show', $presentation)
+            ->with('success', $message);
+    }
+
+    /**
      * Show overview tab for a single presentation.
      */
     public function show(Presentation $presentation)
@@ -169,10 +236,19 @@ class PresentationController extends Controller
         $maxCaptureUpdatedAt = $presentation->portalCaptures()->max('updated_at') ?? '';
         $maxLinkUpdatedAt    = $links->max('updated_at')?->toIso8601String() ?? '';
 
+        // ── Article suggestions (feature-flagged) ────────────────────────
+        $addedArticles     = collect();
+        $suggestedArticles = collect();
+        if (config('features.article_suggestions_v1')) {
+            $addedArticles     = $presentation->articles()->latest()->get();
+            $suggestedArticles = (new \App\Services\Articles\ArticleMatcherService())->suggest($presentation);
+        }
+
         return view('presentations.show', compact(
             'presentation', 'latestSnapshot', 'snapshotCount', 'links', 'readiness', 'powerPanel',
             'linkViews', 'isAdmin', 'latestVersion',
-            'maxCaptureId', 'maxCaptureUpdatedAt', 'maxLinkUpdatedAt'
+            'maxCaptureId', 'maxCaptureUpdatedAt', 'maxLinkUpdatedAt',
+            'addedArticles', 'suggestedArticles'
         ));
     }
 

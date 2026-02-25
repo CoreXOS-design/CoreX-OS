@@ -4,6 +4,8 @@ namespace App\Services\Presentations;
 
 use App\Models\PortalCapture;
 use App\Models\Presentation;
+use App\Services\Presentations\Analytics\AbsorptionInflowService;
+use App\Services\Presentations\Analytics\PropConInsightsService;
 use Illuminate\Support\Collection;
 
 /**
@@ -44,6 +46,12 @@ class AnalysisDataService
         $suburbOverview = $this->compileSuburbOverview($fields);
         $stockAbsorption = $this->compileStockAbsorption($portalCaptures, $activeCompetition, $suburbOverview);
 
+        // P24 alert email inflow analysis
+        $inflowAbsorption = (new AbsorptionInflowService())->compute($presentation, $stockAbsorption);
+
+        // PropCon listing performance insights
+        $propconInsights = (new PropConInsightsService())->compute($presentation);
+
         // Detect sectional title from extracted fields or presentation property_type
         $isSectional = ($fields->get('vicinity.property_type')?->final_value === 'sectional')
             || stripos($presentation->property_type ?? '', 'sectional') !== false;
@@ -55,6 +63,8 @@ class AnalysisDataService
             'cma_valuation'      => $this->compileCmaValuation($fields, $askingPrice, $cmaSelectedRange),
             'active_competition' => $activeCompetition,
             'stock_absorption'   => $stockAbsorption,
+            'inflow_absorption'  => $inflowAbsorption,
+            'propcon_insights'   => $propconInsights,
             'price_position'     => $this->compilePricePosition($activeCompetition, $askingPrice),
             'price_brackets'     => $this->compilePriceBrackets($activeCompetition, $askingPrice),
             'holding_cost'       => $this->compileHoldingCost($presentation),

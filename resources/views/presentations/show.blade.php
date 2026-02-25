@@ -113,8 +113,7 @@
         @endif
         @if(config('features.presentation_pdf_v1') && isset($latestVersion) && $latestVersion)
             <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
-               class="nexus-btn-primary"
-               target="_blank">
+               class="nexus-btn-primary">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                 Download PDF (v{{ $latestVersion->id }})
             </a>
@@ -124,6 +123,11 @@
                 Complete Pack (ZIP)
             </a>
         @endif
+        <a href="{{ route('presentations.edit', $presentation) }}"
+           class="nexus-btn-outline text-sm" title="Edit property details">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
+            Edit Details
+        </a>
     </div>
 </div>
 
@@ -2378,6 +2382,108 @@
         @endif
     </div>
     </div>
+
+{{-- ── MARKET NEWS & ARTICLES ─────────────────────────────────────────── --}}
+@if(config('features.article_suggestions_v1'))
+<div class="mb-8" id="articles">
+    <div class="ds-status-card">
+        <h2 class="ds-section-header mb-3">Market News &amp; Articles</h2>
+
+        {{-- Part A — Added Articles --}}
+        @if($addedArticles->isNotEmpty())
+            <div class="mb-4">
+                <h3 class="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">Added to Presentation</h3>
+                <ul class="space-y-3">
+                    @foreach($addedArticles as $article)
+                        <li class="bg-slate-50 rounded-lg p-3">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0 flex-1">
+                                    <a href="{{ $article->url }}" target="_blank"
+                                       class="text-sm font-semibold text-[#0b2a4a] hover:text-[#00b4d8] leading-tight">
+                                        {{ $article->tags_json['title'] ?? Str::limit($article->url, 60) }}
+                                    </a>
+                                    <div class="text-[11px] text-slate-400 mt-0.5">
+                                        {{ $article->tags_json['source'] ?? 'Unknown source' }}
+                                        @if(!empty($article->tags_json['published_at']))
+                                            &middot; {{ \Carbon\Carbon::parse($article->tags_json['published_at'])->format('d M Y') }}
+                                        @endif
+                                    </div>
+                                    @if($article->ai_summary_text)
+                                        <p class="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                                            {{ Str::limit($article->ai_summary_text, 250) }}
+                                        </p>
+                                    @endif
+                                </div>
+                                <form method="POST"
+                                      action="{{ route('presentations.articles.remove', [$presentation, $article]) }}"
+                                      onsubmit="return confirm('Remove this article?');"
+                                      class="shrink-0">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit"
+                                            class="text-xs text-red-400 hover:text-red-600 font-medium">
+                                        Remove
+                                    </button>
+                                </form>
+                            </div>
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
+        {{-- Part B — Suggested Articles --}}
+        @if($suggestedArticles->isNotEmpty())
+            <div class="@if($addedArticles->isNotEmpty()) pt-3 border-t border-slate-100 @endif">
+                <h3 class="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-2.5">
+                    Suggested Articles
+                    @if($presentation->suburb)
+                        <span class="font-normal">&mdash; based on {{ $presentation->suburb }}{{ $presentation->property_type ? ', ' . $presentation->property_type : '' }}</span>
+                    @endif
+                </h3>
+                <ul class="space-y-2">
+                    @foreach($suggestedArticles as $poolArticle)
+                        <li class="flex items-start justify-between gap-2 py-2 {{ !$loop->last ? 'border-b border-slate-50' : '' }}">
+                            <div class="min-w-0 flex-1">
+                                <a href="{{ $poolArticle->url }}" target="_blank"
+                                   class="text-sm font-medium text-[#0b2a4a] hover:text-[#00b4d8] leading-tight">
+                                    {{ $poolArticle->title }}
+                                </a>
+                                <div class="text-[11px] text-slate-400 mt-0.5">
+                                    {{ $poolArticle->source }}
+                                    @if($poolArticle->published_at)
+                                        &middot; {{ $poolArticle->published_at->format('d M Y') }}
+                                    @endif
+                                </div>
+                                @if($poolArticle->snippet)
+                                    <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                                        {{ Str::limit($poolArticle->snippet, 150) }}
+                                    </p>
+                                @endif
+                            </div>
+                            <form method="POST"
+                                  action="{{ route('presentations.articles.add', $presentation) }}"
+                                  class="shrink-0">
+                                @csrf
+                                <input type="hidden" name="article_pool_id" value="{{ $poolArticle->id }}">
+                                <button type="submit"
+                                        class="nexus-btn-outline text-xs whitespace-nowrap">
+                                    + Add
+                                </button>
+                            </form>
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @elseif($addedArticles->isEmpty())
+            <p class="text-xs text-slate-400">
+                No matching articles found. Articles are updated daily from SA property news sources.
+                Run <code class="bg-slate-100 px-1 rounded">php artisan articles:scrape</code> to populate.
+            </p>
+        @endif
+    </div>
+</div>
+@endif
 
 {{-- ── ASKING PRICE ─────────────────────────────────────────────────────── --}}
 <div class="mb-8">

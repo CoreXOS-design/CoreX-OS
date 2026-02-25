@@ -299,6 +299,8 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         // Admin: TV Code Management (all branches)
         Route::post('/admin/tv-code/generate', [\App\Http\Controllers\Admin\TvCodeController::class, 'generate'])->name('admin.tv-code.generate');
         Route::post('/admin/tv-code/revoke', [\App\Http\Controllers\Admin\TvCodeController::class, 'revoke'])->name('admin.tv-code.revoke');
+        Route::post('/admin/tv-code/generate-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'generateCompany'])->name('admin.tv-code.generate-company');
+        Route::post('/admin/tv-code/revoke-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'revokeCompany'])->name('admin.tv-code.revoke-company');
     });
 
     Route::middleware(['branch_manager'])->group(function () {
@@ -369,6 +371,7 @@ Route::get('/tv/branch/{branchId}', [\App\Http\Controllers\TV\BranchTvController
 Route::get('/tv', [\App\Http\Controllers\TV\TvController::class, 'index'])->name('tv.index');
 Route::post('/tv/verify', [\App\Http\Controllers\TV\TvController::class, 'verify'])->name('tv.verify');
 Route::get('/tv/display/{code}', [\App\Http\Controllers\TV\TvController::class, 'display'])->name('tv.display');
+Route::get('/tv/company/{code}', [\App\Http\Controllers\TV\TvController::class, 'companyDisplay'])->name('tv.company');
 
 
 Route::post('/worksheet/align-company-target', [\App\Http\Controllers\WorksheetController::class, 'alignToCompany'])
@@ -560,6 +563,8 @@ Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->gr
     Route::post('/',      [\App\Http\Controllers\Presentation\PresentationController::class, 'store'])  ->name('store');
 
     Route::get('/{presentation}',              [\App\Http\Controllers\Presentation\PresentationController::class, 'show'])     ->name('show');
+    Route::get('/{presentation}/edit',         [\App\Http\Controllers\Presentation\PresentationController::class, 'edit'])     ->name('edit');
+    Route::patch('/{presentation}',            [\App\Http\Controllers\Presentation\PresentationController::class, 'update'])   ->name('update');
     Route::get('/{presentation}/analysis',     [\App\Http\Controllers\Presentation\PresentationController::class, 'analysis']) ->name('analysis');
     Route::post('/{presentation}/analysis/run',[\App\Http\Controllers\Presentation\PresentationController::class, 'runAnalysis'])  ->name('analysis.run');
     Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])
@@ -656,6 +661,12 @@ Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->gr
     // Live snapshot polling (B1 — zero-refresh updates)
     Route::get('/{presentation}/live-snapshot', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'liveSnapshot'])
         ->name('live-snapshot');
+
+    // Article suggestions and management
+    Route::post('/{presentation}/articles', [\App\Http\Controllers\Presentation\PresentationArticleController::class, 'add'])
+        ->name('articles.add');
+    Route::delete('/{presentation}/articles/{article}', [\App\Http\Controllers\Presentation\PresentationArticleController::class, 'remove'])
+        ->name('articles.remove');
 });
 
 // ===== DOCUPERFECT =====
@@ -688,6 +699,7 @@ Route::prefix('docuperfect')->middleware('auth')->group(function () {
     Route::post('/documents/{id}/rename', [\App\Http\Controllers\Docuperfect\DocumentController::class, 'rename'])->name('docuperfect.documents.rename');
     Route::post('/documents/{id}/archive', [\App\Http\Controllers\Docuperfect\DocumentController::class, 'archive'])->name('docuperfect.documents.archive');
     Route::delete('/documents/{id}', [\App\Http\Controllers\Docuperfect\DocumentController::class, 'destroy'])->name('docuperfect.documents.destroy');
+    Route::get('/api/pack-instance/{instanceId}/combined-pdf-data', [\App\Http\Controllers\Docuperfect\DocumentController::class, 'combinedPdfData'])->name('docuperfect.api.combinedPdfData');
 
     // Clauses
     Route::get('/clauses', [\App\Http\Controllers\Docuperfect\ClauseController::class, 'index'])->name('docuperfect.clauses.index');
@@ -746,3 +758,45 @@ Route::middleware(['auth'])->prefix('documents')->name('documents.')->group(func
 // Uses auth.portal_capture: session auth OR bearer token (for Chrome extension)
 Route::middleware(['auth.portal_capture'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
     ->name('portal-captures.ingest');
+
+// ===== COMMERCIAL MARKET EVALUATIONS =====
+Route::prefix('commercial-evaluations')->middleware('auth')->name('commercial-evaluations.')->group(function () {
+    Route::get('/',       [\App\Http\Controllers\CommercialEvaluationController::class, 'index'])  ->name('index');
+    Route::get('/create', [\App\Http\Controllers\CommercialEvaluationController::class, 'create']) ->name('create');
+    Route::post('/',      [\App\Http\Controllers\CommercialEvaluationController::class, 'store'])  ->name('store');
+
+    Route::get('/{evaluation}',      [\App\Http\Controllers\CommercialEvaluationController::class, 'show'])    ->name('show');
+    Route::get('/{evaluation}/edit', [\App\Http\Controllers\CommercialEvaluationController::class, 'edit'])    ->name('edit');
+    Route::patch('/{evaluation}',    [\App\Http\Controllers\CommercialEvaluationController::class, 'update'])  ->name('update');
+    Route::delete('/{evaluation}',   [\App\Http\Controllers\CommercialEvaluationController::class, 'destroy']) ->name('destroy');
+
+    // Financial data
+    Route::post('/{evaluation}/financials',              [\App\Http\Controllers\CommercialEvaluationController::class, 'storeFinancials'])  ->name('financials.store');
+    Route::patch('/{evaluation}/financials/{financial}', [\App\Http\Controllers\CommercialEvaluationController::class, 'updateFinancials']) ->name('financials.update');
+
+    // Comparables
+    Route::post('/{evaluation}/comparables',                [\App\Http\Controllers\CommercialEvaluationController::class, 'storeComparable'])   ->name('comparables.store');
+    Route::delete('/{evaluation}/comparables/{comparable}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyComparable']) ->name('comparables.destroy');
+
+    // Assets (hospitality + agricultural)
+    Route::post('/{evaluation}/assets',           [\App\Http\Controllers\CommercialEvaluationController::class, 'storeAsset'])   ->name('assets.store');
+    Route::delete('/{evaluation}/assets/{asset}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyAsset']) ->name('assets.destroy');
+
+    // Rental units (commercial + industrial)
+    Route::post('/{evaluation}/units',          [\App\Http\Controllers\CommercialEvaluationController::class, 'storeUnit'])   ->name('units.store');
+    Route::delete('/{evaluation}/units/{unit}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyUnit']) ->name('units.destroy');
+
+    // Crops (agricultural)
+    Route::post('/{evaluation}/crops',        [\App\Http\Controllers\CommercialEvaluationController::class, 'storeCrop'])   ->name('crops.store');
+    Route::delete('/{evaluation}/crops/{crop}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyCrop']) ->name('crops.destroy');
+
+    // Livestock (agricultural)
+    Route::post('/{evaluation}/livestock',              [\App\Http\Controllers\CommercialEvaluationController::class, 'storeLivestock'])    ->name('livestock.store');
+    Route::delete('/{evaluation}/livestock/{livestock}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyLivestock']) ->name('livestock.destroy');
+
+    // Run evaluation (Phase 2)
+    Route::post('/{evaluation}/evaluate', [\App\Http\Controllers\CommercialEvaluationController::class, 'evaluate']) ->name('evaluate');
+
+    // PDF download (Phase 2)
+    Route::get('/{evaluation}/pdf', [\App\Http\Controllers\CommercialEvaluationController::class, 'downloadPdf']) ->name('pdf');
+});
