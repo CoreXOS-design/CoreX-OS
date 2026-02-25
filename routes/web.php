@@ -501,6 +501,8 @@ use App\Http\Controllers\Nexus\DashboardController as NexusDashboardController;
 use App\Http\Controllers\Nexus\PlaceholderController as NexusPlaceholderController;
 use App\Http\Controllers\Nexus\SettingsController as NexusSettingsController;
 use App\Http\Controllers\Nexus\RoleManagerController as NexusRoleManagerController;
+use App\Http\Controllers\Admin\AgencyController;
+use App\Http\Controllers\Admin\AgencySwitcherController;
 
 Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
     Route::get('/', [NexusDashboardController::class, 'index'])->name('nexus.dashboard');
@@ -513,15 +515,30 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
     Route::get('/client-portal', [NexusPlaceholderController::class, 'show'])->defaults('section', 'client-portal')->name('nexus.client-portal');
     Route::get('/franchise-admin', [NexusPlaceholderController::class, 'show'])->defaults('section', 'franchise-admin')->name('nexus.franchise-admin');
 
-    // Settings (admin only)
+    // Settings
     Route::get('/settings', [NexusSettingsController::class, 'index'])->name('nexus.settings');
 
-    // Role Manager (admin only)
+    // Role Manager
     Route::get('/role-manager', [NexusRoleManagerController::class, 'index'])->name('nexus.role-manager');
     Route::post('/role-manager/permissions', [NexusRoleManagerController::class, 'savePermissions'])
         ->middleware('admin')->name('nexus.role-manager.save');
     Route::post('/role-manager/user-role', [NexusRoleManagerController::class, 'updateUserRole'])
         ->middleware('admin')->name('nexus.role-manager.user-role');
+
+    // Agency Management (super_admin only)
+    Route::middleware('super_admin')->prefix('settings/agencies')->name('agencies.')->group(function () {
+        Route::get('/',              [AgencyController::class, 'index'])->name('index');
+        Route::get('/create',        [AgencyController::class, 'create'])->name('create');
+        Route::post('/',             [AgencyController::class, 'store'])->name('store');
+        Route::get('/{agency}/edit', [AgencyController::class, 'edit'])->name('edit');
+        Route::put('/{agency}',      [AgencyController::class, 'update'])->name('update');
+    });
+});
+
+// Agency switcher (super_admin only, outside nexus prefix for cleaner URLs)
+Route::middleware(['auth', 'verified', 'super_admin'])->group(function () {
+    Route::post('/agency/switch/{agency}', [AgencySwitcherController::class, 'switch'])->name('agency.switch');
+    Route::post('/agency/switch/clear',    [AgencySwitcherController::class, 'clear'])->name('agency.switch.clear');
 });
 
 

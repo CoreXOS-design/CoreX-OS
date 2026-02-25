@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Nexus;
 
 use App\Http\Controllers\Controller;
+use App\Models\Agency;
+use App\Models\Branch;
 use App\Models\NexusPermission;
 use App\Models\RolePermission;
 use App\Models\User;
@@ -10,7 +12,7 @@ use Illuminate\Http\Request;
 
 class RoleManagerController extends Controller
 {
-    private const ROLES = ['admin', 'branch_manager', 'agent'];
+    private const ROLES = ['super_admin', 'admin', 'branch_manager', 'agent', 'viewer'];
 
     public function index()
     {
@@ -26,9 +28,10 @@ class RoleManagerController extends Controller
             ->groupBy('permission_key')
             ->map(fn($group) => $group->pluck('role')->flip()->map(fn() => true));
 
-        $users = User::where('is_active', 1)
-            ->orderBy('name')
-            ->get(['id', 'name', 'email', 'role', 'branch_id', 'designation']);
+        $users    = User::where('is_active', 1)->orderBy('name')
+            ->get(['id', 'name', 'email', 'role', 'branch_id', 'agency_id', 'designation']);
+        $branches = Branch::orderBy('name')->get(['id', 'name']);
+        $agencies = Agency::orderBy('name')->get(['id', 'name']);
 
         return view('nexus.role-manager', [
             'permissions' => $permissions,
@@ -36,6 +39,8 @@ class RoleManagerController extends Controller
             'granted'     => $granted,
             'roles'       => self::ROLES,
             'users'       => $users,
+            'branches'    => $branches,
+            'agencies'    => $agencies,
         ]);
     }
 
@@ -77,7 +82,7 @@ class RoleManagerController extends Controller
     {
         $request->validate([
             'user_id' => 'required|exists:users,id',
-            'role'    => 'required|in:admin,branch_manager,agent',
+            'role'    => 'required|in:super_admin,admin,branch_manager,agent,viewer',
         ]);
 
         $user = User::findOrFail($request->user_id);

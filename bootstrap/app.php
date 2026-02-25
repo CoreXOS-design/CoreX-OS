@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'tv' => \App\Http\Middleware\TvTokenMiddleware::class,
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
             'branch_manager' => \App\Http\Middleware\BranchManagerMiddleware::class,
+            'super_admin' => \App\Http\Middleware\SuperAdminMiddleware::class,
                 'admin_or_bm' => \App\Http\Middleware\AdminOrBranchManager::class,
                 'auth.portal_capture' => \App\Http\Middleware\AuthenticatePortalCapture::class,
         ]);
