@@ -193,6 +193,43 @@ class DocumentController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    public function combinedPdfData(Request $request, $instanceId)
+    {
+        $user = $request->user();
+
+        $documents = Document::active()
+            ->visibleTo($user)
+            ->where('pack_instance_id', $instanceId)
+            ->with('template')
+            ->orderByDesc('updated_at')
+            ->get();
+
+        if ($documents->isEmpty()) {
+            return response()->json(['error' => 'No documents found.'], 404);
+        }
+
+        $result = [];
+        foreach ($documents as $doc) {
+            $tpl = $doc->template;
+            if (!$tpl) {
+                continue;
+            }
+
+            $pageImages = [];
+            for ($n = 0; $n < $tpl->page_count; $n++) {
+                $pageImages[] = route('docuperfect.page.image', ['id' => $tpl->id, 'page' => $n]);
+            }
+
+            $result[] = [
+                'name' => $doc->name,
+                'fields' => $doc->fields_json ?? [],
+                'pageImages' => $pageImages,
+            ];
+        }
+
+        return response()->json(['documents' => $result]);
+    }
+
     public function rename(Request $request, $id)
     {
         $user = $request->user();
