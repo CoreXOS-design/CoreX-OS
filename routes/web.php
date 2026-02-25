@@ -737,3 +737,37 @@ Route::middleware(['auth'])->prefix('documents')->name('documents.')->group(func
 // Uses auth.portal_capture: session auth OR bearer token (for Chrome extension)
 Route::middleware(['auth.portal_capture'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
     ->name('portal-captures.ingest');
+
+// ===== COMMERCIAL MARKET EVALUATIONS =====
+Route::prefix('commercial-evaluations')->middleware('auth')->name('commercial-evaluations.')->group(function () {
+    Route::get('/',       [\App\Http\Controllers\CommercialEvaluationController::class, 'index'])  ->name('index');
+    Route::get('/create', [\App\Http\Controllers\CommercialEvaluationController::class, 'create']) ->name('create');
+    Route::post('/',      [\App\Http\Controllers\CommercialEvaluationController::class, 'store'])  ->name('store');
+
+    Route::get('/{evaluation}',      [\App\Http\Controllers\CommercialEvaluationController::class, 'show'])    ->name('show');
+    Route::get('/{evaluation}/edit', [\App\Http\Controllers\CommercialEvaluationController::class, 'edit'])    ->name('edit');
+    Route::patch('/{evaluation}',    [\App\Http\Controllers\CommercialEvaluationController::class, 'update'])  ->name('update');
+    Route::delete('/{evaluation}',   [\App\Http\Controllers\CommercialEvaluationController::class, 'destroy']) ->name('destroy');
+
+    // Financial data
+    Route::post('/{evaluation}/financials',              [\App\Http\Controllers\CommercialEvaluationController::class, 'storeFinancials'])  ->name('financials.store');
+    Route::patch('/{evaluation}/financials/{financial}', [\App\Http\Controllers\CommercialEvaluationController::class, 'updateFinancials']) ->name('financials.update');
+
+    // Comparables
+    Route::post('/{evaluation}/comparables',                [\App\Http\Controllers\CommercialEvaluationController::class, 'storeComparable'])   ->name('comparables.store');
+    Route::delete('/{evaluation}/comparables/{comparable}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyComparable']) ->name('comparables.destroy');
+
+    // Assets (hospitality + agricultural)
+    Route::post('/{evaluation}/assets',           [\App\Http\Controllers\CommercialEvaluationController::class, 'storeAsset'])   ->name('assets.store');
+    Route::delete('/{evaluation}/assets/{asset}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyAsset']) ->name('assets.destroy');
+
+    // Rental units (commercial + industrial)
+    Route::post('/{evaluation}/units',          [\App\Http\Controllers\CommercialEvaluationController::class, 'storeUnit'])   ->name('units.store');
+    Route::delete('/{evaluation}/units/{unit}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyUnit']) ->name('units.destroy');
+
+    // Run evaluation (Phase 2)
+    Route::post('/{evaluation}/evaluate', [\App\Http\Controllers\CommercialEvaluationController::class, 'evaluate']) ->name('evaluate');
+
+    // PDF download (Phase 2)
+    Route::get('/{evaluation}/pdf', [\App\Http\Controllers\CommercialEvaluationController::class, 'downloadPdf']) ->name('pdf');
+});
