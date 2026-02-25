@@ -24,16 +24,18 @@ class AgencyController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'name'            => 'required|string|max:100',
-            'slug'            => 'nullable|string|max:80|unique:agencies,slug',
-            'primary_color'   => 'nullable|string|max:20',
-            'secondary_color' => 'nullable|string|max:20',
-            'is_active'       => 'nullable|boolean',
+            'name'             => 'required|string|max:100',
+            'slug'             => 'nullable|string|max:80|unique:agencies,slug',
+            'primary_color'    => 'nullable|string|max:20',
+            'secondary_color'  => 'nullable|string|max:20',
+            'tertiary_color'   => 'nullable|string|max:20',
+            'is_active'        => 'nullable|boolean',
         ]);
 
         $data['slug']            = $data['slug'] ?? Str::slug($data['name']);
         $data['primary_color']   = $data['primary_color']   ?? '#0b2a4a';
         $data['secondary_color'] = $data['secondary_color'] ?? '#00b4d8';
+        $data['tertiary_color']  = $data['tertiary_color']  ?? '#1a4a73';
         $data['is_active']       = (bool) ($data['is_active'] ?? true);
 
         Agency::create($data);
@@ -52,11 +54,13 @@ class AgencyController extends Controller
             'name'            => 'required|string|max:100',
             'primary_color'   => 'nullable|string|max:20',
             'secondary_color' => 'nullable|string|max:20',
+            'tertiary_color'  => 'nullable|string|max:20',
             'is_active'       => 'nullable|boolean',
         ]);
 
         $data['primary_color']   = $data['primary_color']   ?? '#0b2a4a';
         $data['secondary_color'] = $data['secondary_color'] ?? '#00b4d8';
+        $data['tertiary_color']  = $data['tertiary_color']  ?? '#1a4a73';
         $data['is_active']       = (bool) ($data['is_active'] ?? false);
 
         $agency->update($data);

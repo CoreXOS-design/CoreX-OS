@@ -76,7 +76,7 @@
     <div x-data="{ agencyOpen: false }" class="px-3 pb-2">
         <button type="button" @click="agencyOpen = !agencyOpen"
                 class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors"
-                style="background:rgba(0,180,216,0.12); color:#00b4d8; border:1px solid rgba(0,180,216,0.25);">
+                style="background:rgba(0,180,216,0.12); color:var(--brand-secondary, #00b4d8); border:1px solid rgba(0,180,216,0.25);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 flex-shrink-0">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
             </svg>
@@ -85,7 +85,7 @@
         </button>
         <div x-show="agencyOpen" @click.outside="agencyOpen = false" x-transition
              class="mt-1 rounded-lg overflow-hidden shadow-lg"
-             style="background:#0d3460; border:1px solid rgba(255,255,255,0.1);">
+             style="background:var(--brand-tertiary, #1a4a73); border:1px solid rgba(255,255,255,0.1);">
             {{-- All Agencies option --}}
             <form method="POST" action="{{ route('agency.switch.clear') }}">
                 @csrf
