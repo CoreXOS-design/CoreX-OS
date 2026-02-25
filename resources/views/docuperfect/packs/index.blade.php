@@ -33,8 +33,14 @@
                 @if($pack->description)
                 <div class="text-xs text-slate-500 mb-2">{{ $pack->description }}</div>
                 @endif
-                <div class="text-xs text-slate-400 mb-3">
-                    {{ $pack->templates->count() }} template{{ $pack->templates->count() !== 1 ? 's' : '' }}
+                <div class="text-xs text-slate-400 mb-1">
+                    @if($pack->usesSlots())
+                        {{ $pack->slots->count() }} slot{{ $pack->slots->count() !== 1 ? 's' : '' }}
+                        &middot;
+                        <span class="text-[10px] {{ $pack->creation_mode === 'linked' ? 'text-cyan-500' : 'text-slate-500' }}">{{ ucfirst($pack->creation_mode) }}</span>
+                    @else
+                        {{ $pack->templates->count() }} template{{ $pack->templates->count() !== 1 ? 's' : '' }}
+                    @endif
                     &middot;
                     @if($pack->is_global)
                         <span class="ds-badge ds-badge-success text-[10px]">Global</span>
@@ -43,8 +49,26 @@
                     @endif
                 </div>
 
-                {{-- Template list --}}
-                @if($pack->templates->isNotEmpty())
+                {{-- Slot / Template list --}}
+                @if($pack->usesSlots() && $pack->slots->isNotEmpty())
+                <div class="flex-1 mb-3">
+                    <div class="text-[11px] text-slate-400 uppercase tracking-wider mb-1">Pack contents</div>
+                    <ul class="text-xs text-slate-600 space-y-0.5">
+                        @foreach($pack->slots as $slot)
+                        <li class="flex items-center gap-1">
+                            @if($slot->slot_type === 'required')
+                                <span class="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"></span>
+                            @elseif($slot->slot_type === 'selectable')
+                                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0"></span>
+                            @else
+                                <span class="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></span>
+                            @endif
+                            {{ $slot->label }}
+                        </li>
+                        @endforeach
+                    </ul>
+                </div>
+                @elseif($pack->templates->isNotEmpty())
                 <div class="flex-1 mb-3">
                     <div class="text-[11px] text-slate-400 uppercase tracking-wider mb-1">Templates included</div>
                     <ul class="text-xs text-slate-600 space-y-0.5">
@@ -59,10 +83,7 @@
                 @endif
 
                 <div class="flex flex-wrap items-center gap-2 mt-auto pt-3 border-t border-slate-100">
-                    <form method="POST" action="{{ route('docuperfect.packs.launch', $pack->id) }}" class="inline" onsubmit="return confirm('Launch this pack? This will create {{ $pack->templates->count() }} document{{ $pack->templates->count() !== 1 ? 's' : '' }}.');">
-                        @csrf
-                        <button class="nexus-btn-primary text-xs px-3 py-1.5">Launch Pack</button>
-                    </form>
+                    <a href="{{ route('docuperfect.packs.showLaunch', $pack->id) }}" class="nexus-btn-primary text-xs px-3 py-1.5 inline-block">Launch Pack</a>
                     @if($canManage)
                     <a href="{{ route('docuperfect.packs.edit', $pack->id) }}" class="nexus-btn-outline text-xs px-3 py-1.5">Edit</a>
                     <form method="POST" action="{{ route('docuperfect.packs.destroy', $pack->id) }}" class="inline ml-auto" onsubmit="return confirm('Delete this pack? This cannot be undone.');">

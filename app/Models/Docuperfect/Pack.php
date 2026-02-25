@@ -5,6 +5,7 @@ namespace App\Models\Docuperfect;
 use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Pack extends Model
 {
@@ -14,6 +15,7 @@ class Pack extends Model
         'name',
         'description',
         'is_global',
+        'creation_mode',
         'owner_id',
     ];
 
@@ -33,9 +35,19 @@ class Pack extends Model
             ->orderBy('docuperfect_pack_templates.sort_order');
     }
 
+    public function slots(): HasMany
+    {
+        return $this->hasMany(PackSlot::class, 'pack_id')->orderBy('sort_order');
+    }
+
     public function branches()
     {
         return $this->belongsToMany(Branch::class, 'docuperfect_pack_branches', 'pack_id', 'branch_id');
+    }
+
+    public function usesSlots(): bool
+    {
+        return $this->slots()->exists();
     }
 
     public function scopeVisibleTo($query, User $user)

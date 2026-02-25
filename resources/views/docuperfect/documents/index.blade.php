@@ -76,5 +76,41 @@
         </div>
     @endif
 
+    {{-- Attachments (KB documents linked to pack instance) --}}
+    @if(!empty($packInstance) && isset($attachments) && $attachments->isNotEmpty())
+    <div>
+        <h3 class="ds-section-header">Attachments</h3>
+        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+            <table class="w-full text-sm ds-table">
+                <thead>
+                    <tr>
+                        <th class="text-left px-4 py-3">Document</th>
+                        <th class="text-left px-4 py-3">Category</th>
+                        <th class="text-left px-4 py-3">Slot</th>
+                        <th class="text-right px-4 py-3">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($attachments as $att)
+                    <tr>
+                        <td class="px-4 py-3 font-medium text-slate-900">
+                            <i class="fas fa-paperclip text-blue-400 mr-1"></i>
+                            {{ $att->knowledgeDocument->title ?? 'Unknown' }}
+                        </td>
+                        <td class="px-4 py-3 text-slate-600">{{ $att->knowledgeDocument->category->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-slate-500">{{ $att->slot_label }}</td>
+                        <td class="px-4 py-3 text-right">
+                            <a href="{{ route('docuperfect.attachments.download', $att->id) }}" class="ds-link text-sm">
+                                <i class="fas fa-download mr-1"></i>Download
+                            </a>
+                        </td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </div>
+    @endif
+
 </div>
 @endsection

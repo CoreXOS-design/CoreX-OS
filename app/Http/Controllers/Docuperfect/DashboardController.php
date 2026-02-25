@@ -38,7 +38,7 @@ class DashboardController extends Controller
         $documentTypes = DocumentType::orderBy('sort_order')->get();
 
         $packs = Pack::visibleTo($user)
-            ->with(['templates', 'branches', 'owner'])
+            ->with(['templates', 'slots', 'branches', 'owner'])
             ->orderBy('name')
             ->get();
 

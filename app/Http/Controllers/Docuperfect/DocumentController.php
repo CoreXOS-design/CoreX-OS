@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Docuperfect;
 use App\Http\Controllers\Controller;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\NamedField;
+use App\Models\Docuperfect\PackAttachment;
 use App\Models\Docuperfect\Template;
 use Illuminate\Http\Request;
 
@@ -25,7 +26,14 @@ class DocumentController extends Controller
 
         $documents = $query->orderByDesc('updated_at')->get();
 
-        return view('docuperfect.documents.index', compact('documents', 'packInstance', 'user'));
+        $attachments = collect();
+        if ($packInstance) {
+            $attachments = PackAttachment::forInstance($packInstance)
+                ->with('knowledgeDocument.category')
+                ->get();
+        }
+
+        return view('docuperfect.documents.index', compact('documents', 'packInstance', 'attachments', 'user'));
     }
 
     public function create(Request $request, $templateId)
