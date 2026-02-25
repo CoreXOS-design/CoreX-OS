@@ -299,9 +299,8 @@
         el.style.background = 'transparent';
         setBorderForDoc(el, field, 'rgba(59,130,246,0.3)');
 
-        var inp = document.createElement('input');
-        inp.type = 'text';
-        inp.className = 'dp-field-input';
+        var inp = document.createElement('textarea');
+        inp.className = 'dp-field-input dp-field-textarea';
         inp.value = field.value || '';
         inp.placeholder = 'Enter text\u2026';
         applyStyle(inp, field);
