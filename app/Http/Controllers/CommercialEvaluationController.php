@@ -7,6 +7,8 @@ use App\Models\CommercialEvaluationFinancial;
 use App\Models\CommercialEvaluationComparable;
 use App\Models\CommercialEvaluationAsset;
 use App\Models\CommercialEvaluationUnit;
+use App\Models\CommercialEvaluationCrop;
+use App\Models\CommercialEvaluationLivestock;
 use App\Models\Branch;
 use Illuminate\Http\Request;
 
@@ -95,9 +97,12 @@ class CommercialEvaluationController extends Controller
 
     public function show(CommercialEvaluation $evaluation)
     {
-        $evaluation->load(['financials', 'comparables', 'assets', 'units', 'creator']);
+        $evaluation->load(['financials', 'comparables', 'assets', 'units', 'crops', 'livestock', 'creator']);
 
-        return view('commercial-evaluations.show', compact('evaluation'));
+        $cropConfig = config('agricultural_crops.crops', []);
+        $livestockConfig = config('agricultural_crops.livestock', []);
+
+        return view('commercial-evaluations.show', compact('evaluation', 'cropConfig', 'livestockConfig'));
     }
 
     // ── Edit ──
@@ -418,6 +423,195 @@ class CommercialEvaluationController extends Controller
 
         return redirect()->route('commercial-evaluations.show', $evaluation)
             ->with('success', 'Rental unit removed.');
+    }
+
+    // ══════════════════════════════════════════
+    //  Crops & Orchards (agricultural)
+    // ══════════════════════════════════════════
+
+    public function storeCrop(Request $request, CommercialEvaluation $evaluation)
+    {
+        $validated = $request->validate([
+            'crop_type'              => ['required', 'string', 'max:50'],
+            'variety'                => ['nullable', 'string', 'max:255'],
+            'hectares'               => ['required', 'numeric', 'min:0.01'],
+            'year_planted'           => ['nullable', 'integer', 'min:1900', 'max:2100'],
+            'trees_per_hectare'      => ['nullable', 'integer', 'min:1'],
+            'current_yield_tons_per_ha' => ['nullable', 'numeric', 'min:0'],
+            'current_price_per_ton'  => ['nullable', 'numeric', 'min:0'],
+            'annual_cost_per_ha'     => ['nullable', 'numeric', 'min:0'],
+            'notes'                  => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $cropConfig = config('agricultural_crops.crops.' . $validated['crop_type'], []);
+
+        // Convert Rand to cents
+        if (isset($validated['current_price_per_ton'])) {
+            $validated['current_price_per_ton'] = (int) round($validated['current_price_per_ton'] * 100);
+        } else {
+            $validated['current_price_per_ton'] = $cropConfig['current_price_per_ton'] ?? null;
+        }
+
+        if (isset($validated['annual_cost_per_ha'])) {
+            $validated['annual_cost_per_ha'] = (int) round($validated['annual_cost_per_ha'] * 100);
+        } else {
+            $validated['annual_cost_per_ha'] = $cropConfig['cost_per_ha'] ?? null;
+        }
+
+        // Auto-calculate lifecycle fields
+        $currentYear = (int) date('Y');
+        $lifespan = $cropConfig['lifespan_years'] ?? null;
+        $peakYield = $cropConfig['peak_yield_tons_per_ha'] ?? null;
+
+        $validated['expected_lifespan_years'] = $lifespan;
+        $validated['expected_peak_yield_tons_per_ha'] = $peakYield;
+
+        if (isset($validated['year_planted'])) {
+            $age = $currentYear - $validated['year_planted'];
+            $validated['age_years'] = max(0, $age);
+            if ($lifespan !== null) {
+                $validated['remaining_productive_years'] = max(0, $lifespan - $age);
+            }
+            // Interpolate yield percentage from curve
+            $yieldCurve = $cropConfig['yield_curve'] ?? [];
+            $validated['yield_percentage'] = $this->interpolateYieldCurve($yieldCurve, $age);
+        }
+
+        // Pre-fill trees per hectare from config if not provided
+        if (empty($validated['trees_per_hectare']) && !empty($cropConfig['typical_trees_per_ha'])) {
+            $validated['trees_per_hectare'] = $cropConfig['typical_trees_per_ha'];
+        }
+
+        // Calculate total trees
+        if (!empty($validated['trees_per_hectare'])) {
+            $validated['total_trees'] = (int) round($validated['hectares'] * $validated['trees_per_hectare']);
+        }
+
+        // Calculate annual revenue (cents): hectares × actualYield(t/ha) × price_per_ton(cents)
+        if ($peakYield && $validated['yield_percentage'] && $validated['current_price_per_ton']) {
+            $actualYield = $peakYield * ($validated['yield_percentage'] / 100);
+            $validated['annual_revenue'] = (int) round($validated['hectares'] * $actualYield * $validated['current_price_per_ton']);
+        }
+
+        // Set current yield from peak × yield%
+        if ($peakYield && $validated['yield_percentage']) {
+            $validated['current_yield_tons_per_ha'] = round($peakYield * ($validated['yield_percentage'] / 100), 2);
+        }
+
+        $evaluation->crops()->create($validated);
+
+        return redirect()->route('commercial-evaluations.show', $evaluation)
+            ->with('success', 'Crop added.');
+    }
+
+    public function destroyCrop(CommercialEvaluation $evaluation, CommercialEvaluationCrop $crop)
+    {
+        $crop->delete();
+
+        return redirect()->route('commercial-evaluations.show', $evaluation)
+            ->with('success', 'Crop removed.');
+    }
+
+    // ══════════════════════════════════════════
+    //  Livestock (agricultural)
+    // ══════════════════════════════════════════
+
+    public function storeLivestock(Request $request, CommercialEvaluation $evaluation)
+    {
+        $validated = $request->validate([
+            'livestock_type'              => ['required', 'string', 'max:50'],
+            'breed'                       => ['nullable', 'string', 'max:255'],
+            'head_count'                  => ['required', 'integer', 'min:1'],
+            'breeding_stock_count'        => ['nullable', 'integer', 'min:0'],
+            'value_per_head'              => ['nullable', 'numeric', 'min:0'],
+            'carrying_capacity_ha_per_lsu'=> ['nullable', 'numeric', 'min:0'],
+            'hectares_used'               => ['nullable', 'numeric', 'min:0'],
+            'notes'                       => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $lsConfig = config('agricultural_crops.livestock.' . $validated['livestock_type'], []);
+
+        // Convert Rand to cents for value_per_head
+        if (isset($validated['value_per_head'])) {
+            $validated['value_per_head'] = (int) round($validated['value_per_head'] * 100);
+        } else {
+            $validated['value_per_head'] = $lsConfig['value_per_head'] ?? null;
+        }
+
+        // Pre-fill carrying capacity from config if not provided
+        if (empty($validated['carrying_capacity_ha_per_lsu']) && !empty($lsConfig['carrying_capacity_ha'])) {
+            $validated['carrying_capacity_ha_per_lsu'] = $lsConfig['carrying_capacity_ha'];
+        }
+
+        // Calculate total value
+        if ($validated['value_per_head']) {
+            $validated['total_value'] = $validated['head_count'] * $validated['value_per_head'];
+        }
+
+        // Calculate annual revenue and cost from config per-head rates
+        if (!empty($lsConfig['annual_revenue_per_head'])) {
+            $validated['annual_revenue'] = $validated['head_count'] * $lsConfig['annual_revenue_per_head'];
+        }
+        if (!empty($lsConfig['annual_cost_per_head'])) {
+            $validated['annual_cost'] = $validated['head_count'] * $lsConfig['annual_cost_per_head'];
+        }
+
+        $evaluation->livestock()->create($validated);
+
+        return redirect()->route('commercial-evaluations.show', $evaluation)
+            ->with('success', 'Livestock added.');
+    }
+
+    public function destroyLivestock(CommercialEvaluation $evaluation, CommercialEvaluationLivestock $livestock)
+    {
+        $livestock->delete();
+
+        return redirect()->route('commercial-evaluations.show', $evaluation)
+            ->with('success', 'Livestock removed.');
+    }
+
+    /**
+     * Interpolate yield percentage from a sparse yield curve.
+     */
+    private function interpolateYieldCurve(array $curve, int $age): ?float
+    {
+        if (empty($curve)) {
+            return null;
+        }
+
+        ksort($curve);
+        $keys = array_keys($curve);
+
+        // Before first data point
+        if ($age <= $keys[0]) {
+            return (float) $curve[$keys[0]];
+        }
+
+        // After last data point
+        $lastKey = end($keys);
+        if ($age >= $lastKey) {
+            return (float) $curve[$lastKey];
+        }
+
+        // Find bracketing keys and interpolate
+        $prevKey = $keys[0];
+        foreach ($keys as $k) {
+            if ($k == $age) {
+                return (float) $curve[$k];
+            }
+            if ($k > $age) {
+                $nextKey = $k;
+                $range = $nextKey - $prevKey;
+                if ($range == 0) {
+                    return (float) $curve[$prevKey];
+                }
+                $fraction = ($age - $prevKey) / $range;
+                return round($curve[$prevKey] + $fraction * ($curve[$nextKey] - $curve[$prevKey]), 2);
+            }
+            $prevKey = $k;
+        }
+
+        return null;
     }
 
     // ══════════════════════════════════════════

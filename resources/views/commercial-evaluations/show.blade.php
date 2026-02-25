@@ -568,6 +568,392 @@
     @endif
 
     {{-- ═══════════════════════════════════════════
+         CROPS & ORCHARDS (agricultural only)
+    ═══════════════════════════════════════════ --}}
+    @if($evaluation->property_type === 'agricultural')
+    <div class="ds-status-card mb-6" x-data="{
+        showCropForm: false,
+        selectedCrop: '',
+        cropConfigs: @js($cropConfig),
+        get currentConfig() { return this.cropConfigs[this.selectedCrop] || {}; },
+        get hasQuestions() { return (this.currentConfig.questions || []).length > 0; },
+        formatCents(cents) {
+            if (!cents) return '';
+            return (cents / 100).toFixed(0);
+        }
+    }">
+        <div class="px-5 py-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-700">
+                    <svg class="w-4 h-4 inline-block mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+                    Crops & Orchards
+                </h3>
+                <button @click="showCropForm = !showCropForm" class="text-xs text-[#00b4d8] hover:text-[#0096b7] font-medium">
+                    + Add Crop
+                </button>
+            </div>
+
+            {{-- Add crop form --}}
+            <div x-show="showCropForm" x-transition class="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <form method="POST" action="{{ route('commercial-evaluations.crops.store', $evaluation) }}">
+                    @csrf
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Crop Type <span class="text-red-500">*</span></label>
+                            <select name="crop_type" required x-model="selectedCrop"
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                                <option value="">— Select —</option>
+                                @foreach($cropConfig as $key => $cfg)
+                                    <option value="{{ $key }}">{{ $cfg['label'] }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Variety</label>
+                            <input type="text" name="variety" placeholder="e.g. Beaumont, Williams"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Hectares <span class="text-red-500">*</span></label>
+                            <input type="number" step="0.01" name="hectares" required placeholder="0"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Year Planted</label>
+                            <input type="number" name="year_planted" min="1900" max="2100" placeholder="e.g. 2014"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Trees per hectare</label>
+                            <input type="number" name="trees_per_hectare" min="1"
+                                   :placeholder="currentConfig.typical_trees_per_ha ? 'Default: ' + currentConfig.typical_trees_per_ha : ''"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Current yield (t/ha)</label>
+                            <input type="number" step="0.01" name="current_yield_tons_per_ha" min="0"
+                                   :placeholder="currentConfig.peak_yield_tons_per_ha ? 'Peak: ' + currentConfig.peak_yield_tons_per_ha : ''"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Price per ton (ZAR)</label>
+                            <input type="number" step="0.01" name="current_price_per_ton" min="0"
+                                   :placeholder="currentConfig.current_price_per_ton ? 'Default: R ' + formatCents(currentConfig.current_price_per_ton) : ''"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Cost per ha (ZAR/yr)</label>
+                            <input type="number" step="0.01" name="annual_cost_per_ha" min="0"
+                                   :placeholder="currentConfig.cost_per_ha ? 'Default: R ' + formatCents(currentConfig.cost_per_ha) : ''"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div class="md:col-span-3">
+                            <label class="text-xs text-gray-500 block mb-1">Notes</label>
+                            <input type="text" name="notes" placeholder="Optional"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                    </div>
+
+                    {{-- Guidance questions panel --}}
+                    <div x-show="hasQuestions" x-transition class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <p class="text-xs font-semibold text-green-800 mb-2">
+                            Questions to ask the seller about their <span x-text="currentConfig.label || 'crop'"></span>:
+                        </p>
+                        <ul class="space-y-1">
+                            <template x-for="(q, i) in (currentConfig.questions || [])" :key="i">
+                                <li class="flex items-start gap-2 text-xs text-green-700">
+                                    <input type="checkbox" class="mt-0.5 rounded border-green-300 text-green-600 focus:ring-green-500">
+                                    <span x-text="q"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+
+                    {{-- Config defaults info --}}
+                    <div x-show="selectedCrop && currentConfig.lifespan_years" x-transition class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                        <strong>Config defaults:</strong>
+                        Lifespan: <span x-text="currentConfig.lifespan_years"></span> yrs |
+                        First crop: yr <span x-text="currentConfig.years_to_first_crop"></span> |
+                        Peak at yr <span x-text="currentConfig.years_to_peak"></span> |
+                        Peak yield: <span x-text="currentConfig.peak_yield_tons_per_ha || '—'"></span> t/ha |
+                        Trees/ha: <span x-text="currentConfig.typical_trees_per_ha || '—'"></span>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="submit" class="nexus-btn-primary text-xs">Add Crop</button>
+                        <button type="button" @click="showCropForm = false; selectedCrop = ''" class="text-xs text-gray-500">Cancel</button>
+                    </div>
+                </form>
+            </div>
+
+            @if($evaluation->crops->isEmpty())
+                <p class="text-sm text-gray-400">No crops or orchards added yet.</p>
+            @else
+                <div class="space-y-3">
+                    @foreach($evaluation->crops as $crop)
+                        @php
+                            $cropLabel = $cropConfig[$crop->crop_type]['label'] ?? ucfirst(str_replace('_', ' ', $crop->crop_type));
+                            $lifespanYears = $crop->expected_lifespan_years ?? 0;
+                            $ageYears = $crop->age_years ?? 0;
+                            $remainingYears = $crop->remaining_productive_years ?? 0;
+                            $lifespanPct = $lifespanYears > 0 ? min(100, round(($ageYears / $lifespanYears) * 100)) : 0;
+                            $yieldPct = $crop->yield_percentage ?? 0;
+                            $currentYield = $crop->current_yield_tons_per_ha;
+                        @endphp
+                        <div class="p-4 bg-white border border-gray-200 rounded-lg">
+                            <div class="flex items-start justify-between mb-2">
+                                <div>
+                                    <span class="font-semibold text-sm text-gray-800">{{ $cropLabel }}</span>
+                                    <span class="text-gray-500 text-sm"> — {{ number_format($crop->hectares, 1) }} ha</span>
+                                    @if($crop->variety)
+                                        <span class="text-gray-400 text-sm">({{ $crop->variety }})</span>
+                                    @endif
+                                </div>
+                                <form method="POST" action="{{ route('commercial-evaluations.crops.destroy', [$evaluation, $crop]) }}" class="inline" onsubmit="return confirm('Remove this crop?')">
+                                    @csrf @method('DELETE')
+                                    <button type="submit" class="text-red-500 hover:text-red-700 text-xs">Remove</button>
+                                </form>
+                            </div>
+
+                            {{-- Lifecycle bar --}}
+                            @if($lifespanYears > 0)
+                            <div class="mb-2">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <div class="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                        <div class="h-full rounded-full {{ $lifespanPct > 80 ? 'bg-red-400' : ($lifespanPct > 50 ? 'bg-amber-400' : 'bg-green-400') }}"
+                                             style="width: {{ $lifespanPct }}%"></div>
+                                    </div>
+                                    <span class="text-xs text-gray-500 whitespace-nowrap font-medium">{{ $remainingYears }} years remaining</span>
+                                </div>
+                            </div>
+                            @endif
+
+                            <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
+                                @if($crop->age_years !== null)
+                                    <span>Age: <strong>{{ $ageYears }} yrs</strong></span>
+                                @endif
+                                @if($lifespanYears)
+                                    <span>Lifespan: <strong>{{ $lifespanYears }} yrs</strong></span>
+                                @endif
+                                @if($yieldPct)
+                                    <span>Yield: <strong>{{ number_format($yieldPct, 0) }}% of peak</strong>
+                                        @if($currentYield)
+                                            ({{ number_format($currentYield, 1) }} t/ha)
+                                        @endif
+                                    </span>
+                                @endif
+                                @if($crop->total_trees)
+                                    <span>Trees: <strong>{{ number_format($crop->total_trees) }}</strong></span>
+                                @endif
+                            </div>
+
+                            @if($crop->annual_revenue || $crop->annual_cost_per_ha)
+                            <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs mt-1">
+                                @if($crop->annual_revenue)
+                                    <span class="text-green-700">Est. annual revenue: <strong class="font-mono">{{ $formatZar($crop->annual_revenue) }}</strong></span>
+                                @endif
+                                @if($crop->annual_cost_per_ha)
+                                    <span class="text-red-600">Cost: <strong class="font-mono">{{ $formatZar((int)round($crop->annual_cost_per_ha * $crop->hectares)) }}</strong>/yr</span>
+                                @endif
+                            </div>
+                            @endif
+
+                            @if($crop->notes)
+                                <p class="text-xs text-gray-400 mt-1 italic">{{ $crop->notes }}</p>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+
+                {{-- Crop totals --}}
+                @php
+                    $totalCropHa = $evaluation->crops->sum('hectares');
+                    $totalCropRevenue = $evaluation->crops->sum('annual_revenue');
+                    $totalCropCost = $evaluation->crops->sum(function($c) { return ($c->annual_cost_per_ha ?? 0) * $c->hectares; });
+                @endphp
+                <div class="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-x-6 text-xs text-gray-500">
+                    <span>Total hectares: <strong>{{ number_format($totalCropHa, 1) }} ha</strong></span>
+                    <span>Total revenue: <strong class="font-mono text-green-700">{{ $formatZar((int)$totalCropRevenue) }}</strong></span>
+                    <span>Total cost: <strong class="font-mono text-red-600">{{ $formatZar((int)$totalCropCost) }}</strong></span>
+                </div>
+            @endif
+        </div>
+    </div>
+
+    {{-- ═══════════════════════════════════════════
+         LIVESTOCK (agricultural only)
+    ═══════════════════════════════════════════ --}}
+    <div class="ds-status-card mb-6" x-data="{
+        showLivestockForm: false,
+        selectedLivestock: '',
+        livestockConfigs: @js($livestockConfig),
+        get currentConfig() { return this.livestockConfigs[this.selectedLivestock] || {}; },
+        get hasQuestions() { return (this.currentConfig.questions || []).length > 0; },
+        formatCents(cents) {
+            if (!cents) return '';
+            return (cents / 100).toFixed(0);
+        }
+    }">
+        <div class="px-5 py-4">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold text-gray-700">
+                    <svg class="w-4 h-4 inline-block mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>
+                    Livestock
+                </h3>
+                <button @click="showLivestockForm = !showLivestockForm" class="text-xs text-[#00b4d8] hover:text-[#0096b7] font-medium">
+                    + Add Livestock
+                </button>
+            </div>
+
+            {{-- Add livestock form --}}
+            <div x-show="showLivestockForm" x-transition class="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <form method="POST" action="{{ route('commercial-evaluations.livestock.store', $evaluation) }}">
+                    @csrf
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Livestock Type <span class="text-red-500">*</span></label>
+                            <select name="livestock_type" required x-model="selectedLivestock"
+                                    class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                                <option value="">— Select —</option>
+                                @foreach($livestockConfig as $key => $cfg)
+                                    <option value="{{ $key }}">{{ $cfg['label'] }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Breed</label>
+                            <input type="text" name="breed" placeholder="e.g. Nguni, Holstein"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Head Count <span class="text-red-500">*</span></label>
+                            <input type="number" name="head_count" required min="1" placeholder="0"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Breeding Stock Count</label>
+                            <input type="number" name="breeding_stock_count" min="0" placeholder="0"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Value per Head (ZAR)</label>
+                            <input type="number" step="0.01" name="value_per_head" min="0"
+                                   :placeholder="currentConfig.value_per_head ? 'Default: R ' + formatCents(currentConfig.value_per_head) : ''"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Carrying Capacity (ha/LSU)</label>
+                            <input type="number" step="0.01" name="carrying_capacity_ha_per_lsu" min="0"
+                                   :placeholder="currentConfig.carrying_capacity_ha ? 'Default: ' + currentConfig.carrying_capacity_ha : ''"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">Hectares Used</label>
+                            <input type="number" step="0.01" name="hectares_used" min="0" placeholder="0"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="text-xs text-gray-500 block mb-1">Notes</label>
+                            <input type="text" name="notes" placeholder="Optional"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none">
+                        </div>
+                    </div>
+
+                    {{-- Guidance questions panel --}}
+                    <div x-show="hasQuestions" x-transition class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <p class="text-xs font-semibold text-green-800 mb-2">
+                            Questions to ask the seller about their <span x-text="currentConfig.label || 'livestock'"></span>:
+                        </p>
+                        <ul class="space-y-1">
+                            <template x-for="(q, i) in (currentConfig.questions || [])" :key="i">
+                                <li class="flex items-start gap-2 text-xs text-green-700">
+                                    <input type="checkbox" class="mt-0.5 rounded border-green-300 text-green-600 focus:ring-green-500">
+                                    <span x-text="q"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="submit" class="nexus-btn-primary text-xs">Add Livestock</button>
+                        <button type="button" @click="showLivestockForm = false; selectedLivestock = ''" class="text-xs text-gray-500">Cancel</button>
+                    </div>
+                </form>
+            </div>
+
+            @if($evaluation->livestock->isEmpty())
+                <p class="text-sm text-gray-400">No livestock added yet.</p>
+            @else
+                <div class="space-y-3">
+                    @foreach($evaluation->livestock as $ls)
+                        @php
+                            $lsLabel = $livestockConfig[$ls->livestock_type]['label'] ?? ucfirst(str_replace('_', ' ', $ls->livestock_type));
+                        @endphp
+                        <div class="p-4 bg-white border border-gray-200 rounded-lg">
+                            <div class="flex items-start justify-between mb-2">
+                                <div>
+                                    <span class="font-semibold text-sm text-gray-800">{{ $lsLabel }}</span>
+                                    <span class="text-gray-500 text-sm"> — {{ number_format($ls->head_count) }} head</span>
+                                    @if($ls->breed)
+                                        <span class="text-gray-400 text-sm">({{ $ls->breed }})</span>
+                                    @endif
+                                </div>
+                                <form method="POST" action="{{ route('commercial-evaluations.livestock.destroy', [$evaluation, $ls]) }}" class="inline" onsubmit="return confirm('Remove this livestock?')">
+                                    @csrf @method('DELETE')
+                                    <button type="submit" class="text-red-500 hover:text-red-700 text-xs">Remove</button>
+                                </form>
+                            </div>
+
+                            <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
+                                @if($ls->breeding_stock_count)
+                                    <span>Breeding stock: <strong>{{ number_format($ls->breeding_stock_count) }}</strong></span>
+                                @endif
+                                @if($ls->carrying_capacity_ha_per_lsu)
+                                    <span>Carrying capacity: <strong>{{ $ls->carrying_capacity_ha_per_lsu }} ha/LSU</strong></span>
+                                @endif
+                                @if($ls->hectares_used)
+                                    <span>Hectares used: <strong>{{ number_format($ls->hectares_used, 1) }} ha</strong></span>
+                                @endif
+                            </div>
+
+                            <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs mt-1">
+                                @if($ls->total_value)
+                                    <span class="text-gray-700">Total herd value: <strong class="font-mono">{{ $formatZar($ls->total_value) }}</strong></span>
+                                @endif
+                                @if($ls->annual_revenue)
+                                    <span class="text-green-700">Est. annual revenue: <strong class="font-mono">{{ $formatZar($ls->annual_revenue) }}</strong></span>
+                                @endif
+                                @if($ls->annual_cost)
+                                    <span class="text-red-600">Cost: <strong class="font-mono">{{ $formatZar($ls->annual_cost) }}</strong>/yr</span>
+                                @endif
+                            </div>
+
+                            @if($ls->notes)
+                                <p class="text-xs text-gray-400 mt-1 italic">{{ $ls->notes }}</p>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+
+                {{-- Livestock totals --}}
+                @php
+                    $totalHeadCount = $evaluation->livestock->sum('head_count');
+                    $totalHerdValue = $evaluation->livestock->sum('total_value');
+                    $totalLivestockRevenue = $evaluation->livestock->sum('annual_revenue');
+                    $totalLivestockCost = $evaluation->livestock->sum('annual_cost');
+                @endphp
+                <div class="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-x-6 text-xs text-gray-500">
+                    <span>Total head: <strong>{{ number_format($totalHeadCount) }}</strong></span>
+                    <span>Total herd value: <strong class="font-mono">{{ $formatZar((int)$totalHerdValue) }}</strong></span>
+                    <span>Total revenue: <strong class="font-mono text-green-700">{{ $formatZar((int)$totalLivestockRevenue) }}</strong></span>
+                    <span>Total cost: <strong class="font-mono text-red-600">{{ $formatZar((int)$totalLivestockCost) }}</strong></span>
+                </div>
+            @endif
+        </div>
+    </div>
+    @endif
+
+    {{-- ═══════════════════════════════════════════
          COMPARABLE SALES
     ═══════════════════════════════════════════ --}}
     <div class="ds-status-card mb-6" x-data="{ showCompForm: false }">

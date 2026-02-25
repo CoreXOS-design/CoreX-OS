@@ -765,6 +765,14 @@ Route::prefix('commercial-evaluations')->middleware('auth')->name('commercial-ev
     Route::post('/{evaluation}/units',          [\App\Http\Controllers\CommercialEvaluationController::class, 'storeUnit'])   ->name('units.store');
     Route::delete('/{evaluation}/units/{unit}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyUnit']) ->name('units.destroy');
 
+    // Crops (agricultural)
+    Route::post('/{evaluation}/crops',        [\App\Http\Controllers\CommercialEvaluationController::class, 'storeCrop'])   ->name('crops.store');
+    Route::delete('/{evaluation}/crops/{crop}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyCrop']) ->name('crops.destroy');
+
+    // Livestock (agricultural)
+    Route::post('/{evaluation}/livestock',              [\App\Http\Controllers\CommercialEvaluationController::class, 'storeLivestock'])    ->name('livestock.store');
+    Route::delete('/{evaluation}/livestock/{livestock}', [\App\Http\Controllers\CommercialEvaluationController::class, 'destroyLivestock']) ->name('livestock.destroy');
+
     // Run evaluation (Phase 2)
     Route::post('/{evaluation}/evaluate', [\App\Http\Controllers\CommercialEvaluationController::class, 'evaluate']) ->name('evaluate');
 

@@ -81,6 +81,16 @@ class CommercialEvaluation extends Model
         return $this->hasMany(CommercialEvaluationUnit::class);
     }
 
+    public function crops()
+    {
+        return $this->hasMany(CommercialEvaluationCrop::class);
+    }
+
+    public function livestock()
+    {
+        return $this->hasMany(CommercialEvaluationLivestock::class);
+    }
+
     // ── ZAR Display Helpers ──
 
     public static function formatZar(?int $cents): string
