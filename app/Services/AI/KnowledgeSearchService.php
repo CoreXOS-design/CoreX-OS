@@ -13,56 +13,61 @@ class KnowledgeSearchService
      */
     public function search(string $query, int $limit = 3): array
     {
-        // Try full-text search first
-        $chunks = KnowledgeChunk::search($query)
-            ->with('document')
-            ->limit($limit)
-            ->get();
+        try {
+            // Try full-text search first
+            $chunks = KnowledgeChunk::search($query)
+                ->with('document')
+                ->limit($limit)
+                ->get();
 
-        // If no results, try keyword extraction fallback
-        if ($chunks->isEmpty()) {
-            $keywords = $this->extractKeywords($query);
-            if (!empty($keywords)) {
-                $chunks = KnowledgeChunk::keywordSearch($keywords)
-                    ->with('document')
-                    ->limit($limit)
-                    ->get();
+            // If no results, try keyword extraction fallback
+            if ($chunks->isEmpty()) {
+                $keywords = $this->extractKeywords($query);
+                if (!empty($keywords)) {
+                    $chunks = KnowledgeChunk::keywordSearch($keywords)
+                        ->with('document')
+                        ->limit($limit)
+                        ->get();
+                }
             }
-        }
 
-        if ($chunks->isEmpty()) {
+            if ($chunks->isEmpty()) {
+                return ['context' => '', 'sources' => []];
+            }
+
+            $contextParts = [];
+            $sources = [];
+
+            foreach ($chunks as $chunk) {
+                $doc = $chunk->document;
+                $header = "--- From: {$doc->title}";
+                if ($chunk->section_title) {
+                    $header .= " ({$chunk->section_title})";
+                }
+                if ($chunk->page_number) {
+                    $header .= " [Page {$chunk->page_number}]";
+                }
+                $header .= " ---";
+
+                $contextParts[] = $header . "\n" . $chunk->content;
+
+                $sources[] = [
+                    'document_id' => $doc->id,
+                    'title' => $doc->title,
+                    'section' => $chunk->section_title,
+                    'page' => $chunk->page_number,
+                    'category' => $doc->category->name ?? null,
+                ];
+            }
+
+            return [
+                'context' => implode("\n\n", $contextParts),
+                'sources' => $sources,
+            ];
+        } catch (\Throwable $e) {
+            \Log::warning('Knowledge search failed: ' . $e->getMessage());
             return ['context' => '', 'sources' => []];
         }
-
-        $contextParts = [];
-        $sources = [];
-
-        foreach ($chunks as $chunk) {
-            $doc = $chunk->document;
-            $header = "--- From: {$doc->title}";
-            if ($chunk->section_title) {
-                $header .= " ({$chunk->section_title})";
-            }
-            if ($chunk->page_number) {
-                $header .= " [Page {$chunk->page_number}]";
-            }
-            $header .= " ---";
-
-            $contextParts[] = $header . "\n" . $chunk->content;
-
-            $sources[] = [
-                'document_id' => $doc->id,
-                'title' => $doc->title,
-                'section' => $chunk->section_title,
-                'page' => $chunk->page_number,
-                'category' => $doc->category->name ?? null,
-            ];
-        }
-
-        return [
-            'context' => implode("\n\n", $contextParts),
-            'sources' => $sources,
-        ];
     }
 
     /**

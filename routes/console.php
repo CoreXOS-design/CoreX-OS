@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -27,3 +28,6 @@ Artisan::command('rentals:test-inclusion {branchId} {periodStart} {periodEnd}', 
     }
 
 })->purpose('Test rental worksheet inclusion service safely');
+
+// P24 alert email import — runs hourly
+Schedule::command('p24:import')->hourly();

@@ -245,6 +245,7 @@ class PackController extends Controller
 
         $selectedTemplateIds = $request->input('selected_templates', []);
         $selectedKbDocIds = $request->input('selected_kb_docs', []);
+        $documentNames = $request->input('document_names', []);
 
         $packInstanceId = ($pack->creation_mode === 'linked')
             ? (int) (microtime(true) * 1000)
@@ -254,12 +255,14 @@ class PackController extends Controller
 
         foreach ($pack->slots()->ordered()->get() as $slot) {
             if ($slot->slot_type === 'required' && $slot->template_id) {
-                $this->createDocumentFromTemplate($slot->template_id, $pack, $user, $packInstanceId);
+                $customName = $documentNames[$slot->template_id] ?? null;
+                $this->createDocumentFromTemplate($slot->template_id, $pack, $user, $packInstanceId, $customName);
                 $docCount++;
             } elseif ($slot->slot_type === 'selectable') {
                 $slotTemplateIds = $this->resolveSelectableTemplates($slot, $selectedTemplateIds);
                 foreach ($slotTemplateIds as $tid) {
-                    $this->createDocumentFromTemplate($tid, $pack, $user, $packInstanceId);
+                    $customName = $documentNames[$tid] ?? null;
+                    $this->createDocumentFromTemplate($tid, $pack, $user, $packInstanceId, $customName);
                     $docCount++;
                 }
             } elseif ($slot->slot_type === 'attachment' && $packInstanceId) {
@@ -314,7 +317,7 @@ class PackController extends Controller
             ->with('status', "Created {$count} document" . ($count !== 1 ? 's' : '') . " from \"{$pack->name}\".");
     }
 
-    private function createDocumentFromTemplate($templateId, Pack $pack, $user, $packInstanceId)
+    private function createDocumentFromTemplate($templateId, Pack $pack, $user, $packInstanceId, $customName = null)
     {
         $template = Template::find($templateId);
         if (!$template) {
@@ -339,8 +342,12 @@ class PackController extends Controller
             return $f;
         }, $fields);
 
+        $name = (!empty($customName) && trim($customName) !== '')
+            ? trim($customName)
+            : $pack->name . ' — ' . $template->name;
+
         Document::create([
-            'name' => $pack->name . ' — ' . $template->name,
+            'name' => $name,
             'template_id' => $template->id,
             'fields_json' => $clearedFields,
             'owner_id' => $user->id,

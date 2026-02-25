@@ -42,6 +42,11 @@
                             @if($slot->template)
                                 <div class="text-xs text-slate-500">{{ $slot->template->name }}</div>
                                 <input type="hidden" name="selected_templates[]" value="{{ $slot->template->id }}">
+                                <input type="text"
+                                       name="document_names[{{ $slot->template->id }}]"
+                                       value="{{ $pack->name }} — {{ $slot->template->name }}"
+                                       class="mt-1.5 w-full rounded border border-slate-200 bg-slate-50 text-slate-700 px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:bg-white"
+                                       placeholder="Document name" maxlength="255">
                             @else
                                 <div class="text-xs text-red-500">Template not found &mdash; this slot will be skipped.</div>
                             @endif
@@ -69,20 +74,31 @@
                     @if($typeTemplates->isEmpty())
                         <div class="text-xs text-slate-400 ml-8">No templates available for this type.</div>
                     @else
-                        <div class="ml-8 space-y-1.5">
+                        <div class="ml-8 space-y-2">
                             @foreach($typeTemplates as $tpl)
-                                <label class="flex items-center gap-2 text-sm text-slate-700 hover:bg-slate-50 rounded px-2 py-1 cursor-pointer">
-                                    @if($slot->allow_multiple)
-                                        <input type="checkbox" name="selected_templates[]" value="{{ $tpl->id }}"
-                                               class="rounded border-slate-300">
-                                    @else
-                                        <input type="radio" name="selectable_slot_{{ $slot->id }}" value="{{ $tpl->id }}"
-                                               class="rounded-full border-slate-300"
-                                               onchange="document.querySelector('#sel_hidden_{{ $slot->id }}').value = this.value">
-                                    @endif
-                                    <span>{{ $tpl->name }}</span>
-                                    <span class="text-xs text-slate-400 ml-auto">{{ $tpl->page_count }} pg</span>
-                                </label>
+                                <div x-data="{ checked: false }">
+                                    <label class="flex items-center gap-2 text-sm text-slate-700 hover:bg-slate-50 rounded px-2 py-1 cursor-pointer">
+                                        @if($slot->allow_multiple)
+                                            <input type="checkbox" name="selected_templates[]" value="{{ $tpl->id }}"
+                                                   class="rounded border-slate-300"
+                                                   x-model="checked">
+                                        @else
+                                            <input type="radio" name="selectable_slot_{{ $slot->id }}" value="{{ $tpl->id }}"
+                                                   class="rounded-full border-slate-300"
+                                                   onchange="document.querySelector('#sel_hidden_{{ $slot->id }}').value = this.value"
+                                                   @change="checked = true">
+                                        @endif
+                                        <span>{{ $tpl->name }}</span>
+                                        <span class="text-xs text-slate-400 ml-auto">{{ $tpl->page_count }} pg</span>
+                                    </label>
+                                    <div x-show="checked" x-cloak class="ml-8 mt-1">
+                                        <input type="text"
+                                               name="document_names[{{ $tpl->id }}]"
+                                               value="{{ $pack->name }} — {{ $tpl->name }}"
+                                               class="w-full rounded border border-slate-200 bg-slate-50 text-slate-700 px-2 py-1 text-xs focus:ring-1 focus:ring-blue-400 focus:border-blue-400 focus:bg-white"
+                                               placeholder="Document name" maxlength="255">
+                                    </div>
+                                </div>
                             @endforeach
                             @if(!$slot->allow_multiple)
                                 <input type="hidden" name="selected_templates[]" id="sel_hidden_{{ $slot->id }}" value="">

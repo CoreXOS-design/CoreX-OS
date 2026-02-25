@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\NamedField;
 use App\Models\Docuperfect\PackAttachment;
+use App\Models\Docuperfect\PackInstanceValue;
 use App\Models\Docuperfect\Template;
 use Illuminate\Http\Request;
 
@@ -41,8 +42,22 @@ class DocumentController extends Controller
         $user = $request->user();
         $template = Template::active()->visibleTo($user)->findOrFail($templateId);
 
+        $suggestedName = $template->name . ' — ' . $user->name . ' — ' . now()->format('Y-m-d');
+
+        return view('docuperfect.documents.create', compact('template', 'suggestedName'));
+    }
+
+    public function store(Request $request, $templateId)
+    {
+        $user = $request->user();
+        $template = Template::active()->visibleTo($user)->findOrFail($templateId);
+
+        $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
         $document = Document::create([
-            'name' => $template->name . ' — ' . $user->name . ' — ' . now()->format('Y-m-d'),
+            'name' => $request->input('name'),
             'template_id' => $template->id,
             'fields_json' => $template->fields_json ?? [],
             'owner_id' => $user->id,
@@ -73,6 +88,32 @@ class DocumentController extends Controller
         $template = $document->template;
         $namedFields = NamedField::orderBy('sort_order')->get();
 
+        // Merge shared pack instance values into this document's fields
+        if ($document->pack_instance_id) {
+            $sharedValues = PackInstanceValue::where('pack_instance_id', $document->pack_instance_id)
+                ->pluck('value', 'named_field_id');
+
+            if ($sharedValues->isNotEmpty()) {
+                $fieldsJson = $document->fields_json ?? [];
+                $changed = false;
+
+                foreach ($fieldsJson as &$field) {
+                    if (!empty($field['named_field_id']) && $sharedValues->has($field['named_field_id'])) {
+                        $sharedVal = $sharedValues[$field['named_field_id']];
+                        if (($field['value'] ?? '') !== ($sharedVal ?? '')) {
+                            $field['value'] = $sharedVal;
+                            $changed = true;
+                        }
+                    }
+                }
+                unset($field);
+
+                if ($changed) {
+                    $document->update(['fields_json' => $fieldsJson]);
+                }
+            }
+        }
+
         return view('docuperfect.documents.edit', compact('document', 'template', 'namedFields', 'user'));
     }
 
@@ -99,7 +140,79 @@ class DocumentController extends Controller
             $document->update($data);
         }
 
+        // Sync named field values to pack instance siblings
+        if ($document->pack_instance_id && $request->has('fields')) {
+            $fieldsJson = $document->fields_json ?? [];
+
+            // Extract named field values from saved fields
+            $namedValues = [];
+            foreach ($fieldsJson as $field) {
+                if (!empty($field['named_field_id']) && array_key_exists('value', $field)) {
+                    $namedValues[$field['named_field_id']] = $field['value'];
+                }
+            }
+
+            if (!empty($namedValues)) {
+                // Upsert shared pack instance values
+                foreach ($namedValues as $namedFieldId => $value) {
+                    PackInstanceValue::updateOrCreate(
+                        [
+                            'pack_instance_id' => $document->pack_instance_id,
+                            'named_field_id' => $namedFieldId,
+                        ],
+                        ['value' => $value]
+                    );
+                }
+
+                // Update sibling documents in the same pack
+                $siblings = Document::where('pack_instance_id', $document->pack_instance_id)
+                    ->where('id', '!=', $document->id)
+                    ->get();
+
+                foreach ($siblings as $sibling) {
+                    $siblingFields = $sibling->fields_json ?? [];
+                    $siblingChanged = false;
+
+                    foreach ($siblingFields as &$sf) {
+                        if (!empty($sf['named_field_id']) && array_key_exists($sf['named_field_id'], $namedValues)) {
+                            if (($sf['value'] ?? '') !== ($namedValues[$sf['named_field_id']] ?? '')) {
+                                $sf['value'] = $namedValues[$sf['named_field_id']];
+                                $siblingChanged = true;
+                            }
+                        }
+                    }
+                    unset($sf);
+
+                    if ($siblingChanged) {
+                        $sibling->update(['fields_json' => $siblingFields]);
+                    }
+                }
+            }
+        }
+
         return response()->json(['ok' => true]);
+    }
+
+    public function rename(Request $request, $id)
+    {
+        $user = $request->user();
+        $document = Document::findOrFail($id);
+
+        if (!$user->isAdmin() && (int)$document->owner_id !== (int)$user->id) {
+            abort(403);
+        }
+
+        $request->validate([
+            'name' => 'required|string|max:255',
+        ]);
+
+        $document->update(['name' => $request->input('name')]);
+
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'name' => $document->name]);
+        }
+
+        return redirect()->back()->with('status', 'Document renamed.');
     }
 
     public function archive(Request $request, $id)

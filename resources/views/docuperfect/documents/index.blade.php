@@ -47,8 +47,25 @@
                 </thead>
                 <tbody>
                     @foreach($documents as $doc)
-                    <tr>
-                        <td class="px-4 py-3 font-medium text-slate-900">{{ $doc->name }}</td>
+                    <tr x-data="{ renaming: false }">
+                        <td class="px-4 py-3 font-medium text-slate-900">
+                            <div x-show="!renaming" class="flex items-center gap-1.5">
+                                <span>{{ $doc->name }}</span>
+                                <button @click="renaming = true" class="text-slate-300 hover:text-slate-500" title="Rename">
+                                    <i class="fas fa-pencil-alt text-[10px]"></i>
+                                </button>
+                            </div>
+                            <form x-show="renaming" x-cloak method="POST" action="{{ route('docuperfect.documents.rename', $doc->id) }}" class="flex items-center gap-1.5">
+                                @csrf
+                                <input type="text" name="name" value="{{ $doc->name }}"
+                                       class="rounded border border-slate-300 text-sm px-2 py-0.5 w-full max-w-xs focus:ring-1 focus:ring-blue-400"
+                                       required maxlength="255"
+                                       x-ref="renameInput"
+                                       x-init="$watch('renaming', v => { if(v) $nextTick(() => $refs.renameInput.select()) })">
+                                <button type="submit" class="text-green-600 hover:text-green-800 text-xs font-medium">Save</button>
+                                <button type="button" @click="renaming = false" class="text-slate-400 hover:text-slate-600 text-xs">Cancel</button>
+                            </form>
+                        </td>
                         <td class="px-4 py-3 text-slate-600">{{ $doc->template->name ?? '—' }}</td>
                         <td class="px-4 py-3 text-slate-500">{{ $doc->updated_at->format('d M Y H:i') }}</td>
                         @if($user->isAdmin() || $user->isBranchManager())

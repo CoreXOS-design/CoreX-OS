@@ -39,4 +39,14 @@ return [
         'url' => env('PORTAL_FETCH_URL', 'http://127.0.0.1:3105'),
     ],
 
+    'p24_imap' => [
+        'host' => env('P24_IMAP_HOST'),
+        'port' => env('P24_IMAP_PORT', 993),
+        'encryption' => env('P24_IMAP_ENCRYPTION', 'ssl'),
+        'username' => env('P24_IMAP_USERNAME'),
+        'password' => env('P24_IMAP_PASSWORD'),
+        'folder' => env('P24_IMAP_FOLDER', 'INBOX'),
+        'enabled' => env('P24_IMPORT_ENABLED', false),
+    ],
+
 ];
