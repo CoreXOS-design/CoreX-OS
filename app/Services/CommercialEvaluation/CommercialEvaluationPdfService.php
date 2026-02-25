@@ -93,6 +93,14 @@ class CommercialEvaluationPdfService
             }
         }
 
+        // Property Intelligence — Seller Responses (agricultural)
+        if ($evaluation->property_type === 'agricultural') {
+            $sellerSection = $this->sellerResponses($evaluation);
+            if ($sellerSection) {
+                $html .= $sellerSection;
+            }
+        }
+
         // Comparable sales
         if ($evaluation->comparables->isNotEmpty()) {
             $html .= $this->comparableSalesSection($evaluation, $zar);
@@ -586,6 +594,82 @@ HTML;
         $html .= "<p style='margin-bottom:4px;'><strong>Confidence:</strong> <span class='badge {$confClass}'>" . ucfirst($rec['confidence'] ?? 'unknown') . "</span></p>";
         $html .= "<p style='color:#94a3b8;font-size:10px;'>" . htmlspecialchars($rec['confidence_reason'] ?? '') . "</p>";
         $html .= '</div>';
+
+        return $html;
+    }
+
+    private function sellerResponses(CommercialEvaluation $e): ?string
+    {
+        $cropConfig = config('agricultural_crops.crops', []);
+        $livestockConfig = config('agricultural_crops.livestock', []);
+
+        $hasAny = false;
+
+        // Check if there are any answers at all
+        foreach ($e->crops as $c) {
+            if (!empty($c->guidance_answers)) { $hasAny = true; break; }
+        }
+        if (!$hasAny) {
+            foreach ($e->livestock as $l) {
+                if (!empty($l->guidance_answers)) { $hasAny = true; break; }
+            }
+        }
+
+        if (!$hasAny) {
+            return null;
+        }
+
+        $html = '<div class="page-break"></div>';
+        $html .= '<h2>Property Intelligence — Seller Responses</h2>';
+        $html .= '<p style="color:#64748b;font-size:10px;margin-bottom:12px;">The following responses were captured during the seller interview and provide context for the evaluation assumptions.</p>';
+
+        // Crop responses
+        foreach ($e->crops as $c) {
+            if (empty($c->guidance_answers)) continue;
+
+            $questions = $cropConfig[$c->crop_type]['questions'] ?? [];
+            $qMap = collect($questions)->keyBy('id');
+            $typeLabel = htmlspecialchars($cropConfig[$c->crop_type]['label'] ?? ucfirst($c->crop_type));
+            $variety = $c->variety ? ' — ' . htmlspecialchars($c->variety) : '';
+
+            $html .= "<h3>{$typeLabel}{$variety}</h3>";
+            $html .= '<table>';
+            $html .= '<tr><th style="width:45%;">Question</th><th>Seller Response</th></tr>';
+
+            foreach ($c->guidance_answers as $qId => $answer) {
+                if ($answer === '' || $answer === null) continue;
+                $qDef = $qMap[$qId] ?? null;
+                $qText = htmlspecialchars($qDef['question'] ?? $qId);
+                $unit = $qDef['unit'] ?? '';
+                $ansText = htmlspecialchars((string) $answer) . ($unit ? " {$unit}" : '');
+                $html .= "<tr><td style='color:#64748b;'>{$qText}</td><td>{$ansText}</td></tr>";
+            }
+            $html .= '</table>';
+        }
+
+        // Livestock responses
+        foreach ($e->livestock as $l) {
+            if (empty($l->guidance_answers)) continue;
+
+            $questions = $livestockConfig[$l->livestock_type]['questions'] ?? [];
+            $qMap = collect($questions)->keyBy('id');
+            $typeLabel = htmlspecialchars($livestockConfig[$l->livestock_type]['label'] ?? ucfirst($l->livestock_type));
+            $breed = $l->breed ? ' — ' . htmlspecialchars($l->breed) : '';
+
+            $html .= "<h3>{$typeLabel}{$breed}</h3>";
+            $html .= '<table>';
+            $html .= '<tr><th style="width:45%;">Question</th><th>Seller Response</th></tr>';
+
+            foreach ($l->guidance_answers as $qId => $answer) {
+                if ($answer === '' || $answer === null) continue;
+                $qDef = $qMap[$qId] ?? null;
+                $qText = htmlspecialchars($qDef['question'] ?? $qId);
+                $unit = $qDef['unit'] ?? '';
+                $ansText = htmlspecialchars((string) $answer) . ($unit ? " {$unit}" : '');
+                $html .= "<tr><td style='color:#64748b;'>{$qText}</td><td>{$ansText}</td></tr>";
+            }
+            $html .= '</table>';
+        }
 
         return $html;
     }

@@ -299,6 +299,8 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         // Admin: TV Code Management (all branches)
         Route::post('/admin/tv-code/generate', [\App\Http\Controllers\Admin\TvCodeController::class, 'generate'])->name('admin.tv-code.generate');
         Route::post('/admin/tv-code/revoke', [\App\Http\Controllers\Admin\TvCodeController::class, 'revoke'])->name('admin.tv-code.revoke');
+        Route::post('/admin/tv-code/generate-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'generateCompany'])->name('admin.tv-code.generate-company');
+        Route::post('/admin/tv-code/revoke-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'revokeCompany'])->name('admin.tv-code.revoke-company');
     });
 
     Route::middleware(['branch_manager'])->group(function () {
@@ -369,6 +371,7 @@ Route::get('/tv/branch/{branchId}', [\App\Http\Controllers\TV\BranchTvController
 Route::get('/tv', [\App\Http\Controllers\TV\TvController::class, 'index'])->name('tv.index');
 Route::post('/tv/verify', [\App\Http\Controllers\TV\TvController::class, 'verify'])->name('tv.verify');
 Route::get('/tv/display/{code}', [\App\Http\Controllers\TV\TvController::class, 'display'])->name('tv.display');
+Route::get('/tv/company/{code}', [\App\Http\Controllers\TV\TvController::class, 'companyDisplay'])->name('tv.company');
 
 
 Route::post('/worksheet/align-company-target', [\App\Http\Controllers\WorksheetController::class, 'alignToCompany'])

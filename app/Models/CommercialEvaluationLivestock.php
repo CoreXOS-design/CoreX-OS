@@ -21,6 +21,7 @@ class CommercialEvaluationLivestock extends Model
         'annual_revenue',
         'annual_cost',
         'notes',
+        'guidance_answers',
     ];
 
     protected $casts = [
@@ -32,6 +33,7 @@ class CommercialEvaluationLivestock extends Model
         'hectares_used'               => 'decimal:2',
         'annual_revenue'              => 'integer',
         'annual_cost'                 => 'integer',
+        'guidance_answers'            => 'array',
     ];
 
     public function evaluation()

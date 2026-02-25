@@ -575,13 +575,43 @@
         showCropForm: false,
         selectedCrop: '',
         cropConfigs: @js($cropConfig),
+        guidanceAnswers: {},
+        expandedQuestions: {},
         get currentConfig() { return this.cropConfigs[this.selectedCrop] || {}; },
         get hasQuestions() { return (this.currentConfig.questions || []).length > 0; },
+        get answeredCount() {
+            let count = 0;
+            for (let key in this.guidanceAnswers) {
+                let v = this.guidanceAnswers[key];
+                if (v !== '' && v !== null && v !== undefined) count++;
+            }
+            return count;
+        },
+        get totalQuestions() { return (this.currentConfig.questions || []).length; },
+        toggleQuestion(id) {
+            if (this.expandedQuestions[id]) {
+                delete this.expandedQuestions[id];
+                delete this.guidanceAnswers[id];
+            } else {
+                this.expandedQuestions[id] = true;
+                if (!(id in this.guidanceAnswers)) this.guidanceAnswers[id] = '';
+            }
+        },
+        isExpanded(id) { return !!this.expandedQuestions[id]; },
+        hasAnswer(id) {
+            let v = this.guidanceAnswers[id];
+            return v !== '' && v !== null && v !== undefined;
+        },
+        resetGuidance() {
+            this.guidanceAnswers = {};
+            this.expandedQuestions = {};
+        },
+        guidanceJson() { return JSON.stringify(this.guidanceAnswers); },
         formatCents(cents) {
             if (!cents) return '';
             return (cents / 100).toFixed(0);
         }
-    }">
+    }" x-effect="if (!selectedCrop) resetGuidance()">
         <div class="px-5 py-4">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-semibold text-gray-700">
@@ -655,15 +685,80 @@
                     </div>
 
                     {{-- Guidance questions panel --}}
+                    <input type="hidden" name="guidance_answers" :value="guidanceJson()">
                     <div x-show="hasQuestions" x-transition class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                        <p class="text-xs font-semibold text-green-800 mb-2">
-                            Questions to ask the seller about their <span x-text="currentConfig.label || 'crop'"></span>:
-                        </p>
-                        <ul class="space-y-1">
-                            <template x-for="(q, i) in (currentConfig.questions || [])" :key="i">
-                                <li class="flex items-start gap-2 text-xs text-green-700">
-                                    <input type="checkbox" class="mt-0.5 rounded border-green-300 text-green-600 focus:ring-green-500">
-                                    <span x-text="q"></span>
+                        <div class="flex items-center justify-between mb-2">
+                            <p class="text-xs font-semibold text-green-800">
+                                Seller questions — <span x-text="currentConfig.label || 'crop'"></span>
+                            </p>
+                            <span class="text-xs font-medium" :class="answeredCount === totalQuestions ? 'text-green-600' : 'text-gray-400'"
+                                  x-text="answeredCount + '/' + totalQuestions + ' answered'"></span>
+                        </div>
+                        <ul class="space-y-2">
+                            <template x-for="q in (currentConfig.questions || [])" :key="q.id">
+                                <li class="border rounded-lg overflow-hidden"
+                                    :class="hasAnswer(q.id) ? 'border-green-300 bg-white' : 'border-gray-200 bg-white'">
+                                    {{-- Question header (checkbox + text) --}}
+                                    <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
+                                         @click="toggleQuestion(q.id)">
+                                        <input type="checkbox" class="rounded border-green-300 text-green-600 focus:ring-green-500 pointer-events-none"
+                                               :checked="isExpanded(q.id)" @click.stop="toggleQuestion(q.id)">
+                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-green-800 font-medium' : 'text-gray-600'" x-text="q.question"></span>
+                                        <template x-if="hasAnswer(q.id)">
+                                            <svg class="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                        </template>
+                                    </div>
+                                    {{-- Answer input (shown when expanded) --}}
+                                    <div x-show="isExpanded(q.id)" x-transition class="px-3 pb-3">
+                                        {{-- Text input --}}
+                                        <template x-if="q.inputType === 'text'">
+                                            <div class="flex items-center gap-2">
+                                                <input type="text" class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none"
+                                                       :placeholder="q.placeholder || ''" x-model="guidanceAnswers[q.id]">
+                                                <template x-if="q.unit">
+                                                    <span class="text-xs text-gray-400" x-text="q.unit"></span>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        {{-- Number input --}}
+                                        <template x-if="q.inputType === 'number'">
+                                            <div class="flex items-center gap-2">
+                                                <input type="number" step="any" class="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none"
+                                                       :placeholder="q.placeholder || ''" x-model="guidanceAnswers[q.id]">
+                                                <template x-if="q.unit">
+                                                    <span class="text-xs text-gray-400" x-text="q.unit"></span>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        {{-- Textarea --}}
+                                        <template x-if="q.inputType === 'textarea'">
+                                            <textarea rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none"
+                                                      :placeholder="q.placeholder || ''" x-model="guidanceAnswers[q.id]"></textarea>
+                                        </template>
+                                        {{-- Select --}}
+                                        <template x-if="q.inputType === 'select'">
+                                            <select class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none"
+                                                    x-model="guidanceAnswers[q.id]">
+                                                <option value="">— Select —</option>
+                                                <template x-for="opt in (q.options || [])" :key="opt">
+                                                    <option :value="opt" x-text="opt"></option>
+                                                </template>
+                                            </select>
+                                        </template>
+                                        {{-- Boolean --}}
+                                        <template x-if="q.inputType === 'boolean'">
+                                            <div class="flex items-center gap-4">
+                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                                    <input type="radio" :name="'gq_' + q.id" value="Yes" x-model="guidanceAnswers[q.id]"
+                                                           class="text-green-600 focus:ring-green-500"> Yes
+                                                </label>
+                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                                    <input type="radio" :name="'gq_' + q.id" value="No" x-model="guidanceAnswers[q.id]"
+                                                           class="text-red-500 focus:ring-red-400"> No
+                                                </label>
+                                            </div>
+                                        </template>
+                                    </div>
                                 </li>
                             </template>
                         </ul>
@@ -761,6 +856,32 @@
                             @if($crop->notes)
                                 <p class="text-xs text-gray-400 mt-1 italic">{{ $crop->notes }}</p>
                             @endif
+
+                            {{-- Guidance answers --}}
+                            @if(!empty($crop->guidance_answers))
+                                @php
+                                    $cropQuestions = $cropConfig[$crop->crop_type]['questions'] ?? [];
+                                    $cropQMap = collect($cropQuestions)->keyBy('id');
+                                @endphp
+                                <div class="mt-2 pt-2 border-t border-gray-100">
+                                    <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Seller Responses</p>
+                                    <div class="space-y-0.5">
+                                        @foreach($crop->guidance_answers as $qId => $answer)
+                                            @if($answer !== '' && $answer !== null)
+                                                @php
+                                                    $qDef = $cropQMap[$qId] ?? null;
+                                                    $qLabel = $qDef['question'] ?? $qId;
+                                                    $unit = $qDef['unit'] ?? '';
+                                                @endphp
+                                                <div class="flex gap-1 text-xs">
+                                                    <span class="text-gray-400 shrink-0">{{ $qLabel }}</span>
+                                                    <span class="text-gray-700 font-medium">{{ $answer }}{{ $unit ? ' ' . $unit : '' }}</span>
+                                                </div>
+                                            @endif
+                                        @endforeach
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     @endforeach
                 </div>
@@ -787,13 +908,43 @@
         showLivestockForm: false,
         selectedLivestock: '',
         livestockConfigs: @js($livestockConfig),
+        guidanceAnswers: {},
+        expandedQuestions: {},
         get currentConfig() { return this.livestockConfigs[this.selectedLivestock] || {}; },
         get hasQuestions() { return (this.currentConfig.questions || []).length > 0; },
+        get answeredCount() {
+            let count = 0;
+            for (let key in this.guidanceAnswers) {
+                let v = this.guidanceAnswers[key];
+                if (v !== '' && v !== null && v !== undefined) count++;
+            }
+            return count;
+        },
+        get totalQuestions() { return (this.currentConfig.questions || []).length; },
+        toggleQuestion(id) {
+            if (this.expandedQuestions[id]) {
+                delete this.expandedQuestions[id];
+                delete this.guidanceAnswers[id];
+            } else {
+                this.expandedQuestions[id] = true;
+                if (!(id in this.guidanceAnswers)) this.guidanceAnswers[id] = '';
+            }
+        },
+        isExpanded(id) { return !!this.expandedQuestions[id]; },
+        hasAnswer(id) {
+            let v = this.guidanceAnswers[id];
+            return v !== '' && v !== null && v !== undefined;
+        },
+        resetGuidance() {
+            this.guidanceAnswers = {};
+            this.expandedQuestions = {};
+        },
+        guidanceJson() { return JSON.stringify(this.guidanceAnswers); },
         formatCents(cents) {
             if (!cents) return '';
             return (cents / 100).toFixed(0);
         }
-    }">
+    }" x-effect="if (!selectedLivestock) resetGuidance()">
         <div class="px-5 py-4">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-semibold text-gray-700">
@@ -860,15 +1011,75 @@
                     </div>
 
                     {{-- Guidance questions panel --}}
+                    <input type="hidden" name="guidance_answers" :value="guidanceJson()">
                     <div x-show="hasQuestions" x-transition class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                        <p class="text-xs font-semibold text-green-800 mb-2">
-                            Questions to ask the seller about their <span x-text="currentConfig.label || 'livestock'"></span>:
-                        </p>
-                        <ul class="space-y-1">
-                            <template x-for="(q, i) in (currentConfig.questions || [])" :key="i">
-                                <li class="flex items-start gap-2 text-xs text-green-700">
-                                    <input type="checkbox" class="mt-0.5 rounded border-green-300 text-green-600 focus:ring-green-500">
-                                    <span x-text="q"></span>
+                        <div class="flex items-center justify-between mb-2">
+                            <p class="text-xs font-semibold text-green-800">
+                                Seller questions — <span x-text="currentConfig.label || 'livestock'"></span>
+                            </p>
+                            <span class="text-xs font-medium" :class="answeredCount === totalQuestions ? 'text-green-600' : 'text-gray-400'"
+                                  x-text="answeredCount + '/' + totalQuestions + ' answered'"></span>
+                        </div>
+                        <ul class="space-y-2">
+                            <template x-for="q in (currentConfig.questions || [])" :key="q.id">
+                                <li class="border rounded-lg overflow-hidden"
+                                    :class="hasAnswer(q.id) ? 'border-green-300 bg-white' : 'border-gray-200 bg-white'">
+                                    {{-- Question header --}}
+                                    <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
+                                         @click="toggleQuestion(q.id)">
+                                        <input type="checkbox" class="rounded border-green-300 text-green-600 focus:ring-green-500 pointer-events-none"
+                                               :checked="isExpanded(q.id)" @click.stop="toggleQuestion(q.id)">
+                                        <span class="text-xs flex-1" :class="hasAnswer(q.id) ? 'text-green-800 font-medium' : 'text-gray-600'" x-text="q.question"></span>
+                                        <template x-if="hasAnswer(q.id)">
+                                            <svg class="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                        </template>
+                                    </div>
+                                    {{-- Answer input --}}
+                                    <div x-show="isExpanded(q.id)" x-transition class="px-3 pb-3">
+                                        <template x-if="q.inputType === 'text'">
+                                            <div class="flex items-center gap-2">
+                                                <input type="text" class="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none"
+                                                       :placeholder="q.placeholder || ''" x-model="guidanceAnswers[q.id]">
+                                                <template x-if="q.unit">
+                                                    <span class="text-xs text-gray-400" x-text="q.unit"></span>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        <template x-if="q.inputType === 'number'">
+                                            <div class="flex items-center gap-2">
+                                                <input type="number" step="any" class="w-40 border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none"
+                                                       :placeholder="q.placeholder || ''" x-model="guidanceAnswers[q.id]">
+                                                <template x-if="q.unit">
+                                                    <span class="text-xs text-gray-400" x-text="q.unit"></span>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        <template x-if="q.inputType === 'textarea'">
+                                            <textarea rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none"
+                                                      :placeholder="q.placeholder || ''" x-model="guidanceAnswers[q.id]"></textarea>
+                                        </template>
+                                        <template x-if="q.inputType === 'select'">
+                                            <select class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs focus:border-[#00b4d8] focus:ring-1 focus:ring-[#00b4d8] outline-none"
+                                                    x-model="guidanceAnswers[q.id]">
+                                                <option value="">— Select —</option>
+                                                <template x-for="opt in (q.options || [])" :key="opt">
+                                                    <option :value="opt" x-text="opt"></option>
+                                                </template>
+                                            </select>
+                                        </template>
+                                        <template x-if="q.inputType === 'boolean'">
+                                            <div class="flex items-center gap-4">
+                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                                    <input type="radio" :name="'gq_ls_' + q.id" value="Yes" x-model="guidanceAnswers[q.id]"
+                                                           class="text-green-600 focus:ring-green-500"> Yes
+                                                </label>
+                                                <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                                                    <input type="radio" :name="'gq_ls_' + q.id" value="No" x-model="guidanceAnswers[q.id]"
+                                                           class="text-red-500 focus:ring-red-400"> No
+                                                </label>
+                                            </div>
+                                        </template>
+                                    </div>
                                 </li>
                             </template>
                         </ul>
@@ -930,6 +1141,32 @@
 
                             @if($ls->notes)
                                 <p class="text-xs text-gray-400 mt-1 italic">{{ $ls->notes }}</p>
+                            @endif
+
+                            {{-- Guidance answers --}}
+                            @if(!empty($ls->guidance_answers))
+                                @php
+                                    $lsQuestions = $livestockConfig[$ls->livestock_type]['questions'] ?? [];
+                                    $lsQMap = collect($lsQuestions)->keyBy('id');
+                                @endphp
+                                <div class="mt-2 pt-2 border-t border-gray-100">
+                                    <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Seller Responses</p>
+                                    <div class="space-y-0.5">
+                                        @foreach($ls->guidance_answers as $qId => $answer)
+                                            @if($answer !== '' && $answer !== null)
+                                                @php
+                                                    $qDef = $lsQMap[$qId] ?? null;
+                                                    $qLabel = $qDef['question'] ?? $qId;
+                                                    $unit = $qDef['unit'] ?? '';
+                                                @endphp
+                                                <div class="flex gap-1 text-xs">
+                                                    <span class="text-gray-400 shrink-0">{{ $qLabel }}</span>
+                                                    <span class="text-gray-700 font-medium">{{ $answer }}{{ $unit ? ' ' . $unit : '' }}</span>
+                                                </div>
+                                            @endif
+                                        @endforeach
+                                    </div>
+                                </div>
                             @endif
                         </div>
                     @endforeach

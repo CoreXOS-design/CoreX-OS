@@ -443,7 +443,13 @@ class CommercialEvaluationController extends Controller
             'current_price_per_ton'  => ['nullable', 'numeric', 'min:0'],
             'annual_cost_per_ha'     => ['nullable', 'numeric', 'min:0'],
             'notes'                  => ['nullable', 'string', 'max:1000'],
+            'guidance_answers'       => ['nullable', 'json'],
         ]);
+
+        // Decode JSON string from form
+        if (!empty($validated['guidance_answers'])) {
+            $validated['guidance_answers'] = json_decode($validated['guidance_answers'], true);
+        }
 
         $cropConfig = config('agricultural_crops.crops.' . $validated['crop_type'], []);
 
@@ -529,7 +535,13 @@ class CommercialEvaluationController extends Controller
             'carrying_capacity_ha_per_lsu'=> ['nullable', 'numeric', 'min:0'],
             'hectares_used'               => ['nullable', 'numeric', 'min:0'],
             'notes'                       => ['nullable', 'string', 'max:1000'],
+            'guidance_answers'            => ['nullable', 'json'],
         ]);
+
+        // Decode JSON string from form
+        if (!empty($validated['guidance_answers'])) {
+            $validated['guidance_answers'] = json_decode($validated['guidance_answers'], true);
+        }
 
         $lsConfig = config('agricultural_crops.livestock.' . $validated['livestock_type'], []);
 

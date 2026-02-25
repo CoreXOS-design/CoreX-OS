@@ -429,6 +429,53 @@
         <div class="space-y-3">
             <h3 class="ds-section-header">TV Access Codes</h3>
 
+            {{-- Company TV Code --}}
+            <div class="ds-status-card p-5">
+                <div class="font-bold text-sm mb-3" style="color:#0b2a4a">Company TV Display</div>
+                @if(isset($companyTvCode) && $companyTvCode)
+                    <div class="flex items-center gap-4 mb-3">
+                        <span class="font-mono text-2xl font-black tracking-[0.3em]" style="color:#0b2a4a">{{ $companyTvCode->code }}</span>
+                        <div class="text-xs text-gray-500 leading-snug">
+                            <div>Generated {{ $companyTvCode->created_at->diffForHumans() }} by {{ $companyTvCode->creator->name ?? '—' }}</div>
+                            @if($companyTvCode->last_used_at)
+                                <div class="text-green-600">Last used {{ $companyTvCode->last_used_at->diffForHumans() }}</div>
+                            @else
+                                <div>Never used</div>
+                            @endif
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="text-xs text-gray-400">
+                            URL: <span class="font-mono text-gray-300">{{ route('tv.company', ['code' => $companyTvCode->code]) }}</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <form method="POST" action="{{ route('admin.tv-code.generate-company') }}">
+                            @csrf
+                            <button type="submit" class="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                                Regenerate Code
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ route('admin.tv-code.revoke-company') }}">
+                            @csrf
+                            <button type="submit" class="px-2 py-1.5 rounded bg-red-700 text-white text-sm font-semibold hover:bg-red-800"
+                                    onclick="return confirm('Revoke company TV code?')">
+                                Revoke
+                            </button>
+                        </form>
+                    </div>
+                @else
+                    <div class="text-sm text-gray-400 mb-3">No active company TV code.</div>
+                    <form method="POST" action="{{ route('admin.tv-code.generate-company') }}">
+                        @csrf
+                        <button type="submit" class="px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                            Generate Company TV Code
+                        </button>
+                    </form>
+                @endif
+            </div>
+
+            {{-- Branch TV Codes --}}
             <div class="ds-status-card p-5">
                 @if(isset($tvCodes) && $tvCodes->count())
                     <div class="overflow-x-auto">

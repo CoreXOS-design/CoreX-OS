@@ -24,6 +24,7 @@ class CommercialEvaluationCrop extends Model
         'annual_revenue',
         'annual_cost_per_ha',
         'notes',
+        'guidance_answers',
     ];
 
     protected $casts = [
@@ -40,6 +41,7 @@ class CommercialEvaluationCrop extends Model
         'current_price_per_ton'          => 'integer',
         'annual_revenue'                 => 'integer',
         'annual_cost_per_ha'             => 'integer',
+        'guidance_answers'               => 'array',
     ];
 
     public function evaluation()

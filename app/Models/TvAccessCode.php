@@ -49,6 +49,11 @@ class TvAccessCode extends Model
         return $query->where('branch_id', $branchId);
     }
 
+    public function scopeForCompany($query)
+    {
+        return $query->whereNull('branch_id');
+    }
+
     // ── Helpers ──
 
     public function isValid(): bool
