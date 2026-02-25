@@ -8,8 +8,6 @@
         $nexusSection = 'document-library';
     } elseif ($currentPath === 'nexus' || $currentPath === 'nexus/') {
         $nexusSection = 'dashboard';
-    } elseif (str_starts_with($currentPath, 'nexus/documents')) {
-        $nexusSection = 'documents';
     } elseif (str_starts_with($currentPath, 'nexus/compliance')) {
         $nexusSection = 'compliance';
     } elseif (str_starts_with($currentPath, 'nexus/supervision')) {
@@ -24,14 +22,14 @@
         $nexusSection = 'franchise-admin';
     } elseif (str_starts_with($currentPath, 'nexus/role-manager')) {
         $nexusSection = 'role-manager';
+    } elseif (str_starts_with($currentPath, 'nexus/properties')) {
+        $nexusSection = 'properties';
+    } elseif (str_starts_with($currentPath, 'nexus/settings/agencies')) {
+        $nexusSection = 'agencies';
     } elseif (str_starts_with($currentPath, 'nexus/settings')) {
         $nexusSection = 'settings';
     } elseif (str_starts_with($currentPath, 'admin/finance')) {
         $nexusSection = 'finance-engine';
-    } elseif (str_starts_with($currentPath, 'commercial-evaluations')) {
-        $nexusSection = 'commercial-evaluations';
-    } elseif (str_starts_with($currentPath, 'calculators')) {
-        $nexusSection = 'calculators';
     }
 
     $user = auth()->user();
@@ -40,11 +38,17 @@
 
     // Agency Tracker role helpers
     $effectiveRole = $user ? strtolower(trim((string)($user->effectiveRole() ?? ($user->role ?? '')))) : '';
-    $navIsAdmin = ($effectiveRole === 'admin') || (bool)($user->is_admin ?? 0);
+    $navIsAdmin = in_array($effectiveRole, ['admin', 'super_admin']) || (bool)($user->is_admin ?? 0);
     $navIsBM = ($effectiveRole === 'branch_manager');
     $navIsAgent = ($effectiveRole === 'agent');
     $effectiveBranchId = $user?->effectiveBranchId();
     $atExpanded = ($nexusSection === 'agency-tracker');
+
+    // Super Admin & Agency Switcher
+    $isSuperAdmin = $user && $user->isSuperAdmin();
+    $activeAgencyId = session('active_agency_id');
+    $agencies = $isSuperAdmin ? \App\Models\Agency::orderBy('name')->get() : collect();
+    $activeAgency = ($isSuperAdmin && $activeAgencyId) ? $agencies->find($activeAgencyId) : null;
 
     // Impersonation state
     $impersonatorId  = (int) session('impersonator_id', 0);
@@ -69,6 +73,40 @@
         nexus <span>os</span>
     </div>
 
+    {{-- Agency Switcher (super_admin only) --}}
+    @if($isSuperAdmin)
+    <div x-data="{ agencyOpen: false }" class="px-3 pb-2">
+        <button type="button" @click="agencyOpen = !agencyOpen"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                style="background:rgba(0,180,216,0.12); color:var(--brand-secondary, #00b4d8); border:1px solid rgba(0,180,216,0.25);">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 flex-shrink-0">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+            </svg>
+            <span class="flex-1 text-left truncate">{{ $activeAgency ? $activeAgency->name : 'All Agencies' }}</span>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 flex-shrink-0 transition-transform duration-150" :class="agencyOpen && 'rotate-90'"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+        </button>
+        <div x-show="agencyOpen" @click.outside="agencyOpen = false" x-transition
+             class="mt-1 rounded-lg overflow-hidden shadow-lg"
+             style="background:var(--brand-tertiary, #1a4a73); border:1px solid rgba(255,255,255,0.1);">
+            {{-- All Agencies option --}}
+            <form method="POST" action="{{ route('agency.switch.clear') }}">
+                @csrf
+                <button type="submit" class="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-white/10 {{ !$activeAgencyId ? 'text-[#00b4d8] font-semibold' : 'text-white/70' }}">
+                    All Agencies
+                </button>
+            </form>
+            @foreach($agencies as $ag)
+            <form method="POST" action="{{ route('agency.switch', $ag) }}">
+                @csrf
+                <button type="submit" class="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-white/10 {{ (int)$activeAgencyId === $ag->id ? 'text-[#00b4d8] font-semibold' : 'text-white/70' }}">
+                    {{ $ag->name }}
+                </button>
+            </form>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     {{-- Navigation --}}
     <nav class="flex-1 py-2 overflow-y-auto min-h-0">
         {{-- Dashboard --}}
@@ -78,17 +116,6 @@
             </svg>
             <span>Dashboard</span>
         </a>
-
-        {{-- Documents --}}
-        @if(!$user || $user->canAccessNexusSection('documents'))
-        <a href="{{ route('nexus.documents') }}" class="nexus-nav-item {{ $nexusSection === 'documents' ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-            </svg>
-            <span>Documents</span>
-            <svg class="nexus-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-        </a>
-        @endif
 
         {{-- Compliance --}}
         @if(!$user || $user->canAccessNexusSection('compliance'))
@@ -147,7 +174,7 @@
         @endif
 
         {{-- Docuperfect (expandable group) --}}
-        @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard'))
+        @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard') && (!$user || $user->canAccessNexusSection('docuperfect')))
         @php $dpExpanded = ($nexusSection === 'docuperfect'); @endphp
         <div x-data="{ dpOpen: {{ $dpExpanded ? 'true' : 'false' }} }">
             <button type="button" @click="dpOpen = !dpOpen" class="nexus-nav-item nexus-nav-group-toggle {{ $dpExpanded ? 'active' : '' }}">
@@ -165,7 +192,6 @@
                 @if($navIsAdmin || $navIsBM)
                 <a href="{{ route('docuperfect.templates.index') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
                 @endif
-                <a href="{{ route('docuperfect.packs.index') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.packs.*') ? 'active' : '' }}">Packs</a>
                 @if($navIsAdmin)
                 <a href="{{ route('docuperfect.settings.types') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.settings.*') ? 'active' : '' }}">Settings</a>
                 @endif
@@ -199,7 +225,7 @@
                 {{-- Common items (all roles) --}}
                 <a href="{{ route('worksheet.index') }}" class="nexus-nav-subitem {{ request()->routeIs('worksheet.*') ? 'active' : '' }}">Worksheet</a>
                 <a href="{{ route('agent.listings') }}" class="nexus-nav-subitem {{ request()->routeIs('agent.listings*') ? 'active' : '' }}">My Listing Stock</a>
-                @if($user && ($user->can_capture_rentals || in_array($effectiveRole, ['admin','branch_manager'])))
+                @if($user && ($user->can_capture_rentals || in_array($effectiveRole, ['admin','super_admin','branch_manager'])))
                 <a href="{{ route('rentals.index') }}" class="nexus-nav-subitem {{ request()->routeIs('rentals.*') ? 'active' : '' }}">Rentals</a>
                 @endif
 
@@ -263,9 +289,9 @@
             </div>
         </div>
 
-        
-        {{-- PDF Splitter (route-guarded) --}}
-        @if(\Illuminate\Support\Facades\Route::has('tools.pdf_splitter.index'))
+
+        {{-- PDF Splitter --}}
+        @if(\Illuminate\Support\Facades\Route::has('tools.pdf_splitter.index') && (!$user || $user->canAccessNexusSection('pdf-splitter')))
         <a href="{{ route('tools.pdf_splitter.index') }}" class="nexus-nav-item {{ request()->is('tools/pdf-splitter*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -282,8 +308,8 @@
         @endif
 
 
-        {{-- Presentations (feature-flag + route-guarded) --}}
-        @if(config('features.presentations') && \Illuminate\Support\Facades\Route::has('presentations.index'))
+        {{-- Presentations --}}
+        @if(config('features.presentations') && \Illuminate\Support\Facades\Route::has('presentations.index') && (!$user || $user->canAccessNexusSection('presentations')))
         <a href="{{ route('presentations.index') }}" class="nexus-nav-item {{ request()->is('presentations*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4 4h16v10H4z"/>
@@ -297,21 +323,8 @@
         </a>
         @endif
 
-        {{-- Commercial Evaluations (route-guarded) --}}
-        @if(\Illuminate\Support\Facades\Route::has('commercial-evaluations.index'))
-        <a href="{{ route('commercial-evaluations.index') }}" class="nexus-nav-item {{ request()->is('commercial-evaluations*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
-            </svg>
-            <span>Commercial Evaluations</span>
-            <svg class="nexus-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m9 18 6-6-6-6"/>
-            </svg>
-        </a>
-        @endif
-
-        {{-- Document Library (feature-flagged) --}}
-        @if(config('features.document_library_v1'))
+        {{-- Document Library --}}
+        @if(config('features.document_library_v1') && (!$user || $user->canAccessNexusSection('document-library')))
         <a href="{{ route('documents.library.index') }}" class="nexus-nav-item {{ request()->is('documents/library*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
@@ -323,13 +336,15 @@
         </a>
         @endif
 
-        {{-- Calculators (all roles) --}}
-        <a href="{{ route('calculators.index') }}" class="nexus-nav-item {{ $nexusSection === 'calculators' ? 'active' : '' }}">
+        {{-- Properties --}}
+        @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('nexus.properties.index') && (!$user || $user->canAccessNexusSection('properties')))
+        <a href="{{ route('nexus.properties.index') }}" class="nexus-nav-item {{ $nexusSection === 'properties' ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5ZM8.25 6h7.5v2.25h-7.5V6ZM12 2.25c-1.892 0-3.758.11-5.593.322C5.307 2.7 4.5 3.65 4.5 4.757V19.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V4.757c0-1.108-.806-2.057-1.907-2.185A48.507 48.507 0 0 0 12 2.25Z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
             </svg>
-            <span>Calculators</span>
+            <span>Properties</span>
         </a>
+        @endif
 
 <div class="nexus-nav-divider"></div>
 
@@ -344,8 +359,8 @@
         </a>
         @endif
 
-        {{-- Knowledge Base (admin only) --}}
-        @if($navIsAdmin)
+        {{-- Knowledge Base --}}
+        @if(!$user || $user->canAccessNexusSection('knowledge-base'))
         <a href="{{ route('admin.knowledge.index') }}" class="nexus-nav-item {{ request()->is('admin/knowledge*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
@@ -354,18 +369,8 @@
         </a>
         @endif
 
-        {{-- P24 Intelligence (admin only) --}}
-        @if($navIsAdmin)
-        <a href="{{ route('admin.p24.index') }}" class="nexus-nav-item {{ request()->is('admin/p24*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
-            </svg>
-            <span>P24 Intelligence</span>
-        </a>
-        @endif
-
-        {{-- Finance Engine (admin only) --}}
-        @if($user && $user->role === 'admin')
+        {{-- Finance Engine --}}
+        @if(!$user || $user->canAccessNexusSection('finance-engine'))
         <div class="nexus-nav-divider"></div>
         <div class="px-4 py-1">
             <span class="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-semibold">Finance Engine</span>

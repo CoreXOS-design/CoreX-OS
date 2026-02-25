@@ -27,5 +27,5 @@ return [
     'presentation_link_details_v1'    => (bool) env('PRESENTATION_LINK_DETAILS_V1', true),
     'presentation_doc_extract_v1'     => (bool) env('PRESENTATION_DOC_EXTRACT_V1', true),
     'document_library_v1'             => (bool) env('DOCUMENT_LIBRARY_V1', true),
-    'article_suggestions_v1'          => (bool) env('ARTICLE_SUGGESTIONS_V1', true),
+    'properties'                      => (bool) env('PROPERTIES_ENABLED', true),
 ];

@@ -92,6 +92,12 @@ class NexusPermissionSeeder extends Seeder
             ['key' => 'manage_finance_definitions',  'label' => 'Manage Finance Definitions',  'section' => 'finance-engine',   'sort_order' => 2],
             ['key' => 'run_finance_audit',           'label' => 'Run Finance Audit',           'section' => 'finance-engine',   'sort_order' => 3],
 
+            // Properties
+            ['key' => 'access_properties',           'label' => 'Access Properties',           'section' => 'properties',       'sort_order' => 1],
+            ['key' => 'create_properties',           'label' => 'Create & Edit Properties',    'section' => 'properties',       'sort_order' => 2],
+            ['key' => 'publish_properties',          'label' => 'Publish Properties',          'section' => 'properties',       'sort_order' => 3],
+            ['key' => 'delete_properties',           'label' => 'Delete Properties',           'section' => 'properties',       'sort_order' => 4],
+
             // Agencies (super_admin only in code, seeded here for completeness)
             ['key' => 'access_agencies',             'label' => 'Access Agencies',             'section' => 'agencies',         'sort_order' => 1],
             ['key' => 'manage_agencies',             'label' => 'Manage Agencies',             'section' => 'agencies',         'sort_order' => 2],
@@ -135,6 +141,7 @@ class NexusPermissionSeeder extends Seeder
                 'access_document_library', 'upload_documents_library',
                 'access_presentations', 'create_presentations', 'run_analysis',
                 'access_pdf_splitter',
+                'access_properties', 'create_properties', 'publish_properties', 'delete_properties',
             ],
 
             'agent' => [
@@ -148,6 +155,7 @@ class NexusPermissionSeeder extends Seeder
                 'access_document_library',
                 'access_presentations',
                 'access_pdf_splitter',
+                'access_properties', 'create_properties',
             ],
 
             'viewer' => [
@@ -159,6 +167,7 @@ class NexusPermissionSeeder extends Seeder
                 'access_client_portal',
                 'access_document_library',
                 'access_presentations',
+                'access_properties',
             ],
         ];
 

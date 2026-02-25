@@ -12,6 +12,7 @@ class Agency extends Model
         'slug',
         'primary_color',
         'secondary_color',
+        'tertiary_color',
         'logo_path',
         'is_active',
     ];

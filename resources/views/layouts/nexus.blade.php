@@ -14,6 +14,24 @@
         <!-- Scripts & Styles -->
         @vite(['resources/css/app.css', 'resources/css/nexus.css', 'resources/js/app.js'])
         <link rel="stylesheet" href="/css/paye-fix.css">
+
+        {{-- Agency brand colours — injects --brand-primary/secondary/tertiary into :root --}}
+        @auth
+        @php
+            $_agencyId = auth()->user()?->effectiveAgencyId();
+            $_agency   = $_agencyId ? \App\Models\Agency::find($_agencyId) : \App\Models\Agency::first();
+        @endphp
+        @if($_agency)
+        <style>
+            :root {
+                --brand-primary:   {{ $_agency->primary_color   ?? '#0b2a4a' }};
+                --brand-secondary: {{ $_agency->secondary_color ?? '#00b4d8' }};
+                --brand-tertiary:  {{ $_agency->tertiary_color  ?? '#1a4a73' }};
+            }
+        </style>
+        @endif
+        @endauth
+
         @stack('head')
     </head>
     <body class="font-sans antialiased">
@@ -31,7 +49,7 @@
             {{-- Sidebar --}}
             <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
                    :class="sidebarCollapsed ? 'lg:w-16' : 'lg:w-60'"
-                   class="fixed inset-y-0 left-0 z-50 transform transition-all duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0">
+                   class="fixed inset-y-0 left-0 z-50 transform transition-all duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0 overflow-hidden">
                 @include('layouts.nexus-sidebar')
             </aside>
 

@@ -536,6 +536,16 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
         Route::get('/{agency}/edit', [AgencyController::class, 'edit'])->name('edit');
         Route::put('/{agency}',      [AgencyController::class, 'update'])->name('update');
     });
+
+    // Properties
+    Route::prefix('properties')->name('nexus.properties.')->group(function () {
+        Route::get('/',                [\App\Http\Controllers\Nexus\PropertyController::class, 'index'])->name('index');
+        Route::get('/create',          [\App\Http\Controllers\Nexus\PropertyController::class, 'create'])->name('create');
+        Route::post('/',               [\App\Http\Controllers\Nexus\PropertyController::class, 'store'])->name('store');
+        Route::get('/{property}/edit', [\App\Http\Controllers\Nexus\PropertyController::class, 'edit'])->name('edit');
+        Route::put('/{property}',      [\App\Http\Controllers\Nexus\PropertyController::class, 'update'])->name('update');
+        Route::delete('/{property}',   [\App\Http\Controllers\Nexus\PropertyController::class, 'destroy'])->name('destroy');
+    });
 });
 
 // Agency switcher (super_admin only, outside nexus prefix for cleaner URLs)
