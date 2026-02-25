@@ -9,17 +9,15 @@ class PdfSplitterFeedback extends Model
     protected $table = 'pdf_splitter_feedback';
 
     protected $fillable = [
-        'user_id',
-        'manifest_id',
-        'base',
-        'page',
+        'base_name',
+        'page_number',
         'auto_label',
         'final_label',
         'snippet',
-        'page_scores',
+        'scores',
     ];
 
     protected $casts = [
-        'page_scores' => 'array',
+        'scores' => 'array',
     ];
 }

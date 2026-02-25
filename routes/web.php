@@ -221,6 +221,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/pdf-splitter/review', [PdfSplitterController::class, 'review'])->name('tools.pdf_splitter.review');
     Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->name('tools.pdf_splitter.confirm');
     Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
+    Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->name('tools.pdf_splitter.download');
+
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('branch_manager')->name('bm.my.dashboard');
 
@@ -491,7 +493,6 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
         ->middleware('admin')->name('nexus.role-manager.user-role');
 });
 
-Route::get('tools/pdf-splitter/download', [\App\Http\Controllers\Tools\PdfSplitterController::class, 'downloadLastZip'])->name('tools.pdf_splitter.download');
 
 // ===== PRESENTATION VERSION HISTORY (P17) =====
 Route::middleware(['auth', 'admin_or_bm'])->group(function () {

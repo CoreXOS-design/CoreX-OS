@@ -15,11 +15,11 @@ class PdfSplitterController extends Controller
     /** Minimum override count before a learned phrase is activated in classifyPage(). */
     private const LEARN_THRESHOLD = 5;
 
-    // Absolute paths — no PATH dependency
-    private const QPDF      = 'C:\\Program Files\\qpdf 12.2.0\\bin\\qpdf.exe';
-    private const PDFTOPPM  = 'C:\\Users\\johan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\oschwartz10612.Poppler_Microsoft.Winget.Source_8wekyb3d8bbwe\\poppler-25.07.0\\Library\\bin\\pdftoppm.exe';
-    private const PDFUNITE  = 'C:\\Users\\johan\\AppData\\Local\\Microsoft\\WinGet\\Packages\\oschwartz10612.Poppler_Microsoft.Winget.Source_8wekyb3d8bbwe\\poppler-25.07.0\\Library\\bin\\pdfunite.exe';
-    private const TESSERACT = 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe';
+    // Executable paths — configured via .env / config/splitter.php
+    private static function qpdfPath(): string     { return config('splitter.qpdf_path', 'qpdf'); }
+    private static function pdftoppmPath(): string  { return config('splitter.pdftoppm_path', 'pdftoppm'); }
+    private static function pdfunitePath(): string  { return config('splitter.pdfunite_path', 'pdfunite'); }
+    private static function tesseractPath(): string { return config('splitter.tesseract_path', 'tesseract'); }
 
     /**
      * Ordered document-type registry.
@@ -111,10 +111,11 @@ class PdfSplitterController extends Controller
         }
 
         // Save manifest for review step — no ZIP yet
+        // Store relative storage path (not absolute) to avoid path disclosure
         $manifest = [
             'base'        => $base,
             'ts'          => $ts,
-            'origAbsNorm' => $origAbsNorm,
+            'origRel'     => $origRel,
             'outDirRel'   => $outDirRel,
             'tmpRel'      => $tmpRel,
             'pCount'      => $pCount,
@@ -162,13 +163,15 @@ class PdfSplitterController extends Controller
                 abort(404);
             }
 
-            $manifest    = json_decode(Storage::disk('local')->get($manifestRel), true);
-            $origAbsNorm = $manifest['origAbsNorm'] ?? null;
-            $tmpRel      = $manifest['tmpRel'] ?? null;
+            $manifest = json_decode(Storage::disk('local')->get($manifestRel), true);
+            $origRel  = $manifest['origRel'] ?? null;
+            $tmpRel   = $manifest['tmpRel'] ?? null;
 
-            if (!$origAbsNorm || !$tmpRel || !file_exists($origAbsNorm)) {
+            if (!$origRel || !$tmpRel || !Storage::disk('local')->exists($origRel)) {
                 abort(404);
             }
+
+            $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
 
             $tmpAbs     = Storage::disk('local')->path($tmpRel);
             $tmpAbsNorm = str_replace('\\', '/', $tmpAbs);
@@ -178,7 +181,7 @@ class PdfSplitterController extends Controller
             $before = time() - 1;
 
             $proc = new Process([
-                self::PDFTOPPM,
+                self::pdftoppmPath(),
                 '-f', (string)$page,
                 '-l', (string)$page,
                 '-png',
@@ -274,7 +277,8 @@ class PdfSplitterController extends Controller
         $manifest    = json_decode(Storage::disk('local')->get($manifestRel), true);
         $base        = $manifest['base'];
         $ts          = $manifest['ts'];
-        $origAbsNorm = $manifest['origAbsNorm'];
+        $origRel     = $manifest['origRel'];
+        $origAbsNorm = str_replace('\\', '/', Storage::disk('local')->path($origRel));
         $outDirRel   = $manifest['outDirRel'];
         $tmpRel      = $manifest['tmpRel'];
         $pCount      = (int)$manifest['pCount'];
@@ -363,11 +367,7 @@ class PdfSplitterController extends Controller
             $zip->addFile($abs, basename($abs));
         }
 
-                // LOG_FEEDBACK_V1
-        // Persist user corrections + update learned phrases (best-effort, fully guarded)
-        $this->logFeedback($base, $overrides, $snippets, $pageScores);
-
-$summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $pCount, $overrides);
+        $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $pCount, $overrides);
         $zip->addFromString($base . '__summary.txt', $summary);
         $zip->close();
 
@@ -375,7 +375,6 @@ $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $p
         Storage::disk('local')->deleteDirectory($tmpRel);
         session()->forget('splitter_manifest_id');
 
-        
         // After generating ZIP: go back to upload screen, and trigger download there (hidden iframe).
         session([
             'splitter_last_zip'      => $zipAbsNorm,
@@ -385,7 +384,7 @@ $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $p
         return redirect()
             ->route('tools.pdf_splitter.index')
             ->with('splitter_download_url', route('tools.pdf_splitter.download'));
-}
+    }
 
     // =========================================================================
     // qpdf + pdfunite helpers
@@ -393,7 +392,7 @@ $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $p
 
     private function qpdfPageCount(string $pdfAbsNorm): array
     {
-        $proc = new Process([self::QPDF, '--show-npages', $pdfAbsNorm]);
+        $proc = new Process([self::qpdfPath(), '--show-npages', $pdfAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -412,7 +411,7 @@ $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $p
     private function qpdfExtractRange(string $pdfAbsNorm, int $from, int $to, string $outAbsNorm): void
     {
         $range = $from === $to ? (string)$from : ($from . '-' . $to);
-        $proc  = new Process([self::QPDF, $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
+        $proc  = new Process([self::qpdfPath(), $pdfAbsNorm, '--pages', $pdfAbsNorm, $range, '--', $outAbsNorm]);
         $proc->setTimeout(120);
         $proc->run();
 
@@ -424,7 +423,7 @@ $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $p
 
     private function pdfUnite(array $partsAbsNorm, string $outAbsNorm): void
     {
-        $cmd  = array_merge([self::PDFUNITE], $partsAbsNorm, [$outAbsNorm]);
+        $cmd  = array_merge([self::pdfunitePath()], $partsAbsNorm, [$outAbsNorm]);
         $proc = new Process($cmd);
         $proc->setTimeout(120);
         $proc->run();
@@ -450,7 +449,7 @@ $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $p
         $before = time() - 1;
 
         $proc = new Process([
-            self::PDFTOPPM,
+            self::pdftoppmPath(),
             '-f', (string)$page,
             '-l', (string)$page,
             '-png',
@@ -556,7 +555,7 @@ $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $p
     private function ocrImage(string $pngAbsNorm, string $txtOutBaseAbsNorm): string
     {
         $proc = new Process([
-            self::TESSERACT,
+            self::tesseractPath(),
             $pngAbsNorm,
             $txtOutBaseAbsNorm,
             '-l', 'eng',
@@ -641,25 +640,12 @@ $summary = $this->buildSummary($finalLabels, $snippets, $pageScores, $ranges, $p
         ];
 
 
-        // APPLY_LEARNED_BOOSTS_V1
-        // Apply enabled learned phrases (bigrams) as additive boosts.
-        // If tables are missing (pre-migrate), this returns [].
-        $boosts = $this->getLearnedBoosts();
-        if (!empty($boosts)) {
-            foreach ($boosts as $bucket => $phrases) {
-                if (!isset($scores[$bucket])) continue;
-                foreach ($phrases as $phrase => $weight) {
-                    if ($phrase !== '' && str_contains($t, $phrase)) {
-                        $scores[$bucket] += (int)$weight;
-                    }
-                }
-            }
-        }
         // Apply learned phrase boosts from DB (cached per request, soft-fails if table absent)
         foreach ($this->getLearnedBoosts() as $bucket => $phrases) {
+            if (!isset($scores[$bucket])) continue;
             foreach ($phrases as $phrase => $weight) {
-                if (str_contains($t, $phrase)) {
-                    $scores[$bucket] = ($scores[$bucket] ?? 0) + $weight;
+                if ($phrase !== '' && str_contains($t, $phrase)) {
+                    $scores[$bucket] += (int)$weight;
                 }
             }
         }

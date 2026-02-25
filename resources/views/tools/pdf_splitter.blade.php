@@ -113,9 +113,8 @@
 
     </div>
 </div>
-@endsection
-
 
 @if (session('splitter_download_url'))
     <iframe src="{{ session('splitter_download_url') }}" style="display:none; width:0; height:0; border:0;"></iframe>
 @endif
+@endsection
