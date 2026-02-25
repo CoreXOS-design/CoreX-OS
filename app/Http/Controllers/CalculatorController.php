@@ -129,6 +129,125 @@ class CalculatorController extends Controller
         ]);
     }
 
+    public function calculateBondOverpayment(Request $request)
+    {
+        $data = $request->validate([
+            'loan_amount' => 'required|numeric|min:1',
+            'interest_rate' => 'required|numeric|min:0.01|max:50',
+            'term_years' => 'required|integer|min:1|max:30',
+            'extra_payment' => 'required|numeric|min:1',
+        ]);
+
+        $principal = (float) $data['loan_amount'];
+        $annualRate = (float) $data['interest_rate'];
+        $years = (int) $data['term_years'];
+        $extra = (float) $data['extra_payment'];
+
+        $r = ($annualRate / 100) / 12;
+        $totalMonths = $years * 12;
+
+        // Normal monthly payment
+        $factor = pow(1 + $r, $totalMonths);
+        $normalMonthly = $principal * ($r * $factor) / ($factor - 1);
+
+        // Normal totals
+        $normalTotalRepaid = $normalMonthly * $totalMonths;
+        $normalTotalInterest = $normalTotalRepaid - $principal;
+
+        // Simulate accelerated payoff month-by-month
+        $balance = $principal;
+        $accelMonths = 0;
+        $accelTotalRepaid = 0;
+        $accelTotalInterest = 0;
+        $yearlyNormal = [];
+        $yearlyAccel = [];
+        $normalBalance = $principal;
+
+        // Track both normal and accelerated balances for comparison table
+        $accelDone = false;
+        for ($m = 1; $m <= $totalMonths; $m++) {
+            // Normal balance
+            $normalInterest = $normalBalance * $r;
+            $normalPrincipalPaid = $normalMonthly - $normalInterest;
+            $normalBalance = max(0, $normalBalance - $normalPrincipalPaid);
+
+            // Accelerated balance
+            if (!$accelDone) {
+                $interest = $balance * $r;
+                $payment = $normalMonthly + $extra;
+                if ($payment >= $balance + $interest) {
+                    // Final payment — pays off the loan
+                    $accelTotalRepaid += $balance + $interest;
+                    $accelTotalInterest += $interest;
+                    $balance = 0;
+                    $accelMonths = $m;
+                    $accelDone = true;
+                } else {
+                    $principalPaid = $payment - $interest;
+                    $balance = $balance - $principalPaid;
+                    $accelTotalRepaid += $payment;
+                    $accelTotalInterest += $interest;
+                }
+            }
+
+            // Record year-end balances
+            if ($m % 12 === 0) {
+                $yearNum = $m / 12;
+                if ($yearNum <= 25) {
+                    $yearlyNormal[] = round($normalBalance, 2);
+                    $yearlyAccel[] = round($balance, 2);
+                }
+            }
+        }
+
+        // If extra payment wasn't enough to shorten meaningfully
+        if (!$accelDone) {
+            $accelMonths = $totalMonths;
+        }
+
+        $accelYears = intdiv($accelMonths, 12);
+        $accelRemainingMonths = $accelMonths % 12;
+
+        $monthsSaved = $totalMonths - $accelMonths;
+        $yearsSaved = intdiv($monthsSaved, 12);
+        $monthsSavedRemainder = $monthsSaved % 12;
+
+        $interestSaved = $normalTotalInterest - $accelTotalInterest;
+        $interestSavedPct = $normalTotalInterest > 0
+            ? ($interestSaved / $normalTotalInterest) * 100
+            : 0;
+
+        return response()->json([
+            'ok' => true,
+            'normal' => [
+                'monthly_payment' => round($normalMonthly, 2),
+                'term_months' => $totalMonths,
+                'term_years' => $years,
+                'total_repaid' => round($normalTotalRepaid, 2),
+                'total_interest' => round($normalTotalInterest, 2),
+            ],
+            'accelerated' => [
+                'monthly_payment' => round($normalMonthly + $extra, 2),
+                'term_months' => $accelMonths,
+                'term_years' => $accelYears,
+                'term_remaining_months' => $accelRemainingMonths,
+                'total_repaid' => round($accelTotalRepaid, 2),
+                'total_interest' => round($accelTotalInterest, 2),
+            ],
+            'savings' => [
+                'months_saved' => $monthsSaved,
+                'years_saved' => $yearsSaved,
+                'months_saved_remainder' => $monthsSavedRemainder,
+                'interest_saved' => round($interestSaved, 2),
+                'interest_saved_pct' => round($interestSavedPct, 1),
+            ],
+            'yearly_comparison' => [
+                'normal' => $yearlyNormal,
+                'accelerated' => $yearlyAccel,
+            ],
+        ]);
+    }
+
     /**
      * Standard amortisation formula.
      * M = P * [r(1+r)^n] / [(1+r)^n - 1]

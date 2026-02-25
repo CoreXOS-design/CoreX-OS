@@ -6,7 +6,7 @@
     {{-- Navy Header --}}
     <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 mb-6">
         <h2 class="text-xl font-bold text-white leading-tight">Calculators</h2>
-        <div class="text-sm text-white/60">Commission, bond repayments, transfer duty & costs</div>
+        <div class="text-sm text-white/60">Commission, bond repayments, transfer duty, costs & overpayment savings</div>
     </div>
 
     {{-- 2-column grid --}}
@@ -196,6 +196,135 @@
         </div>
 
     </div>
+
+    {{-- CARD 5: Bond Overpayment Savings (full width) --}}
+    <div class="ds-status-card mt-6">
+        <h3 class="ds-section-header" style="margin-bottom:0.75rem;">🚀 Bond Overpayment Savings</h3>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+                <label class="ds-label block mb-1">Loan Amount</label>
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-semibold text-gray-500">R</span>
+                    <input type="text" x-model="overpay.loanAmount" @input="formatInput($event)" placeholder="e.g. 1,500,000"
+                           class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-cyan-500 focus:outline-none" />
+                </div>
+            </div>
+
+            <div>
+                <label class="ds-label block mb-1">Interest Rate (%)</label>
+                <input type="text" x-model="overpay.interestRate" placeholder="e.g. 11.75"
+                       class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-cyan-500 focus:outline-none" />
+                <div class="text-xs text-gray-500 mt-1">Current prime: {{ $primeRate }}%</div>
+            </div>
+
+            <div>
+                <label class="ds-label block mb-1">Loan Term</label>
+                <select x-model="overpay.termYears" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-cyan-500 focus:outline-none">
+                    <template x-for="y in [10, 15, 20, 25, 30]" :key="y">
+                        <option :value="y" x-text="y + ' years'" :selected="y === 20"></option>
+                    </template>
+                </select>
+            </div>
+
+            <div>
+                <label class="ds-label block mb-1">Extra Monthly Payment</label>
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-semibold text-gray-500">R</span>
+                    <input type="text" x-model="overpay.extraPayment" @input="formatInput($event)" placeholder="e.g. 500"
+                           class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-cyan-500 focus:outline-none" />
+                </div>
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                    <template x-for="amt in [250, 500, 1000, 2000, 5000]" :key="amt">
+                        <button type="button" @click="overpay.extraPayment = amt.toLocaleString('en-ZA')"
+                                class="px-2.5 py-1 rounded text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                                x-text="'R ' + amt.toLocaleString('en-ZA')">
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button type="button" @click="calcOverpayment()" class="nexus-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
+                Calculate Savings
+            </button>
+        </div>
+
+        {{-- Results --}}
+        <div x-show="overpay.result" x-transition class="mt-6">
+            {{-- Two-column comparison --}}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {{-- LEFT: Normal Bond --}}
+                <div class="bg-gray-50 rounded-xl p-4 space-y-2">
+                    <h4 class="text-sm font-bold text-gray-700 mb-3">Normal Bond</h4>
+                    <div class="flex justify-between"><span class="ds-label">Monthly payment</span><span class="ds-value" x-text="'R ' + fmt(overpay.result?.normal?.monthly_payment)"></span></div>
+                    <div class="flex justify-between"><span class="ds-label">Term</span><span class="ds-value" x-text="overpay.result?.normal?.term_years + ' years (' + overpay.result?.normal?.term_months + ' months)'"></span></div>
+                    <div class="flex justify-between"><span class="ds-label">Total repaid</span><span class="ds-value" x-text="'R ' + fmt(overpay.result?.normal?.total_repaid)"></span></div>
+                    <div class="flex justify-between"><span class="ds-label">Total interest</span><span class="ds-value" x-text="'R ' + fmt(overpay.result?.normal?.total_interest)"></span></div>
+                </div>
+
+                {{-- RIGHT: Accelerated --}}
+                <div class="bg-white rounded-xl p-4 space-y-2 border-l-4" style="border-left-color: #06b6d4;">
+                    <h4 class="text-sm font-bold text-cyan-700 mb-3" x-text="'With Extra R ' + fmt(parseAmount(overpay.extraPayment)) + '/month'"></h4>
+                    <div class="flex justify-between"><span class="ds-label">Monthly payment</span><span class="ds-value" x-text="'R ' + fmt(overpay.result?.accelerated?.monthly_payment)"></span></div>
+                    <div class="flex justify-between"><span class="ds-label">Paid off in</span><span class="ds-value" x-text="overpay.result?.accelerated?.term_years + ' years ' + overpay.result?.accelerated?.term_remaining_months + ' months'"></span></div>
+                    <div class="flex justify-between"><span class="ds-label">Total repaid</span><span class="ds-value" x-text="'R ' + fmt(overpay.result?.accelerated?.total_repaid)"></span></div>
+                    <div class="flex justify-between"><span class="ds-label">Total interest</span><span class="ds-value" x-text="'R ' + fmt(overpay.result?.accelerated?.total_interest)"></span></div>
+                </div>
+            </div>
+
+            {{-- Savings Summary --}}
+            <div class="mt-4 rounded-xl p-5" style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #6ee7b7;">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                    <div>
+                        <div class="text-2xl font-bold text-green-800" x-text="'⏱️ ' + overpay.result?.savings?.years_saved + ' years ' + overpay.result?.savings?.months_saved_remainder + ' months'"></div>
+                        <div class="text-sm text-green-700 mt-1">Time saved</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-green-800" x-text="'💰 R ' + fmt(overpay.result?.savings?.interest_saved)"></div>
+                        <div class="text-sm text-green-700 mt-1">Interest saved</div>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-green-800" x-text="'📊 ' + overpay.result?.savings?.interest_saved_pct + '%'"></div>
+                        <div class="text-sm text-green-700 mt-1">Less interest paid!</div>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Comparison Table Toggle --}}
+            <div class="mt-4">
+                <button type="button" @click="overpay.showTable = !overpay.showTable"
+                        class="text-sm font-semibold text-cyan-700 hover:text-cyan-900 transition-colors">
+                    <span x-text="overpay.showTable ? '▼ Hide' : '▶ Show'"></span> year-by-year comparison table
+                </button>
+
+                <div x-show="overpay.showTable" x-transition class="mt-3 overflow-x-auto">
+                    <table class="ds-table w-full text-sm">
+                        <thead>
+                            <tr>
+                                <th class="text-left px-3 py-2">Year</th>
+                                <th class="text-right px-3 py-2">Normal Balance</th>
+                                <th class="text-right px-3 py-2">Accelerated Balance</th>
+                                <th class="text-right px-3 py-2">Difference</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="(nb, i) in overpay.result?.yearly_comparison?.normal || []" :key="i">
+                                <tr class="border-t border-slate-100">
+                                    <td class="px-3 py-1.5 font-medium" x-text="i + 1"></td>
+                                    <td class="px-3 py-1.5 text-right" x-text="'R ' + fmt(nb)"></td>
+                                    <td class="px-3 py-1.5 text-right" x-text="'R ' + fmt(overpay.result?.yearly_comparison?.accelerated[i])"></td>
+                                    <td class="px-3 py-1.5 text-right font-semibold text-green-700" x-text="'R ' + fmt(nb - (overpay.result?.yearly_comparison?.accelerated[i] || 0))"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -222,6 +351,14 @@ function calculatorsApp() {
             needsBond: true,
             bondAmount: '',
             result: null,
+        },
+        overpay: {
+            loanAmount: '',
+            interestRate: '{{ $primeRate }}',
+            termYears: 20,
+            extraPayment: '',
+            result: null,
+            showTable: false,
         },
 
         parseAmount(val) {
@@ -293,6 +430,19 @@ function calculatorsApp() {
                 bond_amount: bondAmt,
             });
             if (res.ok) this.costs.result = res;
+        },
+
+        async calcOverpayment() {
+            const res = await this.post('{{ route("calculators.bondOverpayment") }}', {
+                loan_amount: this.parseAmount(this.overpay.loanAmount),
+                interest_rate: parseFloat(this.overpay.interestRate) || 0,
+                term_years: parseInt(this.overpay.termYears) || 20,
+                extra_payment: this.parseAmount(this.overpay.extraPayment),
+            });
+            if (res.ok) {
+                this.overpay.result = res;
+                this.overpay.showTable = false;
+            }
         },
     };
 }
