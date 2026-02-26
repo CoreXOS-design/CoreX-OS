@@ -14,7 +14,7 @@ class PropertyObserver
     public function saved(Property $property): void
     {
         if ($property->isPublished()) {
-            SyncPropertyToWebsite::dispatch($property, 'upsert');
+            SyncPropertyToWebsite::dispatchSync($property, 'upsert');
         }
     }
 
@@ -25,7 +25,7 @@ class PropertyObserver
     public function deleted(Property $property): void
     {
         if ($property->isPublished()) {
-            SyncPropertyToWebsite::dispatch($property, 'delete');
+            SyncPropertyToWebsite::dispatchSync($property, 'delete');
         }
     }
 }
