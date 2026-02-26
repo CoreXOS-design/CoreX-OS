@@ -60,6 +60,44 @@
         <div id="docuperfect-editor"></div>
     </div>
 
+    {{-- Document Disposition Actions --}}
+    <div class="ds-status-card p-4">
+        <h3 class="font-semibold text-slate-700 mb-3">What would you like to do with this document?</h3>
+        <div class="flex flex-wrap gap-3">
+            {{-- Download PDF (always available) --}}
+            <button type="button" onclick="document.getElementById('dpDownloadBtn').click()"
+                    class="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Download PDF
+            </button>
+
+            {{-- Send to Rental E-Signatures --}}
+            @if($template->template_type === 'rental')
+            <form method="POST" action="{{ route('docuperfect.documents.sendToRentals', $document->id) }}">
+                @csrf
+                <button type="submit"
+                        class="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                    </svg>
+                    Send to Rental E-Signatures
+                </button>
+            </form>
+            @endif
+
+            {{-- Set Up Signatures (generic — for any document) --}}
+            <a href="{{ route('docuperfect.signatures.setup', $document->id) }}"
+               class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Set Up Signatures
+            </a>
+        </div>
+    </div>
+
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>

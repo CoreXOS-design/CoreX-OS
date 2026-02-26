@@ -331,4 +331,20 @@ class DocumentController extends Controller
         return redirect()->route('docuperfect.dashboard')
             ->with('status', "Document \"{$name}\" deleted.");
     }
+
+    /**
+     * Send a document to the Rental E-Signatures workflow.
+     */
+    public function sendToRentals(Request $request, $id)
+    {
+        $user = $request->user();
+        $document = Document::findOrFail($id);
+
+        if (!$user->isAdmin() && (int)$document->owner_id !== (int)$user->id) {
+            abort(403);
+        }
+
+        return redirect()->route('docuperfect.signatures.setup', $document->id)
+            ->with('status', 'Document ready for signature setup.');
+    }
 }
