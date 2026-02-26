@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Docuperfect\DocumentType;
 use App\Models\Docuperfect\NamedField;
 use App\Models\Docuperfect\Template;
+use App\Models\Docuperfect\TemplateSignatureZone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -70,7 +71,29 @@ class TemplateController extends Controller
         $documentTypes = DocumentType::orderBy('sort_order')->get();
         $namedFields = NamedField::orderBy('sort_order')->get();
 
-        return view('docuperfect.templates.edit', compact('template', 'branches', 'documentTypes', 'namedFields', 'user'));
+        // Load signature zones for the JS editor
+        $signatureZones = $template->signatureZones()
+            ->orderBy('page_index')
+            ->orderBy('sort_order')
+            ->get()
+            ->map(function ($z) {
+                return [
+                    '_id' => 'db_' . $z->id,
+                    'id' => $z->id,
+                    'page_index' => $z->page_index,
+                    'x_position' => (float) $z->x_position,
+                    'y_position' => (float) $z->y_position,
+                    'width' => (float) $z->width,
+                    'height' => (float) $z->height,
+                    'type' => $z->type,
+                    'assigned_parties' => $z->assigned_parties ?? [],
+                    'label' => $z->label,
+                    'required' => (bool) $z->required,
+                ];
+            })
+            ->values();
+
+        return view('docuperfect.templates.edit', compact('template', 'branches', 'documentTypes', 'namedFields', 'signatureZones', 'user'));
     }
 
     public function saveFields(Request $request, $id)
@@ -109,6 +132,28 @@ class TemplateController extends Controller
                 $template->branches()->detach();
             } else {
                 $template->branches()->sync($request->input('allowed_branches', []));
+            }
+        }
+
+        // Save signature zones (replace-all pattern)
+        if ($request->has('signature_zones')) {
+            $template->signatureZones()->delete();
+
+            $zones = $request->input('signature_zones', []);
+            foreach ($zones as $i => $zoneData) {
+                TemplateSignatureZone::create([
+                    'template_id' => $template->id,
+                    'page_index' => $zoneData['page_index'] ?? 0,
+                    'x_position' => $zoneData['x_position'] ?? 0,
+                    'y_position' => $zoneData['y_position'] ?? 0,
+                    'width' => $zoneData['width'] ?? 25,
+                    'height' => $zoneData['height'] ?? 6,
+                    'type' => $zoneData['type'] ?? 'signature',
+                    'assigned_parties' => $zoneData['assigned_parties'] ?? [],
+                    'label' => $zoneData['label'] ?? null,
+                    'required' => $zoneData['required'] ?? true,
+                    'sort_order' => $i,
+                ]);
             }
         }
 
@@ -177,7 +222,7 @@ class TemplateController extends Controller
             abort(403);
         }
 
-        $original = Template::with('branches')->findOrFail($id);
+        $original = Template::with(['branches', 'signatureZones'])->findOrFail($id);
 
         $copy = $original->replicate();
         $copy->name = $original->name . ' (Copy)';
@@ -196,6 +241,13 @@ class TemplateController extends Controller
             if (Storage::exists($srcPath)) {
                 Storage::copy($srcPath, "{$dstDir}/page-{$i}.png");
             }
+        }
+
+        // Copy signature zones
+        foreach ($original->signatureZones as $zone) {
+            $zoneCopy = $zone->replicate();
+            $zoneCopy->template_id = $copy->id;
+            $zoneCopy->save();
         }
 
         return redirect()->route('docuperfect.templates.edit', $copy->id)

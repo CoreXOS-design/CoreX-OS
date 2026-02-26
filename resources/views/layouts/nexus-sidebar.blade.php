@@ -166,6 +166,8 @@
                 <a href="{{ route('docuperfect.templates.index') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
                 @endif
                 <a href="{{ route('docuperfect.packs.index') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.packs.*') ? 'active' : '' }}">Packs</a>
+                <a href="{{ route('docuperfect.rental') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.rental') || request()->routeIs('docuperfect.signatures.*') || request()->routeIs('docuperfect.leases.*') ? 'active' : '' }}">Rental Documents</a>
+                <a href="{{ route('docuperfect.sales') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.sales*') ? 'active' : '' }}">Sales Documents</a>
                 @if($navIsAdmin)
                 <a href="{{ route('docuperfect.settings.types') }}" class="nexus-nav-subitem {{ request()->routeIs('docuperfect.settings.*') ? 'active' : '' }}">Settings</a>
                 @endif

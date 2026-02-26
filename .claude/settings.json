@@ -1,18 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmd //c \"where tesseract 2>nul || echo NOT_FOUND\")",
-      "Bash(cmd //c \"dir /s /b \"\"C:\\\\Program Files\\\\Tesseract-OCR\\\\tesseract.exe\"\" 2>nul || echo NOT_FOUND\")",
-      "Bash(cmd //c \"dir /s /b C:\\\\tesseract.exe 2>nul & dir /s /b \"\"C:\\\\Program Files \\(x86\\)\\\\Tesseract-OCR\\\\tesseract.exe\"\" 2>nul & dir /s /b \"\"C:\\\\tools\\\\tesseract.exe\"\" 2>nul || echo SEARCHED\")",
-      "Read(//c//**)",
-      "Read(//c/Users/johan/**)",
-      "Bash(cmd /c:*)",
-      "Bash(powershell -Command:*)",
-      "Bash(php -l:*)",
-      "Bash(echo:*)"
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "NotebookEdit(*)",
+      "Task(*)"
     ],
     "additionalDirectories": [
-      "c:\\Users\\johan\\OneDrive\\Documents\\GitHub\\hfc-dash\\routes"
+      "c:\\Users\\johan\\OneDrive\\Documents\\GitHub\\hfc-dash\\routes",
+      "C:\\php"
     ]
   }
 }

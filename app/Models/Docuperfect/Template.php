@@ -47,6 +47,11 @@ class Template extends Model
         return $this->hasMany(Document::class, 'template_id');
     }
 
+    public function signatureZones()
+    {
+        return $this->hasMany(TemplateSignatureZone::class, 'template_id');
+    }
+
     public function scopeActive($query)
     {
         return $query->whereNull('archived_at');

@@ -1,0 +1,520 @@
+@extends('layouts.nexus')
+
+@section('nexus-content')
+{{-- Signature Pad library --}}
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4"
+     x-data="signDocument()" x-init="init()">
+
+    {{-- Header --}}
+    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
+        <div>
+            <h2 class="text-xl font-bold text-white leading-tight">
+                Sign Document &mdash; {{ $document->name }}
+            </h2>
+            <div class="text-sm text-white/60">
+                Your markers to sign: <span x-text="signedCount"></span> of <span x-text="totalAgent"></span> completed
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="{{ route('docuperfect.signatures.setup', $document) }}"
+               class="text-sm text-white/70 hover:text-white">Back to Setup</a>
+            <a href="{{ route('docuperfect.rental') }}"
+               class="text-sm text-white/70 hover:text-white">Back to Rental</a>
+        </div>
+    </div>
+
+    {{-- Flash messages --}}
+    @if(session('status'))
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm">
+            {{ session('status') }}
+        </div>
+    @endif
+    @if(session('error'))
+        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+            {{ session('error') }}
+        </div>
+    @endif
+
+    {{-- Progress bar --}}
+    <div class="ds-status-card p-4">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium text-slate-700">
+                Agent Signing Progress
+            </span>
+            <span class="text-sm text-slate-500">
+                <span x-text="signedCount"></span> / <span x-text="totalAgent"></span> markers signed
+            </span>
+        </div>
+        <div class="w-full bg-slate-200 rounded-full h-2.5">
+            <div class="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
+                 :style="'width:' + (totalAgent > 0 ? Math.round((signedCount / totalAgent) * 100) : 0) + '%'"></div>
+        </div>
+    </div>
+
+    {{-- Main content: Document viewer --}}
+    <div class="ds-status-card p-4 overflow-hidden flex flex-col" style="min-height:600px;">
+
+        {{-- Page navigation --}}
+        <div class="flex items-center justify-between mb-3 flex-shrink-0">
+            <button @click="prevPage()" :disabled="currentPage <= 1"
+                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                    :class="currentPage <= 1 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'">
+                &larr; Previous
+            </button>
+            <span class="text-sm text-slate-600 font-medium">
+                Page <span x-text="currentPage"></span> of <span x-text="totalPages"></span>
+            </span>
+            <button @click="nextPage()" :disabled="currentPage >= totalPages"
+                    class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                    :class="currentPage >= totalPages ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'">
+                Next &rarr;
+            </button>
+        </div>
+
+        {{-- Page display with markers --}}
+        <div class="flex-1 overflow-auto flex justify-center" style="background:#e2e8f0;">
+            <div class="relative inline-block" style="max-width:800px; width:100%;" x-ref="pageContainer">
+                <img :src="pageImages[currentPage - 1]"
+                     class="w-full block select-none pointer-events-none"
+                     draggable="false"
+                     x-ref="pageImage">
+
+                {{-- Render document field values (read-only overlay) --}}
+                <template x-for="field in fieldsForCurrentPage()" :key="field.id">
+                    <div class="absolute pointer-events-none overflow-hidden"
+                         :style="`left:${field.position.x}%;top:${field.position.y}%;width:${field.size.width}%;height:${field.size.height}%;z-index:5;`">
+                        <template x-if="field.type === 'placeholder' && field.value">
+                            <div class="w-full h-full flex items-start px-0.5 overflow-hidden"
+                                 :style="fieldStyle(field)"
+                                 x-text="field.value"></div>
+                        </template>
+                        <template x-if="field.type === 'date' && field.value">
+                            <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
+                                 :style="fieldStyle(field)"
+                                 x-text="field.value"></div>
+                        </template>
+                        <template x-if="field.type === 'selection' && field.selectedValue">
+                            <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
+                                 :style="fieldStyle(field)">
+                                <span class="bg-cyan-100 text-cyan-800 px-1.5 py-0.5 rounded text-xs" x-text="field.selectedValue"></span>
+                            </div>
+                        </template>
+                        <template x-if="field.type === 'condition' && field.text">
+                            <div class="w-full h-full overflow-hidden px-0.5 bg-white/85"
+                                 :style="fieldStyle(field)"
+                                 x-text="field.text"></div>
+                        </template>
+                        <template x-if="field.type === 'strikethrough' && field.active">
+                            <div class="w-full h-full relative">
+                                <template x-if="(field.strikethroughType || 'horizontal') === 'horizontal'">
+                                    <div class="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 -translate-y-1/2"></div>
+                                </template>
+                                <template x-if="field.strikethroughType === 'diagonal'">
+                                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full">
+                                        <line x1="0" y1="0" x2="100" y2="100" stroke="#ef4444" stroke-width="3" />
+                                    </svg>
+                                </template>
+                            </div>
+                        </template>
+                        <template x-if="field.type === 'signature' || field.type === 'initial'">
+                            <div class="w-full h-full flex flex-col justify-end p-0.5">
+                                <div class="border-b border-black mb-0.5"></div>
+                                <div class="text-[8px] uppercase text-gray-500" x-text="field.type === 'initial' ? 'Initial' : 'Signature'"></div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                {{-- Render markers for current page --}}
+                <template x-for="marker in markersForCurrentPage()" :key="marker.id">
+                    <div class="absolute flex items-center justify-center select-none transition-all duration-200"
+                         :style="`left:${marker.x_position}%;top:${marker.y_position}%;width:${marker.width}%;height:${marker.height}%;z-index:10;`"
+                         :class="markerDisplayClasses(marker)"
+                         @click="handleMarkerClick(marker)">
+
+                        {{-- Unsigned agent marker (clickable) --}}
+                        <template x-if="marker.assigned_party === 'agent' && !marker.signed">
+                            <div class="flex flex-col items-center justify-center w-full h-full px-1">
+                                <span class="text-xs font-bold leading-tight truncate">Sign Here</span>
+                                <span class="text-[10px] leading-tight opacity-70 truncate" x-text="markerTypeLabel(marker)"></span>
+                            </div>
+                        </template>
+
+                        {{-- Signed agent marker (shows signature) --}}
+                        <template x-if="marker.assigned_party === 'agent' && marker.signed">
+                            <div class="flex flex-col items-center justify-center w-full h-full relative">
+                                <template x-if="marker.signature_data && marker.type !== 'date'">
+                                    <img :src="marker.signature_data"
+                                         class="w-full h-full object-contain p-0.5"
+                                         alt="Signature">
+                                </template>
+                                <template x-if="marker.type === 'date'">
+                                    <span class="text-xs font-medium" x-text="marker.date_value || formatDate(new Date())"></span>
+                                </template>
+                                <span class="absolute -bottom-0.5 right-0.5 text-[9px] text-emerald-700 font-semibold">Signed</span>
+                            </div>
+                        </template>
+
+                        {{-- Other party's marker (greyed out) --}}
+                        <template x-if="marker.assigned_party !== 'agent'">
+                            <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
+                                <svg class="w-3.5 h-3.5 mb-0.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                                <span class="text-[10px] leading-tight capitalize truncate" x-text="marker.assigned_party"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    {{-- Complete Signing button --}}
+    <div class="ds-status-card p-4 flex items-center justify-between">
+        <div class="text-sm text-slate-600">
+            <template x-if="signedCount < totalAgent">
+                <span>Sign all <span x-text="totalAgent - signedCount"></span> remaining marker<span x-show="(totalAgent - signedCount) !== 1">s</span> to continue.</span>
+            </template>
+            <template x-if="signedCount >= totalAgent && totalAgent > 0">
+                <span class="text-emerald-600 font-medium">All markers signed! Ready to send to the tenant.</span>
+            </template>
+        </div>
+        <form action="{{ route('docuperfect.signatures.signComplete', $document) }}" method="POST">
+            @csrf
+            <button type="submit"
+                    :disabled="signedCount < totalAgent"
+                    class="rounded-lg px-6 py-2.5 text-sm font-medium transition-colors"
+                    :class="signedCount >= totalAgent && totalAgent > 0
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'">
+                Complete Signing & Send to Tenant &rarr;
+            </button>
+        </form>
+    </div>
+
+    {{-- Include signature capture modal --}}
+    @include('docuperfect.signatures.partials.signature-modal')
+
+</div>
+
+@php
+$markersJson = $allMarkers->map(function($m) {
+    $sig = $m->signatures->first();
+    return [
+        'id' => $m->id,
+        'page_number' => $m->page_number,
+        'x_position' => (float) $m->x_position,
+        'y_position' => (float) $m->y_position,
+        'width' => (float) $m->width,
+        'height' => (float) $m->height,
+        'type' => $m->type,
+        'assigned_party' => $m->assigned_party,
+        'label' => $m->label,
+        'required' => (bool) $m->required,
+        'signed' => $sig !== null,
+        'signature_data' => $sig ? $sig->signature_data : null,
+        'signature_type' => $sig ? $sig->signature_type : null,
+        'date_value' => $sig && $m->type === 'date' ? $sig->signed_at : null,
+    ];
+})->values();
+@endphp
+
+<script>
+function signDocument() {
+    return {
+        // Data from server
+        markers: @json($markersJson),
+        pageImages: @json($pageImages),
+        documentFields: @json($document->fields_json ?? []),
+        currentPage: 1,
+        totalPages: {{ $pageCount }},
+        signedCount: {{ $signedCount }},
+        totalAgent: {{ $totalAgent }},
+
+        // Modal state
+        showSignModal: false,
+        activeMarker: null,
+        captureMode: 'draw',
+        typedName: @json($user->name),
+        applying: false,
+        signaturePad: null,
+
+        // Apply-to-all state
+        showApplyAll: false,
+        lastSignatureData: null,
+        lastSignatureType: null,
+        applyingAll: false,
+        firstSignatureDone: false,
+
+        init() {
+            // Check if agent already has at least one signed marker
+            this.firstSignatureDone = this.markers.some(m => m.assigned_party === 'agent' && m.signed);
+        },
+
+        // ── Navigation ──
+        prevPage() { if (this.currentPage > 1) this.currentPage--; },
+        nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
+
+        markersForCurrentPage() {
+            return this.markers.filter(m => m.page_number === this.currentPage);
+        },
+
+        fieldsForCurrentPage() {
+            const pageIdx = this.currentPage - 1;
+            return (this.documentFields || []).filter(f => f.pageIndex === pageIdx);
+        },
+
+        fieldStyle(field) {
+            const s = field.style || {};
+            let css = 'font-size:' + (s.fontSize || 12) + 'px;';
+            css += 'font-family:' + (s.fontFamily || 'Helvetica') + ';';
+            css += 'color:#000;';
+            if (s.bold) css += 'font-weight:bold;';
+            if (s.underline) css += 'text-decoration:underline;';
+            if (s.solidBackground) css += 'background:white;';
+            return css;
+        },
+
+        // ── Marker display ──
+        markerLabel(m) {
+            const partyLabel = m.assigned_party.replace('_', ' ');
+            const typeLabel = m.type.charAt(0).toUpperCase() + m.type.slice(1);
+            return partyLabel.charAt(0).toUpperCase() + partyLabel.slice(1) + ' ' + typeLabel;
+        },
+
+        markerTypeLabel(m) {
+            return m.type.charAt(0).toUpperCase() + m.type.slice(1);
+        },
+
+        markerDisplayClasses(m) {
+            const base = 'rounded border-2 ';
+            if (m.assigned_party === 'agent') {
+                if (m.signed) {
+                    return base + 'border-emerald-500 bg-emerald-50/80';
+                }
+                return base + 'border-blue-500 bg-blue-50/80 cursor-pointer hover:bg-blue-100 hover:shadow-md';
+            }
+            // Other party — greyed out
+            return base + 'border-slate-300 bg-slate-100/70 cursor-default';
+        },
+
+        // ── Marker interaction ──
+        handleMarkerClick(marker) {
+            if (marker.assigned_party !== 'agent') return;
+            if (marker.signed) return;
+
+            // For date markers, auto-fill with today's date
+            if (marker.type === 'date') {
+                this.signDateMarker(marker);
+                return;
+            }
+
+            this.activeMarker = marker;
+            this.captureMode = 'draw';
+            this.typedName = marker.type === 'initial'
+                ? @json(collect(explode(' ', $user->name))->map(fn($n) => strtoupper(substr($n, 0, 1)))->join(''))
+                : @json($user->name);
+            this.showSignModal = true;
+
+            this.$nextTick(() => this.initCanvas());
+        },
+
+        // ── Canvas management ──
+        initCanvas() {
+            const canvas = this.$refs.signatureCanvas;
+            if (!canvas) return;
+
+            // Size canvas to display size with device pixel ratio
+            const ratio = Math.max(window.devicePixelRatio || 1, 1);
+            canvas.width = canvas.offsetWidth * ratio;
+            canvas.height = canvas.offsetHeight * ratio;
+            canvas.getContext('2d').scale(ratio, ratio);
+
+            if (this.signaturePad) {
+                this.signaturePad.clear();
+                this.signaturePad.off();
+            }
+
+            this.signaturePad = new SignaturePad(canvas, {
+                backgroundColor: 'rgba(255, 255, 255, 0)',
+                penColor: 'rgb(0, 0, 0)',
+                minWidth: 1,
+                maxWidth: 3,
+            });
+        },
+
+        clearCanvas() {
+            if (this.signaturePad) {
+                this.signaturePad.clear();
+            }
+        },
+
+        // ── Typed signature → PNG ──
+        generateTypedSignature(name) {
+            const canvas = this.$refs.typedCanvas;
+            if (!canvas) return null;
+
+            canvas.width = 400;
+            canvas.height = 100;
+            const ctx = canvas.getContext('2d');
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = '48px "Dancing Script", cursive';
+            ctx.fillStyle = '#000000';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(name, 10, 50);
+
+            return canvas.toDataURL('image/png');
+        },
+
+        // ── Date marker auto-sign ──
+        async signDateMarker(marker) {
+            const dateStr = this.formatDate(new Date());
+            // Generate date as text on canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = 200;
+            canvas.height = 40;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.font = '16px sans-serif';
+            ctx.fillStyle = '#000000';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(dateStr, 5, 20);
+
+            const dataUrl = canvas.toDataURL('image/png');
+            await this.submitSignature(marker, dataUrl, 'typed');
+            marker.date_value = dateStr;
+        },
+
+        formatDate(d) {
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return yyyy + '/' + mm + '/' + dd;
+        },
+
+        // ── Apply signature ──
+        async applySignature() {
+            if (!this.activeMarker) return;
+            this.applying = true;
+
+            let signatureData = null;
+            let signatureType = 'drawn';
+
+            if (this.captureMode === 'draw') {
+                if (!this.signaturePad || this.signaturePad.isEmpty()) {
+                    this.applying = false;
+                    return;
+                }
+                signatureData = this.signaturePad.toDataURL('image/png');
+                signatureType = 'drawn';
+            } else {
+                if (!this.typedName.trim()) {
+                    this.applying = false;
+                    return;
+                }
+                signatureData = this.generateTypedSignature(this.typedName.trim());
+                signatureType = 'typed';
+            }
+
+            const success = await this.submitSignature(this.activeMarker, signatureData, signatureType);
+
+            if (success) {
+                this.showSignModal = false;
+
+                // Check if this was the first signature AND there are more signature-type markers to sign
+                const remainingSigMarkers = this.markers.filter(m =>
+                    m.assigned_party === 'agent' &&
+                    !m.signed &&
+                    m.type === 'signature'
+                );
+
+                if (!this.firstSignatureDone && this.activeMarker.type === 'signature' && remainingSigMarkers.length > 0) {
+                    this.lastSignatureData = signatureData;
+                    this.lastSignatureType = signatureType;
+                    this.remainingSignatureCount = remainingSigMarkers.length;
+                    this.showApplyAll = true;
+                }
+
+                this.firstSignatureDone = true;
+            }
+
+            this.applying = false;
+        },
+
+        // ── Submit single signature to server ──
+        async submitSignature(marker, signatureData, signatureType) {
+            try {
+                const url = @json(url('/docuperfect/documents')) + '/{{ $document->id }}/sign/' + marker.id;
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': @json(csrf_token()),
+                    },
+                    body: JSON.stringify({
+                        signature_data: signatureData,
+                        signature_type: signatureType,
+                    }),
+                });
+
+                const data = await resp.json();
+
+                if (data.ok) {
+                    // Update marker in local state
+                    marker.signed = true;
+                    marker.signature_data = signatureData;
+                    marker.signature_type = signatureType;
+
+                    // Update counts
+                    this.signedCount = data.signed_count;
+                    return true;
+                } else {
+                    alert(data.error || 'Failed to capture signature.');
+                    return false;
+                }
+            } catch (err) {
+                alert('Network error. Please try again.');
+                return false;
+            }
+        },
+
+        // ── Apply to all remaining signature markers ──
+        async applyToAllSignatureMarkers() {
+            this.applyingAll = true;
+
+            const remainingSignatures = this.markers.filter(m =>
+                m.assigned_party === 'agent' &&
+                !m.signed &&
+                m.type === 'signature'
+            );
+
+            for (const marker of remainingSignatures) {
+                const success = await this.submitSignature(marker, this.lastSignatureData, this.lastSignatureType);
+                if (!success) break;
+            }
+
+            this.showApplyAll = false;
+            this.lastSignatureData = null;
+            this.applyingAll = false;
+        },
+
+        get remainingSignatureCount() {
+            return this.markers.filter(m =>
+                m.assigned_party === 'agent' &&
+                !m.signed &&
+                m.type === 'signature'
+            ).length;
+        },
+
+        set remainingSignatureCount(v) {
+            // setter needed for x-text binding from modal partial
+        },
+    };
+}
+</script>
+@endsection

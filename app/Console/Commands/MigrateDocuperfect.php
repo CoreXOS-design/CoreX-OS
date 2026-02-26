@@ -121,7 +121,7 @@ class MigrateDocuperfect extends Command
                 $typeMap = [
                     'standard' => 'sales',
                     'sales'    => 'sales',
-                    'rentals'  => 'rentals',
+                    'rentals'  => 'rental',
                     'compliance' => 'compliance',
                 ];
                 $templateType = $typeMap[$t['templateType'] ?? 'standard'] ?? 'sales';

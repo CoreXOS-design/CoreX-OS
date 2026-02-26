@@ -33,7 +33,7 @@
                 <label class="ds-label block mb-1">Type</label>
                 <select id="dpTemplateType" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
                     <option value="sales" {{ $template->template_type === 'sales' ? 'selected' : '' }}>Sales</option>
-                    <option value="rentals" {{ $template->template_type === 'rentals' ? 'selected' : '' }}>Rentals</option>
+                    <option value="rental" {{ $template->template_type === 'rental' ? 'selected' : '' }}>Rental</option>
                     <option value="compliance" {{ $template->template_type === 'compliance' ? 'selected' : '' }}>Compliance</option>
                 </select>
             </div>
@@ -97,7 +97,8 @@
         templateName: @json($template->name),
         templateType: @json($template->template_type),
         documentTypeId: @json($template->document_type_id),
-        namedFields: @json($namedFields)
+        namedFields: @json($namedFields),
+        signatureZones: @json($signatureZones ?? [])
     };
 </script>
 <script src="{{ asset('js/docuperfect-editor.js') }}"></script>
