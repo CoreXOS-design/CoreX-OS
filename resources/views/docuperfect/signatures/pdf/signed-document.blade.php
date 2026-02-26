@@ -3,12 +3,15 @@
 <head>
     <meta charset="utf-8">
     <style>
+        @page { margin: 0; size: A4 portrait; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Helvetica, Arial, sans-serif; }
 
         .page-container {
             position: relative;
-            width: 100%;
+            width: 210mm;
+            height: 297mm;
+            overflow: hidden;
             page-break-after: always;
         }
         .page-container:last-child {
@@ -16,8 +19,8 @@
         }
 
         .page-image {
-            width: 100%;
-            height: auto;
+            width: 210mm;
+            height: 297mm;
             display: block;
         }
 

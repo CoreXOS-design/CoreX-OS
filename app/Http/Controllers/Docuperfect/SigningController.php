@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
+use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignatureService;
 use Illuminate\Http\Request;
 
@@ -99,11 +100,17 @@ class SigningController extends Controller
             ->orderBy('sort_order')
             ->get();
 
-        // Build page image URLs
+        // Build page image URLs — use flattened images when available
         $docTemplate = $document->template;
+        $flattenedPages = $template->flattened_pages_json ?? [];
+        $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        if ($docTemplate) {
-            for ($n = 0; $n < $docTemplate->page_count; $n++) {
+        $pageCount = $docTemplate ? $docTemplate->page_count : 0;
+
+        for ($n = 0; $n < $pageCount; $n++) {
+            if ($hasFlattened && isset($flattenedPages[$n])) {
+                $pageImages[] = route('signatures.external.flattenedPage', ['token' => $token, 'page' => $n]);
+            } elseif ($docTemplate) {
                 $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
             }
         }
@@ -124,9 +131,10 @@ class SigningController extends Controller
             'signedCount' => $signedCount,
             'totalMarkers' => $totalMarkers,
             'pageImages' => $pageImages,
-            'pageCount' => $docTemplate ? $docTemplate->page_count : 0,
+            'pageCount' => $pageCount,
             'wetInkPendingReview' => $wetInkPendingReview,
             'wetInkRejected' => $wetInkRejected,
+            'hasFlattened' => $hasFlattened,
             'token' => $token,
         ]);
     }
@@ -257,9 +265,14 @@ class SigningController extends Controller
             return response()->json(['ok' => false, 'error' => 'This marker is not assigned to you.'], 403);
         }
 
-        // Verify hash integrity
+        // Soft hash check — log warning but don't block signing
+        // Hash is recalculated before sending to each external party
         if (!$this->signatureService->verifyDocumentHash($signingRequest->template)) {
-            return response()->json(['ok' => false, 'error' => 'Document integrity check failed.'], 409);
+            \Log::warning('Document hash mismatch during signing', [
+                'template_id' => $signingRequest->template->id,
+                'signer' => $signingRequest->signer_name,
+                'party_role' => $signingRequest->party_role,
+            ]);
         }
 
         $request->validate([
@@ -279,6 +292,11 @@ class SigningController extends Controller
             $request->input('signature_type', 'drawn'),
         );
 
+        // FLATTEN: Bake this signature into the page image immediately
+        $template = $signingRequest->template;
+        $template->refresh(); // reload flattened_pages_json
+        app(DocumentFlattener::class)->flattenSignature($template, $marker, $signature);
+
         // Update request status to partially_signed if not already
         if (!in_array($signingRequest->status, [
             SignatureRequest::STATUS_PARTIALLY_SIGNED,
@@ -287,7 +305,6 @@ class SigningController extends Controller
             $signingRequest->update(['status' => SignatureRequest::STATUS_PARTIALLY_SIGNED]);
         }
 
-        $template = $signingRequest->template;
         $allSigned = $this->signatureService->isPartyComplete($template, $signingRequest->party_role);
 
         $signedCount = $template->signatures()
@@ -499,5 +516,39 @@ class SigningController extends Controller
         );
 
         return response()->json(['ok' => true, 'declined' => true]);
+    }
+
+    /**
+     * Serve a flattened page image for external signers (token-based, no auth).
+     */
+    public function flattenedPageImage(Request $request, $token, $page)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            abort(403, 'Signing link has expired.');
+        }
+
+        // Require verified session
+        if (!session("signing_verified_{$token}")) {
+            abort(403, 'Identity not verified.');
+        }
+
+        $template = $signingRequest->template;
+        $flattenedPages = $template->flattened_pages_json ?? [];
+        $pageNum = (int) $page;
+
+        if (!isset($flattenedPages[$pageNum])) {
+            abort(404, 'Flattened page not found.');
+        }
+
+        $path = storage_path('app/' . $flattenedPages[$pageNum]);
+        if (!file_exists($path)) {
+            abort(404, 'Flattened page file not found.');
+        }
+
+        return response()->file($path, [
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
     }
 }

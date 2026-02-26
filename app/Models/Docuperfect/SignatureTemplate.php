@@ -17,13 +17,20 @@ class SignatureTemplate extends Model
         'signing_order_json',
         'created_by',
         'completed_at',
+        'rejected_at',
+        'rejection_reason',
+        'rejected_by',
         'signed_pdf_path',
+        'signed_pdf_client_path',
+        'flattened_pages_json',
     ];
 
     protected $casts = [
         'parties_json' => 'array',
         'signing_order_json' => 'array',
+        'flattened_pages_json' => 'array',
         'completed_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
 
     // Status constants
@@ -36,6 +43,7 @@ class SignatureTemplate extends Model
     const STATUS_COMPLETED = 'completed';
     const STATUS_EXPIRED = 'expired';
     const STATUS_DECLINED = 'declined';
+    const STATUS_REJECTED = 'rejected';
 
     // --- Relationships ---
 
@@ -83,7 +91,7 @@ class SignatureTemplate extends Model
 
     public function scopeActive($query)
     {
-        return $query->whereNotIn('status', [self::STATUS_EXPIRED, self::STATUS_DECLINED]);
+        return $query->whereNotIn('status', [self::STATUS_EXPIRED, self::STATUS_DECLINED, self::STATUS_REJECTED]);
     }
 
     public function scopeVisibleTo($query, User $user)
@@ -127,6 +135,16 @@ class SignatureTemplate extends Model
     public function isPendingAgentApproval(): bool
     {
         return $this->status === self::STATUS_PENDING_AGENT_APPROVAL;
+    }
+
+    public function isRejected(): bool
+    {
+        return $this->status === self::STATUS_REJECTED;
+    }
+
+    public function rejectedBy()
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
     }
 
     public function currentPartyRole(): ?string

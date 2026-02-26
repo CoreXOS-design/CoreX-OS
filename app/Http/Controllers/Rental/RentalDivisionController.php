@@ -44,6 +44,7 @@ class RentalDivisionController extends Controller
 
         return view('rental.signatures', [
             'groups'             => $data['groups'],
+            'rejected'           => $data['rejected'],
             'signatureTemplates' => $data['signatureTemplates'],
             'fieldStatus'        => $data['fieldStatus'],
             'counts'             => $data['counts'],

@@ -1,7 +1,8 @@
 @extends('layouts.nexus')
 
 @section('content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+     x-data="{ showRejectModal: false, rejectDocId: null, rejectDocName: '', showRejected: false }">
 
     <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
         <div>
@@ -234,10 +235,17 @@
                                 </div>
                             @endif
                         </div>
-                        <a href="{{ route('docuperfect.signatures.review', $doc) }}"
-                           class="inline-flex items-center px-4 py-2 bg-amber-600 text-white text-xs font-medium rounded-lg hover:bg-amber-700 ml-4 whitespace-nowrap">
-                            Review &amp; Approve
-                        </a>
+                        <div class="flex flex-col gap-1.5 ml-4">
+                            <a href="{{ route('docuperfect.signatures.review', $doc) }}"
+                               class="inline-flex items-center px-4 py-2 bg-amber-600 text-white text-xs font-medium rounded-lg hover:bg-amber-700 whitespace-nowrap">
+                                Review &amp; Approve
+                            </a>
+                            <button type="button"
+                                    @click="rejectDocId = {{ $doc->id }}; rejectDocName = {{ Js::from($doc->name) }}; showRejectModal = true"
+                                    class="text-xs text-red-500 hover:text-red-700 text-center">
+                                Reject / Redo
+                            </button>
+                        </div>
                     </div>
                 </div>
             @endforeach
@@ -362,6 +370,11 @@
                                         </form>
                                     @endif
                                 @endif
+                                <button type="button"
+                                        @click="rejectDocId = {{ $doc->id }}; rejectDocName = {{ Js::from($doc->name) }}; showRejectModal = true"
+                                        class="text-red-500 hover:underline text-xs">
+                                    Reject / Redo
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -583,12 +596,93 @@
         @endif
     </div>
 
+    {{-- Rejected / Archived --}}
+    @if(isset($rejected) && $rejected->isNotEmpty())
+    <div id="section-rejected" class="space-y-2 scroll-mt-4 mt-8">
+        <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider cursor-pointer"
+            @click="showRejected = !showRejected">
+            Rejected ({{ $rejected->count() }})
+            <span class="text-xs" x-text="showRejected ? '&#9660;' : '&#9654;'"></span>
+        </h3>
+        <div x-show="showRejected" x-collapse class="space-y-3">
+            @foreach($rejected as $doc)
+                @php $sigTemplate = $signatureTemplates->get($doc->id); @endphp
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 opacity-75">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <h4 class="font-medium text-gray-600 line-through">{{ $doc->name }}</h4>
+                            @if($sigTemplate && $sigTemplate->rejection_reason)
+                                <p class="text-xs text-red-500 mt-1">
+                                    Rejected: {{ $sigTemplate->rejection_reason }}
+                                </p>
+                            @endif
+                            @if($sigTemplate && $sigTemplate->rejected_at)
+                                <p class="text-xs text-gray-400">
+                                    {{ $sigTemplate->rejected_at->format('d M Y H:i') }}
+                                    @if($sigTemplate->rejectedBy)
+                                        by {{ $sigTemplate->rejectedBy->name }}
+                                    @endif
+                                </p>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     {{-- Empty state --}}
     @if($counts['draft'] === 0 && $counts['ready_to_sign'] === 0 && $counts['awaiting_signatures'] === 0 && $counts['completed'] === 0 && $counts['pending_approval'] === 0 && $activeLeases->isEmpty())
     <div class="ds-status-card p-6 text-center">
         <div class="text-sm text-slate-500">No rental documents found. Create a document from a rental template to get started.</div>
     </div>
     @endif
+
+    {{-- Rejection Modal --}}
+    <div x-show="showRejectModal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md" @click.away="showRejectModal = false">
+            <h3 class="text-lg font-bold text-red-700 mb-4">Reject Document</h3>
+            <p class="text-sm text-gray-600 mb-4" x-text="'Rejecting: ' + rejectDocName"></p>
+
+            <form method="POST" :action="'/docuperfect/documents/' + rejectDocId + '/reject'">
+                @csrf
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Reason for Rejection *</label>
+                    <textarea name="rejection_reason" rows="3" required minlength="5"
+                              class="w-full border rounded-lg px-3 py-2 text-sm"
+                              placeholder="e.g. Wrong rental amount, tenant name misspelled..."></textarea>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">What would you like to do?</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="action" value="revise" checked
+                                   class="text-blue-600">
+                            <span class="text-sm">Create a revised version (clone with fields, clear signatures)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="action" value="archive"
+                                   class="text-blue-600">
+                            <span class="text-sm">Just archive it (no further action)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3">
+                    <button type="button" @click="showRejectModal = false"
+                            class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+                    <button type="submit"
+                            class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
+                        Reject Document
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
 </div>
 

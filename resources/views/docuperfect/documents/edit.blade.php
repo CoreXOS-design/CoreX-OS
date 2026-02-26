@@ -75,16 +75,63 @@
 
             {{-- Send to Rental E-Signatures --}}
             @if($template->template_type === 'rental')
-            <form method="POST" action="{{ route('docuperfect.documents.sendToRentals', $document->id) }}">
-                @csrf
-                <button type="submit"
+            <div x-data="{ showSendModal: false }">
+                <button type="button" @click="showSendModal = true"
                         class="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
                     </svg>
                     Send to Rental E-Signatures
                 </button>
-            </form>
+
+                {{-- Send to Rentals Modal --}}
+                <div x-show="showSendModal" x-cloak
+                     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md" @click.away="showSendModal = false">
+                        <h3 class="text-lg font-bold mb-4">Send to Rental E-Signatures</h3>
+
+                        <form method="POST" action="{{ route('docuperfect.documents.sendToRentals', $document->id) }}">
+                            @csrf
+
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Document Type *</label>
+                                <select name="document_type" required class="w-full border rounded-lg px-3 py-2 text-sm">
+                                    <option value="">-- Select type --</option>
+                                    @foreach(\App\Models\Rental\RentalDocumentType::active()->orderBy('sort_order')->get() as $dt)
+                                        <option value="{{ $dt->slug }}" {{ ($document->document_type ?? '') === $dt->slug ? 'selected' : '' }}>
+                                            {{ $dt->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Property *</label>
+                                <select name="property_id" required class="w-full border rounded-lg px-3 py-2 text-sm">
+                                    <option value="">-- Select Property --</option>
+                                    @foreach(\App\Models\Rental\RentalProperty::active()->orderBy('full_address')->get() as $prop)
+                                        <option value="{{ $prop->id }}" {{ ($document->property_id ?? '') == $prop->id ? 'selected' : '' }}>
+                                            {{ $prop->full_address }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <p class="text-xs text-gray-400 mt-1">
+                                    Property not listed? <a href="{{ route('rental.settings.properties.create') }}" class="text-blue-500 hover:underline" target="_blank">Add it first</a>
+                                </p>
+                            </div>
+
+                            <div class="flex justify-end gap-3 mt-6">
+                                <button type="button" @click="showSendModal = false"
+                                        class="px-4 py-2 text-sm text-gray-600">Cancel</button>
+                                <button type="submit"
+                                        class="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">
+                                    Send to Rental E-Signatures
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
             @endif
 
             {{-- Set Up Signatures (generic — for any document) --}}

@@ -80,27 +80,90 @@
         </div>
     </div>
 
-    {{-- Document preview with signature markers --}}
+    {{-- Document preview --}}
     <div class="rounded-2xl border border-slate-200 bg-white p-5">
         <h4 class="font-semibold text-slate-800 mb-3">Document Preview</h4>
         <div class="space-y-4">
             @for($pageNum = 0; $pageNum < $pageCount; $pageNum++)
-                @php
-                    $pageMarkers = $allMarkers->where('page_number', $pageNum + 1);
-                @endphp
                 <div class="relative border border-slate-200 rounded-lg overflow-hidden">
                     <img src="{{ $pageImages[$pageNum] ?? '' }}" alt="Page {{ $pageNum + 1 }}" class="w-full h-auto">
 
-                    {{-- Overlay signed markers --}}
-                    @foreach($pageMarkers as $marker)
-                        @php $sig = $marker->signatures->first(); @endphp
-                        <div class="absolute border-2 rounded"
-                             style="left: {{ $marker->x_position }}%; top: {{ $marker->y_position }}%; width: {{ $marker->width }}%; height: {{ $marker->height }}%; {{ $sig ? 'border-color: #10b981;' : 'border-color: #d1d5db; border-style: dashed;' }}">
-                            @if($sig && $sig->signature_data)
-                                <img src="{{ $sig->signature_data }}" class="w-full h-full object-contain" alt="Signature">
+                    @if(empty($hasFlattened))
+                        {{-- FALLBACK: Overlay field values + signatures when not flattened --}}
+                        @php
+                            $docFields = $document->fields_json ?? [];
+                            $pageMarkers = $allMarkers->where('page_number', $pageNum + 1);
+                            $pageFields = collect($docFields)->where('pageIndex', $pageNum);
+                        @endphp
+
+                        @foreach($pageFields as $field)
+                            @php
+                                $type = $field['type'] ?? 'placeholder';
+                                $pos = $field['position'] ?? [];
+                                $size = $field['size'] ?? [];
+                                $style = $field['style'] ?? [];
+                                $x = $pos['x'] ?? 0;
+                                $y = $pos['y'] ?? 0;
+                                $w = $size['width'] ?? 0;
+                                $h = $size['height'] ?? 0;
+                                $fontSize = $style['fontSize'] ?? 12;
+                                $fontFamily = $style['fontFamily'] ?? 'Helvetica';
+                                $bold = !empty($style['bold']) ? 'font-weight:bold;' : '';
+                                $underline = !empty($style['underline']) ? 'text-decoration:underline;' : '';
+                                $solidBg = !empty($style['solidBackground']) ? 'background:white;' : '';
+                                $fieldCss = "font-size:{$fontSize}px;font-family:{$fontFamily};color:#000;{$bold}{$underline}{$solidBg}";
+                            @endphp
+
+                            @if($type === 'placeholder' && !empty(trim((string)($field['value'] ?? ''))))
+                                <div class="absolute pointer-events-none overflow-hidden"
+                                     style="left:{{ $x }}%;top:{{ $y }}%;width:{{ $w }}%;height:{{ $h }}%;z-index:5;">
+                                    <div class="w-full h-full flex items-start px-0.5 overflow-hidden"
+                                         style="{{ $fieldCss }}">{{ $field['value'] }}</div>
+                                </div>
+                            @elseif($type === 'date' && !empty(trim((string)($field['value'] ?? ''))))
+                                <div class="absolute pointer-events-none overflow-hidden"
+                                     style="left:{{ $x }}%;top:{{ $y }}%;width:{{ $w }}%;height:{{ $h }}%;z-index:5;">
+                                    <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
+                                         style="{{ $fieldCss }}">{{ $field['value'] }}</div>
+                                </div>
+                            @elseif($type === 'selection' && !empty($field['selectedValue']))
+                                <div class="absolute pointer-events-none overflow-hidden"
+                                     style="left:{{ $x }}%;top:{{ $y }}%;width:{{ $w }}%;height:{{ $h }}%;z-index:5;">
+                                    <div class="w-full h-full flex items-center px-0.5 overflow-hidden" style="{{ $fieldCss }}">
+                                        <span class="bg-cyan-100 text-cyan-800 px-1.5 py-0.5 rounded text-xs">{{ $field['selectedValue'] }}</span>
+                                    </div>
+                                </div>
+                            @elseif($type === 'condition' && !empty(trim((string)($field['text'] ?? ''))))
+                                <div class="absolute pointer-events-none overflow-hidden"
+                                     style="left:{{ $x }}%;top:{{ $y }}%;width:{{ $w }}%;height:{{ $h }}%;z-index:5;">
+                                    <div class="w-full h-full overflow-hidden px-0.5 bg-white/85"
+                                         style="{{ $fieldCss }}">{{ $field['text'] }}</div>
+                                </div>
+                            @elseif($type === 'strikethrough' && !empty($field['active']))
+                                <div class="absolute pointer-events-none overflow-hidden"
+                                     style="left:{{ $x }}%;top:{{ $y }}%;width:{{ $w }}%;height:{{ $h }}%;z-index:5;">
+                                    @if(($field['strikethroughType'] ?? 'horizontal') === 'horizontal')
+                                        <div class="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 -translate-y-1/2"></div>
+                                    @else
+                                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full">
+                                            <line x1="0" y1="0" x2="100" y2="100" stroke="#ef4444" stroke-width="3" />
+                                        </svg>
+                                    @endif
+                                </div>
                             @endif
-                        </div>
-                    @endforeach
+                        @endforeach
+
+                        @foreach($pageMarkers as $marker)
+                            @php $sig = $marker->signatures->first(); @endphp
+                            <div class="absolute border-2 rounded"
+                                 style="left: {{ $marker->x_position }}%; top: {{ $marker->y_position }}%; width: {{ $marker->width }}%; height: {{ $marker->height }}%; z-index:10; {{ $sig ? 'border-color: #10b981;' : 'border-color: #d1d5db; border-style: dashed;' }}">
+                                @if($sig && $sig->signature_data)
+                                    <img src="{{ $sig->signature_data }}" class="w-full h-full object-contain" alt="Signature">
+                                @endif
+                            </div>
+                        @endforeach
+                    @endif
+                    {{-- When flattened: fields + signatures are already baked into the image --}}
 
                     <div class="absolute bottom-2 right-2 bg-white/80 text-xs text-slate-500 px-2 py-0.5 rounded">
                         Page {{ $pageNum + 1 }}

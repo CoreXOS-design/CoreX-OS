@@ -18,6 +18,9 @@ class Document extends Model
         'branch_id',
         'pack_instance_id',
         'archived_at',
+        'document_type',
+        'property_address',
+        'property_id',
     ];
 
     protected $casts = [
@@ -43,6 +46,11 @@ class Document extends Model
     public function signatureTemplate()
     {
         return $this->hasOne(SignatureTemplate::class, 'document_id');
+    }
+
+    public function property()
+    {
+        return $this->belongsTo(\App\Models\Rental\RentalProperty::class, 'property_id');
     }
 
     public function packInstanceValues()

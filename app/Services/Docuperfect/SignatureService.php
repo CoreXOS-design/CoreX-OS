@@ -555,6 +555,11 @@ class SignatureService
             }
 
             if ($nextParty) {
+                // Recalculate hash before sending to next external party
+                $template->update([
+                    'document_hash' => $this->generateDocumentHash($template->document),
+                ]);
+
                 // Transition to next party
                 $statusMap = [
                     'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
@@ -611,6 +616,11 @@ class SignatureService
         $nextParty = $order[$currentIndex + 1] ?? null;
 
         if ($nextParty && !$this->isPartyComplete($template, $nextParty)) {
+            // Recalculate hash before sending to next external party
+            $template->update([
+                'document_hash' => $this->generateDocumentHash($template->document),
+            ]);
+
             $statusMap = [
                 'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
                 'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
@@ -649,11 +659,14 @@ class SignatureService
             documentHash: $template->document_hash,
         );
 
-        // 2. Generate signed PDF with embedded signatures + audit certificate
-        $signedPdfPath = $this->pdfService->generate($template);
+        // 2. Generate both signed PDF versions (internal + client)
+        $pdfPaths = $this->pdfService->generate($template);
 
-        if ($signedPdfPath) {
-            $template->update(['signed_pdf_path' => $signedPdfPath]);
+        if ($pdfPaths) {
+            $template->update([
+                'signed_pdf_path' => $pdfPaths['internal'],
+                'signed_pdf_client_path' => $pdfPaths['client'],
+            ]);
 
             SignatureAuditLog::log(
                 $template,
@@ -661,7 +674,8 @@ class SignatureService
                 SignatureAuditLog::ACTOR_SYSTEM,
                 'System',
                 metadata: [
-                    'signed_pdf_path' => $signedPdfPath,
+                    'signed_pdf_path' => $pdfPaths['internal'],
+                    'signed_pdf_client_path' => $pdfPaths['client'],
                     'total_signatures' => $template->signatures()->count(),
                     'parties_completed' => $template->partyProgress(),
                 ],
@@ -673,8 +687,8 @@ class SignatureService
             ]);
         }
 
-        // 3. Email signed copies to all parties
-        $this->sendCompletionEmails($template, $signedPdfPath);
+        // 3. Email signed copies — client copy to signers, internal copy to agent
+        $this->sendCompletionEmails($template, $pdfPaths);
 
         // 4. Extract lease data if this is a lease/rental document
         if ($this->isLeaseDocument($template)) {
@@ -919,7 +933,7 @@ class SignatureService
 
         // Get signature templates for these documents
         $signatureTemplates = SignatureTemplate::whereIn('document_id', $documentIds)
-            ->with(['requests'])
+            ->with(['requests', 'rejectedBy'])
             ->get()
             ->keyBy('document_id');
 
@@ -930,6 +944,7 @@ class SignatureService
             'ready_to_sign' => collect(),
             'awaiting_signatures' => collect(),
             'completed' => collect(),
+            'rejected' => collect(),
         ];
 
         $fieldStatus = [];
@@ -959,6 +974,7 @@ class SignatureService
             match ($sigTemplate->status) {
                 SignatureTemplate::STATUS_COMPLETED => $groups['completed']->push($doc),
                 SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL => $groups['pending_approval']->push($doc),
+                SignatureTemplate::STATUS_REJECTED => $groups['rejected']->push($doc),
                 SignatureTemplate::STATUS_SIGNING,
                 SignatureTemplate::STATUS_AWAITING_TENANT,
                 SignatureTemplate::STATUS_AWAITING_LANDLORD => $groups['awaiting_signatures']->push($doc),
@@ -992,6 +1008,7 @@ class SignatureService
 
         return [
             'groups' => $groups,
+            'rejected' => $groups['rejected'],
             'signatureTemplates' => $signatureTemplates,
             'fieldStatus' => $fieldStatus,
             'counts' => [
@@ -1316,7 +1333,7 @@ class SignatureService
     /**
      * Send completion emails to all signers + the agent, with signed PDF attached.
      */
-    private function sendCompletionEmails(SignatureTemplate $template, ?string $pdfPath = null): void
+    private function sendCompletionEmails(SignatureTemplate $template, ?array $pdfPaths = null): void
     {
         try {
             $template->loadMissing(['document', 'creator', 'requests']);
@@ -1325,14 +1342,21 @@ class SignatureService
             $viewUrl = url("/docuperfect/documents/{$template->document_id}/signatures/audit");
             $progress = $template->partyProgress();
 
-            $fullPdfPath = $pdfPath ? storage_path("app/{$pdfPath}") : null;
-            if ($fullPdfPath && !file_exists($fullPdfPath)) {
-                $fullPdfPath = null;
+            // Client copy — for external signers (no audit trail)
+            $clientPdfPath = $pdfPaths ? storage_path("app/{$pdfPaths['client']}") : null;
+            if ($clientPdfPath && !file_exists($clientPdfPath)) {
+                $clientPdfPath = null;
             }
 
-            $pdfFilename = $fullPdfPath ? "Signed - {$documentName}.pdf" : null;
+            // Internal copy — for agent (with audit trail)
+            $internalPdfPath = $pdfPaths ? storage_path("app/{$pdfPaths['internal']}") : null;
+            if ($internalPdfPath && !file_exists($internalPdfPath)) {
+                $internalPdfPath = null;
+            }
 
-            // Notify each signer
+            $pdfFilename = "Signed - {$documentName}.pdf";
+
+            // Notify each external signer — attach client copy (no audit trail)
             foreach ($template->requests as $request) {
                 if ($request->status !== SignatureRequest::STATUS_COMPLETED) {
                     continue;
@@ -1343,8 +1367,8 @@ class SignatureService
                     documentName: $documentName,
                     envelopeUrl: $viewUrl,
                     progress: $progress,
-                    pdfPath: $fullPdfPath,
-                    pdfFilename: $pdfFilename,
+                    pdfPath: $clientPdfPath,
+                    pdfFilename: $clientPdfPath ? $pdfFilename : null,
                 ))->fromAgent($agent);
 
                 Mail::to($request->signer_email)->send($mail);
@@ -1358,12 +1382,13 @@ class SignatureService
                         'recipient_role' => $request->party_role,
                         'recipient_name' => $request->signer_name,
                         'recipient_email' => $request->signer_email,
-                        'pdf_attached' => $fullPdfPath !== null,
+                        'pdf_attached' => $clientPdfPath !== null,
+                        'pdf_version' => 'client',
                     ],
                 );
             }
 
-            // Also notify the agent
+            // Notify the agent — attach internal copy (with audit trail)
             if ($agent) {
                 Mail::to($agent->email)->send(
                     new SignedDocumentMail(
@@ -1371,8 +1396,8 @@ class SignatureService
                         documentName: $documentName,
                         envelopeUrl: $viewUrl,
                         progress: $progress,
-                        pdfPath: $fullPdfPath,
-                        pdfFilename: $pdfFilename,
+                        pdfPath: $internalPdfPath,
+                        pdfFilename: $internalPdfPath ? $pdfFilename : null,
                     )
                 );
 
@@ -1385,7 +1410,8 @@ class SignatureService
                         'recipient_role' => 'agent',
                         'recipient_name' => $agent->name,
                         'recipient_email' => $agent->email,
-                        'pdf_attached' => $fullPdfPath !== null,
+                        'pdf_attached' => $internalPdfPath !== null,
+                        'pdf_version' => 'internal',
                     ],
                 );
             }

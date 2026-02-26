@@ -10,6 +10,7 @@ use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Docuperfect\WetInkInspection;
+use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignaturePdfService;
 use App\Services\Docuperfect\SignatureService;
 use Illuminate\Http\Request;
@@ -426,11 +427,28 @@ class SignatureController extends Controller
         $user = $request->user();
         $this->authorizeDocument($user, $document);
 
-        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $template = SignatureTemplate::where('document_id', $document->id)
+            ->with(['document.template', 'markers.signatures'])
+            ->firstOrFail();
 
         // Verify all agent markers signed
         if (!$this->signatureService->isPartyComplete($template, 'agent')) {
             return redirect()->back()->with('error', 'Sign all your markers before completing.');
+        }
+
+        // FLATTEN: Bake field values + agent signatures into page images
+        // From this point forward, external signers see flattened images only.
+        $flattener = app(DocumentFlattener::class);
+        $flattener->flattenFields($template);
+
+        // Now flatten all agent signatures onto the already-flattened field images
+        $agentMarkers = $template->markers->where('assigned_party', 'agent');
+        foreach ($agentMarkers as $marker) {
+            $sig = $marker->signatures->first();
+            if ($sig) {
+                $template->refresh(); // reload flattened_pages_json after each flatten
+                $flattener->flattenSignature($template, $marker, $sig);
+            }
         }
 
         // Mark agent request as completed
@@ -798,11 +816,17 @@ class SignatureController extends Controller
         // Get progress for the completed party
         $progress = $template->partyProgress();
 
-        // Build page image URLs
+        // Build page image URLs — use flattened images when available
         $docTemplate = $document->template;
+        $flattenedPages = $template->flattened_pages_json ?? [];
+        $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        if ($docTemplate) {
-            for ($n = 0; $n < $docTemplate->page_count; $n++) {
+        $pageCount = $docTemplate ? $docTemplate->page_count : 0;
+
+        for ($n = 0; $n < $pageCount; $n++) {
+            if ($hasFlattened && isset($flattenedPages[$n])) {
+                $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+            } elseif ($docTemplate) {
                 $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
             }
         }
@@ -821,8 +845,9 @@ class SignatureController extends Controller
             'nextParty' => $nextParty,
             'progress' => $progress,
             'pageImages' => $pageImages,
-            'pageCount' => $docTemplate ? $docTemplate->page_count : 0,
+            'pageCount' => $pageCount,
             'allMarkers' => $allMarkers,
+            'hasFlattened' => $hasFlattened,
             'user' => $user,
         ]);
     }
@@ -875,6 +900,35 @@ class SignatureController extends Controller
     }
 
     // ──────────────────────────────────────────────
+    // Flattened page image serving
+    // ──────────────────────────────────────────────
+
+    /**
+     * Serve a flattened page image for authenticated users.
+     */
+    public function flattenedPageImage(Request $request, $templateId, $page)
+    {
+        $template = SignatureTemplate::findOrFail($templateId);
+        $this->authorizeDocument($request->user(), $template->document);
+
+        $flattenedPages = $template->flattened_pages_json ?? [];
+        $pageNum = (int) $page;
+
+        if (!isset($flattenedPages[$pageNum])) {
+            abort(404, 'Flattened page not found.');
+        }
+
+        $path = storage_path('app/' . $flattenedPages[$pageNum]);
+        if (!file_exists($path)) {
+            abort(404, 'Flattened page file not found.');
+        }
+
+        return response()->file($path, [
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
+    }
+
+    // ──────────────────────────────────────────────
     // Authorization helper
     // ──────────────────────────────────────────────
 
@@ -894,5 +948,94 @@ class SignatureController extends Controller
         if ((int) $document->owner_id !== (int) $user->id) {
             abort(403);
         }
+    }
+
+    // ──────────────────────────────────────────────
+    // Document Rejection / Redo
+    // ──────────────────────────────────────────────
+
+    public function reject(Request $request, $id)
+    {
+        $request->validate([
+            'rejection_reason' => 'required|string|min:5',
+            'action' => 'required|in:archive,revise',
+        ]);
+
+        $document = Document::findOrFail($id);
+        $this->authorizeDocument($request, $document);
+
+        $template = $document->signatureTemplate;
+
+        if (!$template) {
+            return back()->with('error', 'No signature template found for this document.');
+        }
+
+        // 1. Mark as rejected
+        $template->update([
+            'status' => SignatureTemplate::STATUS_REJECTED,
+            'rejected_at' => now(),
+            'rejection_reason' => $request->rejection_reason,
+            'rejected_by' => auth()->id(),
+        ]);
+
+        // 2. Invalidate all pending signing requests
+        $template->requests()
+            ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
+            ->update([
+                'status' => 'expired',
+            ]);
+
+        // 3. Log in audit trail
+        SignatureAuditLog::log(
+            $template,
+            'document_rejected',
+            SignatureAuditLog::ACTOR_USER,
+            auth()->user()->name,
+            auth()->user()->email,
+            auth()->id(),
+            null,
+            $request->ip(),
+            $request->userAgent(),
+            [
+                'reason' => $request->rejection_reason,
+                'action' => $request->action,
+            ]
+        );
+
+        // 4. If "Create revised version" — clone the document
+        if ($request->action === 'revise') {
+            $newDocument = $this->cloneDocumentForRevision($document);
+
+            return redirect()->route('docuperfect.documents.edit', $newDocument->id)
+                ->with('status', 'Document rejected. A revised copy has been created for editing.');
+        }
+
+        // 5. Archive action — just leave it rejected
+        return redirect()->route('rental.signatures')
+            ->with('status', 'Document rejected and archived.');
+    }
+
+    private function cloneDocumentForRevision(Document $original): Document
+    {
+        $new = $original->replicate(['archived_at']);
+        $new->name = $original->name . ' (Revised)';
+        $new->created_at = now();
+        $new->save();
+
+        // Copy page images if they exist
+        $originalDir = "docuperfect/documents/{$original->id}/pages";
+        $newDir = "docuperfect/documents/{$new->id}/pages";
+
+        if (Storage::disk('local')->exists($originalDir)) {
+            foreach (Storage::disk('local')->files($originalDir) as $file) {
+                $filename = basename($file);
+                Storage::disk('local')->copy($file, "{$newDir}/{$filename}");
+            }
+        }
+
+        // Do NOT copy: signature_templates, signing_requests, signatures
+        // The new document starts fresh for signing
+
+        return $new;
     }
 }

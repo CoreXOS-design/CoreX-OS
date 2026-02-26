@@ -344,6 +344,19 @@ class DocumentController extends Controller
             abort(403);
         }
 
+        $request->validate([
+            'document_type' => 'required|string',
+            'property_id' => 'required|exists:rental_properties,id',
+        ]);
+
+        $property = \App\Models\Rental\RentalProperty::findOrFail($request->property_id);
+
+        $document->update([
+            'document_type' => $request->document_type,
+            'property_id' => $property->id,
+            'property_address' => $property->full_address,
+        ]);
+
         return redirect()->route('docuperfect.signatures.setup', $document->id)
             ->with('status', 'Document ready for signature setup.');
     }

@@ -11,10 +11,13 @@ use Illuminate\Support\Facades\Storage;
 class SignaturePdfService
 {
     /**
-     * Generate the final signed PDF with embedded signatures and audit certificate.
-     * Returns the storage path to the final PDF, or null on failure.
+     * Generate both signed PDF versions:
+     *   - 'internal': document pages + signatures + audit certificate (for agent)
+     *   - 'client': document pages + signatures only (for external signers)
+     *
+     * Returns ['internal' => storagePath, 'client' => storagePath] or null on failure.
      */
-    public function generate(SignatureTemplate $template): ?string
+    public function generate(SignatureTemplate $template): ?array
     {
         try {
             $template->loadMissing(['document.template', 'markers.signatures', 'requests', 'signatures', 'auditLogs']);
@@ -26,40 +29,39 @@ class SignaturePdfService
                 return null;
             }
 
-            // 1. Generate signed document PDF (pages with overlaid signatures)
-            $signedPdfPath = $this->generateSignedPdf($template, $document, $docTemplate);
+            // Build page data once (pages + markers + fields)
+            $pageData = $this->buildPageData($template, $document, $docTemplate);
 
-            // 2. Generate audit certificate PDF
-            $auditCertPath = $this->generateAuditCertificate($template, $document);
+            // 1. Client copy — no audit certificate
+            $clientTempPath = $this->renderPdf($pageData, $document->name, false);
 
-            // 3. Combine both into final PDF
-            $finalPath = $this->combinePdfs($template, $signedPdfPath, $auditCertPath);
+            // 2. Internal copy — with audit certificate
+            $auditData = $this->buildAuditData($template, $document);
+            $internalTempPath = $this->renderPdf($pageData, $document->name, true, $auditData);
 
-            // Clean up intermediate files
-            if (file_exists($signedPdfPath)) {
-                unlink($signedPdfPath);
-            }
-            if (file_exists($auditCertPath)) {
-                unlink($auditCertPath);
-            }
+            // Store in final locations
+            $baseDir = "docuperfect/signed-documents/{$template->id}";
+            $clientStoragePath = "{$baseDir}/client_signed.pdf";
+            $internalStoragePath = "{$baseDir}/final_signed.pdf";
 
-            // Store relative path in Storage
-            $storagePath = "docuperfect/signed-documents/{$template->id}/final_signed.pdf";
-            $storageFullPath = storage_path("app/{$storagePath}");
-
-            // Move final PDF to storage location
-            $targetDir = dirname($storageFullPath);
+            $targetDir = storage_path("app/{$baseDir}");
             if (!is_dir($targetDir)) {
                 mkdir($targetDir, 0755, true);
             }
 
-            if (file_exists($finalPath)) {
-                rename($finalPath, $storageFullPath);
+            if (file_exists($clientTempPath)) {
+                rename($clientTempPath, storage_path("app/{$clientStoragePath}"));
+            }
+            if (file_exists($internalTempPath)) {
+                rename($internalTempPath, storage_path("app/{$internalStoragePath}"));
             }
 
-            return $storagePath;
+            return [
+                'internal' => $internalStoragePath,
+                'client' => $clientStoragePath,
+            ];
         } catch (\Throwable $e) {
-            Log::error('SignaturePdfService: Failed to generate signed PDF', [
+            Log::error('SignaturePdfService: Failed to generate signed PDFs', [
                 'template_id' => $template->id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
@@ -69,125 +71,40 @@ class SignaturePdfService
     }
 
     /**
-     * Generate the signed document PDF — each page as image with signatures overlaid.
+     * Build page data array: page images + signature markers + field overlays.
+     *
+     * When flattened page images are available, uses those instead of originals
+     * and skips field/signature overlays since they are already baked into the images.
      */
-    private function generateSignedPdf(SignatureTemplate $template, $document, $docTemplate): string
+    private function buildPageData(SignatureTemplate $template, $document, $docTemplate): array
     {
+        $flattenedPages = $template->flattened_pages_json ?? [];
+        $hasFlattened = !empty($flattenedPages);
+
+        $documentFields = $document->fields_json ?? [];
+        $fieldsByPage = $hasFlattened ? [] : $this->groupFieldsByPage($documentFields);
+
         $pages = [];
 
         for ($pageNum = 0; $pageNum < $docTemplate->page_count; $pageNum++) {
-            // Get page image as base64
-            $pageImageBase64 = $this->getPageImageBase64($docTemplate->id, $pageNum);
-
-            // Get markers for this page (pages in markers are 1-indexed, images are 0-indexed)
-            $pageMarkers = $template->markers
-                ->where('page_number', $pageNum + 1)
-                ->sortBy('sort_order');
-
-            $markerData = [];
-            foreach ($pageMarkers as $marker) {
-                $signature = $marker->signatures->first();
-                $isWetInk = false;
-                $wetInkApproved = false;
-
-                // Check if this party used wet ink
-                $request = $template->requests->firstWhere('party_role', $marker->assigned_party);
-                if ($request && $request->signing_method === 'wet_ink' && $request->wet_ink_status === 'approved') {
-                    $isWetInk = true;
-                    $wetInkApproved = true;
-                }
-
-                $markerData[] = [
-                    'x' => $marker->x_position,
-                    'y' => $marker->y_position,
-                    'w' => $marker->width,
-                    'h' => $marker->height,
-                    'type' => $marker->type,
-                    'assigned_party' => $marker->assigned_party,
-                    'has_signature' => $signature !== null,
-                    'signature_data' => $signature?->signature_data,
-                    'signature_type' => $signature?->signature_type,
-                    'signer_name' => $signature?->signer_name,
-                    'signed_at' => $signature?->signed_at,
-                    'is_wet_ink' => $isWetInk,
-                    'wet_ink_approved' => $wetInkApproved,
-                ];
+            // Use flattened page image if available, otherwise original
+            if ($hasFlattened && isset($flattenedPages[$pageNum])) {
+                $pageImageBase64 = $this->getStorageImageBase64($flattenedPages[$pageNum]);
+            } else {
+                $pageImageBase64 = $this->getPageImageBase64($docTemplate->id, $pageNum);
             }
 
-            $pages[] = [
-                'image_base64' => $pageImageBase64,
-                'markers' => $markerData,
-            ];
-        }
+            // When flattened, skip overlays — everything is baked into the image
+            if ($hasFlattened) {
+                $pages[] = [
+                    'image_base64' => $pageImageBase64,
+                    'markers' => [],
+                    'fields' => [],
+                ];
+                continue;
+            }
 
-        $html = view('docuperfect.signatures.pdf.signed-document', [
-            'pages' => $pages,
-            'documentName' => $document->name,
-        ])->render();
-
-        $pdf = Pdf::loadHTML($html);
-        $pdf->setPaper('a4', 'portrait');
-        $pdf->setOption('isRemoteEnabled', true);
-        $pdf->setOption('isHtml5ParserEnabled', true);
-
-        $tempPath = tempnam(sys_get_temp_dir(), 'signed_doc_') . '.pdf';
-        $pdf->save($tempPath);
-
-        return $tempPath;
-    }
-
-    /**
-     * Generate the audit certificate PDF.
-     */
-    private function generateAuditCertificate(SignatureTemplate $template, $document): string
-    {
-        $parties = $template->parties_json ?? [];
-        $progress = $template->partyProgress();
-        $auditLogs = $template->auditLogs()->orderBy('created_at')->get();
-
-        $html = view('docuperfect.signatures.pdf.audit-certificate', [
-            'template' => $template,
-            'document' => $document,
-            'parties' => $parties,
-            'progress' => $progress,
-            'auditLogs' => $auditLogs,
-            'documentHash' => $template->document_hash,
-        ])->render();
-
-        $pdf = Pdf::loadHTML($html);
-        $pdf->setPaper('a4', 'portrait');
-        $pdf->setOption('isHtml5ParserEnabled', true);
-
-        $tempPath = tempnam(sys_get_temp_dir(), 'audit_cert_') . '.pdf';
-        $pdf->save($tempPath);
-
-        return $tempPath;
-    }
-
-    /**
-     * Combine signed document PDF and audit certificate into one PDF.
-     * Uses DOMPDF to render a wrapper that includes both.
-     *
-     * Note: DOMPDF can't merge PDFs natively, so we use a simple approach:
-     * generate both as separate files, then use a basic PHP PDF merger.
-     * If that fails, we just return the signed document with the audit cert
-     * regenerated as the final pages.
-     */
-    private function combinePdfs(SignatureTemplate $template, string $signedPdfPath, string $auditCertPath): string
-    {
-        // Since we don't have a PDF merger library (like FPDI), we'll generate
-        // a single PDF that includes both the signed document pages and the
-        // audit certificate in one render pass.
-        $document = $template->document;
-        $docTemplate = $document->template;
-
-        // Extract field values from the document for overlay
-        $documentFields = $document->fields_json ?? [];
-        $fieldsByPage = $this->groupFieldsByPage($documentFields);
-
-        $pages = [];
-        for ($pageNum = 0; $pageNum < $docTemplate->page_count; $pageNum++) {
-            $pageImageBase64 = $this->getPageImageBase64($docTemplate->id, $pageNum);
+            // Original overlay-based rendering (fallback)
             $pageMarkers = $template->markers
                 ->where('page_number', $pageNum + 1)
                 ->sortBy('sort_order');
@@ -222,29 +139,48 @@ class SignaturePdfService
             ];
         }
 
-        $parties = $template->parties_json ?? [];
-        $progress = $template->partyProgress();
-        $auditLogs = $template->auditLogs()->orderBy('created_at')->get();
+        return $pages;
+    }
 
-        // Render combined HTML with document pages + field values + signatures + audit certificate
-        $html = view('docuperfect.signatures.pdf.signed-document', [
-            'pages' => $pages,
-            'documentName' => $document->name,
-            'includeAuditCert' => true,
+    /**
+     * Build audit certificate data.
+     */
+    private function buildAuditData(SignatureTemplate $template, $document): array
+    {
+        return [
             'template' => $template,
             'document' => $document,
-            'parties' => $parties,
-            'progress' => $progress,
-            'auditLogs' => $auditLogs,
+            'parties' => $template->parties_json ?? [],
+            'progress' => $template->partyProgress(),
+            'auditLogs' => $template->auditLogs()->orderBy('created_at')->get(),
             'documentHash' => $template->document_hash,
-        ])->render();
+        ];
+    }
+
+    /**
+     * Render the signed document as a PDF file.
+     * Returns path to the temporary PDF file.
+     */
+    private function renderPdf(array $pages, string $documentName, bool $includeAuditCert, array $auditData = []): string
+    {
+        $viewData = [
+            'pages' => $pages,
+            'documentName' => $documentName,
+            'includeAuditCert' => $includeAuditCert,
+        ];
+
+        if ($includeAuditCert && !empty($auditData)) {
+            $viewData = array_merge($viewData, $auditData);
+        }
+
+        $html = view('docuperfect.signatures.pdf.signed-document', $viewData)->render();
 
         $pdf = Pdf::loadHTML($html);
         $pdf->setPaper('a4', 'portrait');
         $pdf->setOption('isRemoteEnabled', true);
         $pdf->setOption('isHtml5ParserEnabled', true);
 
-        $tempPath = tempnam(sys_get_temp_dir(), 'final_signed_') . '.pdf';
+        $tempPath = tempnam(sys_get_temp_dir(), 'signed_pdf_') . '.pdf';
         $pdf->save($tempPath);
 
         return $tempPath;
@@ -309,6 +245,28 @@ class SignaturePdfService
             'strikethrough' => null, // handled visually
             default => trim((string) ($field['value'] ?? '')),
         };
+    }
+
+    /**
+     * Get a storage-path image as a base64 data URI.
+     */
+    private function getStorageImageBase64(string $storagePath): ?string
+    {
+        if (!Storage::disk('local')->exists($storagePath)) {
+            return null;
+        }
+
+        $content = Storage::disk('local')->get($storagePath);
+        $ext = strtolower(pathinfo($storagePath, PATHINFO_EXTENSION));
+        $mime = match ($ext) {
+            'png' => 'image/png',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'gif' => 'image/gif',
+            'webp' => 'image/webp',
+            default => 'image/png',
+        };
+
+        return "data:{$mime};base64," . base64_encode($content);
     }
 
     /**

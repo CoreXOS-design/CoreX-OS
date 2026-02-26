@@ -199,55 +199,59 @@
                              class="w-full block select-none pointer-events-none"
                              draggable="false">
 
-                        {{-- Render document field values (read-only overlay) --}}
-                        <template x-for="field in fieldsForCurrentPage()" :key="field.id">
-                            <div class="absolute pointer-events-none overflow-hidden"
-                                 :style="`left:${field.position.x}%;top:${field.position.y}%;width:${field.size.width}%;height:${field.size.height}%;z-index:5;`">
-                                <template x-if="field.type === 'placeholder' && field.value">
-                                    <div class="w-full h-full flex items-start px-0.5 overflow-hidden"
-                                         :style="fieldStyle(field)"
-                                         x-text="field.value"></div>
-                                </template>
-                                <template x-if="field.type === 'date' && field.value">
-                                    <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
-                                         :style="fieldStyle(field)"
-                                         x-text="field.value"></div>
-                                </template>
-                                <template x-if="field.type === 'selection' && field.selectedValue">
-                                    <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
-                                         :style="fieldStyle(field)">
-                                        <span class="bg-cyan-100 text-cyan-800 px-1.5 py-0.5 rounded text-xs" x-text="field.selectedValue"></span>
-                                    </div>
-                                </template>
-                                <template x-if="field.type === 'condition' && field.text">
-                                    <div class="w-full h-full overflow-hidden px-0.5 bg-white/85"
-                                         :style="fieldStyle(field)"
-                                         x-text="field.text"></div>
-                                </template>
-                                <template x-if="field.type === 'strikethrough' && field.active">
-                                    <div class="w-full h-full relative">
-                                        <template x-if="(field.strikethroughType || 'horizontal') === 'horizontal'">
-                                            <div class="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 -translate-y-1/2"></div>
-                                        </template>
-                                        <template x-if="field.strikethroughType === 'diagonal'">
-                                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full">
-                                                <line x1="0" y1="0" x2="100" y2="100" stroke="#ef4444" stroke-width="3" />
-                                            </svg>
-                                        </template>
-                                    </div>
-                                </template>
-                                <template x-if="field.type === 'signature' || field.type === 'initial'">
-                                    <div class="w-full h-full flex flex-col justify-end p-0.5">
-                                        <div class="border-b border-black mb-0.5"></div>
-                                        <div class="text-[8px] uppercase text-gray-500" x-text="field.type === 'initial' ? 'Initial' : 'Signature'"></div>
-                                    </div>
-                                </template>
-                            </div>
+                        {{-- Render document field values (read-only overlay) — only when NOT flattened --}}
+                        <template x-if="!hasFlattened">
+                            <template x-for="field in fieldsForCurrentPage()" :key="field.id">
+                                <div class="absolute pointer-events-none overflow-hidden"
+                                     :style="`left:${field.position.x}%;top:${field.position.y}%;width:${field.size.width}%;height:${field.size.height}%;z-index:5;`">
+                                    <template x-if="field.type === 'placeholder' && field.value">
+                                        <div class="w-full h-full flex items-start px-0.5 overflow-hidden"
+                                             :style="fieldStyle(field)"
+                                             x-text="field.value"></div>
+                                    </template>
+                                    <template x-if="field.type === 'date' && field.value">
+                                        <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
+                                             :style="fieldStyle(field)"
+                                             x-text="field.value"></div>
+                                    </template>
+                                    <template x-if="field.type === 'selection' && field.selectedValue">
+                                        <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
+                                             :style="fieldStyle(field)">
+                                            <span class="bg-cyan-100 text-cyan-800 px-1.5 py-0.5 rounded text-xs" x-text="field.selectedValue"></span>
+                                        </div>
+                                    </template>
+                                    <template x-if="field.type === 'condition' && field.text">
+                                        <div class="w-full h-full overflow-hidden px-0.5 bg-white/85"
+                                             :style="fieldStyle(field)"
+                                             x-text="field.text"></div>
+                                    </template>
+                                    <template x-if="field.type === 'strikethrough' && field.active">
+                                        <div class="w-full h-full relative">
+                                            <template x-if="(field.strikethroughType || 'horizontal') === 'horizontal'">
+                                                <div class="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 -translate-y-1/2"></div>
+                                            </template>
+                                            <template x-if="field.strikethroughType === 'diagonal'">
+                                                <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full">
+                                                    <line x1="0" y1="0" x2="100" y2="100" stroke="#ef4444" stroke-width="3" />
+                                                </svg>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <template x-if="field.type === 'signature' || field.type === 'initial'">
+                                        <div class="w-full h-full flex flex-col justify-end p-0.5">
+                                            <div class="border-b border-black mb-0.5"></div>
+                                            <div class="text-[8px] uppercase text-gray-500" x-text="field.type === 'initial' ? 'Initial' : 'Signature'"></div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
                         </template>
 
                         {{-- Render markers for current page --}}
                         <template x-for="marker in markersForCurrentPage()" :key="marker.id">
-                            <div class="absolute flex items-center justify-center select-none transition-all duration-200"
+                            {{-- When flattened, skip other parties' markers (baked in) and skip already-signed own markers --}}
+                            <div x-show="!hasFlattened || (marker.is_mine && !marker.signed)"
+                                 class="absolute flex items-center justify-center select-none transition-all duration-200"
                                  :id="'marker-' + marker.id"
                                  :style="`left:${marker.x_position}%;top:${marker.y_position}%;width:${marker.width}%;height:${marker.height}%;z-index:10;`"
                                  :class="markerDisplayClasses(marker)"
@@ -261,8 +265,8 @@
                                     </div>
                                 </template>
 
-                                {{-- My signed marker --}}
-                                <template x-if="marker.is_mine && marker.signed">
+                                {{-- My signed marker (only shown when NOT flattened — when flattened, sig is baked in) --}}
+                                <template x-if="marker.is_mine && marker.signed && !hasFlattened">
                                     <div class="flex flex-col items-center justify-center w-full h-full relative">
                                         <template x-if="marker.signature_data && marker.type !== 'date'">
                                             <img :src="marker.signature_data"
@@ -640,6 +644,7 @@ function externalSign() {
         markers: @json($markersJson),
         pageImages: @json($pageImages),
         documentFields: @json($document->fields_json ?? []),
+        hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
         currentPage: 1,
         totalPages: {{ $pageCount }},
         signedCount: {{ $signedCount }},
@@ -893,6 +898,14 @@ function externalSign() {
                     marker.signature_data = signatureData;
                     marker.signature_type = signatureType;
                     this.signedCount = data.signed_count;
+
+                    // When flattened, bust the cache on the page image that was just updated
+                    if (this.hasFlattened) {
+                        const pageIdx = marker.page_number - 1;
+                        const baseUrl = this.pageImages[pageIdx].split('?')[0];
+                        this.pageImages[pageIdx] = baseUrl + '?t=' + Date.now();
+                    }
+
                     return true;
                 } else {
                     alert(data.error || 'Failed to capture signature.');
