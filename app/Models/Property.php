@@ -14,8 +14,10 @@ class Property extends Model
     protected $fillable = [
         'external_id',
         'title',
+        'excerpt',
         'description',
         'price',
+        'city',
         'suburb',
         'region',
         'beds',
@@ -27,6 +29,10 @@ class Property extends Model
         'mandate_type',
         'status',
         'images_json',
+        'dawn_images_json',
+        'noon_images_json',
+        'dusk_images_json',
+        'gallery_images_json',
         'agent_id',
         'branch_id',
         'agency_id',
@@ -34,9 +40,13 @@ class Property extends Model
     ];
 
     protected $casts = [
-        'images_json'  => 'array',
-        'published_at' => 'datetime',
-        'price'        => 'integer',
+        'images_json'         => 'array',
+        'dawn_images_json'    => 'array',
+        'noon_images_json'    => 'array',
+        'dusk_images_json'    => 'array',
+        'gallery_images_json' => 'array',
+        'published_at'        => 'datetime',
+        'price'               => 'integer',
     ];
 
     protected static function boot(): void
@@ -73,5 +83,17 @@ class Property extends Model
     public function formattedPrice(): string
     {
         return 'R ' . number_format((int) $this->price, 0, '.', ' ');
+    }
+
+    /** All images flattened into one array for convenience */
+    public function allImages(): array
+    {
+        return array_merge(
+            $this->dawn_images_json    ?? [],
+            $this->noon_images_json    ?? [],
+            $this->dusk_images_json    ?? [],
+            $this->gallery_images_json ?? [],
+            $this->images_json         ?? [],
+        );
     }
 }

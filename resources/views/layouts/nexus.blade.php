@@ -96,6 +96,8 @@
         @auth
             @include('layouts.partials.ellie-widget')
         @endauth
+
+        @stack('scripts')
     </body>
 </html>
 
