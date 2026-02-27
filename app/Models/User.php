@@ -105,6 +105,11 @@ class User extends Authenticatable
         return (($this->role ?? "") === "agent");
     }
 
+    public function isCandidate(): bool
+    {
+        return stripos($this->designation ?? '', 'Candidate') !== false;
+    }
+
     // --- Nexus OS Section Access ---
 
     public function canAccessNexusSection(string $section): bool
