@@ -39,6 +39,8 @@ class SignatureTemplate extends Model
     const STATUS_SIGNING = 'signing';
     const STATUS_AWAITING_TENANT = 'awaiting_tenant';
     const STATUS_AWAITING_LANDLORD = 'awaiting_landlord';
+    const STATUS_AWAITING_BUYER = 'awaiting_buyer';
+    const STATUS_AWAITING_SELLER = 'awaiting_seller';
     const STATUS_PENDING_AGENT_APPROVAL = 'pending_agent_approval';
     const STATUS_COMPLETED = 'completed';
     const STATUS_EXPIRED = 'expired';
@@ -128,6 +130,8 @@ class SignatureTemplate extends Model
             self::STATUS_SIGNING,
             self::STATUS_AWAITING_TENANT,
             self::STATUS_AWAITING_LANDLORD,
+            self::STATUS_AWAITING_BUYER,
+            self::STATUS_AWAITING_SELLER,
             self::STATUS_PENDING_AGENT_APPROVAL,
         ]);
     }
@@ -154,6 +158,8 @@ class SignatureTemplate extends Model
             'signing' => 'agent',
             'awaiting_tenant' => 'tenant',
             'awaiting_landlord' => 'landlord',
+            'awaiting_buyer' => 'buyer',
+            'awaiting_seller' => 'seller',
         ];
 
         return $statusMap[$this->status] ?? null;

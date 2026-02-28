@@ -6,6 +6,10 @@
         showRejectModal: false,
         rejectDocId: null,
         rejectDocName: '',
+        showUploadOnBehalfModal: false,
+        uploadOnBehalfDocId: null,
+        uploadOnBehalfRequestId: null,
+        uploadOnBehalfPartyName: '',
         showRejected: false,
         savedIndicators: {},
         async saveMetadata(docId, field, value) {
@@ -471,6 +475,11 @@
                                                 Send Reminder
                                             </button>
                                         </form>
+                                        <button type="button"
+                                                @click="uploadOnBehalfDocId = {{ $doc->id }}; uploadOnBehalfRequestId = {{ $activeReq->id }}; uploadOnBehalfPartyName = {{ Js::from($activeReq->signer_name) }}; showUploadOnBehalfModal = true"
+                                                class="text-indigo-600 hover:underline text-xs">
+                                            Upload on Behalf
+                                        </button>
                                     @endif
                                 @endif
                                 <button type="button"
@@ -907,6 +916,49 @@
         <div class="text-sm text-slate-500">No rental documents found. Create a document from a rental template to get started.</div>
     </div>
     @endif
+
+    {{-- Upload on Behalf Modal --}}
+    <div x-show="showUploadOnBehalfModal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md" @click.away="showUploadOnBehalfModal = false">
+            <h3 class="text-lg font-bold text-indigo-700 mb-2">Upload on Behalf</h3>
+            <p class="text-sm text-gray-600 mb-4">Uploading signed document for <strong x-text="uploadOnBehalfPartyName"></strong></p>
+
+            <form method="POST"
+                  :action="'/docuperfect/documents/' + uploadOnBehalfDocId + '/signatures/inspect/' + uploadOnBehalfRequestId + '/upload-on-behalf'"
+                  enctype="multipart/form-data">
+                @csrf
+                <input type="hidden" name="auto_approve" value="1">
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Signed Document *</label>
+                    <input type="file" name="files[]" multiple required
+                           accept=".pdf,.jpg,.jpeg,.png"
+                           class="w-full text-sm border rounded-lg px-3 py-2 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                    <p class="text-[10px] text-slate-400 mt-1">PDF, JPG or PNG. Max 20MB per file.</p>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">How was it received? *</label>
+                    <select name="receive_method" required class="w-full border rounded-lg px-3 py-2 text-sm">
+                        <option value="">-- Select --</option>
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="email">Email</option>
+                        <option value="in_person">In-person</option>
+                    </select>
+                </div>
+
+                <div class="flex justify-end gap-3">
+                    <button type="button" @click="showUploadOnBehalfModal = false"
+                            class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
+                    <button type="submit"
+                            class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+                        Upload &amp; Approve
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     {{-- Rejection Modal --}}
     <div x-show="showRejectModal" x-cloak

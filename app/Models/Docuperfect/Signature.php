@@ -19,6 +19,7 @@ class Signature extends Model
         'signer_ip_address',
         'signer_user_agent',
         'signature_data',
+        'text_value',
         'signature_type',
         'signed_at',
     ];

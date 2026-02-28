@@ -109,6 +109,9 @@ class SignatureController extends Controller
             $step = 1;
         }
 
+        // Determine template type for dynamic party labels (buyer/seller vs tenant/landlord)
+        $templateType = $docTemplate?->template_type ?? 'rentals';
+
         return view('docuperfect.signatures.setup', [
             'document' => $document,
             'template' => $template,
@@ -119,6 +122,7 @@ class SignatureController extends Controller
             'pageCount' => $docTemplate ? $docTemplate->page_count : 0,
             'step' => $step,
             'user' => $user,
+            'templateType' => $templateType,
         ]);
     }
 
@@ -130,33 +134,41 @@ class SignatureController extends Controller
         $user = $request->user();
         $this->authorizeDocument($user, $document);
 
-        $tenantNotRequired = $request->boolean('tenant_not_required');
-        $landlordNotRequired = $request->boolean('landlord_not_required');
+        // Determine template type for party role labels
+        $templateType = $document->template?->template_type ?? 'rentals';
+        $isSales = $templateType === 'sales';
+
+        // Party role labels differ by template type
+        $partyOneRole = $isSales ? 'buyer' : 'tenant';
+        $partyTwoRole = $isSales ? 'seller' : 'landlord';
+
+        $partyOneNotRequired = $request->boolean("{$partyOneRole}_not_required");
+        $partyTwoNotRequired = $request->boolean("{$partyTwoRole}_not_required");
 
         // Build validation rules — only validate active parties
         $rules = [
             'agent_name' => 'required|string|max:255',
             'agent_email' => 'required|email|max:255',
-            'tenant_not_required' => 'nullable|boolean',
-            'landlord_not_required' => 'nullable|boolean',
+            "{$partyOneRole}_not_required" => 'nullable|boolean',
+            "{$partyTwoRole}_not_required" => 'nullable|boolean',
         ];
 
-        if (!$tenantNotRequired) {
-            $rules['tenant_name'] = 'required|string|max:255';
-            $rules['tenant_email'] = 'required|email|max:255';
-            $rules['tenant_id_number'] = 'nullable|string|max:20';
-            $rules['add_tenant_witness'] = 'nullable|boolean';
-            $rules['tenant_witness_name'] = 'required_if:add_tenant_witness,1|nullable|string|max:255';
-            $rules['tenant_witness_email'] = 'required_if:add_tenant_witness,1|nullable|email|max:255';
+        if (!$partyOneNotRequired) {
+            $rules["{$partyOneRole}_name"] = 'required|string|max:255';
+            $rules["{$partyOneRole}_email"] = 'required|email|max:255';
+            $rules["{$partyOneRole}_id_number"] = 'nullable|string|max:20';
+            $rules["add_{$partyOneRole}_witness"] = 'nullable|boolean';
+            $rules["{$partyOneRole}_witness_name"] = "required_if:add_{$partyOneRole}_witness,1|nullable|string|max:255";
+            $rules["{$partyOneRole}_witness_email"] = "required_if:add_{$partyOneRole}_witness,1|nullable|email|max:255";
         }
 
-        if (!$landlordNotRequired) {
-            $rules['landlord_name'] = 'required|string|max:255';
-            $rules['landlord_email'] = 'required|email|max:255';
-            $rules['landlord_id_number'] = 'nullable|string|max:20';
-            $rules['add_landlord_witness'] = 'nullable|boolean';
-            $rules['landlord_witness_name'] = 'required_if:add_landlord_witness,1|nullable|string|max:255';
-            $rules['landlord_witness_email'] = 'required_if:add_landlord_witness,1|nullable|email|max:255';
+        if (!$partyTwoNotRequired) {
+            $rules["{$partyTwoRole}_name"] = 'required|string|max:255';
+            $rules["{$partyTwoRole}_email"] = 'required|email|max:255';
+            $rules["{$partyTwoRole}_id_number"] = 'nullable|string|max:20';
+            $rules["add_{$partyTwoRole}_witness"] = 'nullable|boolean';
+            $rules["{$partyTwoRole}_witness_name"] = "required_if:add_{$partyTwoRole}_witness,1|nullable|string|max:255";
+            $rules["{$partyTwoRole}_witness_email"] = "required_if:add_{$partyTwoRole}_witness,1|nullable|email|max:255";
         }
 
         $request->validate($rules);
@@ -168,23 +180,46 @@ class SignatureController extends Controller
 
         $signingOrder = ['agent'];
 
-        if (!$tenantNotRequired) {
-            $parties[] = ['role' => 'tenant', 'name' => $request->tenant_name, 'email' => $request->tenant_email, 'id_number' => $request->tenant_id_number];
-            $signingOrder[] = 'tenant';
+        if (!$partyOneNotRequired) {
+            $parties[] = [
+                'role' => $partyOneRole,
+                'name' => $request->input("{$partyOneRole}_name"),
+                'email' => $request->input("{$partyOneRole}_email"),
+                'id_number' => $request->input("{$partyOneRole}_id_number"),
+            ];
+            $signingOrder[] = $partyOneRole;
 
-            if ($request->boolean('add_tenant_witness')) {
-                $parties[] = ['role' => 'tenant_witness', 'name' => $request->tenant_witness_name, 'email' => $request->tenant_witness_email, 'id_number' => null];
+            if ($request->boolean("add_{$partyOneRole}_witness")) {
+                $parties[] = [
+                    'role' => "{$partyOneRole}_witness",
+                    'name' => $request->input("{$partyOneRole}_witness_name"),
+                    'email' => $request->input("{$partyOneRole}_witness_email"),
+                    'id_number' => null,
+                ];
             }
         }
 
-        if (!$landlordNotRequired) {
-            $parties[] = ['role' => 'landlord', 'name' => $request->landlord_name, 'email' => $request->landlord_email, 'id_number' => $request->landlord_id_number];
-            $signingOrder[] = 'landlord';
+        if (!$partyTwoNotRequired) {
+            $parties[] = [
+                'role' => $partyTwoRole,
+                'name' => $request->input("{$partyTwoRole}_name"),
+                'email' => $request->input("{$partyTwoRole}_email"),
+                'id_number' => $request->input("{$partyTwoRole}_id_number"),
+            ];
+            $signingOrder[] = $partyTwoRole;
 
-            if ($request->boolean('add_landlord_witness')) {
-                $parties[] = ['role' => 'landlord_witness', 'name' => $request->landlord_witness_name, 'email' => $request->landlord_witness_email, 'id_number' => null];
+            if ($request->boolean("add_{$partyTwoRole}_witness")) {
+                $parties[] = [
+                    'role' => "{$partyTwoRole}_witness",
+                    'name' => $request->input("{$partyTwoRole}_witness_name"),
+                    'email' => $request->input("{$partyTwoRole}_witness_email"),
+                    'id_number' => null,
+                ];
             }
         }
+
+        // All core (non-witness) roles
+        $coreRoles = ['agent', 'tenant', 'landlord', 'buyer', 'seller'];
 
         // Get or create template
         $template = SignatureTemplate::firstOrCreate(
@@ -206,11 +241,11 @@ class SignatureController extends Controller
         ]);
 
         // Create signing requests for active core parties only
-        $activeRoles = collect($parties)->pluck('role')->intersect(['agent', 'tenant', 'landlord'])->all();
+        $activeRoles = collect($parties)->pluck('role')->intersect($coreRoles)->all();
 
         foreach ($parties as $party) {
             // Only create requests for core signing roles
-            if (!in_array($party['role'], ['agent', 'tenant', 'landlord'])) {
+            if (!in_array($party['role'], $coreRoles)) {
                 continue;
             }
 
@@ -219,7 +254,6 @@ class SignatureController extends Controller
                 ->first();
 
             if ($existing) {
-                // Update existing request if details changed
                 $existing->update([
                     'signer_name' => $party['name'],
                     'signer_email' => $party['email'],
@@ -238,14 +272,15 @@ class SignatureController extends Controller
         }
 
         // Remove signing requests for parties that are no longer active
+        $removableRoles = array_diff($coreRoles, ['agent']);
         $template->requests()
-            ->whereIn('party_role', ['tenant', 'landlord'])
+            ->whereIn('party_role', $removableRoles)
             ->whereNotIn('party_role', $activeRoles)
             ->delete();
 
         // Remove markers assigned to parties that are no longer active
         $template->markers()
-            ->whereIn('assigned_party', ['tenant', 'landlord'])
+            ->whereIn('assigned_party', $removableRoles)
             ->whereNotIn('assigned_party', $activeRoles)
             ->delete();
 
@@ -364,9 +399,15 @@ class SignatureController extends Controller
         $this->authorizeDocument($user, $document);
 
         $request->validate([
-            'signature_data' => 'required|string',
+            'signature_data' => 'nullable|string',
+            'text_value' => 'nullable|string|max:1000',
             'signature_type' => 'nullable|string|in:drawn,typed',
         ]);
+
+        // At least one of signature_data or text_value must be provided
+        if (!$request->input('signature_data') && !$request->input('text_value')) {
+            return response()->json(['ok' => false, 'error' => 'Signature data or text value required.'], 422);
+        }
 
         // Verify marker belongs to this document's template
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
@@ -398,6 +439,7 @@ class SignatureController extends Controller
             $signingRequest,
             $user,
             $request->input('signature_type', 'drawn'),
+            $request->input('text_value'),
         );
 
         // Check if all agent markers are now signed
@@ -464,8 +506,25 @@ class SignatureController extends Controller
             ]);
         }
 
-        // Update template status
-        $template->update(['status' => SignatureTemplate::STATUS_AWAITING_TENANT]);
+        // Determine next party from signing order
+        $signingOrder = $template->signing_order_json ?? ['agent'];
+        $nextPartyRole = null;
+        foreach ($signingOrder as $role) {
+            if ($role !== 'agent') {
+                $nextPartyRole = $role;
+                break;
+            }
+        }
+
+        // Set status based on the next party
+        $statusMap = [
+            'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
+            'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
+            'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
+            'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
+        ];
+        $nextStatus = $nextPartyRole ? ($statusMap[$nextPartyRole] ?? SignatureTemplate::STATUS_SIGNING) : SignatureTemplate::STATUS_COMPLETED;
+        $template->update(['status' => $nextStatus]);
 
         SignatureAuditLog::log(
             $template,
@@ -485,12 +544,15 @@ class SignatureController extends Controller
             ],
         );
 
+        // Determine next party label for the success message
+        $nextPartyLabel = $nextPartyRole ? ucfirst($nextPartyRole) : 'the next party';
+
         return redirect()->route('docuperfect.signatures.sendConfirmation', $document)
-            ->with('success', 'You have signed all your markers. Now send to the tenant.');
+            ->with('success', "You have signed all your markers. Now send to {$nextPartyLabel}.");
     }
 
     /**
-     * Show the send-to-tenant confirmation page.
+     * Show the send confirmation page (before sending to next party).
      */
     public function sendConfirmation(Request $request, Document $document)
     {
@@ -499,14 +561,24 @@ class SignatureController extends Controller
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
         $parties = $template->parties_json ?? [];
+        $signingOrder = $template->signing_order_json ?? [];
 
-        // Find tenant details from parties
-        $tenant = collect($parties)->firstWhere('role', 'tenant');
+        // Find the first non-agent party (tenant/landlord for rentals, buyer/seller for sales)
+        $nextPartyRole = null;
+        foreach ($signingOrder as $role) {
+            if ($role !== 'agent') {
+                $nextPartyRole = $role;
+                break;
+            }
+        }
+        $nextParty = $nextPartyRole ? collect($parties)->firstWhere('role', $nextPartyRole) : null;
 
         return view('docuperfect.signatures.send-confirmation', [
             'document' => $document,
             'template' => $template,
-            'tenant' => $tenant,
+            'tenant' => $nextParty, // keep 'tenant' key for backward compat with existing view
+            'nextParty' => $nextParty,
+            'nextPartyRole' => $nextPartyRole,
             'user' => $user,
         ]);
     }
@@ -516,7 +588,7 @@ class SignatureController extends Controller
     // ──────────────────────────────────────────────
 
     /**
-     * Send document for signature (handles initial send OR agent-complete → tenant send).
+     * Send document for signature (handles initial send OR agent-complete → next party send).
      */
     public function sendForSignature(Request $request, Document $document)
     {
@@ -524,23 +596,35 @@ class SignatureController extends Controller
         $this->authorizeDocument($user, $document);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $templateType = $document->template?->template_type ?? 'rentals';
+        $isSales = $templateType === 'sales';
 
-        // If template is awaiting_tenant, send to the tenant
-        if ($template->status === SignatureTemplate::STATUS_AWAITING_TENANT) {
-            $tenantRequest = $template->requests()
-                ->where('party_role', 'tenant')
-                ->first();
+        // If template is awaiting a party, send to that party
+        $awaitingStatuses = [
+            SignatureTemplate::STATUS_AWAITING_TENANT,
+            SignatureTemplate::STATUS_AWAITING_LANDLORD,
+            SignatureTemplate::STATUS_AWAITING_BUYER,
+            SignatureTemplate::STATUS_AWAITING_SELLER,
+        ];
 
-            if ($tenantRequest && $tenantRequest->status === SignatureRequest::STATUS_WAITING) {
-                // Update message if provided
+        if (in_array($template->status, $awaitingStatuses)) {
+            $currentRole = $template->currentPartyRole();
+            $partyRequest = $currentRole
+                ? $template->requests()->where('party_role', $currentRole)->first()
+                : null;
+
+            if ($partyRequest && $partyRequest->status === SignatureRequest::STATUS_WAITING) {
                 if ($request->filled('message')) {
-                    $tenantRequest->update(['message' => $request->input('message')]);
+                    $partyRequest->update(['message' => $request->input('message')]);
                 }
-                $this->signatureService->sendSigningRequest($tenantRequest);
+                $this->signatureService->sendSigningRequest($partyRequest);
             }
 
-            return redirect()->route('docuperfect.rental')
-                ->with('status', 'Document sent to tenant for signing.');
+            $dashboardRoute = $isSales ? 'docuperfect.sales' : 'docuperfect.rental';
+            $partyLabel = $currentRole ? ucfirst($currentRole) : 'next party';
+
+            return redirect()->route($dashboardRoute)
+                ->with('status', "Document sent to {$partyLabel} for signing.");
         }
 
         // Otherwise, initial send flow (draft/ready → signing)
@@ -734,6 +818,67 @@ class SignatureController extends Controller
     }
 
     /**
+     * Agent uploads a signed document on behalf of a party.
+     */
+    public function uploadOnBehalf(Request $request, Document $document, SignatureRequest $signingRequest)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        $request->validate([
+            'files'          => 'required|array|min:1',
+            'files.*'        => 'file|mimes:pdf,jpg,jpeg,png|max:20480',
+            'receive_method' => 'required|in:whatsapp,email,in_person',
+        ]);
+
+        // Store uploaded files
+        $paths = [];
+        foreach ($request->file('files') as $file) {
+            $paths[] = $file->store("docuperfect/wet-ink-uploads/{$signingRequest->id}", 'local');
+        }
+
+        $signingRequest->update([
+            'signing_method'      => 'wet_ink',
+            'wet_ink_upload_path' => json_encode($paths),
+            'wet_ink_status'      => SignatureRequest::WET_INK_UPLOADED_PENDING_REVIEW,
+        ]);
+
+        $template = $signingRequest->template;
+
+        SignatureAuditLog::log(
+            $template,
+            SignatureAuditLog::ACTION_WET_INK_UPLOADED,
+            SignatureAuditLog::ACTOR_USER,
+            $request->user()->name,
+            $request->user()->email,
+            $request->user()->id,
+            $signingRequest->id,
+            $request->ip(),
+            $request->userAgent(),
+            [
+                'uploaded_on_behalf' => true,
+                'receive_method' => $request->input('receive_method'),
+                'file_count' => count($paths),
+            ],
+        );
+
+        // Auto-approve: skip the wet-ink review step, approve immediately
+        if ($request->boolean('auto_approve')) {
+            $this->signatureService->approveUploadOnBehalf($signingRequest, $request->user());
+
+            $templateType = $document->template?->template_type ?? 'rentals';
+            $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+
+            return redirect()->route($dashboardRoute)
+                ->with('status', 'Uploaded and approved for ' . $signingRequest->signer_name . '. Signing advanced.');
+        }
+
+        return redirect()->route('docuperfect.signatures.wetInkReview', [
+            'document' => $document->id,
+            'signingRequest' => $signingRequest->id,
+        ])->with('status', 'Document uploaded on behalf of ' . $signingRequest->signer_name . '. Please review.');
+    }
+
+    /**
      * Process wet ink approval/rejection decision.
      */
     public function wetInkDecision(Request $request, Document $document, SignatureRequest $signingRequest)
@@ -766,7 +911,11 @@ class SignatureController extends Controller
             ? "Wet ink approved for {$signingRequest->signer_name}. Signing flow advanced."
             : "Rejection sent to {$signingRequest->signer_name} with instructions to re-sign.";
 
-        return redirect()->route('docuperfect.rental')
+        // Redirect to the appropriate dashboard based on template type
+        $templateType = $document->template?->template_type ?? 'rentals';
+        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+
+        return redirect()->route($dashboardRoute)
             ->with('status', $message);
     }
 
@@ -863,19 +1012,24 @@ class SignatureController extends Controller
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
 
         if ($template->status !== SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL) {
-            return redirect()->route('docuperfect.rental')
+            $templateType = $document->template?->template_type ?? 'rentals';
+            $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+            return redirect()->route($dashboardRoute)
                 ->with('error', 'This document is not pending approval.');
         }
 
         $result = $this->signatureService->approveAndAdvance($template);
 
+        $templateType = $document->template?->template_type ?? 'rentals';
+        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+
         if ($result['action'] === 'sent') {
             $nextName = $result['next_name'] ?? ucfirst($result['next_party']);
-            return redirect()->route('docuperfect.rental')
+            return redirect()->route($dashboardRoute)
                 ->with('status', "Approved. Document sent to {$nextName} ({$result['next_party']}) for signing.");
         }
 
-        return redirect()->route('docuperfect.rental')
+        return redirect()->route($dashboardRoute)
             ->with('status', 'All signatures approved. Document completed!');
     }
 

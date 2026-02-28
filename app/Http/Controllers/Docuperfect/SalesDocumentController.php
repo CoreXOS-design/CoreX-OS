@@ -7,8 +7,11 @@ use App\Mail\Signatures\SalesDocumentMail;
 use App\Mail\Signatures\SalesDocumentReminderMail;
 use App\Mail\Signatures\SalesDocumentReturnedMail;
 use App\Mail\Signatures\SalesDocumentAllReturnedMail;
+use App\Models\Docuperfect\Document;
+use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\SalesDocumentRecipient;
 use App\Models\SalesDocumentSend;
+use App\Services\Docuperfect\DocumentFlattener;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -71,7 +74,7 @@ class SalesDocumentController extends Controller
         $filePath = null;
 
         if ($request->hasFile('uploaded_file')) {
-            $filePath = $request->file('uploaded_file')->store('sales-documents', 'private');
+            $filePath = $request->file('uploaded_file')->store('sales-documents', 'local');
         }
 
         // Create parent record
@@ -271,7 +274,7 @@ class SalesDocumentController extends Controller
         // Store uploaded files
         $paths = [];
         foreach ($request->file('files') as $file) {
-            $paths[] = $file->store("sales-returns/{$send->id}/{$recipient->id}", 'private');
+            $paths[] = $file->store("sales-returns/{$send->id}/{$recipient->id}", 'local');
         }
 
         $recipient->update([
@@ -302,6 +305,51 @@ class SalesDocumentController extends Controller
             storage_path("app/private/{$send->original_file_path}"),
             $send->document_name . '.pdf'
         );
+    }
+
+    /**
+     * Agent uploads a signed scan for a Docuperfect sales document.
+     * Converts to page images and stores as the document's flattened pages.
+     */
+    public function uploadSignedDocument(Request $request, Document $document)
+    {
+        $user = $request->user();
+
+        // Verify ownership / access
+        if (!$user->isAdmin() && !$user->isBranchManager() && (int) $document->owner_id !== (int) $user->id) {
+            abort(403);
+        }
+
+        $request->validate([
+            'signed_files'   => 'required|array|min:1',
+            'signed_files.*' => 'file|mimes:pdf,jpg,jpeg,png|max:20480',
+        ]);
+
+        // Store uploaded files
+        $uploadPaths = [];
+        foreach ($request->file('signed_files') as $file) {
+            $uploadPaths[] = $file->store("docuperfect/sales-signed/{$document->id}", 'local');
+        }
+
+        // Get or create the signature template for this document
+        $template = SignatureTemplate::firstOrCreate(
+            ['document_id' => $document->id],
+            [
+                'status' => SignatureTemplate::STATUS_DRAFT,
+                'created_by' => $user->id,
+                'signing_order_json' => ['agent'],
+            ]
+        );
+
+        // Flatten the uploaded scan into page images
+        $flattener = app(DocumentFlattener::class);
+        $flattener->flattenWetInkScan($template, $uploadPaths);
+
+        // Mark as ready — agent has uploaded signed scan, needs to set up parties
+        $template->update(['status' => SignatureTemplate::STATUS_READY]);
+
+        return redirect()->route('docuperfect.sales')
+            ->with('status', "Signed document uploaded for \"{$document->name}\". Now set up signing parties.");
     }
 
     // ── Private helpers ──

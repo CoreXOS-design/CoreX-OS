@@ -135,7 +135,7 @@
                     </div>
 
                     {{-- Action buttons --}}
-                    <div class="flex flex-wrap gap-2">
+                    <div class="flex flex-wrap gap-2" x-data="{ showCancelModal: false, cancelReason: '', submitting: false }">
                         @foreach($send->recipients as $r)
                             @if($r->status === 'returned_pending_approval')
                                 @php
@@ -179,6 +179,51 @@
                                 </form>
                             @endif
                         @endforeach
+
+                        {{-- Reject / Cancel --}}
+                        @if($send->document_id)
+                            <button @click="showCancelModal = true" type="button"
+                                    class="text-xs text-red-600 hover:text-red-800 font-medium px-3 py-1.5">
+                                Reject / Cancel
+                            </button>
+
+                            {{-- Cancel modal --}}
+                            <div x-show="showCancelModal" x-cloak x-transition.opacity
+                                 class="fixed inset-0 z-50 flex items-center justify-center"
+                                 style="background:rgba(0,0,0,0.6);" @click="showCancelModal = false">
+                                <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 space-y-4" @click.stop>
+                                    <h3 class="text-lg font-semibold text-slate-800">Cancel Document</h3>
+                                    <p class="text-sm text-slate-600">
+                                        This will reject the document and invalidate all pending signing requests.
+                                    </p>
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-600 mb-1">Reason (required)</label>
+                                        <textarea x-model="cancelReason" rows="3"
+                                                  class="w-full rounded-lg border-slate-300 text-sm px-3 py-2"
+                                                  placeholder="Why is this document being cancelled?"></textarea>
+                                        <p x-show="cancelReason.length > 0 && cancelReason.length < 5" class="text-xs text-red-500 mt-1">
+                                            Reason must be at least 5 characters.
+                                        </p>
+                                    </div>
+                                    <div class="flex items-center justify-end gap-3 pt-2">
+                                        <button @click="showCancelModal = false"
+                                                class="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                                        <form action="{{ route('docuperfect.signatures.reject', $send->document_id) }}" method="POST">
+                                            @csrf
+                                            <input type="hidden" name="action" value="archive">
+                                            <input type="hidden" name="rejection_reason" :value="cancelReason">
+                                            <button type="submit"
+                                                    :disabled="cancelReason.length < 5 || submitting"
+                                                    @click="submitting = true"
+                                                    class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                <span x-show="!submitting">Cancel Document</span>
+                                                <span x-show="submitting" x-cloak>Cancelling...</span>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
                     </div>
                 </div>
             @endforeach

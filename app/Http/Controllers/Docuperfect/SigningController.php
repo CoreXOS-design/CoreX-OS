@@ -258,9 +258,15 @@ class SigningController extends Controller
         }
 
         $request->validate([
-            'signature_data' => 'required|string',
+            'signature_data' => 'nullable|string',
+            'text_value' => 'nullable|string|max:1000',
             'signature_type' => 'nullable|string|in:drawn,typed',
         ]);
+
+        // At least one of signature_data or text_value must be provided
+        if (!$request->input('signature_data') && !$request->input('text_value')) {
+            return response()->json(['ok' => false, 'error' => 'Signature data or text value required.'], 422);
+        }
 
         $signature = $this->signatureService->captureSignature(
             $marker,
@@ -272,6 +278,7 @@ class SigningController extends Controller
             $signingRequest,
             null,
             $request->input('signature_type', 'drawn'),
+            $request->input('text_value'),
         );
 
         // FLATTEN: Bake this signature into the page image immediately

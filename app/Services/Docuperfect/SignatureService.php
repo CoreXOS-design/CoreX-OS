@@ -402,14 +402,15 @@ class SignatureService
      */
     public function captureSignature(
         SignatureMarker $marker,
-        string $signatureData,
+        ?string $signatureData,
         string $signerName,
         string $signerEmail,
         string $ipAddress,
         ?string $userAgent = null,
         ?SignatureRequest $request = null,
         ?User $signerUser = null,
-        string $signatureType = 'drawn'
+        string $signatureType = 'drawn',
+        ?string $textValue = null
     ): Signature {
         $signature = Signature::create([
             'signature_template_id' => $marker->signature_template_id,
@@ -421,6 +422,7 @@ class SignatureService
             'signer_ip_address' => $ipAddress,
             'signer_user_agent' => $userAgent,
             'signature_data' => $signatureData,
+            'text_value' => $textValue,
             'signature_type' => $signatureType,
             'signed_at' => now(),
         ]);
@@ -564,6 +566,8 @@ class SignatureService
                 $statusMap = [
                     'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
                     'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                    'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
+                    'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
                 ];
                 $newStatus = $statusMap[$nextParty] ?? SignatureTemplate::STATUS_SIGNING;
                 $template->update(['status' => $newStatus]);
@@ -624,6 +628,8 @@ class SignatureService
             $statusMap = [
                 'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
                 'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
+                'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
             ];
             $newStatus = $statusMap[$nextParty] ?? SignatureTemplate::STATUS_SIGNING;
             $template->update(['status' => $newStatus]);
@@ -671,6 +677,8 @@ class SignatureService
             $statusMap = [
                 'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
                 'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
+                'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
             ];
             $newStatus = $statusMap[$nextParty] ?? SignatureTemplate::STATUS_SIGNING;
             $template->update(['status' => $newStatus]);
@@ -830,6 +838,10 @@ class SignatureService
                     'completed_at' => now(),
                 ]);
 
+                // Replace flattened pages with the uploaded wet-ink scan so
+                // the next signing party sees the physical signatures.
+                $this->replaceWithWetInkScan($template, $request);
+
                 // Wet-ink review IS the agent approval — advance directly
                 // without going through handlePartyCompletion (which would
                 // set pending_agent_approval and require a second review).
@@ -848,6 +860,70 @@ class SignatureService
 
             return $inspection;
         });
+    }
+
+    /**
+     * Upload on behalf: approve a wet-ink upload immediately (no separate review step).
+     *
+     * Used when an agent receives a signed document via WhatsApp/email/in-person
+     * and uploads it directly from the dashboard. The agent has already verified
+     * the signatures, so we skip the inspection checklist.
+     */
+    public function approveUploadOnBehalf(SignatureRequest $request, User $approver): void
+    {
+        DB::transaction(function () use ($request, $approver) {
+            $request->update([
+                'wet_ink_status'  => SignatureRequest::WET_INK_APPROVED,
+                'reviewed_by'    => $approver->id,
+                'reviewed_at'    => now(),
+                'status'         => SignatureRequest::STATUS_COMPLETED,
+                'completed_at'   => now(),
+            ]);
+
+            $template = $request->template;
+
+            SignatureAuditLog::log(
+                $template,
+                SignatureAuditLog::ACTION_WET_INK_APPROVED,
+                SignatureAuditLog::ACTOR_USER,
+                $approver->name,
+                $approver->email,
+                $approver->id,
+                $request->id,
+                metadata: ['upload_on_behalf_auto_approved' => true],
+            );
+
+            $this->replaceWithWetInkScan($template, $request);
+            $this->advanceAfterWetInkApproval($template, $request->party_role);
+        });
+    }
+
+    /**
+     * Convert the wet-ink uploaded scan into flattened page images.
+     *
+     * The uploaded scan (PDF or images) replaces the current flattened pages
+     * so subsequent signing parties see the physical signatures.
+     */
+    private function replaceWithWetInkScan(SignatureTemplate $template, SignatureRequest $request): void
+    {
+        $rawPath = $request->wet_ink_upload_path;
+        if (!$rawPath) {
+            return;
+        }
+
+        // wet_ink_upload_path may be a JSON array or a plain string
+        $decoded = json_decode($rawPath, true);
+        $uploadPaths = is_array($decoded) ? $decoded : [$rawPath];
+
+        if (empty($uploadPaths)) {
+            return;
+        }
+
+        $flattener = app(DocumentFlattener::class);
+        $flattener->flattenWetInkScan($template, $uploadPaths);
+
+        // Reload so advanceAfterWetInkApproval sees updated flattened_pages_json
+        $template->refresh();
     }
 
     // ──────────────────────────────────────────────
