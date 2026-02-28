@@ -721,6 +721,10 @@ Route::prefix('docuperfect')->middleware('auth')->group(function () {
         return redirect()->route('rental.signatures');
     })->name('docuperfect.rental');
 
+    // Rental Upload & Send (standalone signing flow)
+    Route::get('/rental/upload-and-send', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'showUploadAndSend'])->name('docuperfect.rental.uploadAndSend');
+    Route::post('/rental/upload-and-send', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'processUploadAndSend'])->name('docuperfect.rental.uploadAndSend.store');
+
     // ===== SIGNATURES =====
 
     // Agent approval gate
@@ -729,6 +733,9 @@ Route::prefix('docuperfect')->middleware('auth')->group(function () {
 
     // Dashboard polling
     Route::get('/rental/status-check', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'statusCheck'])->name('docuperfect.rental.statusCheck');
+
+    // Pre-signed document upload
+    Route::post('/documents/{document}/signatures/upload-presigned', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'uploadPresigned'])->name('docuperfect.signatures.uploadPresigned');
 
     // Signature setup
     Route::get('/documents/{document}/signatures/setup', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'setup'])->name('docuperfect.signatures.setup');

@@ -387,7 +387,10 @@ class SignatureService
                 ->where('party_role', 'agent')
                 ->first();
 
-            if ($agentRequest) {
+            if ($agentRequest && $agentRequest->status === SignatureRequest::STATUS_COMPLETED) {
+                // Agent already completed (pre-signed wet ink upload) — skip to next party
+                $this->advanceToNextParty($template, 'agent');
+            } elseif ($agentRequest) {
                 $this->sendSigningRequest($agentRequest);
             }
         });
@@ -1073,10 +1076,13 @@ class SignatureService
     public function getRentalDashboardData(User $user): array
     {
         // Get all rental documents visible to this user
+        // Include both template-based rentals AND standalone upload-and-send documents
         $rentalDocuments = Document::active()
             ->visibleTo($user)
-            ->whereHas('template', function ($q) {
-                $q->where('template_type', 'rental');
+            ->where(function ($q) {
+                $q->whereHas('template', function ($tq) {
+                    $tq->where('template_type', 'rental');
+                })->orWhere('document_type', 'rental_upload_send');
             })
             ->with(['template.documentType', 'owner'])
             ->get();

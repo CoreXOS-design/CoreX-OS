@@ -84,23 +84,36 @@
             <h3 class="text-lg font-semibold text-slate-800 mb-4">Signing Parties</h3>
 
             {{-- Agent --}}
-            <div class="mb-6 p-4 rounded-xl border border-blue-200 bg-blue-50/50">
-                <div class="text-sm font-semibold text-blue-700 mb-3 uppercase tracking-wider">Agent (Signs First)</div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-medium text-slate-600 mb-1">Name</label>
-                        <input type="text" name="agent_name"
-                               value="{{ old('agent_name', collect($parties)->firstWhere('role', 'agent')['name'] ?? $user->name) }}"
-                               class="w-full rounded-lg border-slate-300 bg-slate-100 text-sm px-3 py-2" readonly>
+            @if(!empty($template->flattened_pages_json) && empty($parties))
+                {{-- Pre-signed wet ink upload — agent section is display-only --}}
+                <div class="mb-6 p-4 rounded-xl border border-emerald-200 bg-emerald-50/50">
+                    <div class="flex items-center gap-2 mb-1">
+                        <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span class="text-sm font-semibold text-emerald-700 uppercase tracking-wider">Agent (Pre-signed — Wet Ink Upload)</span>
                     </div>
-                    <div>
-                        <label class="block text-xs font-medium text-slate-600 mb-1">Email</label>
-                        <input type="email" name="agent_email"
-                               value="{{ old('agent_email', collect($parties)->firstWhere('role', 'agent')['email'] ?? $user->email) }}"
-                               class="w-full rounded-lg border-slate-300 bg-slate-100 text-sm px-3 py-2" readonly>
+                    <p class="text-xs text-emerald-600 ml-7">Agent pre-signed document was uploaded. No electronic signature required.</p>
+                    <input type="hidden" name="agent_name" value="{{ $user->name }}">
+                    <input type="hidden" name="agent_email" value="{{ $user->email }}">
+                </div>
+            @else
+                <div class="mb-6 p-4 rounded-xl border border-blue-200 bg-blue-50/50">
+                    <div class="text-sm font-semibold text-blue-700 mb-3 uppercase tracking-wider">Agent (Signs First)</div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Name</label>
+                            <input type="text" name="agent_name"
+                                   value="{{ old('agent_name', collect($parties)->firstWhere('role', 'agent')['name'] ?? $user->name) }}"
+                                   class="w-full rounded-lg border-slate-300 bg-slate-100 text-sm px-3 py-2" readonly>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-600 mb-1">Email</label>
+                            <input type="email" name="agent_email"
+                                   value="{{ old('agent_email', collect($parties)->firstWhere('role', 'agent')['email'] ?? $user->email) }}"
+                                   class="w-full rounded-lg border-slate-300 bg-slate-100 text-sm px-3 py-2" readonly>
+                        </div>
                     </div>
                 </div>
-            </div>
+            @endif
 
             {{-- Party One (Tenant for rental, Buyer for sales) --}}
             <div class="mb-6 p-4 rounded-xl border border-green-200" :class="partyOneNotRequired ? 'bg-gray-50 opacity-60' : 'bg-green-50/50'">

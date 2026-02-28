@@ -50,6 +50,11 @@
                 &middot; Manage rental document signing workflows.
             </div>
         </div>
+        <a href="{{ route('docuperfect.rental.uploadAndSend') }}"
+           class="inline-flex items-center gap-2 px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white text-sm font-semibold rounded-xl transition-colors border border-white/20">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+            Upload &amp; Send for Signing
+        </a>
     </div>
 
     @if(session('status'))
@@ -534,7 +539,21 @@
                         <td class="px-4 py-3 text-slate-500">{{ $doc->owner->name ?? '-' }}</td>
                         @endif
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('docuperfect.signatures.setup', $doc) }}" class="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">Set Up Signatures</a>
+                            <div class="flex items-center justify-end gap-2">
+                                @if(!$hasSigTemplate || in_array($sigTemplate?->status, ['draft', 'ready']))
+                                    <form action="{{ route('docuperfect.signatures.uploadPresigned', $doc) }}" method="POST" enctype="multipart/form-data" class="inline-flex items-center gap-1"
+                                          x-data="{ files: null }" @submit.prevent="if (files) $el.submit()">
+                                        @csrf
+                                        <label class="inline-flex items-center px-3 py-1 bg-slate-100 text-slate-700 text-xs rounded-lg hover:bg-slate-200 cursor-pointer border border-slate-300">
+                                            <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                                            Upload Pre-Signed
+                                            <input type="file" name="presigned_files[]" multiple accept=".pdf,.jpg,.jpeg,.png" class="hidden"
+                                                   @change="files = $event.target.files; if (files.length) $el.closest('form').submit()">
+                                        </label>
+                                    </form>
+                                @endif
+                                <a href="{{ route('docuperfect.signatures.setup', $doc) }}" class="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">Set Up Signatures</a>
+                            </div>
                         </td>
                     </tr>
                 @endforeach
@@ -593,7 +612,19 @@
                         <td class="px-4 py-3 text-slate-500">{{ $doc->owner->name ?? '-' }}</td>
                         @endif
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('docuperfect.documents.edit', $doc) }}" class="text-blue-600 hover:underline text-xs">Edit Document</a>
+                            <div class="flex items-center justify-end gap-2">
+                                <form action="{{ route('docuperfect.signatures.uploadPresigned', $doc) }}" method="POST" enctype="multipart/form-data" class="inline-flex items-center gap-1"
+                                      x-data="{ files: null }">
+                                    @csrf
+                                    <label class="inline-flex items-center px-3 py-1 bg-slate-100 text-slate-700 text-xs rounded-lg hover:bg-slate-200 cursor-pointer border border-slate-300">
+                                        <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                                        Upload Pre-Signed
+                                        <input type="file" name="presigned_files[]" multiple accept=".pdf,.jpg,.jpeg,.png" class="hidden"
+                                               @change="files = $event.target.files; if (files.length) $el.closest('form').submit()">
+                                    </label>
+                                </form>
+                                <a href="{{ route('docuperfect.documents.edit', $doc) }}" class="text-blue-600 hover:underline text-xs">Edit Document</a>
+                            </div>
                         </td>
                     </tr>
                 @endforeach

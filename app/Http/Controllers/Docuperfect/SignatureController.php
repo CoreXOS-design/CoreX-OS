@@ -14,7 +14,9 @@ use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignaturePdfService;
 use App\Services\Docuperfect\SignatureService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class SignatureController extends Controller
 {
@@ -49,6 +51,147 @@ class SignatureController extends Controller
             'lastUpdate' => $data['lastUpdate'] ?? '',
             'user' => $user,
         ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Rental Upload & Send (standalone flow)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Show the rental upload-and-send form.
+     */
+    public function showUploadAndSend()
+    {
+        return view('rental.upload-and-send');
+    }
+
+    /**
+     * Process rental upload-and-send: create document, flatten, build signing chain, send.
+     */
+    public function processUploadAndSend(Request $request)
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'document_name'           => 'required|string|max:255',
+            'uploaded_file'           => 'required|file|mimes:pdf,doc,docx|max:20480',
+            'property_reference'      => 'nullable|string|max:255',
+            'recipients'              => 'required|array|min:1',
+            'recipients.*.name'       => 'required|string|max:255',
+            'recipients.*.email'      => 'required|email',
+            'recipients.*.role'       => 'required|string|max:100',
+            'recipients.*.id_number'  => 'required|string|max:20',
+            'message'                 => 'nullable|string|max:1000',
+        ]);
+
+        $filePath = $request->file('uploaded_file')->store('docuperfect/rental-upload-send', 'local');
+
+        DB::transaction(function () use ($request, $user, $filePath) {
+            // 1. Create a Docuperfect Document record for this standalone upload
+            $document = Document::create([
+                'name'             => $request->input('document_name'),
+                'owner_id'         => $user->id,
+                'branch_id'        => $user->effectiveBranchId(),
+                'document_type'    => 'rental_upload_send',
+                'property_address' => $request->input('property_reference'),
+            ]);
+
+            // 2. Build signing order from recipients
+            $recipientData = $request->input('recipients');
+            $signingOrder = ['agent'];
+            foreach ($recipientData as $r) {
+                $signingOrder[] = strtolower($r['role']);
+            }
+
+            // 3. Build parties_json (agent + recipients)
+            $parties = [
+                [
+                    'role'  => 'agent',
+                    'name'  => $user->name,
+                    'email' => $user->email,
+                ],
+            ];
+            foreach ($recipientData as $r) {
+                $parties[] = [
+                    'role'      => strtolower($r['role']),
+                    'name'      => $r['name'],
+                    'email'     => $r['email'],
+                    'id_number' => $r['id_number'],
+                ];
+            }
+
+            // 4. Create SignatureTemplate
+            $template = SignatureTemplate::create([
+                'document_id'        => $document->id,
+                'status'             => SignatureTemplate::STATUS_DRAFT,
+                'created_by'         => $user->id,
+                'signing_order_json' => $signingOrder,
+                'parties_json'       => $parties,
+            ]);
+
+            // 5. Flatten the uploaded file into page images
+            $flattener = app(DocumentFlattener::class);
+            $flattener->flattenWetInkScan($template, [$filePath]);
+
+            // 6. Create SignatureRequests — agent first (pre-completed), then recipients
+            $agentRequest = SignatureRequest::create([
+                'signature_template_id' => $template->id,
+                'party_role'            => 'agent',
+                'signing_order'         => 1,
+                'signer_name'           => $user->name,
+                'signer_email'          => $user->email,
+                'token'                 => Str::random(64),
+                'token_expires_at'      => now()->addDays(30),
+                'status'                => SignatureRequest::STATUS_COMPLETED,
+                'signing_method'        => 'wet_ink',
+                'completed_at'          => now(),
+                'sent_by'               => $user->id,
+            ]);
+
+            $firstRecipientRequest = null;
+            foreach ($recipientData as $index => $r) {
+                $order = $index + 2; // agent is 1
+                $isFirst = $index === 0;
+
+                $sigRequest = SignatureRequest::create([
+                    'signature_template_id' => $template->id,
+                    'party_role'            => strtolower($r['role']),
+                    'signing_order'         => $order,
+                    'signer_name'           => $r['name'],
+                    'signer_email'          => $r['email'],
+                    'signer_id_number'      => $r['id_number'],
+                    'token'                 => Str::random(64),
+                    'token_expires_at'      => now()->addDays(14),
+                    'status'                => $isFirst ? SignatureRequest::STATUS_WAITING : SignatureRequest::STATUS_WAITING,
+                    'sent_by'               => $user->id,
+                    'message'               => $request->input('message'),
+                ]);
+
+                if ($isFirst) {
+                    $firstRecipientRequest = $sigRequest;
+                }
+            }
+
+            // 7. Update template status — agent done, advance to first recipient
+            $statusKey = 'awaiting_' . strtolower($recipientData[0]['role']);
+            $validStatuses = [
+                'awaiting_tenant'   => SignatureTemplate::STATUS_AWAITING_TENANT,
+                'awaiting_landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                'awaiting_buyer'    => SignatureTemplate::STATUS_AWAITING_BUYER,
+                'awaiting_seller'   => SignatureTemplate::STATUS_AWAITING_SELLER,
+            ];
+            $newStatus = $validStatuses[$statusKey] ?? SignatureTemplate::STATUS_SIGNING;
+
+            $template->update(['status' => $newStatus]);
+
+            // 8. Send signing email to first recipient
+            if ($firstRecipientRequest) {
+                $this->signatureService->sendSigningRequest($firstRecipientRequest);
+            }
+        });
+
+        return redirect()->route('rental.signatures')
+            ->with('status', 'Document uploaded and sent for signing.');
     }
 
     // ──────────────────────────────────────────────
@@ -91,11 +234,17 @@ class SignatureController extends Controller
         // Load existing markers (including any just created from zones)
         $markers = $template->markers()->orderBy('page_number')->orderBy('sort_order')->get();
 
-        // Build page image URLs from the document's parent template
+        // Build page image URLs — use flattened images when available
         $docTemplate = $document->template;
+        $flattenedPages = $template->flattened_pages_json ?? [];
+        $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        if ($docTemplate) {
-            for ($n = 0; $n < $docTemplate->page_count; $n++) {
+        $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+
+        for ($n = 0; $n < $pageCount; $n++) {
+            if ($hasFlattened && isset($flattenedPages[$n])) {
+                $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+            } elseif ($docTemplate) {
                 $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
             }
         }
@@ -119,11 +268,53 @@ class SignatureController extends Controller
             'markers' => $markers,
             'parties' => $parties,
             'pageImages' => $pageImages,
-            'pageCount' => $docTemplate ? $docTemplate->page_count : 0,
+            'pageCount' => $pageCount,
             'step' => $step,
             'user' => $user,
             'templateType' => $templateType,
         ]);
+    }
+
+    /**
+     * Upload a pre-signed (wet ink) document scan.
+     * Creates/updates the signature template with flattened page images
+     * so the agent section is treated as already signed.
+     */
+    public function uploadPresigned(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $request->validate([
+            'presigned_files' => 'required|array|min:1',
+            'presigned_files.*' => 'required|file|mimes:pdf,jpg,jpeg,png|max:20480',
+        ]);
+
+        // Store uploaded files
+        $uploadPaths = [];
+        foreach ($request->file('presigned_files') as $file) {
+            $uploadPaths[] = $file->store("docuperfect/presigned-uploads/{$document->id}", 'local');
+        }
+
+        // Get or create signature template
+        $template = SignatureTemplate::firstOrCreate(
+            ['document_id' => $document->id],
+            [
+                'status' => SignatureTemplate::STATUS_DRAFT,
+                'created_by' => $user->id,
+                'signing_order_json' => ['agent', 'tenant', 'landlord'],
+            ]
+        );
+
+        // Flatten uploaded files into page images
+        $flattener = app(DocumentFlattener::class);
+        $flattener->flattenWetInkScan($template, $uploadPaths);
+
+        // Mark template as ready for party/marker setup
+        $template->update(['status' => SignatureTemplate::STATUS_READY]);
+
+        return redirect()->route('docuperfect.signatures.setup', $document)
+            ->with('status', 'Document uploaded. Set up signing parties and markers.');
     }
 
     /**
@@ -284,6 +475,20 @@ class SignatureController extends Controller
             ->whereNotIn('assigned_party', $activeRoles)
             ->delete();
 
+        // If pre-signed upload exists, mark agent's request as completed (wet ink)
+        if (!empty($template->flattened_pages_json)) {
+            $agentReq = $template->requests()
+                ->where('party_role', 'agent')
+                ->first();
+            if ($agentReq && $agentReq->status !== SignatureRequest::STATUS_COMPLETED) {
+                $agentReq->update([
+                    'status' => SignatureRequest::STATUS_COMPLETED,
+                    'signing_method' => 'wet_ink',
+                    'completed_at' => now(),
+                ]);
+            }
+        }
+
         if ($request->expectsJson()) {
             return response()->json(['ok' => true]);
         }
@@ -304,7 +509,7 @@ class SignatureController extends Controller
         // Build allowed parties from the template's active parties
         $allowedParties = collect($template->parties_json ?? [])
             ->pluck('role')
-            ->intersect(['agent', 'tenant', 'landlord'])
+            ->intersect(['agent', 'tenant', 'landlord', 'buyer', 'seller'])
             ->implode(',');
 
         $request->validate([
@@ -368,11 +573,17 @@ class SignatureController extends Controller
         $signedCount = $agentMarkers->filter(fn($m) => $m->signatures->isNotEmpty())->count();
         $totalAgent = $agentMarkers->count();
 
-        // Build page image URLs
+        // Build page image URLs — use flattened images when available
         $docTemplate = $document->template;
+        $flattenedPages = $template->flattened_pages_json ?? [];
+        $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        if ($docTemplate) {
-            for ($n = 0; $n < $docTemplate->page_count; $n++) {
+        $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+
+        for ($n = 0; $n < $pageCount; $n++) {
+            if ($hasFlattened && isset($flattenedPages[$n])) {
+                $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+            } elseif ($docTemplate) {
                 $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
             }
         }
@@ -385,7 +596,7 @@ class SignatureController extends Controller
             'totalAgent' => $totalAgent,
             'allAgentSigned' => $signedCount >= $totalAgent && $totalAgent > 0,
             'pageImages' => $pageImages,
-            'pageCount' => $docTemplate ? $docTemplate->page_count : 0,
+            'pageCount' => $pageCount,
             'user' => $user,
         ]);
     }
