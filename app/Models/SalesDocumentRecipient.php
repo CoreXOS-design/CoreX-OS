@@ -13,6 +13,7 @@ class SalesDocumentRecipient extends Model
         'recipient_name',
         'recipient_email',
         'recipient_role',
+        'id_number',
         'token',
         'token_expires_at',
         'status',

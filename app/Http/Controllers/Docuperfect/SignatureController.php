@@ -156,7 +156,7 @@ class SignatureController extends Controller
         if (!$partyOneNotRequired) {
             $rules["{$partyOneRole}_name"] = 'required|string|max:255';
             $rules["{$partyOneRole}_email"] = 'required|email|max:255';
-            $rules["{$partyOneRole}_id_number"] = 'nullable|string|max:20';
+            $rules["{$partyOneRole}_id_number"] = 'required|string|max:20';
             $rules["add_{$partyOneRole}_witness"] = 'nullable|boolean';
             $rules["{$partyOneRole}_witness_name"] = "required_if:add_{$partyOneRole}_witness,1|nullable|string|max:255";
             $rules["{$partyOneRole}_witness_email"] = "required_if:add_{$partyOneRole}_witness,1|nullable|email|max:255";
@@ -165,7 +165,7 @@ class SignatureController extends Controller
         if (!$partyTwoNotRequired) {
             $rules["{$partyTwoRole}_name"] = 'required|string|max:255';
             $rules["{$partyTwoRole}_email"] = 'required|email|max:255';
-            $rules["{$partyTwoRole}_id_number"] = 'nullable|string|max:20';
+            $rules["{$partyTwoRole}_id_number"] = 'required|string|max:20';
             $rules["add_{$partyTwoRole}_witness"] = 'nullable|boolean';
             $rules["{$partyTwoRole}_witness_name"] = "required_if:add_{$partyTwoRole}_witness,1|nullable|string|max:255";
             $rules["{$partyTwoRole}_witness_email"] = "required_if:add_{$partyTwoRole}_witness,1|nullable|email|max:255";

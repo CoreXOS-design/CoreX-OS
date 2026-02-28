@@ -135,27 +135,23 @@
                     </div>
 
                     {{-- Action buttons --}}
-                    <div class="flex flex-wrap gap-2" x-data="{ showCancelModal: false, cancelReason: '', submitting: false }">
+                    <div class="flex flex-wrap gap-2" x-data="{ showCancelModal: false, cancelReason: '', submitting: false, showUploadModal_{{ $send->id }}: false, uploadSubmitting_{{ $send->id }}: false }">
                         @foreach($send->recipients as $r)
                             @if($r->status === 'returned_pending_approval')
-                                @php
-                                    $nextR = $send->recipients->where('signing_order', '>', $r->signing_order)->where('status', 'waiting')->first();
-                                @endphp
                                 @if($r->return_method === 'upload' && $r->returned_file_path)
                                     <span class="text-xs text-slate-500 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200">
                                         Uploaded via link
                                     </span>
+                                @elseif($r->return_method && $r->return_method !== 'upload')
+                                    <span class="text-xs text-slate-500 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200">
+                                        Received via {{ str_replace('_', ' ', $r->return_method) }}
+                                    </span>
                                 @endif
-                                <form action="{{ route('docuperfect.sales.approve', [$send, $r]) }}" method="POST" class="inline">
-                                    @csrf
-                                    <button type="submit" class="px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition-colors">
-                                        @if($nextR)
-                                            Approve &amp; Send to {{ $nextR->recipient_name }}
-                                        @else
-                                            Approve &amp; Complete
-                                        @endif
-                                    </button>
-                                </form>
+                                <a href="{{ route('docuperfect.sales.review', [$send, $r]) }}"
+                                   class="px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition-colors inline-flex items-center gap-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                    Review &amp; Approve
+                                </a>
                             @endif
 
                             @if($r->status === 'sent')
@@ -171,59 +167,103 @@
                                         Mark {{ $r->recipient_name }} as Returned
                                     </button>
                                 </form>
+                                <button @click="showUploadModal_{{ $send->id }} = true" type="button"
+                                        class="px-3 py-1.5 bg-slate-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors">
+                                    Upload on Behalf of {{ $r->recipient_name }}
+                                </button>
                                 <form action="{{ route('docuperfect.sales.resend', $r) }}" method="POST" class="inline">
                                     @csrf
                                     <button type="submit" class="px-3 py-1.5 bg-slate-50 text-slate-500 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors">
                                         Resend to {{ $r->recipient_name }}
                                     </button>
                                 </form>
+
+                                {{-- Upload on behalf modal --}}
+                                <div x-show="showUploadModal_{{ $send->id }}" x-cloak x-transition.opacity
+                                     class="fixed inset-0 z-50 flex items-center justify-center"
+                                     style="background:rgba(0,0,0,0.6);" @click="showUploadModal_{{ $send->id }} = false">
+                                    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 space-y-4" @click.stop>
+                                        <h3 class="text-lg font-semibold text-slate-800">Upload on Behalf of {{ $r->recipient_name }}</h3>
+                                        <p class="text-sm text-slate-600">
+                                            Upload the signed document received via WhatsApp, email, or in person.
+                                        </p>
+                                        <form action="{{ route('docuperfect.sales.uploadOnBehalf', [$send, $r]) }}"
+                                              method="POST" enctype="multipart/form-data" @submit="uploadSubmitting_{{ $send->id }} = true">
+                                            @csrf
+                                            <div class="space-y-3">
+                                                <div>
+                                                    <label class="block text-xs font-medium text-slate-600 mb-1">Signed Document(s)</label>
+                                                    <input type="file" name="files[]" multiple accept=".pdf,.jpg,.jpeg,.png"
+                                                           class="w-full text-sm text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200" required>
+                                                    <p class="text-[10px] text-slate-400 mt-1">PDF, JPG, PNG (max 20MB each)</p>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-xs font-medium text-slate-600 mb-1">How was it received?</label>
+                                                    <select name="receive_method" required
+                                                            class="w-full rounded-lg border-slate-300 text-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                                                        <option value="">Select...</option>
+                                                        <option value="whatsapp">WhatsApp</option>
+                                                        <option value="email">Email</option>
+                                                        <option value="in_person">In Person</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center justify-end gap-3 pt-4">
+                                                <button @click="showUploadModal_{{ $send->id }} = false" type="button"
+                                                        class="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                                                <button type="submit"
+                                                        :disabled="uploadSubmitting_{{ $send->id }}"
+                                                        class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                    <span x-show="!uploadSubmitting_{{ $send->id }}">Upload &amp; Review</span>
+                                                    <span x-show="uploadSubmitting_{{ $send->id }}" x-cloak>Uploading...</span>
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
                             @endif
                         @endforeach
 
                         {{-- Reject / Cancel --}}
-                        @if($send->document_id)
-                            <button @click="showCancelModal = true" type="button"
-                                    class="text-xs text-red-600 hover:text-red-800 font-medium px-3 py-1.5">
-                                Reject / Cancel
-                            </button>
+                        <button @click="showCancelModal = true" type="button"
+                                class="text-xs text-red-600 hover:text-red-800 font-medium px-3 py-1.5">
+                            Reject / Cancel
+                        </button>
 
-                            {{-- Cancel modal --}}
-                            <div x-show="showCancelModal" x-cloak x-transition.opacity
-                                 class="fixed inset-0 z-50 flex items-center justify-center"
-                                 style="background:rgba(0,0,0,0.6);" @click="showCancelModal = false">
-                                <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 space-y-4" @click.stop>
-                                    <h3 class="text-lg font-semibold text-slate-800">Cancel Document</h3>
-                                    <p class="text-sm text-slate-600">
-                                        This will reject the document and invalidate all pending signing requests.
+                        {{-- Cancel modal --}}
+                        <div x-show="showCancelModal" x-cloak x-transition.opacity
+                             class="fixed inset-0 z-50 flex items-center justify-center"
+                             style="background:rgba(0,0,0,0.6);" @click="showCancelModal = false">
+                            <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 space-y-4" @click.stop>
+                                <h3 class="text-lg font-semibold text-slate-800">Cancel Document</h3>
+                                <p class="text-sm text-slate-600">
+                                    This will cancel the document and expire all pending signing requests.
+                                </p>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Reason (required)</label>
+                                    <textarea x-model="cancelReason" rows="3"
+                                              class="w-full rounded-lg border-slate-300 text-sm px-3 py-2"
+                                              placeholder="Why is this document being cancelled?"></textarea>
+                                    <p x-show="cancelReason.length > 0 && cancelReason.length < 5" class="text-xs text-red-500 mt-1">
+                                        Reason must be at least 5 characters.
                                     </p>
-                                    <div>
-                                        <label class="block text-xs font-medium text-slate-600 mb-1">Reason (required)</label>
-                                        <textarea x-model="cancelReason" rows="3"
-                                                  class="w-full rounded-lg border-slate-300 text-sm px-3 py-2"
-                                                  placeholder="Why is this document being cancelled?"></textarea>
-                                        <p x-show="cancelReason.length > 0 && cancelReason.length < 5" class="text-xs text-red-500 mt-1">
-                                            Reason must be at least 5 characters.
-                                        </p>
-                                    </div>
-                                    <div class="flex items-center justify-end gap-3 pt-2">
-                                        <button @click="showCancelModal = false"
-                                                class="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
-                                        <form action="{{ route('docuperfect.signatures.reject', $send->document_id) }}" method="POST">
-                                            @csrf
-                                            <input type="hidden" name="action" value="archive">
-                                            <input type="hidden" name="rejection_reason" :value="cancelReason">
-                                            <button type="submit"
-                                                    :disabled="cancelReason.length < 5 || submitting"
-                                                    @click="submitting = true"
-                                                    class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                                                <span x-show="!submitting">Cancel Document</span>
-                                                <span x-show="submitting" x-cloak>Cancelling...</span>
-                                            </button>
-                                        </form>
-                                    </div>
+                                </div>
+                                <div class="flex items-center justify-end gap-3 pt-2">
+                                    <button @click="showCancelModal = false"
+                                            class="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                                    <form action="{{ route('docuperfect.sales.cancel', $send) }}" method="POST" @submit="submitting = true">
+                                        @csrf
+                                        <input type="hidden" name="rejection_reason" :value="cancelReason">
+                                        <button type="submit"
+                                                :disabled="cancelReason.length < 5 || submitting"
+                                                class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <span x-show="!submitting">Cancel Document</span>
+                                            <span x-show="submitting" x-cloak>Cancelling...</span>
+                                        </button>
+                                    </form>
                                 </div>
                             </div>
-                        @endif
+                        </div>
                     </div>
                 </div>
             @endforeach

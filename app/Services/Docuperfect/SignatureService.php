@@ -455,6 +455,17 @@ class SignatureService
      */
     public function isPartyComplete(SignatureTemplate $template, string $party): bool
     {
+        // If the request for this party is already marked completed
+        // (e.g. wet-ink upload approved on behalf), treat as complete
+        $request = $template->requests()
+            ->where('party_role', $party)
+            ->where('status', SignatureRequest::STATUS_COMPLETED)
+            ->exists();
+
+        if ($request) {
+            return true;
+        }
+
         $requiredMarkers = $template->markers()
             ->where('assigned_party', $party)
             ->where('required', true)

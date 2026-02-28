@@ -13,7 +13,7 @@
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Hi {{ $recipientName }},</p>
 
-        <p>Please find the attached document for your signature:</p>
+        <p>Please click the secure link below to view and sign your document:</p>
 
         <div style="background-color: #f7fafc; border-left: 4px solid #1a365d; padding: 15px; margin: 20px 0;">
             <strong>{{ $documentName }}</strong>
@@ -25,17 +25,15 @@
             </div>
         @endif
 
-        <p>Please sign all required sections and return using one of these options:</p>
-
-        <p><strong>Option 1:</strong> Upload your signed copy here:</p>
+        <p>You will need to verify your identity before accessing the document. Once verified, you can download, sign, and upload your signed copy.</p>
 
         <div style="text-align: center; margin: 20px 0;">
             <a href="{{ $uploadUrl }}" style="display: inline-block; background-color: #1a365d; color: #ffffff; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
-                UPLOAD SIGNED DOCUMENT
+                VIEW &amp; SIGN DOCUMENT
             </a>
         </div>
 
-        <p><strong>Option 2:</strong> Email your signed copy to:<br>
+        <p>Alternatively, email your signed copy to:<br>
             <a href="mailto:{{ $agentFooter['email'] }}" style="color: #1a365d; font-weight: bold;">{{ $agentFooter['email'] }}</a>
         </p>
 

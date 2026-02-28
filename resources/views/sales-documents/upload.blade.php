@@ -23,8 +23,27 @@
             </div>
 
             <p class="text-sm text-slate-600 mb-4">
-                Hi <strong>{{ $recipient->recipient_name }}</strong>, please upload your signed document below.
+                Hi <strong>{{ $recipient->recipient_name }}</strong>, please follow the steps below to sign and return your document.
             </p>
+
+            {{-- Step 1: Download --}}
+            @if($send->original_file_path)
+                <div class="mb-6">
+                    <h3 class="text-sm font-semibold text-slate-700 mb-2">Step 1: Download the document</h3>
+                    <p class="text-xs text-slate-500 mb-3">Download, print, and sign all required sections.</p>
+                    <a href="{{ route('sales-documents.download', ['token' => $recipient->token]) }}"
+                       class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Download PDF
+                    </a>
+                </div>
+                <hr class="border-slate-200 mb-6">
+            @endif
+
+            {{-- Step 2: Upload signed copy --}}
+            <h3 class="text-sm font-semibold text-slate-700 mb-2">{{ $send->original_file_path ? 'Step 2: Upload your signed copy' : 'Upload your signed document' }}</h3>
 
             <form action="{{ route('sales-documents.upload.store', ['token' => $recipient->token]) }}" method="POST" enctype="multipart/form-data">
                 @csrf

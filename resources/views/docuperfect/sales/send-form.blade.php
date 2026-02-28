@@ -67,7 +67,7 @@
                                 </button>
                             </div>
 
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs text-slate-500 mb-1">Name</label>
                                     <input type="text" :name="'recipients[' + index + '][name]'" x-model="recipient.name"
@@ -93,6 +93,12 @@
                                         <option value="client">Client</option>
                                         <option value="other">Other</option>
                                     </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-slate-500 mb-1">ID / Passport No.</label>
+                                    <input type="text" :name="'recipients[' + index + '][id_number]'" x-model="recipient.id_number"
+                                           class="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                                           placeholder="SA ID or passport number" maxlength="20" required>
                                 </div>
                             </div>
                         </div>
@@ -143,10 +149,10 @@
 function salesSendForm() {
     return {
         recipients: [
-            { name: '', email: '', role: 'seller' }
+            { name: '', email: '', role: 'seller', id_number: '' }
         ],
         addRecipient() {
-            this.recipients.push({ name: '', email: '', role: 'client' });
+            this.recipients.push({ name: '', email: '', role: 'client', id_number: '' });
         },
         removeRecipient(index) {
             if (this.recipients.length > 1) {

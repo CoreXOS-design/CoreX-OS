@@ -3,7 +3,6 @@
 namespace App\Mail\Signatures;
 
 use Carbon\Carbon;
-use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 
@@ -12,7 +11,6 @@ class SalesDocumentMail extends BaseSignatureMail
     public function __construct(
         public string $recipientName,
         public string $documentName,
-        public ?string $filePath,
         public string $uploadUrl,
         public ?string $personalMessage,
         public Carbon $expiresAt,
@@ -35,18 +33,5 @@ class SalesDocumentMail extends BaseSignatureMail
                 'agentFooter' => $this->getAgentFooter(),
             ],
         );
-    }
-
-    public function attachments(): array
-    {
-        if ($this->filePath && file_exists($this->filePath)) {
-            return [
-                Attachment::fromPath($this->filePath)
-                    ->as($this->documentName . '.pdf')
-                    ->withMime('application/pdf'),
-            ];
-        }
-
-        return [];
     }
 }
