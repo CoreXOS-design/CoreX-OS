@@ -106,7 +106,7 @@ class SigningController extends Controller
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        $pageCount = $docTemplate ? $docTemplate->page_count : 0;
+        $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
 
         for ($n = 0; $n < $pageCount; $n++) {
             if ($hasFlattened && isset($flattenedPages[$n])) {
@@ -463,7 +463,8 @@ class SigningController extends Controller
         $document = $signatureTemplate->document;
         $docTemplate = $document->template ?? null;
 
-        if (!$docTemplate || $docTemplate->page_count < 1) {
+        $flattenedPages = $signatureTemplate->flattened_pages_json ?? [];
+        if (!$docTemplate && empty($flattenedPages)) {
             return redirect()->route('signatures.external', $token)
                 ->with('error', 'Document file not available for download.');
         }
@@ -500,7 +501,7 @@ class SigningController extends Controller
             . '.page img { width: 100%; height: auto; display: block; }'
             . '</style></head><body>';
 
-        $pageCount = $docTemplate->page_count;
+        $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
         for ($pageNum = 0; $pageNum < $pageCount; $pageNum++) {
             // Use annotated temp image if available, otherwise plain storage image
             if ($usingAnnotated && isset($annotatedPages[$pageNum])) {

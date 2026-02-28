@@ -18,6 +18,11 @@
             {{ session('status') }}
         </div>
     @endif
+    @if(session('error'))
+        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+            {{ session('error') }}
+        </div>
+    @endif
     @if($errors->any())
         <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
             @foreach($errors->all() as $error)
@@ -91,9 +96,26 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs text-slate-500 mb-1">Role</label>
-                                    <input type="text" :name="'recipients[' + index + '][role]'" x-model="recipient.role"
-                                           class="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                                           placeholder="e.g. Tenant, Landlord, Witness" required>
+                                    <select :name="recipient.roleSelect !== 'Other' ? 'recipients[' + index + '][role]' : ''"
+                                            x-model="recipient.roleSelect"
+                                            @change="recipient.role = $event.target.value === 'Other' ? '' : $event.target.value"
+                                            class="w-full rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                                            required>
+                                        <option value="" disabled>Select role...</option>
+                                        <option value="Tenant">Tenant</option>
+                                        <option value="Landlord">Landlord</option>
+                                        <option value="Buyer">Buyer</option>
+                                        <option value="Seller">Seller</option>
+                                        <option value="Witness">Witness</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                    <input type="text"
+                                           x-show="recipient.roleSelect === 'Other'"
+                                           :name="recipient.roleSelect === 'Other' ? 'recipients[' + index + '][role]' : ''"
+                                           x-model="recipient.role"
+                                           class="w-full mt-2 rounded-lg border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                                           placeholder="Enter custom role"
+                                           :required="recipient.roleSelect === 'Other'">
                                 </div>
                                 <div>
                                     <label class="block text-xs text-slate-500 mb-1">ID / Passport No.</label>
@@ -151,10 +173,10 @@
 function rentalSendForm() {
     return {
         recipients: [
-            { name: '', email: '', role: 'Tenant', id_number: '' }
+            { name: '', email: '', role: 'Tenant', roleSelect: 'Tenant', id_number: '' }
         ],
         addRecipient() {
-            this.recipients.push({ name: '', email: '', role: '', id_number: '' });
+            this.recipients.push({ name: '', email: '', role: '', roleSelect: '', id_number: '' });
         },
         removeRecipient(index) {
             if (this.recipients.length > 1) {

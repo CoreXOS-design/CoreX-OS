@@ -188,8 +188,8 @@ class SignatureService
      */
     public function saveMarkers(SignatureTemplate $template, array $markers): int
     {
-        if (!$template->isDraft()) {
-            throw new \LogicException('Cannot modify markers on a template that is not in draft status.');
+        if (!in_array($template->status, [SignatureTemplate::STATUS_DRAFT, SignatureTemplate::STATUS_READY])) {
+            throw new \LogicException('Cannot modify markers — template must be in draft or ready status.');
         }
 
         return DB::transaction(function () use ($template, $markers) {
