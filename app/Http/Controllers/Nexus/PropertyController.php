@@ -5,30 +5,80 @@ namespace App\Http\Controllers\Nexus;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\Property;
+use App\Models\PropertyAdTemplate;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class PropertyController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         /** @var User $user */
-        $user = auth()->user();
+        $user           = auth()->user();
+        $role           = $user->effectiveRole();
+        $scope          = $request->query('scope', 'my');   // 'my' | 'branch'
+        $status         = $request->query('status', '');    // '' | draft | active | sold | withdrawn
+        $search         = trim($request->query('search', ''));
+        $filterAgentId  = $request->query('agent_id', '');  // admin/bm: view a specific agent's listings
 
-        $query = Property::with(['agent', 'branch'])->withTrashed(false);
+        $query = Property::with(['agent', 'branch']);
 
-        if ($user->effectiveRole() === 'agent') {
-            $query->where('agent_id', $user->id);
-        } elseif ($user->effectiveRole() === 'branch_manager') {
+        $canPickAgent = in_array($role, ['super_admin', 'admin', 'branch_manager']);
+
+        // Scope
+        if ($canPickAgent && $filterAgentId !== '') {
+            // Admin/BM viewing a specific agent
+            $query->where('agent_id', (int) $filterAgentId);
+        } elseif (in_array($role, ['super_admin', 'admin'])) {
+            // Admin sees everything — no scope restriction
+        } elseif ($role === 'branch_manager') {
             $branchId = $user->effectiveBranchId();
-            if ($branchId) {
-                $query->where('branch_id', $branchId);
+            if ($branchId) $query->where('branch_id', $branchId);
+        } else {
+            // Agent: 'my' = own listings only; 'branch' = all branch listings
+            if ($scope === 'branch' && $user->branch_id) {
+                $query->where('branch_id', $user->branch_id);
+            } else {
+                $query->where('agent_id', $user->id);
             }
         }
 
+        if ($status !== '') {
+            $query->where('status', $status);
+        }
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhere('suburb', 'like', "%{$search}%")
+                  ->orWhere('city', 'like', "%{$search}%");
+            });
+        }
+
         $properties = $query->orderByDesc('created_at')->get();
-        return view('nexus.properties.index', compact('properties'));
+
+        // Stats for the header KPIs
+        $stats = [
+            'total'    => $properties->count(),
+            'active'   => $properties->where('status', 'active')->count(),
+            'draft'    => $properties->where('status', 'draft')->count(),
+            'sold'     => $properties->where('status', 'sold')->count(),
+            'synced'   => $properties->whereNotNull('published_at')->count(),
+        ];
+
+        // Agent list for the picker (admin/bm only)
+        $agentList = $canPickAgent ? $this->agentList()->values() : collect();
+
+        // Resolve the selected agent's name for the button label
+        $selectedAgent = ($canPickAgent && $filterAgentId !== '')
+            ? $agentList->firstWhere('id', (int) $filterAgentId)
+            : null;
+
+        return view('nexus.properties.index', compact(
+            'properties', 'stats', 'scope', 'status', 'search', 'role',
+            'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
+        ));
     }
 
     public function create()
@@ -176,6 +226,26 @@ class PropertyController extends Controller
         $property->delete();
         return redirect()->route('nexus.properties.index')
             ->with('success', 'Property listing removed.');
+    }
+
+    public function ad(Property $property)
+    {
+        $this->authorizeProperty($property);
+        $property->load(['agent', 'branch']);
+
+        /** @var User $user */
+        $user = auth()->user();
+        $role = $user->effectiveRole();
+
+        // Saved custom templates: own + global ones
+        $savedTemplates = PropertyAdTemplate::where('user_id', $user->id)
+            ->orWhere('is_global', true)
+            ->orderByDesc('updated_at')
+            ->get(['id', 'user_id', 'name', 'layout_json', 'is_global', 'updated_at']);
+
+        $canManageTemplates = in_array($role, ['super_admin', 'admin', 'branch_manager', 'agent']);
+
+        return view('nexus.properties.ad', compact('property', 'savedTemplates', 'canManageTemplates'));
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

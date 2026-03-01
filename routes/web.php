@@ -531,14 +531,33 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
     Route::post('/role-manager/user-role', [NexusRoleManagerController::class, 'updateUserRole'])
         ->middleware('admin')->name('nexus.role-manager.user-role');
 
+    // Agency Management (super_admin only)
+    Route::middleware('super_admin')->prefix('settings/agencies')->name('agencies.')->group(function () {
+        Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
+        Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
+        Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
+        Route::get('/{agency}/edit', [\App\Http\Controllers\Admin\AgencyController::class, 'edit'])->name('edit');
+        Route::put('/{agency}',      [\App\Http\Controllers\Admin\AgencyController::class, 'update'])->name('update');
+    });
+
     // Properties — listing sync to website
     Route::prefix('properties')->name('nexus.properties.')->group(function () {
         Route::get('/',                [\App\Http\Controllers\Nexus\PropertyController::class, 'index'])->name('index');
         Route::get('/create',          [\App\Http\Controllers\Nexus\PropertyController::class, 'create'])->name('create');
         Route::post('/',               [\App\Http\Controllers\Nexus\PropertyController::class, 'store'])->name('store');
         Route::get('/{property}/edit', [\App\Http\Controllers\Nexus\PropertyController::class, 'edit'])->name('edit');
+        Route::get('/{property}/ad',   [\App\Http\Controllers\Nexus\PropertyController::class, 'ad'])->name('ad');
         Route::put('/{property}',      [\App\Http\Controllers\Nexus\PropertyController::class, 'update'])->name('update');
         Route::delete('/{property}',   [\App\Http\Controllers\Nexus\PropertyController::class, 'destroy'])->name('destroy');
+    });
+
+    // Ad Template Builder
+    Route::prefix('ad-templates')->name('nexus.ad-templates.')->group(function () {
+        Route::get('/builder',                    [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'builder'])->name('builder');
+        Route::get('/builder/{template}',         [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'builder'])->name('builder.edit');
+        Route::post('/',                          [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'store'])->name('store');
+        Route::put('/{template}',                 [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'update'])->name('update');
+        Route::delete('/{template}',              [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'destroy'])->name('destroy');
     });
 });
 

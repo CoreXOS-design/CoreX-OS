@@ -134,18 +134,23 @@ class User extends Authenticatable
         }
 
         $access = [
-            'dashboard'       => ['admin', 'branch_manager', 'agent'],
-            'agency-tracker'  => ['admin', 'branch_manager', 'agent'],
-            'documents'       => ['admin', 'branch_manager', 'agent'],
-            'compliance'      => ['admin', 'branch_manager'],
-            'supervision'     => ['admin', 'branch_manager'],
-            'training'        => ['admin', 'branch_manager', 'agent'],
-            'communication'   => ['admin', 'branch_manager', 'agent'],
-            'client-portal'   => ['admin', 'branch_manager', 'agent'],
-            'franchise-admin' => ['admin'],
-            'role-manager'    => ['admin'],
-            'settings'        => ['admin'],
-            'properties'      => ['admin', 'branch_manager', 'agent'],
+            'dashboard'        => ['admin', 'branch_manager', 'agent'],
+            'agency-tracker'   => ['admin', 'branch_manager', 'agent'],
+            'compliance'       => ['admin', 'branch_manager'],
+            'supervision'      => ['admin', 'branch_manager'],
+            'training'         => ['admin', 'branch_manager', 'agent'],
+            'communication'    => ['admin', 'branch_manager', 'agent'],
+            'client-portal'    => ['admin', 'branch_manager', 'agent'],
+            'franchise-admin'  => ['admin'],
+            'docuperfect'      => ['admin', 'branch_manager', 'agent'],
+            'document-library' => ['admin', 'branch_manager', 'agent'],
+            'presentations'    => ['admin', 'branch_manager', 'agent'],
+            'pdf-splitter'     => ['admin', 'branch_manager', 'agent'],
+            'knowledge-base'   => ['admin'],
+            'finance-engine'   => ['admin'],
+            'properties'       => ['admin', 'branch_manager', 'agent'],
+            'role-manager'     => ['admin'],
+            'settings'         => ['admin'],
         ];
 
         return in_array($this->effectiveRole(), $access[$section] ?? []);
