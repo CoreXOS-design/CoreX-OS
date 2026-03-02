@@ -3,42 +3,106 @@
 namespace App\Services\AI;
 
 use App\Models\KnowledgeChunk;
+use App\Models\KnowledgeDocument;
 
 class KnowledgeSearchService
 {
+    private EmbeddingService $embeddingService;
+
+    public function __construct(EmbeddingService $embeddingService)
+    {
+        $this->embeddingService = $embeddingService;
+    }
+
     /**
-     * Search knowledge base for relevant chunks.
+     * Search knowledge base for relevant chunks using vector similarity.
      *
      * @return array{context: string, sources: array}
      */
-    public function search(string $query, int $limit = 3): array
+    public function search(string $query, int $limit = 5): array
     {
         try {
-            // Try full-text search first
-            $chunks = KnowledgeChunk::search($query)
-                ->with('document')
-                ->limit($limit)
-                ->get();
+            $queryEmbedding = $this->embeddingService->embed($query);
 
-            // If no results, try keyword extraction fallback
-            if ($chunks->isEmpty()) {
-                $keywords = $this->extractKeywords($query);
-                if (!empty($keywords)) {
-                    $chunks = KnowledgeChunk::keywordSearch($keywords)
-                        ->with('document')
-                        ->limit($limit)
-                        ->get();
-                }
+            if ($queryEmbedding === null) {
+                return ['context' => '', 'sources' => []];
             }
 
+            // Load all embedded chunks from active, ready, ellie-enabled documents
+            $chunks = KnowledgeChunk::whereHas('document', function ($q) {
+                $q->where('is_active', true)
+                  ->where('status', 'ready')
+                  ->where('is_ellie_enabled', true);
+            })
+                ->where('has_embedding', true)
+                ->with('document')
+                ->get();
+
             if ($chunks->isEmpty()) {
+                return ['context' => '', 'sources' => []];
+            }
+
+            // Extract structural signals from query for hybrid scoring
+            $stopWords = ['what', 'is', 'the', 'of', 'a', 'an', 'in', 'for', 'to', 'how', 'does', 'do', 'whats', 'tell', 'me', 'about', 'can', 'you'];
+            preg_match_all('/\b(\d+(?:\.\d+)*)\b/', $query, $numberMatches);
+            $queryNumbers = $numberMatches[1] ?? [];
+            $queryWords = array_values(array_filter(
+                preg_split('/\s+/', mb_strtolower(preg_replace('/[^\w\s]/', '', $query))),
+                fn ($w) => $w !== '' && !in_array($w, $stopWords) && !is_numeric($w)
+            ));
+            $totalMeaningfulWords = max(count($queryWords), 1);
+
+            // Score each chunk: hybrid = (cosine * 0.7) + (structural * 0.3)
+            $scored = $chunks->map(function ($chunk) use ($queryEmbedding, $queryNumbers, $queryWords, $totalMeaningfulWords) {
+                $cosine = $this->embeddingService->cosineSimilarity(
+                    $queryEmbedding,
+                    $chunk->embedding
+                );
+
+                $title = mb_strtolower($chunk->section_title ?? '');
+
+                // Numbered reference matching
+                $numberScore = 0.0;
+                foreach ($queryNumbers as $num) {
+                    $escaped = preg_quote($num, '/');
+                    if (preg_match('/^' . $escaped . '(?:[\.\s]|$)/', $title)) {
+                        $numberScore = 1.0;
+                        break;
+                    } elseif (str_contains($title, $num)) {
+                        $numberScore = max($numberScore, 0.5);
+                    }
+                }
+
+                // Keyword title matching
+                $keywordScore = 0.0;
+                if ($title !== '') {
+                    $matchCount = 0;
+                    foreach ($queryWords as $word) {
+                        if (str_contains($title, $word)) {
+                            $matchCount++;
+                        }
+                    }
+                    $keywordScore = $matchCount / $totalMeaningfulWords;
+                }
+
+                $structural = max($numberScore, $keywordScore);
+                $hybrid = ($cosine * 0.7) + ($structural * 0.3);
+
+                return ['chunk' => $chunk, 'score' => $hybrid];
+            });
+
+            // Sort by hybrid score descending, take top N, filter by minimum threshold
+            $topChunks = $scored->sortByDesc('score')->take($limit)->filter(fn ($item) => $item['score'] >= 0.3);
+
+            if ($topChunks->isEmpty()) {
                 return ['context' => '', 'sources' => []];
             }
 
             $contextParts = [];
             $sources = [];
 
-            foreach ($chunks as $chunk) {
+            foreach ($topChunks as $item) {
+                $chunk = $item['chunk'];
                 $doc = $chunk->document;
                 $header = "--- From: {$doc->title}";
                 if ($chunk->section_title) {
@@ -75,6 +139,12 @@ class KnowledgeSearchService
      */
     public function shouldSearch(string $message): bool
     {
+        // Always search when KB documents with embeddings are available
+        if (KnowledgeDocument::where('status', 'ready')->where('is_ellie_enabled', true)->exists()) {
+            return true;
+        }
+
+        // Fallback: keyword gate for when no ready documents exist (avoids unnecessary queries)
         $lower = mb_strtolower($message);
 
         $patterns = [
@@ -89,6 +159,10 @@ class KnowledgeSearchService
             'training', 'onboarding', 'branding', 'marketing',
             'how do i', 'how does', 'what should',
             'knowledge base', 'document says',
+            'evaluation', 'valuation', 'commercial', 'agricultural',
+            'hospitality', 'industrial', 'crop', 'livestock',
+            'comparable', 'financial', 'calculator', 'bond overpayment',
+            'fee scale', 'knowledge', 'document',
         ];
 
         foreach ($patterns as $pattern) {
@@ -98,39 +172,5 @@ class KnowledgeSearchService
         }
 
         return false;
-    }
-
-    /**
-     * Extract meaningful keywords from a query string.
-     */
-    public function extractKeywords(string $query): array
-    {
-        $stopWords = [
-            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-            'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-            'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'ought',
-            'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-            'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
-            'between', 'out', 'off', 'over', 'under', 'again', 'further', 'then',
-            'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
-            'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no',
-            'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very',
-            'just', 'because', 'but', 'and', 'or', 'if', 'while', 'about',
-            'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those',
-            'am', 'it', 'its', 'my', 'your', 'his', 'her', 'our', 'their',
-            'me', 'him', 'us', 'them', 'i', 'you', 'he', 'she', 'we', 'they',
-            'tell', 'explain', 'say', 'says', 'said', 'please', 'thank', 'thanks',
-        ];
-
-        $words = preg_split('/[\s,.\-;:!?()]+/', mb_strtolower($query), -1, PREG_SPLIT_NO_EMPTY);
-
-        $keywords = [];
-        foreach ($words as $word) {
-            if (mb_strlen($word) >= 3 && !in_array($word, $stopWords, true)) {
-                $keywords[] = $word;
-            }
-        }
-
-        return array_values(array_unique($keywords));
     }
 }

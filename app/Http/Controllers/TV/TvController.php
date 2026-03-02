@@ -61,6 +61,11 @@ class TvController extends Controller
         // Update last_used_at
         $tvCode->update(['last_used_at' => now()]);
 
+        // Company-level code (no branch) — delegate to company display
+        if (is_null($tvCode->branch_id)) {
+            return $this->companyDisplay($service, $code);
+        }
+
         $branchId = $tvCode->branch_id;
         $period = Carbon::now()->format('Y-m');
 

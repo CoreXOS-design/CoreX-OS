@@ -10,10 +10,22 @@
                 <h2 class="text-xl font-bold text-white leading-tight">Presentations</h2>
                 <div class="text-sm text-white/60">Seller presentations with market analysis</div>
             </div>
-            <a href="{{ route('presentations.create') }}"
-               class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
-                + New Presentation
-            </a>
+            <div class="flex items-center gap-2">
+                @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
+                <a href="{{ route('admin.p24-suburbs.index') }}"
+                   class="nexus-btn-outline" style="color:rgba(255,255,255,0.7); border-color:rgba(255,255,255,0.18); background:transparent; font-size:0.75rem; padding:0.3rem 0.7rem;">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:0.875rem;height:0.875rem;">
+                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                    P24 Suburbs
+                </a>
+                @endif
+                <a href="{{ route('presentations.create') }}"
+                   class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+                    + New Presentation
+                </a>
+            </div>
         </div>
     </div>
 

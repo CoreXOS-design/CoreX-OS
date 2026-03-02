@@ -37,8 +37,7 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: visible;
     width: 100%;
 }
 
@@ -1257,10 +1256,11 @@ input[type="radio"] {
 }
 
 .nexus-user-dropdown {
-    position: fixed;
-    bottom: 4rem;
-    left: calc(var(--nexus-sidebar-width) + 0.5rem);
-    width: 200px;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    margin-bottom: 0.25rem;
     background: #1e293b;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 0.75rem;
@@ -1313,10 +1313,11 @@ input[type="radio"] {
 }
 
 .nexus-switch-panel {
-    position: fixed;
-    bottom: 4rem;
-    left: calc(var(--nexus-sidebar-width) + 0.5rem);
-    width: 260px;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    margin-bottom: 0.25rem;
     background: #1e293b;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 0.75rem;

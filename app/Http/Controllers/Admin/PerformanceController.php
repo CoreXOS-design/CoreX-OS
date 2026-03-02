@@ -89,8 +89,8 @@ class PerformanceController extends Controller
         // -----------------------------
         // Listing Stock Stats (Company)
         // -----------------------------
-        $domExpr  = "(julianday(date('now')) - julianday(date(coalesce(listed_at, created_at))))";
-        $editExpr = "(julianday(date('now')) - julianday(date(coalesce(modified_at, created_at))))";
+        $domExpr  = "DATEDIFF(CURDATE(), DATE(COALESCE(listed_at, created_at)))";
+        $editExpr = "DATEDIFF(CURDATE(), DATE(COALESCE(modified_at, created_at)))";
 
         $listingBase = \App\Models\ListingStock::query()
             ->where('source', 'propcon')
@@ -112,12 +112,12 @@ class PerformanceController extends Controller
 
         $expiringSoonCount = (clone $listingBase)
             ->whereNotNull('expires_at')
-            ->whereRaw("(julianday(date(expires_at)) - julianday(date('now'))) between 0 and 14")
+            ->whereRaw("DATEDIFF(DATE(expires_at), CURDATE()) BETWEEN 0 AND 14")
             ->count();
 
         $expiredCount = (clone $listingBase)
             ->whereNotNull('expires_at')
-            ->whereRaw("julianday(date(expires_at)) < julianday(date('now'))")
+            ->whereRaw("DATE(expires_at) < CURDATE()")
             ->count();
 
         $listingStats = [

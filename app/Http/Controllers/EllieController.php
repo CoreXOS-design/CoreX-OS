@@ -294,45 +294,50 @@ class EllieController extends Controller
           }
 
         // ELLIE_CONTEXT_V2_PIPELINE_LISTINGS_2026
-
-          // Pipeline (Pending/Granted) - join to deals for property_value + accepted_status
-          // Avoid double-counting property_value when multiple money lines exist per deal.
-          $pendingStatuses = ['Pending', 'Granted'];
-
-          // Deals table uses numeric 'property_value' on this environment.
-          // Pipeline (Pending/Granted) - join to deals for property_value + accepted_status
-          // Avoid double-counting property_value when multiple money lines exist per deal.
           $pipelineDealsCount = 0;
           $pipelineValue = 0.0;
+          $listingsActive = 0;
+          $listingsStale = 0;
 
-          $pipelineSub = DB::table('deal_money_lines as dml')
-              ->join('deals as d', 'd.id', '=', 'dml.deal_id')
-              ->where('dml.user_id', (int)$user->id)
-              ->whereIn('d.accepted_status', $pendingStatuses)
-              ->groupBy('dml.deal_id')
-              ->selectRaw('dml.deal_id as deal_id, MAX(d.property_value) as property_value_raw');
+          try {
+              $pendingStatuses = ['Pending', 'Granted'];
 
-          $pipeline = DB::query()
-              ->fromSub($pipelineSub, 't')
-              ->selectRaw('COUNT(*) as deals_count')
-              ->selectRaw('COALESCE(SUM(property_value_raw),0) as value_raw')
-              ->first();
+              $pipelineSub = DB::table('deal_money_lines as dml')
+                  ->join('deals as d', 'd.id', '=', 'dml.deal_id')
+                  ->where('dml.user_id', (int)$user->id)
+                  ->whereIn('d.accepted_status', $pendingStatuses)
+                  ->groupBy('dml.deal_id')
+                  ->selectRaw('dml.deal_id as deal_id, MAX(d.property_value) as property_value_raw');
 
-          $pipelineDealsCount = (int)($pipeline->deals_count ?? 0);
-          $pipelineValue = (float)($pipeline->value_raw ?? 0);
+              $pipeline = DB::query()
+                  ->fromSub($pipelineSub, 't')
+                  ->selectRaw('COUNT(*) as deals_count')
+                  ->selectRaw('COALESCE(SUM(property_value_raw),0) as value_raw')
+                  ->first();
 
-// Listings (active + stale)
+              $pipelineDealsCount = (int)($pipeline->deals_count ?? 0);
+              $pipelineValue = (float)($pipeline->value_raw ?? 0);
 
-        $listingsActive = (int) DB::table('listing_stocks')
-            ->where('agent_id', (int)$user->id)
-            ->where('status', 'active')
-            ->count();
+              // Listings (active + stale)
+              $listingsActive = (int) DB::table('listing_stocks')
+                  ->where('user_id', (int)$user->id)
+                  ->where(function ($q) {
+                      $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                        ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+                  })
+                  ->count();
 
-        $listingsStale = (int) DB::table('listing_stocks')
-            ->where('agent_id', (int)$user->id)
-            ->where('status', 'active')
-            ->where('is_stale', 1)
-            ->count();
+              $listingsStale = (int) DB::table('listing_stocks')
+                  ->where('user_id', (int)$user->id)
+                  ->where(function ($q) {
+                      $q->whereRaw("lower(coalesce(status,'')) like '%active%'")
+                        ->orWhereRaw("lower(coalesce(status,'')) like '%for sale%'");
+                  })
+                  ->where('is_stale', 1)
+                  ->count();
+          } catch (\Throwable $e) {
+              \Log::warning('ELLIE_PIPELINE_LISTINGS_ERROR', ['error' => $e->getMessage()]);
+          }
 
         // ELLIE_NEXT_ACTIONS_ENGINE_2026
         $nextActions = [];
@@ -416,12 +421,25 @@ class EllieController extends Controller
         // Search knowledge base for relevant document chunks
         $knowledgeContext = '';
         $knowledgeSources = [];
-        $searchService = new \App\Services\AI\KnowledgeSearchService();
+        $searchService = app(\App\Services\AI\KnowledgeSearchService::class);
+
+        \Log::info('ELLIE_KB_GATE', [
+            'user_id' => (int)($user->id ?? 0),
+            'message_preview' => mb_substr($data['message'], 0, 80),
+            'should_search' => $searchService->shouldSearch($data['message']),
+        ]);
 
         if ($searchService->shouldSearch($data['message'])) {
             $results = $searchService->search($data['message'], 3);
             $knowledgeContext = $results['context'];
             $knowledgeSources = $results['sources'];
+
+            \Log::info('ELLIE_KB_RESULT', [
+                'user_id' => (int)($user->id ?? 0),
+                'context_length' => strlen($knowledgeContext),
+                'sources_count' => count($knowledgeSources),
+                'source_titles' => array_map(fn($s) => $s['title'] ?? '?', $knowledgeSources),
+            ]);
         }
 
         $resp = Http::timeout(120)

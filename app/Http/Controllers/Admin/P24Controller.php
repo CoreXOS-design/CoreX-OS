@@ -3,11 +3,10 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ImportP24AlertsJob;
 use App\Models\P24Listing;
 use App\Models\P24PriceChange;
 use App\Models\P24ImportLog;
-use App\Services\P24\P24EmailParserService;
-use App\Services\P24\P24ImapImportService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -129,32 +128,9 @@ class P24Controller extends Controller
 
     public function runImport()
     {
-        set_time_limit(300); // Allow up to 5 minutes for IMAP import
-
-        $service = new P24ImapImportService(new P24EmailParserService());
-        $result = $service->import();
-
-        if ($result['status'] === 'error') {
-            return redirect()->route('admin.p24.index')
-                ->with('error', $result['message']);
-        }
-
-        if ($result['status'] === 'disabled') {
-            return redirect()->route('admin.p24.index')
-                ->with('error', $result['message']);
-        }
-
-        $stats = $result['stats'] ?? [];
-        $msg = sprintf(
-            'Import complete — Processed: %d, New: %d, Updated: %d, Skipped: %d, Errors: %d',
-            $stats['processed'] ?? 0,
-            $stats['new'] ?? 0,
-            $stats['updated'] ?? 0,
-            $stats['skipped'] ?? 0,
-            $stats['errors'] ?? 0,
-        );
+        ImportP24AlertsJob::dispatch();
 
         return redirect()->route('admin.p24.index')
-            ->with('success', $msg);
+            ->with('success', 'P24 import started — results will appear shortly.');
     }
 }

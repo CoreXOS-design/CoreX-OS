@@ -9,8 +9,15 @@ use Illuminate\Support\Str;
 
 class DocumentProcessingService
 {
-    private const CHUNK_SIZE = 2500;
-    private const CHUNK_OVERLAP = 300;
+    private EmbeddingService $embeddingService;
+
+    public function __construct(EmbeddingService $embeddingService)
+    {
+        $this->embeddingService = $embeddingService;
+    }
+
+    private const MIN_CHUNK_SIZE = 500;
+    private const MAX_CHUNK_SIZE = 4000;
 
     /**
      * Process an uploaded file: store, create record, extract text, chunk, index.
@@ -54,6 +61,7 @@ class DocumentProcessingService
 
             $chunks = $this->chunkText($text);
             $this->storeChunks($document, $chunks);
+            $this->generateEmbeddings($document);
 
             $document->update([
                 'status' => 'ready',
@@ -97,6 +105,7 @@ class DocumentProcessingService
 
             $chunks = $this->chunkText($text);
             $this->storeChunks($document, $chunks);
+            $this->generateEmbeddings($document);
 
             $document->update([
                 'status' => 'ready',
@@ -210,7 +219,10 @@ class DocumentProcessingService
     }
 
     /**
-     * Split text into overlapping chunks with section detection.
+     * Split text into clause/section-aware chunks.
+     *
+     * Strategy: detect section headings → split at boundaries → merge tiny
+     * sections → split oversized sections → add sentence-level overlap.
      */
     private function chunkText(string $text): array
     {
@@ -219,85 +231,314 @@ class DocumentProcessingService
             return [];
         }
 
-        $chunks = [];
-        $offset = 0;
-        $textLength = mb_strlen($text);
+        // Step 1: Split at detected clause/section boundaries
+        $sections = $this->splitIntoSections($text);
 
-        while ($offset < $textLength) {
-            $chunkText = mb_substr($text, $offset, self::CHUNK_SIZE);
-            $actualLength = mb_strlen($chunkText);
+        // Step 2: Merge small sections, split large ones
+        $normalized = $this->normalizeSections($sections);
 
-            // Try to break at a paragraph boundary
-            if ($offset + $actualLength < $textLength) {
-                $lastParagraph = mb_strrpos($chunkText, "\n\n");
-                if ($lastParagraph !== false && $lastParagraph > (self::CHUNK_SIZE * 0.5)) {
-                    $chunkText = mb_substr($chunkText, 0, $lastParagraph);
-                } else {
-                    // Try sentence boundary
-                    $lastSentence = max(
-                        mb_strrpos($chunkText, '. ') ?: 0,
-                        mb_strrpos($chunkText, ".\n") ?: 0,
-                        mb_strrpos($chunkText, '? ') ?: 0,
-                        mb_strrpos($chunkText, "!\n") ?: 0,
-                    );
-                    if ($lastSentence > (self::CHUNK_SIZE * 0.5)) {
-                        $chunkText = mb_substr($chunkText, 0, $lastSentence + 1);
-                    } else {
-                        // Try word boundary
-                        $lastSpace = mb_strrpos($chunkText, ' ');
-                        if ($lastSpace !== false && $lastSpace > (self::CHUNK_SIZE * 0.5)) {
-                            $chunkText = mb_substr($chunkText, 0, $lastSpace);
-                        }
-                    }
+        // Step 3: Add last-sentence overlap between consecutive chunks
+        $withOverlap = $this->addSentenceOverlap($normalized);
+
+        // Step 4: Build final chunk metadata array
+        return $this->buildChunkArray($withOverlap);
+    }
+
+    /**
+     * Split full text into sections at detected heading boundaries.
+     * Each section = ['title' => ?string, 'body' => string].
+     */
+    private function splitIntoSections(string $text): array
+    {
+        $lines = explode("\n", $text);
+        $sections = [];
+        $currentTitle = null;
+        $currentBody = [];
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($this->isSectionHeading($trimmed)) {
+                // Flush previous section
+                if (!empty($currentBody) || $currentTitle !== null) {
+                    $sections[] = [
+                        'title' => $currentTitle,
+                        'body' => implode("\n", $currentBody),
+                    ];
+                }
+                $currentTitle = $trimmed;
+                $currentBody = [];
+            } else {
+                $currentBody[] = $line;
+            }
+        }
+
+        // Flush last section
+        if (!empty($currentBody) || $currentTitle !== null) {
+            $sections[] = [
+                'title' => $currentTitle,
+                'body' => implode("\n", $currentBody),
+            ];
+        }
+
+        return $sections;
+    }
+
+    /**
+     * Test whether a line is a clause/section heading.
+     */
+    private function isSectionHeading(string $line): bool
+    {
+        if (empty($line) || mb_strlen($line) > 120) {
+            return false;
+        }
+
+        // Markdown headers: "# Title", "## Title"
+        if (preg_match('/^#{1,6}\s+\S/', $line)) {
+            return true;
+        }
+
+        // Named clauses: "CLAUSE 1", "CLAUSE 2:"
+        if (preg_match('/^CLAUSE\s+\d+/i', $line)) {
+            return true;
+        }
+
+        // Legal section markers: CHAPTER, SECTION, PART, SCHEDULE, etc.
+        if (preg_match('/^(CHAPTER|SECTION|PART|SCHEDULE|ANNEXURE|APPENDIX)\s/i', $line)) {
+            return true;
+        }
+
+        // Numbered clauses: "1.", "2.", "12.", "1.1", "2.3.1" at start of line
+        // Only when the remainder is heading-length (not a full paragraph sentence)
+        if (preg_match('/^\d+(\.\d+)*[\.\)]\s+(.*)/', $line, $m)) {
+            $rest = trim($m[2]);
+            if (mb_strlen($rest) <= 80) {
+                return true;
+            }
+        }
+
+        // All-caps line that looks like a legal heading (JURISDICTION, PURCHASE PRICE, etc.)
+        if (mb_strlen($line) > 3 && mb_strlen($line) <= 80
+            && mb_strtoupper($line) === $line
+            && preg_match_all('/[A-Z]/', $line) >= 2) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Build the full text content for a section (title + body).
+     */
+    private function buildSectionContent(array $section): string
+    {
+        $parts = [];
+        if (!empty($section['title'])) {
+            $parts[] = $section['title'];
+        }
+        $body = trim($section['body'] ?? '');
+        if ($body !== '') {
+            $parts[] = $body;
+        }
+        return trim(implode("\n", $parts));
+    }
+
+    /**
+     * Merge sections smaller than MIN and split sections larger than MAX.
+     * Small sections merge backward into the previous chunk.
+     */
+    private function normalizeSections(array $sections): array
+    {
+        $normalized = [];
+
+        foreach ($sections as $section) {
+            $content = $this->buildSectionContent($section);
+            if (empty($content)) {
+                continue;
+            }
+
+            $charCount = mb_strlen($content);
+
+            // Try to merge small section into previous chunk
+            if ($charCount < self::MIN_CHUNK_SIZE && !empty($normalized)) {
+                $prevIdx = count($normalized) - 1;
+                $merged = $normalized[$prevIdx]['content'] . "\n\n" . $content;
+
+                if (mb_strlen($merged) <= self::MAX_CHUNK_SIZE) {
+                    $normalized[$prevIdx]['content'] = $merged;
+                    continue;
                 }
             }
 
-            $chunkText = trim($chunkText);
-            if (!empty($chunkText)) {
-                $sectionTitle = $this->detectSectionTitle($chunkText);
-                $wordCount = str_word_count($chunkText);
-
-                $chunks[] = [
-                    'content' => $chunkText,
-                    'section_title' => $sectionTitle,
-                    'char_count' => mb_strlen($chunkText),
-                    'word_count' => $wordCount,
+            // Split oversized section at paragraph / sentence boundaries
+            if ($charCount > self::MAX_CHUNK_SIZE) {
+                $subChunks = $this->splitLargeSection($section['title'], $content);
+                foreach ($subChunks as $sub) {
+                    $normalized[] = $sub;
+                }
+            } else {
+                $normalized[] = [
+                    'title' => $section['title'],
+                    'content' => $content,
                 ];
             }
+        }
 
-            $advance = mb_strlen($chunkText);
-            $offset += max($advance - self::CHUNK_OVERLAP, 1);
+        return $normalized;
+    }
+
+    /**
+     * Split an oversized section first at paragraph boundaries, then sentences.
+     */
+    private function splitLargeSection(?string $sectionTitle, string $content): array
+    {
+        $paragraphs = preg_split('/\n\s*\n/', $content, -1, PREG_SPLIT_NO_EMPTY);
+
+        $chunks = [];
+        $currentContent = '';
+        $chunkCount = 0;
+
+        foreach ($paragraphs as $para) {
+            $para = trim($para);
+            if ($para === '') {
+                continue;
+            }
+
+            $candidate = $currentContent === '' ? $para : $currentContent . "\n\n" . $para;
+
+            if (mb_strlen($candidate) <= self::MAX_CHUNK_SIZE) {
+                $currentContent = $candidate;
+                continue;
+            }
+
+            // Flush accumulated content
+            if ($currentContent !== '') {
+                $title = $chunkCount === 0 ? $sectionTitle : ($sectionTitle ? $sectionTitle . ' (cont.)' : null);
+                $chunks[] = ['title' => $title, 'content' => $currentContent];
+                $chunkCount++;
+                $currentContent = '';
+            }
+
+            // Handle a single paragraph that exceeds MAX
+            if (mb_strlen($para) > self::MAX_CHUNK_SIZE) {
+                $sentenceChunks = $this->splitAtSentences($para);
+                foreach ($sentenceChunks as $sc) {
+                    $title = $chunkCount === 0 ? $sectionTitle : ($sectionTitle ? $sectionTitle . ' (cont.)' : null);
+                    $chunks[] = ['title' => $title, 'content' => $sc];
+                    $chunkCount++;
+                }
+            } else {
+                $currentContent = $para;
+            }
+        }
+
+        // Flush remainder
+        if (trim($currentContent) !== '') {
+            $title = $chunkCount === 0 ? $sectionTitle : ($sectionTitle ? $sectionTitle . ' (cont.)' : null);
+            $chunks[] = ['title' => $title, 'content' => trim($currentContent)];
         }
 
         return $chunks;
     }
 
     /**
-     * Detect section title from the first line of a chunk.
+     * Split a block of text at sentence boundaries, respecting MAX_CHUNK_SIZE.
+     * Returns array of content strings.
      */
-    private function detectSectionTitle(string $chunk): ?string
+    private function splitAtSentences(string $text): array
     {
-        $firstLine = trim(strtok($chunk, "\n"));
-        if (empty($firstLine) || mb_strlen($firstLine) > 120) {
+        $sentences = preg_split('/(?<=[.!?])\s+/', $text, -1, PREG_SPLIT_NO_EMPTY);
+
+        $chunks = [];
+        $current = '';
+
+        foreach ($sentences as $sentence) {
+            $candidate = $current === '' ? $sentence : $current . ' ' . $sentence;
+
+            if (mb_strlen($candidate) > self::MAX_CHUNK_SIZE && $current !== '') {
+                $chunks[] = $current;
+                $current = $sentence;
+            } else {
+                $current = $candidate;
+            }
+        }
+
+        if (trim($current) !== '') {
+            $chunks[] = trim($current);
+        }
+
+        return $chunks;
+    }
+
+    /**
+     * Add sentence-level overlap: prepend the last sentence of the previous
+     * chunk to the start of each subsequent chunk (preserves context without
+     * duplicating headings).
+     */
+    private function addSentenceOverlap(array $chunks): array
+    {
+        if (count($chunks) <= 1) {
+            return $chunks;
+        }
+
+        $result = [$chunks[0]];
+
+        for ($i = 1; $i < count($chunks); $i++) {
+            $lastSentence = $this->extractLastSentence($chunks[$i - 1]['content']);
+
+            if ($lastSentence !== null) {
+                $chunks[$i]['content'] = $lastSentence . "\n" . $chunks[$i]['content'];
+            }
+
+            $result[] = $chunks[$i];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Extract the last sentence from a chunk for overlap purposes.
+     * Returns null if the chunk is a single sentence or the last sentence is too long.
+     */
+    private function extractLastSentence(string $text): ?string
+    {
+        $sentences = preg_split('/(?<=[.!?])\s+/', trim($text), -1, PREG_SPLIT_NO_EMPTY);
+
+        if (count($sentences) < 2) {
             return null;
         }
 
-        // All uppercase line
-        if (mb_strtoupper($firstLine) === $firstLine && mb_strlen($firstLine) > 3) {
-            return $firstLine;
+        $last = end($sentences);
+
+        // Skip overlap if last sentence is too long
+        if (mb_strlen($last) > 300) {
+            return null;
         }
 
-        // Numbered section (e.g., "1. Introduction", "1.2 Scope")
-        if (preg_match('/^\d+(\.\d+)*[\.\)]\s+\S/', $firstLine)) {
-            return $firstLine;
+        return $last;
+    }
+
+    /**
+     * Convert normalized chunk arrays into final metadata format.
+     */
+    private function buildChunkArray(array $chunks): array
+    {
+        $result = [];
+
+        foreach ($chunks as $chunk) {
+            $content = trim($chunk['content']);
+            if ($content === '') {
+                continue;
+            }
+
+            $result[] = [
+                'content' => $content,
+                'section_title' => $chunk['title'] ?? null,
+                'char_count' => mb_strlen($content),
+                'word_count' => str_word_count($content),
+            ];
         }
 
-        // Starts with CHAPTER, SECTION, CLAUSE, PART, SCHEDULE, ANNEXURE
-        if (preg_match('/^(CHAPTER|SECTION|CLAUSE|PART|SCHEDULE|ANNEXURE|APPENDIX)\s/i', $firstLine)) {
-            return $firstLine;
-        }
-
-        return null;
+        return $result;
     }
 
     /**
@@ -314,5 +555,42 @@ class DocumentProcessingService
                 'word_count' => $chunk['word_count'],
             ]);
         }
+    }
+
+    /**
+     * Generate embeddings for all chunks of a document.
+     * Graceful degradation: if API fails, chunks remain without embeddings.
+     */
+    public function generateEmbeddings(KnowledgeDocument $document): int
+    {
+        $chunks = $document->chunks()->where('has_embedding', false)->get();
+        if ($chunks->isEmpty()) {
+            return 0;
+        }
+
+        // Build embedding input: section_title + content
+        $texts = $chunks->map(function ($chunk) {
+            $parts = [];
+            if ($chunk->section_title) {
+                $parts[] = $chunk->section_title;
+            }
+            $parts[] = $chunk->content;
+            return implode("\n", $parts);
+        })->toArray();
+
+        $embeddings = $this->embeddingService->embedBatch($texts);
+
+        $embedded = 0;
+        foreach ($chunks as $i => $chunk) {
+            if (isset($embeddings[$i]) && $embeddings[$i] !== null) {
+                $chunk->update([
+                    'embedding' => $embeddings[$i],
+                    'has_embedding' => true,
+                ]);
+                $embedded++;
+            }
+        }
+
+        return $embedded;
     }
 }

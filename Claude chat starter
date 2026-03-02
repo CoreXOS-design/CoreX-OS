@@ -28,6 +28,15 @@ I am the business owner and non-technical project lead. I cannot code. You write
 - Don't skip the spec document for new feature areas
 - **Don't build across branches without confirming which branch you're on** — this caused a full day of rework on 2026-02-27
 
+
+## Golden Rule
+
+We do complicated so the user can do simplicity. We always over-engineer — no quick fixes, no patches, no "good enough for now." If it works, it works properly. If it doesn't, we fix the root cause, not the symptom.
+
+Every feature ships production-ready. No demo modes. No "we'll fix it later." Later doesn't exist. Now is the only time.
+
+This is the standard. If we lose sleep over it, so be it. But we never settle for inferior product.
+
 ## Prompt Style That Works
 
 ```

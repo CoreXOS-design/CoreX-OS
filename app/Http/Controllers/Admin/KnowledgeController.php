@@ -61,7 +61,7 @@ class KnowledgeController extends Controller
             'version' => 'nullable|string|max:50',
         ]);
 
-        $service = new DocumentProcessingService();
+        $service = app(DocumentProcessingService::class);
         $document = $service->processUpload(
             $request->file('file'),
             $request->input('category_id'),
@@ -99,7 +99,7 @@ class KnowledgeController extends Controller
     public function reprocess($documentId)
     {
         $document = KnowledgeDocument::findOrFail($documentId);
-        $service = new DocumentProcessingService();
+        $service = app(DocumentProcessingService::class);
         $service->reprocess($document);
 
         $document->refresh();
