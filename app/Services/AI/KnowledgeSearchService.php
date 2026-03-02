@@ -91,8 +91,12 @@ class KnowledgeSearchService
                 return ['chunk' => $chunk, 'score' => $hybrid];
             });
 
-            // Sort by hybrid score descending, take top N
-            $topChunks = $scored->sortByDesc('score')->take($limit);
+            // Sort by hybrid score descending, take top N, filter by minimum threshold
+            $topChunks = $scored->sortByDesc('score')->take($limit)->filter(fn ($item) => $item['score'] >= 0.3);
+
+            if ($topChunks->isEmpty()) {
+                return ['context' => '', 'sources' => []];
+            }
 
             $contextParts = [];
             $sources = [];
