@@ -39,6 +39,10 @@ return [
         'url' => env('PORTAL_FETCH_URL', 'http://127.0.0.1:3105'),
     ],
 
+    'openai' => [
+        'key' => env('OPENAI_API_KEY'),
+    ],
+
     'p24_imap' => [
         'host' => env('P24_IMAP_HOST'),
         'port' => env('P24_IMAP_PORT', 993),

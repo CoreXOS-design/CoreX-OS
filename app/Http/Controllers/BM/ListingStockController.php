@@ -28,9 +28,9 @@ class ListingStockController extends Controller
             $filter = '';
         }
 
-        // SQLite-friendly day-diff expressions (day precision)
-        $domExpr  = "(julianday(date('now')) - julianday(date(coalesce(listed_at, created_at))))";
-        $editExpr = "(julianday(date('now')) - julianday(date(coalesce(modified_at, created_at))))";
+        // MySQL day-diff expressions (day precision)
+        $domExpr  = "DATEDIFF(CURDATE(), DATE(COALESCE(listed_at, created_at)))";
+        $editExpr = "DATEDIFF(CURDATE(), DATE(COALESCE(modified_at, created_at)))";
 
         $q = ListingStock::query()
             ->where('source', 'propcon')
@@ -61,10 +61,10 @@ class ListingStockController extends Controller
             $q->whereRaw($editExpr . " >= 14");
         } elseif ($filter === 'expiring') {
             $q->whereNotNull('expires_at')
-              ->whereRaw("(julianday(date(expires_at)) - julianday(date('now'))) between 0 and 14");
+              ->whereRaw("DATEDIFF(DATE(expires_at), CURDATE()) BETWEEN 0 AND 14");
         } elseif ($filter === 'expired') {
             $q->whereNotNull('expires_at')
-              ->whereRaw("julianday(date(expires_at)) < julianday(date('now'))");
+              ->whereRaw("DATE(expires_at) < CURDATE()");
         } elseif ($filter === 'all') {
             // no-op
         }
@@ -115,7 +115,7 @@ class ListingStockController extends Controller
         $totalFiltered = (clone $q)->count();
 
         $avgDom = (clone $q)
-            ->selectRaw("avg(julianday(date('now')) - julianday(date(coalesce(listed_at, created_at)))) as v")
+            ->selectRaw("AVG(DATEDIFF(CURDATE(), DATE(COALESCE(listed_at, created_at)))) as v")
             ->value('v');
         $avgDom = $avgDom !== null ? (int)$avgDom : 0;
 

@@ -18,10 +18,14 @@ class KnowledgeChunk extends Model
         'char_count',
         'word_count',
         'metadata',
+        'embedding',
+        'has_embedding',
     ];
 
     protected $casts = [
         'metadata' => 'array',
+        'embedding' => 'array',
+        'has_embedding' => 'boolean',
     ];
 
     public function document(): BelongsTo

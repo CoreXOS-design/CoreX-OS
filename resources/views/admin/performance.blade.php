@@ -446,7 +446,7 @@
                     </div>
                     <div class="flex items-center gap-2 mb-2">
                         <div class="text-xs text-gray-400">
-                            URL: <span class="font-mono text-gray-300">{{ route('tv.company', ['code' => $companyTvCode->code]) }}</span>
+                            URL: <span class="font-mono text-gray-300">{{ route('tv.display', ['code' => $companyTvCode->code]) }}</span>
                         </div>
                     </div>
                     <div class="flex gap-2">
