@@ -129,61 +129,53 @@ class PresentationPdfTest extends TestCase
 
         $this->get(route('presentations.versions.pdf', [$this->presentation, $this->version]))
             ->assertOk()
-            ->assertHeader('Content-Type', 'text/html; charset=UTF-8');
+            ->assertHeader('Content-Type', 'application/pdf');
     }
+
+    // HTML content tests check the intermediate HTML pack via the service directly,
+    // since the download endpoint now converts HTML → real PDF (binary).
 
     public function test_html_contains_executive_summary(): void
     {
-        Config::set('features.presentation_pdf_v1', true);
-        $this->actingAs($this->user);
+        $service = new PresentationPdfService();
+        $path    = $service->generate($this->version);
+        $content = Storage::disk(PresentationPdfService::STORAGE_DISK)->get($path);
 
-        $response = $this->get(route('presentations.versions.pdf', [$this->presentation, $this->version]));
-        $response->assertOk();
-
-        $content = $response->getContent();
         $this->assertStringContainsString('Executive Summary', $content);
     }
 
     public function test_html_contains_market_overview_section(): void
     {
-        Config::set('features.presentation_pdf_v1', true);
-        $this->actingAs($this->user);
-
-        $response = $this->get(route('presentations.versions.pdf', [$this->presentation, $this->version]));
-        $content  = $response->getContent();
+        $service = new PresentationPdfService();
+        $path    = $service->generate($this->version);
+        $content = Storage::disk(PresentationPdfService::STORAGE_DISK)->get($path);
 
         $this->assertStringContainsString('Market Overview', $content);
     }
 
     public function test_html_contains_presentation_address(): void
     {
-        Config::set('features.presentation_pdf_v1', true);
-        $this->actingAs($this->user);
-
-        $response = $this->get(route('presentations.versions.pdf', [$this->presentation, $this->version]));
-        $content  = $response->getContent();
+        $service = new PresentationPdfService();
+        $path    = $service->generate($this->version);
+        $content = Storage::disk(PresentationPdfService::STORAGE_DISK)->get($path);
 
         $this->assertStringContainsString('12 Ocean View Drive', $content);
     }
 
     public function test_html_contains_holding_cost_section(): void
     {
-        Config::set('features.presentation_pdf_v1', true);
-        $this->actingAs($this->user);
-
-        $response = $this->get(route('presentations.versions.pdf', [$this->presentation, $this->version]));
-        $content  = $response->getContent();
+        $service = new PresentationPdfService();
+        $path    = $service->generate($this->version);
+        $content = Storage::disk(PresentationPdfService::STORAGE_DISK)->get($path);
 
         $this->assertStringContainsString('Holding Cost', $content);
     }
 
     public function test_html_contains_pricing_strategy_section(): void
     {
-        Config::set('features.presentation_pdf_v1', true);
-        $this->actingAs($this->user);
-
-        $response = $this->get(route('presentations.versions.pdf', [$this->presentation, $this->version]));
-        $content  = $response->getContent();
+        $service = new PresentationPdfService();
+        $path    = $service->generate($this->version);
+        $content = Storage::disk(PresentationPdfService::STORAGE_DISK)->get($path);
 
         $this->assertStringContainsString('Pricing Strategy', $content);
     }
@@ -223,7 +215,7 @@ class PresentationPdfTest extends TestCase
             ->assertNotFound();
     }
 
-    // ── File served from cache when already exists ────────────────────────────
+    // ── Always-regenerate behaviour ───────────────────────────────────────────
 
     public function test_existing_pack_file_served_without_regenerating(): void
     {
@@ -233,13 +225,15 @@ class PresentationPdfTest extends TestCase
         $service = new PresentationPdfService();
         $path    = $service->storagePath($this->version);
 
-        // Pre-populate the file with known sentinel content
+        // Pre-populate the HTML file with sentinel content
         Storage::disk(PresentationPdfService::STORAGE_DISK)->put($path, '<html><body>CACHED</body></html>');
 
-        $response = $this->get(route('presentations.versions.pdf', [$this->presentation, $this->version]));
-        $content  = $response->getContent();
+        // Download always regenerates the HTML before converting to PDF,
+        // so the stored file should be overwritten (not contain the sentinel).
+        $this->get(route('presentations.versions.pdf', [$this->presentation, $this->version]))
+            ->assertOk();
 
-        // Should serve the cached file — not regenerate
-        $this->assertStringContainsString('CACHED', $content);
+        $htmlAfter = Storage::disk(PresentationPdfService::STORAGE_DISK)->get($path);
+        $this->assertStringNotContainsString('CACHED', $htmlAfter);
     }
 }

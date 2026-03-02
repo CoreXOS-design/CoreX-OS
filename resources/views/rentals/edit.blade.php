@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -8,7 +8,7 @@
             <h2 class="text-xl font-bold text-white leading-tight">
                 {{ $rental->id ? 'Edit Rental' : 'Create Rental' }}
             </h2>
-            <a href="{{ route('rentals.index') }}" class="nexus-btn-outline text-sm">&larr; Back to Rentals</a>
+            <a href="{{ route('rentals.index') }}" class="corex-btn-outline text-sm">&larr; Back to Rentals</a>
         </div>
     </div>
 
@@ -191,7 +191,7 @@
             @endif
 
             <div class="flex justify-end">
-                <button type="submit" class="nexus-btn-primary">Save Rental</button>
+                <button type="submit" class="corex-btn-primary">Save Rental</button>
             </div>
 
         </div>

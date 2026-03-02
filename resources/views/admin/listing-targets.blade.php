@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -14,10 +14,10 @@
                 <form method="GET" action="{{ route('admin.listing-targets') }}" class="flex items-center gap-2">
                     <input type="month" name="period" value="{{ $period }}"
                            class="rounded-lg border-0 bg-white/10 text-white text-sm px-3 py-1.5">
-                    <button class="nexus-btn-primary text-sm">View</button>
+                    <button class="corex-btn-primary text-sm">View</button>
                 </form>
 
-                <a href="{{ route('admin.dashboard', ['period' => $period]) }}" class="nexus-btn-outline text-sm">&larr; Dashboard</a>
+                <a href="{{ route('admin.dashboard', ['period' => $period]) }}" class="corex-btn-outline text-sm">&larr; Dashboard</a>
             </div>
         </div>
     </div>
@@ -33,7 +33,7 @@
         <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
             <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <h3 class="ds-section-header">Targets for {{ $period }}</h3>
-                <button class="nexus-btn-primary text-sm">Save Targets</button>
+                <button class="corex-btn-primary text-sm">Save Targets</button>
             </div>
 
             <div class="overflow-x-auto">

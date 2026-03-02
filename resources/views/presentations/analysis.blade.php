@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 
 {{-- ══════════════════════════════════════════════════════════════════════════
      PAGE HEADER
@@ -22,7 +22,7 @@
             @endif
         </div>
         <a href="{{ route('presentations.show', $presentation) }}"
-           class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+           class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
             &larr; Overview
         </a>
     </div>
@@ -82,7 +82,7 @@
                 @error('asking_price_inc')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
             </div>
             <div class="flex items-end">
-                <button type="submit" class="nexus-btn-primary">
+                <button type="submit" class="corex-btn-primary">
                     @if(isset($latestSnapshot) && $latestSnapshot) Re-run Analysis @else Run Analysis @endif
                 </button>
             </div>
@@ -106,7 +106,7 @@
     @if(isset($readiness) && $readiness['can_compile'])
     <form method="POST" action="{{ route('presentations.compile', $presentation) }}" class="inline">
         @csrf
-        <button type="submit" class="nexus-btn-primary" style="background:#059669;">
+        <button type="submit" class="corex-btn-primary" style="background:#059669;">
             Compile Pack
         </button>
     </form>
@@ -119,11 +119,11 @@
     {{-- Download PDF --}}
     @if(isset($latestVersion) && $latestVersion)
     <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
-       class="nexus-btn-primary">
+       class="corex-btn-primary">
         Download PDF
     </a>
     <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
-       class="nexus-btn-primary" style="background:#00b4d8;">
+       class="corex-btn-primary" style="background:#00b4d8;">
         Complete Pack (ZIP)
     </a>
     @endif
@@ -131,7 +131,7 @@
     {{-- Pricing Simulator --}}
     @if(config('features.pricing_simulator_v1'))
     <a href="{{ route('presentations.pricing-simulator', $presentation) }}"
-       class="nexus-btn-primary">
+       class="corex-btn-primary">
         Pricing Simulator
     </a>
     @endif

@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -23,7 +23,7 @@
                     <label class="block text-xs text-white/60 mb-1">Source</label>
                     <input name="source" value="{{ $source ?? 'propcon' }}" class="w-40 rounded-lg border-0 bg-white/10 text-white text-sm px-3 py-1.5 placeholder:text-white/40" />
                 </div>
-                <button class="nexus-btn-primary text-sm">Apply</button>
+                <button class="corex-btn-primary text-sm">Apply</button>
             </form>
         </div>
     </div>
@@ -101,7 +101,7 @@
                                 @endif
                             </td>
                             <td class="px-4 py-3 text-right">
-                                <a class="nexus-btn-primary text-sm"
+                                <a class="corex-btn-primary text-sm"
                                    href="{{ route('admin.listings.agents.show', ['user' => $r['user_id'], 'status' => $status ?? 'active', 'source' => $source ?? 'propcon']) }}">
                                     View
                                 </a>

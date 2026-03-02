@@ -1,11 +1,11 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @php
     $userInitials = collect(explode(' ', $user->name))->map(function($n) { return strtoupper(substr($n, 0, 1)); })->join('');
     $userFullName = $user->name;
 @endphp
 
-@section('nexus-content')
+@section('corex-content')
 {{-- Signature Pad library --}}
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
 <style>
@@ -271,7 +271,7 @@
                         Cancel
                     </button>
                     <button @click="applyTextValue()"
-                            class="nexus-btn-primary text-sm px-6 py-2.5"
+                            class="corex-btn-primary text-sm px-6 py-2.5"
                             :disabled="applying || !textInputValue.trim()"
                             :class="(applying || !textInputValue.trim()) ? 'opacity-50 cursor-not-allowed' : ''">
                         <span x-show="!applying">Apply</span>

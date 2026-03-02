@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -79,7 +79,7 @@
             </div>
 
             <div class="md:col-span-2">
-                <button class="nexus-btn-primary text-sm w-full">Add</button>
+                <button class="corex-btn-primary text-sm w-full">Add</button>
             </div>
 
         </form>
@@ -145,7 +145,7 @@
                         </div>
 
                         <div class="md:col-span-1">
-                            <button class="nexus-btn-primary text-sm">Save</button>
+                            <button class="corex-btn-primary text-sm">Save</button>
                         </div>
 
                     </form>

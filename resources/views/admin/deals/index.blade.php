@@ -44,7 +44,7 @@
                                         <td class="px-3 py-2 text-gray-700">{{ $d->property_address ?? '—' }}</td>
                                         <td class="px-3 py-2 text-gray-700">{{ $d->period ?? '—' }}</td>
                                         <td class="px-3 py-2">
-                                            <a href="{{ route('admin.deals.settle', $d) }}" class="nexus-btn-primary text-xs px-3 py-1.5">
+                                            <a href="{{ route('admin.deals.settle', $d) }}" class="corex-btn-primary text-xs px-3 py-1.5">
                                                 Open settlement
                                             </a>
                                         </td>
@@ -55,7 +55,7 @@
                     </div>
 
                     <div class="mt-4 flex justify-end">
-                        <button type="button" @click="openPaidExceptions = false" class="nexus-btn-outline text-sm">
+                        <button type="button" @click="openPaidExceptions = false" class="corex-btn-outline text-sm">
                             Close
                         </button>
                     </div>
@@ -192,16 +192,16 @@
                                                 <option value="Paid" {{ $csVal === 'Paid' ? 'selected' : '' }}>Paid</option>
                                                 <option value="Loss" {{ $csVal === 'Loss' ? 'selected' : '' }}>Loss</option>
                                             </select>
-                                            <button type="submit" class="nexus-btn-primary text-xs px-2 py-1" style="font-size:0.6875rem">Save</button>
+                                            <button type="submit" class="corex-btn-primary text-xs px-2 py-1" style="font-size:0.6875rem">Save</button>
                                         </form>
                                     </td>
 
                                     <td class="px-4 py-3 text-right">
                                         <div class="flex items-center justify-end gap-1.5">
-                                            <a href="{{ route('admin.deals.log', $deal) }}" class="nexus-btn-outline text-xs px-2 py-1">Log</a>
-                                            <a href="{{ route('admin.deals.edit', $deal) }}" class="nexus-btn-outline text-xs px-2 py-1">Edit</a>
+                                            <a href="{{ route('admin.deals.log', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Log</a>
+                                            <a href="{{ route('admin.deals.edit', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Edit</a>
                                             @if(auth()->user()->isEffectiveAdmin())
-                                                <a href="{{ route('admin.deals.settle', $deal) }}" class="nexus-btn-primary text-xs px-2 py-1">Pay</a>
+                                                <a href="{{ route('admin.deals.settle', $deal) }}" class="corex-btn-primary text-xs px-2 py-1">Pay</a>
                                             @endif
                                         </div>
                                     </td>

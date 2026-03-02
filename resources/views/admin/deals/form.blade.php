@@ -305,7 +305,7 @@
 
         <div class="flex items-center justify-end">
             <button type="submit"
-                    class="nexus-btn-primary px-5 py-2.5 text-sm">
+                    class="corex-btn-primary px-5 py-2.5 text-sm">
                 {{ $mode === 'create' ? 'Save Deal' : 'Update Deal' }}
             </button>
         </div>

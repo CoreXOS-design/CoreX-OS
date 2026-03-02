@@ -29,7 +29,7 @@ class ImpersonateController extends Controller
         session(['impersonator_id' => (int)$admin->id]);
         session()->save();
 
-        return redirect()->route('nexus.dashboard')->with('status', 'Now impersonating ' . ($user->name ?? 'user'));
+        return redirect()->route('corex.dashboard')->with('status', 'Now impersonating ' . ($user->name ?? 'user'));
     }
 
     public function stop()
@@ -46,6 +46,6 @@ class ImpersonateController extends Controller
         session()->forget('impersonator_id');
         session()->save();
 
-        return redirect()->route('nexus.dashboard')->with('status', 'Returned to admin account');
+        return redirect()->route('corex.dashboard')->with('status', 'Returned to admin account');
     }
 }

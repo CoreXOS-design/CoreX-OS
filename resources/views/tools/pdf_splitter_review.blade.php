@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 @php
     $base       = $manifest['base'];
     $pCount     = (int)$manifest['pCount'];

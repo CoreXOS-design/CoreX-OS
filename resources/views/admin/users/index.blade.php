@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -79,7 +79,7 @@
                         <div class="shrink-0 flex items-center gap-2">
                             <form method="POST" action="{{ route('admin.users.toggle', $user) }}">
                                 @csrf
-                                <button class="nexus-btn-outline text-sm">
+                                <button class="corex-btn-outline text-sm">
                                     Toggle Active
                                 </button>
                             </form>
@@ -178,7 +178,7 @@
 
                             <div class="md:col-span-12 flex items-center justify-between gap-3 pt-2">
                                 <div class="text-xs text-slate-500 dark:text-slate-400">One save updates role/branch/designation + defaults.</div>
-                                <button type="submit" class="nexus-btn-primary text-sm">
+                                <button type="submit" class="corex-btn-primary text-sm">
                                     Save User
                                 </button>
                             </div>

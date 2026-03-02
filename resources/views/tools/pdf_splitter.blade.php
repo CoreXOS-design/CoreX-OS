@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 <style>
 #pdf-splitter-root, #pdf-splitter-root * { box-sizing: border-box; }
 
@@ -105,7 +105,7 @@
                     @enderror
                 </div>
 
-                <button type="submit" class="nexus-btn-primary" style="padding: 0.625rem 1.5rem;">
+                <button type="submit" class="corex-btn-primary" style="padding: 0.625rem 1.5rem;">
                     Upload PDF
                 </button>
             </form>

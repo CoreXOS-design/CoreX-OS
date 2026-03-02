@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -50,7 +50,7 @@
                     <input type="checkbox" name="is_enabled" value="1" checked class="rounded border-slate-300 dark:border-slate-700">
                     Active
                 </label>
-                <button class="nexus-btn-primary text-sm ml-auto">Add</button>
+                <button class="corex-btn-primary text-sm ml-auto">Add</button>
             </div>
         </form>
 
@@ -114,7 +114,7 @@
                                 </td>
 
                                 <td class="p-3 text-right">
-                                    <button class="nexus-btn-primary text-xs">Save</button>
+                                    <button class="corex-btn-primary text-xs">Save</button>
                                 </td>
                             </form>
                         </tr>

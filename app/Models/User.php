@@ -125,9 +125,9 @@ class User extends Authenticatable
         return stripos($this->designation ?? '', 'Candidate') !== false;
     }
 
-    // --- Nexus OS Section Access ---
+    // --- CoreX OS Section Access ---
 
-    public function canAccessNexusSection(string $section): bool
+    public function canAccessCorexSection(string $section): bool
     {
         if ($this->isEffectiveAdmin()) {
             return true;

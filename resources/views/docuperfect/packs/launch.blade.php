@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -169,7 +169,7 @@
         @endforeach
 
         <div class="pt-2">
-            <button type="submit" class="nexus-btn-primary text-sm px-6 py-2.5 w-full md:w-auto" style="background:#10b981;">
+            <button type="submit" class="corex-btn-primary text-sm px-6 py-2.5 w-full md:w-auto" style="background:#10b981;">
                 <i class="fas fa-rocket mr-1"></i> Create Documents
             </button>
         </div>

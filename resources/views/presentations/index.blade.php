@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 
 {{-- Navy header bar --}}
 <div class="max-w-6xl mx-auto">
@@ -11,7 +11,7 @@
                 <div class="text-sm text-white/60">Seller presentations with market analysis</div>
             </div>
             <a href="{{ route('presentations.create') }}"
-               class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
                 + New Presentation
             </a>
         </div>
@@ -24,7 +24,7 @@
         @if($presentations->isEmpty())
             <div class="px-6 py-12 text-center">
                 <p class="text-gray-400 text-sm mb-4">No presentations yet.</p>
-                <a href="{{ route('presentations.create') }}" class="nexus-btn-primary">
+                <a href="{{ route('presentations.create') }}" class="corex-btn-primary">
                     Create your first presentation
                 </a>
             </div>

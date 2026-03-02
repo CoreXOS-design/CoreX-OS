@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 
 <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 mb-6">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
@@ -9,7 +9,7 @@
             <div class="text-sm text-white/60">Compiled presentation packs</div>
         </div>
         <a href="{{ route('presentations.index') }}"
-           class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+           class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
             &larr; All Presentations
         </a>
     </div>
@@ -52,7 +52,7 @@
                class="border border-gray-300 rounded px-2 py-1.5 text-xs w-28">
     </div>
 
-    <button type="submit" class="nexus-btn-primary" style="padding:0.375rem 0.75rem; font-size:0.75rem;">
+    <button type="submit" class="corex-btn-primary" style="padding:0.375rem 0.75rem; font-size:0.75rem;">
         Filter
     </button>
 

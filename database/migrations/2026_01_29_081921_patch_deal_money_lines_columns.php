@@ -1,51 +1,30 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
-    private function colExists(string $table, string $col): bool
-    {
-        $db = DB::getDatabaseName();
-        $result = DB::select(
-            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?",
-            [$db, $table, $col]
-        );
-        return count($result) > 0;
-    }
-
     public function up(): void
     {
-        // Add only missing columns (SQLite: ALTER TABLE ADD COLUMN only)
         $table = "deal_money_lines";
 
-        $adds = [
-            ["side_pool_ex_vat", "decimal(14,2) NOT NULL DEFAULT 0"],
-            ["allocation_percent", "decimal(6,2) NOT NULL DEFAULT 0"],
-            ["pool_share_ex_vat", "decimal(14,2) NOT NULL DEFAULT 0"],
-
-            ["agent_cut_percent", "decimal(6,2) NOT NULL DEFAULT 0"],
-            ["agent_gross_ex_vat", "decimal(14,2) NOT NULL DEFAULT 0"],
-            ["company_gross_ex_vat", "decimal(14,2) NOT NULL DEFAULT 0"],
-
-            ["paye_method", "varchar(20) NULL"],
-            ["paye_value", "decimal(14,2) NOT NULL DEFAULT 0"],
-            ["paye_amount", "decimal(14,2) NOT NULL DEFAULT 0"],
-
-            ["deductions", "decimal(14,2) NOT NULL DEFAULT 0"],
-            ["deductions_description", "varchar(255) NULL"],
-
-            ["agent_net_ex_vat", "decimal(14,2) NOT NULL DEFAULT 0"],
-
-            ["source", "varchar(30) NULL"],
-            ["paid_at", "datetime NULL"],
-        ];
-
-        foreach ($adds as [$col, $sqlType]) {
-            if (!$this->colExists($table, $col)) {
-                DB::statement("ALTER TABLE `$table` ADD `$col` $sqlType");
-            }
-        }
+        Schema::table($table, function (Blueprint $t) use ($table) {
+            if (!Schema::hasColumn($table, 'side_pool_ex_vat'))    $t->decimal('side_pool_ex_vat',    14, 2)->default(0);
+            if (!Schema::hasColumn($table, 'allocation_percent'))  $t->decimal('allocation_percent',  6,  2)->default(0);
+            if (!Schema::hasColumn($table, 'pool_share_ex_vat'))   $t->decimal('pool_share_ex_vat',   14, 2)->default(0);
+            if (!Schema::hasColumn($table, 'agent_cut_percent'))   $t->decimal('agent_cut_percent',   6,  2)->default(0);
+            if (!Schema::hasColumn($table, 'agent_gross_ex_vat'))  $t->decimal('agent_gross_ex_vat',  14, 2)->default(0);
+            if (!Schema::hasColumn($table, 'company_gross_ex_vat'))$t->decimal('company_gross_ex_vat',14, 2)->default(0);
+            if (!Schema::hasColumn($table, 'paye_method'))         $t->string('paye_method', 20)->nullable();
+            if (!Schema::hasColumn($table, 'paye_value'))          $t->decimal('paye_value',  14, 2)->default(0);
+            if (!Schema::hasColumn($table, 'paye_amount'))         $t->decimal('paye_amount', 14, 2)->default(0);
+            if (!Schema::hasColumn($table, 'deductions'))          $t->decimal('deductions',  14, 2)->default(0);
+            if (!Schema::hasColumn($table, 'deductions_description'))$t->string('deductions_description')->nullable();
+            if (!Schema::hasColumn($table, 'agent_net_ex_vat'))    $t->decimal('agent_net_ex_vat', 14, 2)->default(0);
+            if (!Schema::hasColumn($table, 'source'))              $t->string('source', 30)->nullable();
+            if (!Schema::hasColumn($table, 'paid_at'))             $t->dateTime('paid_at')->nullable();
+        });
     }
 
     public function down(): void

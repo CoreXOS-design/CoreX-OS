@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 
@@ -19,7 +19,7 @@
                     <div class="text-xs uppercase tracking-wide text-white/60">Commission (Excl VAT)</div>
                     <div class="text-2xl font-bold text-white">R {{ number_format($summary->total_comm ?? 0, 2) }}</div>
                 </div>
-                <a href="{{ route('rentals.create') }}" class="nexus-btn-primary">+ New Rental</a>
+                <a href="{{ route('rentals.create') }}" class="corex-btn-primary">+ New Rental</a>
             </div>
         </div>
     </div>

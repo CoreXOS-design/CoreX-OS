@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 
 {{-- Navy header bar --}}
 <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 mb-6">
@@ -14,7 +14,7 @@
             </div>
         </div>
         <a href="{{ route('presentations.index') }}"
-           class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+           class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
             &larr; Back to Presentations
         </a>
     </div>
@@ -78,7 +78,7 @@
             </div>
         </div>
         <div class="mt-4">
-            <button type="submit" class="nexus-btn-primary">
+            <button type="submit" class="corex-btn-primary">
                 Re-run Analysis
             </button>
         </div>
@@ -509,7 +509,7 @@
         <input type="hidden" name="prob_run_id"         value="{{ $spRun->id }}">
         <input type="hidden" name="inputs_json"         value="{{ $snapshotInputsJson }}">
         <input type="hidden" name="output_summary_json" value="{{ $snapshotOutputSummaryJson }}">
-        <button type="submit" class="nexus-btn-primary">
+        <button type="submit" class="corex-btn-primary">
             Save Snapshot
         </button>
     </form>

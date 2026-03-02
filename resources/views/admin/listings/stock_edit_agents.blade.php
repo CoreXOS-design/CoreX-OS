@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -10,7 +10,7 @@
                     Listing #{{ $listing->id }} &middot; {{ $listing->source }} &middot; {{ $listing->external_ref }} / {{ $listing->external_id }}
                 </div>
             </div>
-            <a href="{{ route('admin.listings.agents.show', $listing->user_id) }}" class="nexus-btn-outline text-sm">&larr; Back</a>
+            <a href="{{ route('admin.listings.agents.show', $listing->user_id) }}" class="corex-btn-outline text-sm">&larr; Back</a>
         </div>
     </div>
 
@@ -81,7 +81,7 @@
             <div class="text-xs text-gray-500 mt-1">Hold Ctrl (Windows) / Cmd (Mac) to select multiple.</div>
         </div>
 
-        <button type="submit" class="nexus-btn-primary">
+        <button type="submit" class="corex-btn-primary">
             Save Agents
         </button>
     </form>

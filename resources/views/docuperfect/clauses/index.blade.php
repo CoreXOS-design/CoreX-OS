@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -9,7 +9,7 @@
             <div class="text-sm text-white/60">Reusable conditional clauses for document templates.</div>
         </div>
         @if($canEdit)
-        <button type="button" onclick="document.getElementById('addClauseSection').classList.toggle('hidden')" class="nexus-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
+        <button type="button" onclick="document.getElementById('addClauseSection').classList.toggle('hidden')" class="corex-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
             + New Clause
         </button>
         @endif
@@ -60,7 +60,7 @@
                     @endforeach
                 </div>
             </div>
-            <button class="nexus-btn-primary text-sm">Add Clause</button>
+            <button class="corex-btn-primary text-sm">Add Clause</button>
         </form>
     </div>
     @endif
@@ -140,7 +140,7 @@
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
-                            <button class="nexus-btn-primary text-sm">Save</button>
+                            <button class="corex-btn-primary text-sm">Save</button>
                             <button type="button" @click="editing = false" class="text-sm text-slate-500 hover:text-slate-700">Cancel</button>
                         </div>
                     </form>

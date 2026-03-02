@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -107,7 +107,7 @@
         </div>
 
             <div class="flex justify-end">
-                <button class="nexus-btn-primary">Save Settings</button>
+                <button class="corex-btn-primary">Save Settings</button>
             </div>
         </form>
 </div>

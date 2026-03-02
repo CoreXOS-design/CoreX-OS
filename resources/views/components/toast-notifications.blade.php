@@ -1,5 +1,5 @@
 {{-- Global Toast Notification System --}}
-{{-- Include once in the main layout (layouts.nexus) --}}
+{{-- Include once in the main layout (layouts.corex) --}}
 {{-- Usage from JS: window.showToast('Message', 'success|error|info|warning', 4000) --}}
 {{-- Automatically picks up Laravel session('success'), session('error'), session('warning'), session('info') --}}
 

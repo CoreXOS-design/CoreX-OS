@@ -94,7 +94,7 @@
                     Cancel
                 </button>
                 <button @click="applySignature()"
-                        class="nexus-btn-primary text-sm px-6 py-2.5"
+                        class="corex-btn-primary text-sm px-6 py-2.5"
                         :disabled="applying"
                         :class="applying ? 'opacity-50 cursor-not-allowed' : ''">
                     <span x-show="!applying">Apply Signature</span>
@@ -125,7 +125,7 @@
                 No, I'll Sign Each One
             </button>
             <button @click="applyToAllSignatureMarkers()"
-                    class="nexus-btn-primary text-sm px-6 py-2.5"
+                    class="corex-btn-primary text-sm px-6 py-2.5"
                     :disabled="applyingAll"
                     :class="applyingAll ? 'opacity-50 cursor-not-allowed' : ''">
                 <span x-show="!applyingAll">Yes, Apply to All</span>

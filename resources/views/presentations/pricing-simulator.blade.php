@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 
 {{-- ══════════════════════════════════════════════════════════════════════════
      PAGE HEADER
@@ -18,11 +18,11 @@
         </div>
         <div class="flex gap-2">
             <a href="{{ route('presentations.analysis', $presentation) }}"
-               class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
                 &larr; Analysis
             </a>
             <a href="{{ route('presentations.show', $presentation) }}"
-               class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
                 &larr; Overview
             </a>
         </div>
@@ -203,11 +203,11 @@
      ACTION BUTTONS
 ══════════════════════════════════════════════════════════════════════════ --}}
 <div class="flex flex-wrap items-center gap-3 mb-8">
-    <button id="btn-compute" class="nexus-btn-primary">
+    <button id="btn-compute" class="corex-btn-primary">
         Compute Scenarios
     </button>
 
-    <button id="btn-save" class="nexus-btn-primary" style="background:#059669;">
+    <button id="btn-save" class="corex-btn-primary" style="background:#059669;">
         Save Configuration
     </button>
 
@@ -218,7 +218,7 @@
     </label>
 
     <a href="{{ route('presentations.pricing-simulator.present', $presentation) }}" target="_blank"
-       class="nexus-btn-primary">
+       class="corex-btn-primary">
         Present to Seller &rarr;
     </a>
 

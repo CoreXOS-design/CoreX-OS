@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -23,7 +23,7 @@
                     </select>
                 @endif
 
-                <button class="nexus-btn-primary text-sm">Load</button>
+                <button class="corex-btn-primary text-sm">Load</button>
             </form>
         </div>
     </div>
@@ -64,7 +64,7 @@
                 </div>
 
                 <div class="flex justify-end">
-                    <button class="nexus-btn-primary text-sm">Save Company Goal</button>
+                    <button class="corex-btn-primary text-sm">Save Company Goal</button>
                 </div>
             </form>
         </div>
@@ -113,7 +113,7 @@
             </div>
 
             <div class="flex justify-end">
-                <button class="nexus-btn-primary text-sm">Save Branch Goal</button>
+                <button class="corex-btn-primary text-sm">Save Branch Goal</button>
             </div>
         </form>
     </div>

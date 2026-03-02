@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -38,7 +38,7 @@
                     Confirmed
                 </label>
             </div>
-            <button type="submit" class="nexus-btn-primary text-sm">Add</button>
+            <button type="submit" class="corex-btn-primary text-sm">Add</button>
         </form>
     </div>
 
@@ -85,7 +85,7 @@
                             </td>
                             <td class="px-4 py-3 text-right">
                                 <div class="flex items-center justify-end gap-2">
-                                    <button type="submit" class="nexus-btn-primary text-xs">Save</button>
+                                    <button type="submit" class="corex-btn-primary text-xs">Save</button>
                         </form>
                                     <form method="POST" action="{{ route('admin.p24-suburbs.destroy', $suburb) }}" class="inline" onsubmit="return confirm('Delete {{ $suburb->name }}?')">
                                         @csrf

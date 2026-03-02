@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -52,7 +52,7 @@
         @if(!empty($packInstance))
         <div class="flex justify-end">
             <button type="button" id="dpCombinedPdfBtn"
-                    class="nexus-btn-primary text-sm px-4 py-2" style="background:#0b2a4a;"
+                    class="corex-btn-primary text-sm px-4 py-2" style="background:#0b2a4a;"
                     onclick="downloadCombinedPdf()">
                 <i class="fas fa-file-pdf mr-1"></i> Download as Single PDF
             </button>

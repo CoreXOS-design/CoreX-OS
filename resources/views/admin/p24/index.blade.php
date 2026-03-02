@@ -42,7 +42,7 @@
             <div class="mt-4">
                 <form method="POST" action="{{ route('admin.p24.import') }}">
                     @csrf
-                    <button type="submit" class="nexus-btn-primary">
+                    <button type="submit" class="corex-btn-primary">
                         Run Import Now
                     </button>
                 </form>

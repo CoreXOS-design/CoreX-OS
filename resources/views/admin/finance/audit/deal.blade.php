@@ -1,5 +1,5 @@
 @php use App\Support\Finance\AuditLabelHelper; @endphp
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -47,7 +47,7 @@
                         @endif
                     </div>
                 </div>
-                <a href="{{ route('admin.deals.edit', $deal) }}" class="nexus-btn-outline text-sm">
+                <a href="{{ route('admin.deals.edit', $deal) }}" class="corex-btn-outline text-sm">
                     View in Deal Register &rarr;
                 </a>
             </div>

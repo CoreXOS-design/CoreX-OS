@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
     <style>
@@ -39,7 +39,7 @@
 
                 <div class="flex items-center gap-2">
                     @if(!empty($isAdmin))
-                        <a href="{{ route('admin.targets.activity.setup') }}" class="nexus-btn-outline text-sm">Activity Setup</a>
+                        <a href="{{ route('admin.targets.activity.setup') }}" class="corex-btn-outline text-sm">Activity Setup</a>
                     @endif
 
                     @if(!$isAgent)
@@ -49,7 +49,7 @@
                                     <option value="{{ $p }}" {{ $p === $period ? 'selected' : '' }}>{{ $p }}</option>
                                 @endforeach
                             </select>
-                            <button class="nexus-btn-primary text-sm">View</button>
+                            <button class="corex-btn-primary text-sm">View</button>
                         </form>
                     @else
                         <div class="text-white/80 text-sm font-medium">{{ $period }}</div>
@@ -75,7 +75,7 @@
                 <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
                     <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                         <h3 class="ds-section-header">Monthly Targets for {{ $period }}</h3>
-                        <button class="nexus-btn-primary text-sm">Save Targets</button>
+                        <button class="corex-btn-primary text-sm">Save Targets</button>
                     </div>
 
                     <div class="targets-table-wrap">

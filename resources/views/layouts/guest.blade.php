@@ -5,14 +5,14 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
-        <title>{{ config('app.name', 'Nexus OS') }} — Sign In</title>
+        <title>{{ config('app.name', 'CoreX OS') }} — Sign In</title>
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />
 
         <!-- Scripts & Styles -->
-        @vite(['resources/css/app.css', 'resources/css/nexus.css', 'resources/js/app.js'])
+        @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
 
         <style>
             body {
@@ -100,7 +100,7 @@
             {{-- Branding --}}
             <div class="mb-8 text-center">
                 <div style="font-size: 2rem; font-weight: 800; letter-spacing: -0.04em; color: #fff; line-height: 1;">
-                    nexus <span style="color: #33c4e0;">os</span>
+                    CoreX <span style="color: #33c4e0;">Os</span>
                 </div>
             </div>
 

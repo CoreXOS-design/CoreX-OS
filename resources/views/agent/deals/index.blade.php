@@ -84,7 +84,7 @@
 
                                     <td class="px-5 py-4 text-right">
                                         <a href="{{ route('agent.deals.log', $deal) }}"
-                                           class="nexus-btn-primary text-xs px-3 py-1.5">
+                                           class="corex-btn-primary text-xs px-3 py-1.5">
                                             Log
                                         </a>
                                     </td>

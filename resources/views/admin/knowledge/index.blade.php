@@ -50,7 +50,7 @@
                     <input type="text" name="version" class="w-full rounded border-gray-300 text-sm px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500" placeholder="e.g. v2.1" value="{{ old('version') }}">
                 </div>
                 <div class="flex items-end">
-                    <button type="submit" class="nexus-btn-primary px-4 py-2 rounded text-sm font-medium" style="background:var(--nexus-cyan,#00b4d8);color:#fff;">Upload Document</button>
+                    <button type="submit" class="corex-btn-primary px-4 py-2 rounded text-sm font-medium" style="background:var(--corex-cyan,#00b4d8);color:#fff;">Upload Document</button>
                 </div>
             </div>
             <div class="text-xs text-gray-500 mt-2">Accepted: PDF, DOCX, DOC, TXT, MD &mdash; Max 20MB</div>
@@ -88,7 +88,7 @@
     <div x-data="categoryManager()">
         <div class="flex items-center justify-between mb-3">
             <h3 class="ds-section-header" style="margin-bottom:0;">Categories</h3>
-            <button type="button" @click="openCreate()" class="inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white" style="background:var(--nexus-cyan,#00b4d8);">
+            <button type="button" @click="openCreate()" class="inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white" style="background:var(--corex-cyan,#00b4d8);">
                 <i class="fas fa-plus text-[10px]"></i> New Category
             </button>
         </div>
@@ -99,7 +99,7 @@
                         <a href="{{ route('admin.knowledge.category', $cat->id) }}" class="flex-1 block" style="text-decoration:none;color:inherit;">
                             <div class="flex items-center gap-3 mb-2">
                                 @if($cat->icon)
-                                    <i class="fas {{ $cat->icon }} text-lg" style="color:var(--nexus-cyan,#00b4d8);"></i>
+                                    <i class="fas {{ $cat->icon }} text-lg" style="color:var(--corex-cyan,#00b4d8);"></i>
                                 @endif
                                 <div class="font-semibold text-sm">{{ $cat->name }}</div>
                             </div>
@@ -168,7 +168,7 @@
                             <div class="flex items-center gap-2">
                                 <input type="text" name="icon" x-model="form.icon" maxlength="100" class="w-full rounded border-gray-300 text-sm px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500" placeholder="e.g. fa-building">
                                 <span class="shrink-0 w-8 h-8 flex items-center justify-center rounded bg-gray-100">
-                                    <i class="fas" :class="form.icon || 'fa-folder'" style="color:var(--nexus-cyan,#00b4d8);"></i>
+                                    <i class="fas" :class="form.icon || 'fa-folder'" style="color:var(--corex-cyan,#00b4d8);"></i>
                                 </span>
                             </div>
                             <div class="text-xs text-gray-400 mt-1">FontAwesome class, e.g. fa-building, fa-book, fa-gavel</div>
@@ -176,7 +176,7 @@
                     </div>
                     <div class="flex justify-end gap-2 mt-5">
                         <button type="button" @click="showModal = false" class="px-3 py-1.5 rounded text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200">Cancel</button>
-                        <button type="submit" class="px-4 py-1.5 rounded text-xs font-medium text-white" style="background:var(--nexus-cyan,#00b4d8);" x-text="editId ? 'Save Changes' : 'Create Category'"></button>
+                        <button type="submit" class="px-4 py-1.5 rounded text-xs font-medium text-white" style="background:var(--corex-cyan,#00b4d8);" x-text="editId ? 'Save Changes' : 'Create Category'"></button>
                     </div>
                 </form>
             </div>

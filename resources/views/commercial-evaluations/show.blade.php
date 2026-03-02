@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 @php
     $typeLabel = \App\Models\CommercialEvaluation::propertyTypeLabel($evaluation->property_type);
     $typeBadge = \App\Models\CommercialEvaluation::propertyTypeBadgeColor($evaluation->property_type);
@@ -46,7 +46,7 @@
                 <p class="text-xs text-white/40 mt-0.5">Created {{ $evaluation->created_at->format('Y-m-d') }}</p>
             </div>
             <a href="{{ route('commercial-evaluations.index') }}"
-               class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
                 &larr; All Evaluations
             </a>
         </div>
@@ -57,16 +57,16 @@
     {{-- ACTION BUTTONS --}}
     <div class="ds-status-card mb-6">
         <div class="flex flex-wrap items-center gap-3 px-5 py-3.5">
-            <a href="{{ route('commercial-evaluations.edit', $evaluation) }}" class="nexus-btn-primary text-sm">
+            <a href="{{ route('commercial-evaluations.edit', $evaluation) }}" class="corex-btn-primary text-sm">
                 Edit Details
             </a>
             <form method="POST" action="{{ route('commercial-evaluations.evaluate', $evaluation) }}" class="inline">
                 @csrf
-                <button type="submit" class="nexus-btn-outline text-sm">
+                <button type="submit" class="corex-btn-outline text-sm">
                     Run Evaluation
                 </button>
             </form>
-            <a href="{{ route('commercial-evaluations.pdf', $evaluation) }}" class="nexus-btn-outline text-sm">
+            <a href="{{ route('commercial-evaluations.pdf', $evaluation) }}" class="corex-btn-outline text-sm">
                 Download PDF
             </a>
         </div>
@@ -274,7 +274,7 @@
                     </div>
 
                     <div class="flex items-center gap-2 mt-3">
-                        <button type="submit" class="nexus-btn-primary text-xs">Save Financial Year</button>
+                        <button type="submit" class="corex-btn-primary text-xs">Save Financial Year</button>
                         <button type="button" @click="showFinancialForm = false" class="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
                     </div>
                 </form>
@@ -375,7 +375,7 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button type="submit" class="nexus-btn-primary text-xs">Add Unit</button>
+                        <button type="submit" class="corex-btn-primary text-xs">Add Unit</button>
                         <button type="button" @click="showUnitForm = false" class="text-xs text-gray-500">Cancel</button>
                     </div>
                 </form>
@@ -510,7 +510,7 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button type="submit" class="nexus-btn-primary text-xs">Add Asset</button>
+                        <button type="submit" class="corex-btn-primary text-xs">Add Asset</button>
                         <button type="button" @click="showAssetForm = false" class="text-xs text-gray-500">Cancel</button>
                     </div>
                 </form>
@@ -765,7 +765,7 @@
                     </div>
 
                     <div class="flex items-center gap-2">
-                        <button type="submit" class="nexus-btn-primary text-xs">Add Crop</button>
+                        <button type="submit" class="corex-btn-primary text-xs">Add Crop</button>
                         <button type="button" @click="showCropForm = false; selectedCrop = ''" class="text-xs text-gray-500">Cancel</button>
                     </div>
                 </form>
@@ -1076,7 +1076,7 @@
                     </div>
 
                     <div class="flex items-center gap-2">
-                        <button type="submit" class="nexus-btn-primary text-xs">Add Livestock</button>
+                        <button type="submit" class="corex-btn-primary text-xs">Add Livestock</button>
                         <button type="button" @click="showLivestockForm = false; selectedLivestock = ''" class="text-xs text-gray-500">Cancel</button>
                     </div>
                 </form>
@@ -1246,7 +1246,7 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button type="submit" class="nexus-btn-primary text-xs">Add Comparable</button>
+                        <button type="submit" class="corex-btn-primary text-xs">Add Comparable</button>
                         <button type="button" @click="showCompForm = false" class="text-xs text-gray-500">Cancel</button>
                     </div>
                 </form>

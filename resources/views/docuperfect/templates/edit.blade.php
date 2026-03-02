@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 <link rel="stylesheet" href="{{ asset('css/docuperfect-editor.css') }}">
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
@@ -26,7 +26,7 @@
             <div class="text-sm text-white/60">{{ $template->page_count }} page{{ $template->page_count !== 1 ? 's' : '' }} &middot; {{ $template->template_type }}</div>
         </div>
         <div class="flex items-center gap-3">
-            <button type="button" id="dpSaveBtn" class="nexus-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">Save</button>
+            <button type="button" id="dpSaveBtn" class="corex-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">Save</button>
             <a href="{{ route('docuperfect.templates.index') }}" class="text-sm text-white/70 hover:text-white">Back</a>
         </div>
     </div>

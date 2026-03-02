@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 <div class="max-w-3xl mx-auto">
 
     <x-sticky-action-bar>
@@ -178,7 +178,7 @@
             </div>
 
             <div class="px-5 py-4 border-t border-gray-100 flex items-center gap-3">
-                <button type="submit" class="nexus-btn-primary">
+                <button type="submit" class="corex-btn-primary">
                     Save Changes &rarr;
                 </button>
                 <a href="{{ route('commercial-evaluations.show', $evaluation) }}" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">

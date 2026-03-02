@@ -62,7 +62,7 @@
                     </select>
                 </div>
                 <div>
-                    <button type="submit" class="nexus-btn-primary px-4 py-2 rounded-lg text-sm">Filter</button>
+                    <button type="submit" class="corex-btn-primary px-4 py-2 rounded-lg text-sm">Filter</button>
                 </div>
                 @if(request()->hasAny(['search','document_type','status','branch_id','agent_id']))
                 <div>
@@ -153,7 +153,7 @@
                     <input type="text" name="notes" tabindex="9" placeholder="Optional" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
                 </div>
                 <div class="md:col-span-3">
-                    <button type="submit" tabindex="10" class="nexus-btn-primary px-6 py-2 rounded-lg text-sm font-semibold">Save Filing</button>
+                    <button type="submit" tabindex="10" class="corex-btn-primary px-6 py-2 rounded-lg text-sm font-semibold">Save Filing</button>
                 </div>
             </form>
         </div>
@@ -280,7 +280,7 @@
                                             <input type="text" name="notes" value="{{ $filing->notes }}" class="px-2 py-1 border border-gray-200 rounded text-xs w-28">
                                         </div>
                                         <div class="flex gap-2">
-                                            <button type="submit" class="nexus-btn-primary px-3 py-1 rounded text-xs">Save</button>
+                                            <button type="submit" class="corex-btn-primary px-3 py-1 rounded text-xs">Save</button>
                                             <button type="button" @click="editing = false" class="px-3 py-1 rounded text-xs bg-gray-200 hover:bg-gray-300">Cancel</button>
                                         </div>
                                     </form>

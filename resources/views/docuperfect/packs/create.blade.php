@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
@@ -246,7 +246,7 @@
         <input type="hidden" name="slots_json" :value="JSON.stringify(slots)">
 
         <div class="flex items-center gap-3">
-            <button type="submit" class="nexus-btn-primary text-sm">
+            <button type="submit" class="corex-btn-primary text-sm">
                 {{ isset($pack) ? 'Update Pack' : 'Create Pack' }}
             </button>
             <a href="{{ route('docuperfect.packs.index') }}" class="text-sm text-slate-500 hover:text-slate-700">Cancel</a>

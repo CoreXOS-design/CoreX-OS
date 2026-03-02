@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -20,7 +20,7 @@
                         </option>
                     @endforeach
                 </select>
-                <button class="nexus-btn-primary text-sm">Filter</button>
+                <button class="corex-btn-primary text-sm">Filter</button>
                 @if(request('period'))
                     <a href="{{ route('admin.finance.audit.index') }}" class="text-sm text-white/60 hover:underline">Clear</a>
                 @endif
@@ -44,7 +44,7 @@
                     </option>
                 @endforeach
             </select>
-            <button type="submit" class="nexus-btn-primary text-sm">Audit This Period</button>
+            <button type="submit" class="corex-btn-primary text-sm">Audit This Period</button>
         </form>
     </div>
 

@@ -39,7 +39,7 @@
                         <label class="ds-label block mb-1">Add remark (creates timeline entry)</label>
                         <input type="text" name="remark" class="w-full rounded-xl border-gray-200" placeholder="Type a remark and click Add..." value="">
                     </div>
-                    <button type="submit" class="nexus-btn-primary h-10 px-4 text-sm">Add</button>
+                    <button type="submit" class="corex-btn-primary h-10 px-4 text-sm">Add</button>
                 </form>
 
                 @if($logs->isEmpty())

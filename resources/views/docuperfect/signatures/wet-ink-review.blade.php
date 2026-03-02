@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 @php
     $templateType = $document->template->template_type ?? 'rentals';
     $isSalesTemplate = $templateType === 'sales';
@@ -205,7 +205,7 @@
                     <option value="in_person">In Person</option>
                 </select>
             </div>
-            <button type="submit" class="nexus-btn-primary text-sm px-4 py-2">Upload on Behalf</button>
+            <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Upload on Behalf</button>
         </form>
     </div>
     @endif

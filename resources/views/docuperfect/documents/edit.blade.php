@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 <link rel="stylesheet" href="{{ asset('css/docuperfect-editor.css') }}">
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
@@ -47,8 +47,8 @@
             <div class="text-sm text-white/60">Template: {{ $template->name }} &middot; {{ $template->page_count }} page{{ $template->page_count !== 1 ? 's' : '' }}</div>
         </div>
         <div class="flex items-center gap-3 flex-shrink-0">
-            <button type="button" id="dpSaveBtn" class="nexus-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">Save</button>
-            <button type="button" id="dpDownloadBtn" class="nexus-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">Download PDF</button>
+            <button type="button" id="dpSaveBtn" class="corex-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">Save</button>
+            <button type="button" id="dpDownloadBtn" class="corex-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">Download PDF</button>
             <a href="{{ $document->pack_instance_id ? route('docuperfect.documents.index', ['pack_instance' => $document->pack_instance_id]) : route('docuperfect.documents.index') }}" class="text-sm text-white/70 hover:text-white">Back</a>
         </div>
     </div>

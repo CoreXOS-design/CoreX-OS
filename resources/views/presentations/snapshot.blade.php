@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 
 @php
     $summary = $snapshot->getOutputSummaryArray();
@@ -26,7 +26,7 @@
             </div>
         </div>
         <a href="{{ route('presentations.index') }}"
-           class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+           class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
             &larr; Back to Presentations
         </a>
     </div>

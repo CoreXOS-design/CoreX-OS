@@ -17,7 +17,7 @@
                         Print Settlement
                     </a>
                     <button form="settleForm"
-                            class="nexus-btn-primary px-5 py-2.5 text-sm">
+                            class="corex-btn-primary px-5 py-2.5 text-sm">
                         Save Settlement
                     </button>
                 </div>
@@ -370,7 +370,7 @@
                                 <td class="px-4 py-3 text-right font-bold ds-value">R <span class="js-sum-net" data-raw="{{ (float)$s['net'] }}">{{ $money($s['net']) }}</span></td>
                                 <td class="px-4 py-3 text-right">
                                     @if((int)$s['user_id'] > 0)
-                                        <a class="nexus-btn-outline text-xs px-3 py-1.5"
+                                        <a class="corex-btn-outline text-xs px-3 py-1.5"
                                            href="{{ route('admin.deals.settle.print.agent', ['deal' => $deal->id, 'user' => (int)$s['user_id']]) }}" target="_blank">
                                             Payslip
                                         </a>

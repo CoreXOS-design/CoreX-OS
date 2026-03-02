@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -16,7 +16,7 @@
             @endif
             <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="flex items-center" id="tplUploadForm">
                 @csrf
-                <label class="nexus-btn-primary cursor-pointer text-sm" style="background:rgba(255,255,255,0.15);">
+                <label class="corex-btn-primary cursor-pointer text-sm" style="background:rgba(255,255,255,0.15);">
                     + Upload Template
                     <input type="file" name="pdf" accept=".pdf" class="hidden" onchange="document.getElementById('tplUploadForm').submit();">
                 </label>
@@ -100,13 +100,13 @@
                         @if($showArchived)
                             <form method="POST" action="{{ route('docuperfect.templates.restore', $tpl->id) }}" class="inline">
                                 @csrf
-                                <button class="nexus-btn-primary text-xs px-3 py-1.5">Restore</button>
+                                <button class="corex-btn-primary text-xs px-3 py-1.5">Restore</button>
                             </form>
                         @else
-                            <a href="{{ route('docuperfect.templates.edit', $tpl->id) }}" class="nexus-btn-outline text-xs px-3 py-1.5">Edit</a>
+                            <a href="{{ route('docuperfect.templates.edit', $tpl->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Edit</a>
                             <form method="POST" action="{{ route('docuperfect.templates.copy', $tpl->id) }}" class="inline">
                                 @csrf
-                                <button class="nexus-btn-outline text-xs px-3 py-1.5">Copy</button>
+                                <button class="corex-btn-outline text-xs px-3 py-1.5">Copy</button>
                             </form>
                             <form method="POST" action="{{ route('docuperfect.templates.archive', $tpl->id) }}" class="inline" onsubmit="return confirm('Archive this template?');">
                                 @csrf
@@ -171,13 +171,13 @@
                                         @if($showArchived)
                                             <form method="POST" action="{{ route('docuperfect.templates.restore', $tpl->id) }}" class="inline">
                                                 @csrf
-                                                <button class="nexus-btn-primary text-xs px-2 py-1">Restore</button>
+                                                <button class="corex-btn-primary text-xs px-2 py-1">Restore</button>
                                             </form>
                                         @else
-                                            <a href="{{ route('docuperfect.templates.edit', $tpl->id) }}" class="nexus-btn-outline text-xs px-2 py-1">Edit</a>
+                                            <a href="{{ route('docuperfect.templates.edit', $tpl->id) }}" class="corex-btn-outline text-xs px-2 py-1">Edit</a>
                                             <form method="POST" action="{{ route('docuperfect.templates.copy', $tpl->id) }}" class="inline">
                                                 @csrf
-                                                <button class="nexus-btn-outline text-xs px-2 py-1">Copy</button>
+                                                <button class="corex-btn-outline text-xs px-2 py-1">Copy</button>
                                             </form>
                                         @endif
                                         <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline" onsubmit="return confirm('Permanently delete?');">

@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 
 <div class="max-w-3xl mx-auto">
 
@@ -12,7 +12,7 @@
                 <div class="text-sm text-white/60">Update property details for: {{ $presentation->title }}</div>
             </div>
             <a href="{{ route('presentations.show', $presentation) }}"
-               class="nexus-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+               class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
                 &larr; Back to Presentation
             </a>
         </div>
@@ -221,7 +221,7 @@
         </div>
 
         <div class="mt-6 flex items-center gap-3">
-            <button type="submit" class="nexus-btn-primary">
+            <button type="submit" class="corex-btn-primary">
                 Save Changes
             </button>
             <a href="{{ route('presentations.show', $presentation) }}"

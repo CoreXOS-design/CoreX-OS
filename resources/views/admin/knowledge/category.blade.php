@@ -48,7 +48,7 @@
                     <input type="text" name="version" class="w-full rounded border-gray-300 text-sm px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500" placeholder="e.g. v2.1" value="{{ old('version') }}">
                 </div>
                 <div class="flex items-end">
-                    <button type="submit" class="px-4 py-2 rounded text-sm font-medium" style="background:var(--nexus-cyan,#00b4d8);color:#fff;">Upload Document</button>
+                    <button type="submit" class="px-4 py-2 rounded text-sm font-medium" style="background:var(--corex-cyan,#00b4d8);color:#fff;">Upload Document</button>
                 </div>
             </div>
             <div class="mt-2">

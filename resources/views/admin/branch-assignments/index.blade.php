@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -30,7 +30,7 @@
                 <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Code</label>
                 <input class="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm" name="code" required>
             </div>
-            <button type="submit" class="nexus-btn-primary text-sm">Add Branch</button>
+            <button type="submit" class="corex-btn-primary text-sm">Add Branch</button>
         </form>
 
         <div class="pt-4 space-y-2">
@@ -75,7 +75,7 @@
                         <div class="font-semibold text-slate-900 dark:text-slate-100">
                             {{ $branch->name }} <span class="text-slate-500 dark:text-slate-400">({{ $branch->code }})</span>
                         </div>
-                        <button type="submit" class="nexus-btn-primary text-sm">Save</button>
+                        <button type="submit" class="corex-btn-primary text-sm">Save</button>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">

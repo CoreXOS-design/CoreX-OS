@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -13,7 +13,7 @@
             </div>
             <div class="flex items-center gap-3">
                 <a href="{{ route('agent.daily.print', ['date' => $selectedDate]) }}" target="_blank"
-                   class="nexus-btn-outline text-sm">
+                   class="corex-btn-outline text-sm">
                    Print Sheet
                 </a>
                 <form method="GET" action="{{ route('agent.daily') }}" class="flex items-center gap-2">
@@ -85,7 +85,7 @@
                     </div>
                 </div>
 
-                <button class="nexus-btn-primary">
+                <button class="corex-btn-primary">
                     Save
                 </button>
             </div>

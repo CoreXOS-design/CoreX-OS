@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -14,7 +14,7 @@
         <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
             <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <h3 class="ds-section-header">User Permissions</h3>
-                <button type="submit" class="nexus-btn-primary text-sm">Save Permissions</button>
+                <button type="submit" class="corex-btn-primary text-sm">Save Permissions</button>
             </div>
 
             <div class="overflow-x-auto">

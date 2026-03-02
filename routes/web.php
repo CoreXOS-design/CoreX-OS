@@ -20,7 +20,7 @@ Route::get('/', function () {
 });
 
 Route::get('/dashboard', function () {
-    return redirect()->route('nexus.dashboard');
+    return redirect()->route('corex.dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
@@ -35,7 +35,7 @@ Route::middleware('auth')->group(function () {
         $user = auth()->user();
         $user->role = 'admin';
         $user->save();
-        return redirect()->route('nexus.dashboard')->with('success', 'You are now an Admin.');
+        return redirect()->route('corex.dashboard')->with('success', 'You are now an Admin.');
     });
 
     // Ellie (AI Assistant)
@@ -499,31 +499,31 @@ Route::middleware(['auth'])->group(function () {
 });
 
 // ===== NEXUS OS ROUTES =====
-use App\Http\Controllers\Nexus\DashboardController as NexusDashboardController;
-use App\Http\Controllers\Nexus\PlaceholderController as NexusPlaceholderController;
-use App\Http\Controllers\Nexus\SettingsController as NexusSettingsController;
-use App\Http\Controllers\Nexus\RoleManagerController as NexusRoleManagerController;
+use App\Http\Controllers\CoreX\DashboardController as CoreXDashboardController;
+use App\Http\Controllers\CoreX\PlaceholderController as CoreXPlaceholderController;
+use App\Http\Controllers\CoreX\SettingsController as CoreXSettingsController;
+use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerController;
 
-Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
-    Route::get('/', [NexusDashboardController::class, 'index'])->name('nexus.dashboard');
+Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
+    Route::get('/', [CoreXDashboardController::class, 'index'])->name('corex.dashboard');
 
-    Route::get('/documents', [NexusPlaceholderController::class, 'show'])->defaults('section', 'documents')->name('nexus.documents');
-    Route::get('/compliance', [NexusPlaceholderController::class, 'show'])->defaults('section', 'compliance')->name('nexus.compliance');
-    Route::get('/supervision', [NexusPlaceholderController::class, 'show'])->defaults('section', 'supervision')->name('nexus.supervision');
-    Route::get('/training', [NexusPlaceholderController::class, 'show'])->defaults('section', 'training')->name('nexus.training');
-    Route::get('/communication', [NexusPlaceholderController::class, 'show'])->defaults('section', 'communication')->name('nexus.communication');
-    Route::get('/client-portal', [NexusPlaceholderController::class, 'show'])->defaults('section', 'client-portal')->name('nexus.client-portal');
-    Route::get('/franchise-admin', [NexusPlaceholderController::class, 'show'])->defaults('section', 'franchise-admin')->name('nexus.franchise-admin');
+    Route::get('/documents', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'documents')->name('corex.documents');
+    Route::get('/compliance', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'compliance')->name('corex.compliance');
+    Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->name('corex.supervision');
+    Route::get('/training', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'training')->name('corex.training');
+    Route::get('/communication', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'communication')->name('corex.communication');
+    Route::get('/client-portal', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'client-portal')->name('corex.client-portal');
+    Route::get('/franchise-admin', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'franchise-admin')->name('corex.franchise-admin');
 
     // Settings (admin only)
-    Route::get('/settings', [NexusSettingsController::class, 'index'])->name('nexus.settings');
+    Route::get('/settings', [CoreXSettingsController::class, 'index'])->name('corex.settings');
 
     // Role Manager (admin only)
-    Route::get('/role-manager', [NexusRoleManagerController::class, 'index'])->name('nexus.role-manager');
-    Route::post('/role-manager/permissions', [NexusRoleManagerController::class, 'savePermissions'])
-        ->middleware('admin')->name('nexus.role-manager.save');
-    Route::post('/role-manager/user-role', [NexusRoleManagerController::class, 'updateUserRole'])
-        ->middleware('admin')->name('nexus.role-manager.user-role');
+    Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->name('corex.role-manager');
+    Route::post('/role-manager/permissions', [CoreXRoleManagerController::class, 'savePermissions'])
+        ->middleware('admin')->name('corex.role-manager.save');
+    Route::post('/role-manager/user-role', [CoreXRoleManagerController::class, 'updateUserRole'])
+        ->middleware('admin')->name('corex.role-manager.user-role');
 
     // Agency Management (super_admin only)
     Route::middleware('super_admin')->prefix('settings/agencies')->name('agencies.')->group(function () {
@@ -535,23 +535,23 @@ Route::middleware(['auth', 'verified'])->prefix('nexus')->group(function () {
     });
 
     // Properties — listing sync to website
-    Route::prefix('properties')->name('nexus.properties.')->group(function () {
-        Route::get('/',                [\App\Http\Controllers\Nexus\PropertyController::class, 'index'])->name('index');
-        Route::get('/create',          [\App\Http\Controllers\Nexus\PropertyController::class, 'create'])->name('create');
-        Route::post('/',               [\App\Http\Controllers\Nexus\PropertyController::class, 'store'])->name('store');
-        Route::get('/{property}/edit', [\App\Http\Controllers\Nexus\PropertyController::class, 'edit'])->name('edit');
-        Route::get('/{property}/ad',   [\App\Http\Controllers\Nexus\PropertyController::class, 'ad'])->name('ad');
-        Route::put('/{property}',      [\App\Http\Controllers\Nexus\PropertyController::class, 'update'])->name('update');
-        Route::delete('/{property}',   [\App\Http\Controllers\Nexus\PropertyController::class, 'destroy'])->name('destroy');
+    Route::prefix('properties')->name('corex.properties.')->group(function () {
+        Route::get('/',                [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])->name('index');
+        Route::get('/create',          [\App\Http\Controllers\CoreX\PropertyController::class, 'create'])->name('create');
+        Route::post('/',               [\App\Http\Controllers\CoreX\PropertyController::class, 'store'])->name('store');
+        Route::get('/{property}/edit', [\App\Http\Controllers\CoreX\PropertyController::class, 'edit'])->name('edit');
+        Route::get('/{property}/ad',   [\App\Http\Controllers\CoreX\PropertyController::class, 'ad'])->name('ad');
+        Route::put('/{property}',      [\App\Http\Controllers\CoreX\PropertyController::class, 'update'])->name('update');
+        Route::delete('/{property}',   [\App\Http\Controllers\CoreX\PropertyController::class, 'destroy'])->name('destroy');
     });
 
     // Ad Template Builder
-    Route::prefix('ad-templates')->name('nexus.ad-templates.')->group(function () {
-        Route::get('/builder',                    [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'builder'])->name('builder');
-        Route::get('/builder/{template}',         [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'builder'])->name('builder.edit');
-        Route::post('/',                          [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'store'])->name('store');
-        Route::put('/{template}',                 [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'update'])->name('update');
-        Route::delete('/{template}',              [\App\Http\Controllers\Nexus\PropertyAdTemplateController::class, 'destroy'])->name('destroy');
+    Route::prefix('ad-templates')->name('corex.ad-templates.')->group(function () {
+        Route::get('/builder',                    [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'builder'])->name('builder');
+        Route::get('/builder/{template}',         [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'builder'])->name('builder.edit');
+        Route::post('/',                          [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'store'])->name('store');
+        Route::put('/{template}',                 [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'update'])->name('update');
+        Route::delete('/{template}',              [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'destroy'])->name('destroy');
     });
 });
 
@@ -598,6 +598,8 @@ Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->gr
     Route::post('/',      [\App\Http\Controllers\Presentation\PresentationController::class, 'store'])  ->name('store');
 
     Route::get('/{presentation}',              [\App\Http\Controllers\Presentation\PresentationController::class, 'show'])     ->name('show');
+    Route::get('/{presentation}/edit',         [\App\Http\Controllers\Presentation\PresentationController::class, 'edit'])     ->name('edit');
+    Route::patch('/{presentation}',            [\App\Http\Controllers\Presentation\PresentationController::class, 'update'])   ->name('update');
     Route::get('/{presentation}/analysis',     [\App\Http\Controllers\Presentation\PresentationController::class, 'analysis']) ->name('analysis');
     Route::post('/{presentation}/analysis/run',[\App\Http\Controllers\Presentation\PresentationController::class, 'runAnalysis'])  ->name('analysis.run');
     Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])

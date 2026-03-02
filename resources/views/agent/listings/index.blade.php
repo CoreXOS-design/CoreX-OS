@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -63,7 +63,7 @@
             </div>
 
             <div class="flex gap-2">
-                <button class="nexus-btn-primary text-sm">
+                <button class="corex-btn-primary text-sm">
                     Apply
                 </button>
                 <a href="{{ route('agent.listings') }}" class="px-3 py-1 rounded-lg text-sm border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900">

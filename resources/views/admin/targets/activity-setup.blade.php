@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -17,7 +17,7 @@
                 </div>
             </div>
 
-            <a href="{{ route('admin.targets') }}" class="nexus-btn-outline text-sm">&larr; Back to Targets</a>
+            <a href="{{ route('admin.targets') }}" class="corex-btn-outline text-sm">&larr; Back to Targets</a>
         </div>
     </div>
 
@@ -48,7 +48,7 @@
                         </label>
                     @endforeach
 
-                    <button class="nexus-btn-primary text-sm ml-2">Load</button>
+                    <button class="corex-btn-primary text-sm ml-2">Load</button>
                 </div>
             </form>
         </div>
@@ -96,7 +96,7 @@
                 </div>
 
                 <div class="sm:col-span-6">
-                    <button class="nexus-btn-primary text-sm">Add Column</button>
+                    <button class="corex-btn-primary text-sm">Add Column</button>
                 </div>
             </form>
         </div>
@@ -111,7 +111,7 @@
         <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
             <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <h3 class="ds-section-header">Activity Columns</h3>
-                <button class="nexus-btn-primary text-sm">Save Activity Columns</button>
+                <button class="corex-btn-primary text-sm">Save Activity Columns</button>
             </div>
 
             <div class="overflow-x-auto">

@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
 
     @php
@@ -48,7 +48,7 @@
         <div class="flex items-center gap-3">
             @if($step === 2)
                 <a href="{{ route('docuperfect.signatures.setup', [$document, 'step' => 1]) }}"
-                   class="nexus-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
+                   class="corex-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
                     Edit Parties
                 </a>
             @endif
@@ -248,7 +248,7 @@
             </div>
 
             <div class="flex justify-end">
-                <button type="submit" class="nexus-btn-primary text-sm px-6 py-2.5"
+                <button type="submit" class="corex-btn-primary text-sm px-6 py-2.5"
                         :disabled="submittingParties"
                         :class="submittingParties ? 'opacity-50 cursor-not-allowed' : ''">
                     <span x-show="!submittingParties">Save Parties & Continue to Marker Placement</span>
@@ -547,7 +547,7 @@
                         &larr; Edit Markers
                     </button>
                     <a href="{{ route('docuperfect.signatures.sign', $document) }}"
-                       class="nexus-btn-primary text-sm px-6 py-2.5">
+                       class="corex-btn-primary text-sm px-6 py-2.5">
                         Proceed to Sign &rarr;
                     </a>
                 </div>

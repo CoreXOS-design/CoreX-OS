@@ -41,7 +41,7 @@
                     <input type="number" name="max_price" value="{{ request('max_price') }}" placeholder="e.g. 3000000" class="w-full rounded border-gray-300 text-sm px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500">
                 </div>
                 <div class="flex items-end">
-                    <button type="submit" class="nexus-btn-primary w-full">Filter</button>
+                    <button type="submit" class="corex-btn-primary w-full">Filter</button>
                 </div>
             </form>
         </div>

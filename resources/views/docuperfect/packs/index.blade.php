@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -9,7 +9,7 @@
             <div class="text-sm text-white/60">Launch a pack to create all its documents at once.</div>
         </div>
         @if($canManage)
-        <a href="{{ route('docuperfect.packs.create') }}" class="nexus-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
+        <a href="{{ route('docuperfect.packs.create') }}" class="corex-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
             + New Pack
         </a>
         @endif
@@ -83,9 +83,9 @@
                 @endif
 
                 <div class="flex flex-wrap items-center gap-2 mt-auto pt-3 border-t border-slate-100">
-                    <a href="{{ route('docuperfect.packs.showLaunch', $pack->id) }}" class="nexus-btn-primary text-xs px-3 py-1.5 inline-block">Launch Pack</a>
+                    <a href="{{ route('docuperfect.packs.showLaunch', $pack->id) }}" class="corex-btn-primary text-xs px-3 py-1.5 inline-block">Launch Pack</a>
                     @if($canManage)
-                    <a href="{{ route('docuperfect.packs.edit', $pack->id) }}" class="nexus-btn-outline text-xs px-3 py-1.5">Edit</a>
+                    <a href="{{ route('docuperfect.packs.edit', $pack->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Edit</a>
                     <form method="POST" action="{{ route('docuperfect.packs.destroy', $pack->id) }}" class="inline ml-auto" onsubmit="return confirm('Delete this pack? This cannot be undone.');">
                         @csrf
                         @method('DELETE')

@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -14,7 +14,7 @@
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('admin.finance.audit.index') }}" class="nexus-btn-outline text-sm">Audit History</a>
+                <a href="{{ route('admin.finance.audit.index') }}" class="corex-btn-outline text-sm">Audit History</a>
                 <form method="POST" action="{{ route('admin.finance.recalculate') }}" class="flex items-center gap-2"
                       id="recalcForm">
                     @csrf
@@ -29,7 +29,7 @@
                     </select>
                     <button type="submit"
                             onclick="document.getElementById('recalcMode').value='single'"
-                            class="nexus-btn-primary text-sm whitespace-nowrap">
+                            class="corex-btn-primary text-sm whitespace-nowrap">
                         Recalculate Period
                     </button>
                     <button type="submit"

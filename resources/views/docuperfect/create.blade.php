@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -98,7 +98,7 @@
                         </div>
                         @endif
                         <div class="mt-auto pt-3 border-t border-slate-100">
-                            <a href="{{ route('docuperfect.documents.create', $tpl->id) }}" class="nexus-btn-primary text-xs px-3 py-1.5">Create Document</a>
+                            <a href="{{ route('docuperfect.documents.create', $tpl->id) }}" class="corex-btn-primary text-xs px-3 py-1.5">Create Document</a>
                         </div>
                     </div>
                     @endforeach
@@ -146,7 +146,7 @@
                                     </td>
                                     <td class="px-4 py-2 text-center text-slate-500">{{ $tpl->page_count }}</td>
                                     <td class="px-4 py-2 text-right">
-                                        <a href="{{ route('docuperfect.documents.create', $tpl->id) }}" class="nexus-btn-primary text-xs px-3 py-1.5">Create</a>
+                                        <a href="{{ route('docuperfect.documents.create', $tpl->id) }}" class="corex-btn-primary text-xs px-3 py-1.5">Create</a>
                                     </td>
                                 </tr>
                                 @endforeach
@@ -218,7 +218,7 @@
                         @endif
 
                         <div class="mt-auto pt-3 border-t border-slate-100">
-                            <a href="{{ route('docuperfect.packs.showLaunch', $pack->id) }}" class="nexus-btn-primary text-xs px-3 py-1.5 inline-block">Launch Pack</a>
+                            <a href="{{ route('docuperfect.packs.showLaunch', $pack->id) }}" class="corex-btn-primary text-xs px-3 py-1.5 inline-block">Launch Pack</a>
                         </div>
                     </div>
                     @endforeach

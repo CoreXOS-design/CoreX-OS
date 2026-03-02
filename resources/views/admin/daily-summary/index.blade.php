@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -26,7 +26,7 @@
                            class="w-28 rounded-lg border-0 bg-white/10 text-white text-sm px-3 py-1.5 placeholder:text-white/40" />
                 @endif
 
-                <button class="nexus-btn-primary text-sm">Apply</button>
+                <button class="corex-btn-primary text-sm">Apply</button>
             </form>
         </div>
     </div>

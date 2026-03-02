@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 @php
   $activeTab = ($defaultTab ?? 'calc');
   if (request()->get('section') === 'history') $activeTab = 'history';
@@ -118,7 +118,7 @@
   white-space: nowrap;
 }
 
-/* Buttons — matches nexus-btn-primary */
+/* Buttons — matches corex-btn-primary */
 #hf-tool-root .btn {
   display: inline-flex;
   align-items: center;
@@ -136,7 +136,7 @@
 
 #hf-tool-root .btn:hover { background: #143d66; }
 
-/* Secondary — matches nexus-btn-outline */
+/* Secondary — matches corex-btn-outline */
 #hf-tool-root .btn.secondary {
   background: #fff;
   color: #374151;

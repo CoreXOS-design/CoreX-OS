@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -13,7 +13,7 @@
 
             <div class="flex flex-wrap gap-2 items-end">
                 <a href="{{ route('admin.listings.agents', ['status' => $status ?? 'active', 'source' => $source ?? 'propcon']) }}"
-                   class="nexus-btn-outline text-sm">&larr; Back</a>
+                   class="corex-btn-outline text-sm">&larr; Back</a>
 
                 <form method="get" class="flex flex-wrap gap-2 items-end">
                     <div>
@@ -28,7 +28,7 @@
                         <label class="block text-xs text-white/60 mb-1">Source</label>
                         <input name="source" value="{{ $source ?? 'propcon' }}" class="w-40 rounded-lg border-0 bg-white/10 text-white text-sm px-3 py-1.5 placeholder:text-white/40" />
                     </div>
-                    <button class="nexus-btn-primary text-sm">Apply</button>
+                    <button class="corex-btn-primary text-sm">Apply</button>
                 </form>
             </div>
         </div>

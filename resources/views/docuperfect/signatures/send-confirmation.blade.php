@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 <div class="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
 
     {{-- Header --}}
@@ -79,7 +79,7 @@
                     &larr; Back to Signing
                 </a>
                 <button type="submit"
-                        class="nexus-btn-primary text-sm px-6 py-2.5">
+                        class="corex-btn-primary text-sm px-6 py-2.5">
                     Send to Tenant for Signature &rarr;
                 </button>
             </div>

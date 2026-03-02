@@ -1,4 +1,4 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -8,7 +8,7 @@
             <h2 class="text-xl font-bold text-white leading-tight">My Documents</h2>
             <div class="text-sm text-white/60">Your created documents.</div>
         </div>
-        <a href="{{ route('docuperfect.create') }}" class="nexus-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
+        <a href="{{ route('docuperfect.create') }}" class="corex-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
             + Create New Document
         </a>
     </div>

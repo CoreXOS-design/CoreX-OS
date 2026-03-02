@@ -1,6 +1,6 @@
-@extends('layouts.nexus')
+@extends('layouts.corex')
 
-@section('nexus-content')
+@section('corex-content')
 <div class="max-w-6xl mx-auto px-4 py-6" x-data="calculatorsApp()">
 
     {{-- Navy Header --}}
@@ -32,7 +32,7 @@
                        value="{{ date('Y-01-01') }}"
                        class="border border-slate-300 rounded px-3 py-2 text-sm">
             </div>
-            <button type="submit" class="nexus-btn-primary px-4 py-2 text-sm font-semibold rounded-lg">
+            <button type="submit" class="corex-btn-primary px-4 py-2 text-sm font-semibold rounded-lg">
                 Upload & Update Fees
             </button>
         </form>
@@ -80,7 +80,7 @@
                     </div>
                 </div>
 
-                <button type="button" @click="calcCommission()" class="nexus-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
+                <button type="button" @click="calcCommission()" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
                     Calculate
                 </button>
             </div>
@@ -128,7 +128,7 @@
                     </select>
                 </div>
 
-                <button type="button" @click="calcBond()" class="nexus-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
+                <button type="button" @click="calcBond()" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
                     Calculate
                 </button>
             </div>
@@ -180,7 +180,7 @@
                     </div>
                 </div>
 
-                <button type="button" @click="calcTransferCosts()" class="nexus-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
+                <button type="button" @click="calcTransferCosts()" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
                     Calculate
                 </button>
             </div>
@@ -285,7 +285,7 @@
         </div>
 
         <div class="mt-4">
-            <button type="button" @click="calcOverpayment()" class="nexus-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
+            <button type="button" @click="calcOverpayment()" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-lg">
                 Calculate Savings
             </button>
         </div>
