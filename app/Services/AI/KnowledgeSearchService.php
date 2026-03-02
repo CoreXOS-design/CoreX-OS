@@ -3,6 +3,7 @@
 namespace App\Services\AI;
 
 use App\Models\KnowledgeChunk;
+use App\Models\KnowledgeDocument;
 
 class KnowledgeSearchService
 {
@@ -75,6 +76,12 @@ class KnowledgeSearchService
      */
     public function shouldSearch(string $message): bool
     {
+        // Always search when KB documents are available
+        if (KnowledgeDocument::where('status', 'ready')->where('is_ellie_enabled', true)->exists()) {
+            return true;
+        }
+
+        // Fallback: keyword gate for when no ready documents exist (avoids unnecessary queries)
         $lower = mb_strtolower($message);
 
         $patterns = [
@@ -89,6 +96,10 @@ class KnowledgeSearchService
             'training', 'onboarding', 'branding', 'marketing',
             'how do i', 'how does', 'what should',
             'knowledge base', 'document says',
+            'evaluation', 'valuation', 'commercial', 'agricultural',
+            'hospitality', 'industrial', 'crop', 'livestock',
+            'comparable', 'financial', 'calculator', 'bond overpayment',
+            'fee scale', 'knowledge', 'document',
         ];
 
         foreach ($patterns as $pattern) {
