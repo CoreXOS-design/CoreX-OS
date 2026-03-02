@@ -19,7 +19,7 @@ class KnowledgeSearchService
      *
      * @return array{context: string, sources: array}
      */
-    public function search(string $query, int $limit = 3): array
+    public function search(string $query, int $limit = 5): array
     {
         try {
             $queryEmbedding = $this->embeddingService->embed($query);
@@ -42,16 +42,56 @@ class KnowledgeSearchService
                 return ['context' => '', 'sources' => []];
             }
 
-            // Score each chunk by cosine similarity
-            $scored = $chunks->map(function ($chunk) use ($queryEmbedding) {
-                $similarity = $this->embeddingService->cosineSimilarity(
+            // Extract structural signals from query for hybrid scoring
+            $stopWords = ['what', 'is', 'the', 'of', 'a', 'an', 'in', 'for', 'to', 'how', 'does', 'do', 'whats', 'tell', 'me', 'about', 'can', 'you'];
+            preg_match_all('/\b(\d+(?:\.\d+)*)\b/', $query, $numberMatches);
+            $queryNumbers = $numberMatches[1] ?? [];
+            $queryWords = array_values(array_filter(
+                preg_split('/\s+/', mb_strtolower(preg_replace('/[^\w\s]/', '', $query))),
+                fn ($w) => $w !== '' && !in_array($w, $stopWords) && !is_numeric($w)
+            ));
+            $totalMeaningfulWords = max(count($queryWords), 1);
+
+            // Score each chunk: hybrid = (cosine * 0.7) + (structural * 0.3)
+            $scored = $chunks->map(function ($chunk) use ($queryEmbedding, $queryNumbers, $queryWords, $totalMeaningfulWords) {
+                $cosine = $this->embeddingService->cosineSimilarity(
                     $queryEmbedding,
                     $chunk->embedding
                 );
-                return ['chunk' => $chunk, 'score' => $similarity];
+
+                $title = mb_strtolower($chunk->section_title ?? '');
+
+                // Numbered reference matching
+                $numberScore = 0.0;
+                foreach ($queryNumbers as $num) {
+                    $escaped = preg_quote($num, '/');
+                    if (preg_match('/^' . $escaped . '(?:[\.\s]|$)/', $title)) {
+                        $numberScore = 1.0;
+                        break;
+                    } elseif (str_contains($title, $num)) {
+                        $numberScore = max($numberScore, 0.5);
+                    }
+                }
+
+                // Keyword title matching
+                $keywordScore = 0.0;
+                if ($title !== '') {
+                    $matchCount = 0;
+                    foreach ($queryWords as $word) {
+                        if (str_contains($title, $word)) {
+                            $matchCount++;
+                        }
+                    }
+                    $keywordScore = $matchCount / $totalMeaningfulWords;
+                }
+
+                $structural = max($numberScore, $keywordScore);
+                $hybrid = ($cosine * 0.7) + ($structural * 0.3);
+
+                return ['chunk' => $chunk, 'score' => $hybrid];
             });
 
-            // Sort by similarity descending, take top N
+            // Sort by hybrid score descending, take top N
             $topChunks = $scored->sortByDesc('score')->take($limit);
 
             $contextParts = [];
