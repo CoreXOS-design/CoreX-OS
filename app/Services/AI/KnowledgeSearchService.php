@@ -15,31 +15,52 @@ class KnowledgeSearchService
     public function search(string $query, int $limit = 3): array
     {
         try {
-            // Try full-text search first
-            $chunks = KnowledgeChunk::search($query)
-                ->with('document')
-                ->limit($limit)
-                ->get();
-
-            // If no results, try keyword extraction fallback
-            if ($chunks->isEmpty()) {
-                $keywords = $this->extractKeywords($query);
-                if (!empty($keywords)) {
-                    $chunks = KnowledgeChunk::keywordSearch($keywords)
-                        ->with('document')
-                        ->limit($limit)
-                        ->get();
-                }
-            }
-
-            if ($chunks->isEmpty()) {
+            $keywords = $this->extractKeywords($query);
+            if (empty($keywords)) {
                 return ['context' => '', 'sources' => []];
             }
+
+            // Detect clause/section number (e.g. "clause 3", "section 12.1")
+            $clauseNumber = $this->extractClauseNumber($query);
+
+            // Detect document name reference by matching against known titles
+            $matchedDocId = $this->detectDocumentReference($query);
+
+            // Fetch candidate chunks: any chunk matching at least one keyword
+            $candidateQuery = KnowledgeChunk::whereHas('document', function ($q) {
+                $q->where('is_active', true)
+                  ->where('status', 'ready')
+                  ->where('is_ellie_enabled', true);
+            })->with('document');
+
+            $candidateQuery->where(function ($q) use ($keywords) {
+                foreach ($keywords as $keyword) {
+                    $term = '%' . $keyword . '%';
+                    $q->orWhere('content', 'LIKE', $term)
+                      ->orWhere('section_title', 'LIKE', $term);
+                }
+            });
+
+            $candidates = $candidateQuery->limit(100)->get();
+
+            if ($candidates->isEmpty()) {
+                return ['context' => '', 'sources' => []];
+            }
+
+            // Score each candidate
+            $scored = $candidates->map(function ($chunk) use ($keywords, $clauseNumber, $matchedDocId) {
+                $score = $this->scoreChunk($chunk, $keywords, $clauseNumber, $matchedDocId);
+                return ['chunk' => $chunk, 'score' => $score];
+            });
+
+            // Sort by score descending, take top N
+            $topChunks = $scored->sortByDesc('score')->take($limit);
 
             $contextParts = [];
             $sources = [];
 
-            foreach ($chunks as $chunk) {
+            foreach ($topChunks as $item) {
+                $chunk = $item['chunk'];
                 $doc = $chunk->document;
                 $header = "--- From: {$doc->title}";
                 if ($chunk->section_title) {
@@ -69,6 +90,107 @@ class KnowledgeSearchService
             \Log::warning('Knowledge search failed: ' . $e->getMessage());
             return ['context' => '', 'sources' => []];
         }
+    }
+
+    /**
+     * Score a chunk based on keyword matches, clause numbers, and document targeting.
+     */
+    private function scoreChunk(KnowledgeChunk $chunk, array $keywords, ?string $clauseNumber, ?int $matchedDocId): float
+    {
+        $score = 0.0;
+        $contentLower = mb_strtolower($chunk->content);
+        $sectionLower = mb_strtolower($chunk->section_title ?? '');
+
+        // +1 per distinct keyword found in content
+        foreach ($keywords as $keyword) {
+            if (str_contains($contentLower, $keyword)) {
+                $score += 1.0;
+            }
+            // +2 bonus for keyword in section_title (more specific)
+            if ($sectionLower !== '' && str_contains($sectionLower, $keyword)) {
+                $score += 2.0;
+            }
+        }
+
+        // +5 for clause/section number match (e.g. "3." or "clause 3" or "3 " at line start)
+        if ($clauseNumber !== null) {
+            $patterns = [
+                $clauseNumber . '.',
+                $clauseNumber . ' ',
+                'clause ' . $clauseNumber,
+                'section ' . $clauseNumber,
+            ];
+            foreach ($patterns as $p) {
+                if (str_contains($contentLower, $p)) {
+                    $score += 5.0;
+                    break;
+                }
+            }
+            // Also check section_title for numbered sections
+            if ($sectionLower !== '') {
+                foreach ($patterns as $p) {
+                    if (str_contains($sectionLower, $p)) {
+                        $score += 3.0;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // +10 for document title match (query references this specific document)
+        if ($matchedDocId !== null && $chunk->document_id === $matchedDocId) {
+            $score += 10.0;
+        }
+
+        return $score;
+    }
+
+    /**
+     * Extract clause or section number from query (e.g. "clause 3" → "3", "section 12.1" → "12.1").
+     */
+    private function extractClauseNumber(string $query): ?string
+    {
+        $lower = mb_strtolower($query);
+        if (preg_match('/(?:clause|section|paragraph|article|item)\s+([\d]+(?:\.[\d]+)*)/i', $lower, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
+
+    /**
+     * Detect if query references a known document title. Returns document ID or null.
+     */
+    private function detectDocumentReference(string $query): ?int
+    {
+        $lower = mb_strtolower($query);
+
+        $documents = KnowledgeDocument::where('is_active', true)
+            ->where('status', 'ready')
+            ->where('is_ellie_enabled', true)
+            ->get(['id', 'title']);
+
+        $bestId = null;
+        $bestLen = 0;
+
+        foreach ($documents as $doc) {
+            $titleLower = mb_strtolower($doc->title);
+            // Check if significant part of the document title appears in query
+            $titleWords = preg_split('/\s+/', $titleLower, -1, PREG_SPLIT_NO_EMPTY);
+            $matchCount = 0;
+            foreach ($titleWords as $tw) {
+                if (mb_strlen($tw) >= 3 && str_contains($lower, $tw)) {
+                    $matchCount++;
+                }
+            }
+            // Require at least 2 title words matched, or full title if short
+            $threshold = count($titleWords) <= 2 ? count($titleWords) : 2;
+            if ($matchCount >= $threshold && $matchCount > $bestLen) {
+                $bestLen = $matchCount;
+                $bestId = $doc->id;
+            }
+        }
+
+        return $bestId;
     }
 
     /**
