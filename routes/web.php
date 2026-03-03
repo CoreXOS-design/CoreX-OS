@@ -248,6 +248,13 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
     Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->name('tools.pdf_splitter.download');
 
+    // Splitter Doc Type Admin
+    Route::get('/admin/splitter/doc-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'index'])->name('admin.splitter.doc-types.index');
+    Route::post('/admin/splitter/doc-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'store'])->name('admin.splitter.doc-types.store');
+    Route::put('/admin/splitter/doc-types/{doc_type}', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'update'])->name('admin.splitter.doc-types.update');
+    Route::delete('/admin/splitter/doc-types/{doc_type}', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'destroy'])->name('admin.splitter.doc-types.destroy');
+    Route::post('/admin/splitter/doc-types/bulk-save', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'bulkSave'])->name('admin.splitter.doc-types.bulk-save');
+
       // BM: My Agent Dashboard (BM's own numbers)
       Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('branch_manager')->name('bm.my.dashboard');
 

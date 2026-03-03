@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Tools;
 
 use App\Http\Controllers\Controller;
+use App\Models\SplitterDocType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -21,28 +22,25 @@ class PdfSplitterController extends Controller
     private static function pdfunitePath(): string  { return config('splitter.pdfunite_path', 'pdfunite'); }
     private static function tesseractPath(): string { return config('splitter.tesseract_path', 'tesseract'); }
 
-    /**
-     * Ordered document-type registry.
-     * Drives dropdowns, keyboard shortcuts, confirm() validation, and the summary.
-     * Key = stored/posted value; Value = human label shown in UI.
-     */
     /** Per-request cache of enabled learned boosts; null = not yet loaded. */
     private ?array $learnedBoosts = null;
 
-    private const DOC_TYPES = [
-        'mandate'           => 'Mandate',
-        'fica'              => 'FICA',
-        'ids'               => 'IDs / Identity',
-        'por'               => 'Proof of Residence',
-        'condition_report'  => 'Condition Report',
-        'listing_form'      => 'Listing Form',
-        'rates_taxes'       => 'Rates & Taxes',
-        'body_corporate'    => 'Body Corporate',
-        'house_rules'       => 'House Rules',
-        'offer_to_purchase' => 'Offer to Purchase',
-        'disclosure'        => 'Disclosure',
-        'other'             => 'Other',
-    ];
+    /** Per-request cache of doc types from DB. */
+    private ?array $cachedDocTypes = null;
+
+    /**
+     * Ordered document-type registry from database.
+     * Drives dropdowns, keyboard shortcuts, confirm() validation, and the summary.
+     * Key = slug; Value = human label shown in UI.
+     */
+    private function docTypes(): array
+    {
+        if ($this->cachedDocTypes === null) {
+            $this->cachedDocTypes = SplitterDocType::active()->pluck('label', 'slug')->toArray();
+        }
+
+        return $this->cachedDocTypes;
+    }
 
     public function index()
     {
@@ -122,7 +120,7 @@ class PdfSplitterController extends Controller
             'labels'      => $labels,
             'snippets'    => $snippets,
             'pageScores'  => $pageScores,
-            'docTypes'    => self::DOC_TYPES,
+            'docTypes'    => $this->docTypes(),
         ];
 
         $manifestId = $base . '__' . $ts;
@@ -288,7 +286,7 @@ class PdfSplitterController extends Controller
 
         // Apply posted overrides — whitelist against DOC_TYPES keys
         $posted       = $request->input('labels', []);
-        $validBuckets = array_keys(self::DOC_TYPES);
+        $validBuckets = array_keys($this->docTypes());
         $finalLabels  = [];   // int-keyed for groupRanges()
         $overrides    = [];   // [page => ['from' => old, 'to' => new]]
 
@@ -318,7 +316,7 @@ class PdfSplitterController extends Controller
         $tmpAbsNorm = str_replace('\\', '/', $tmpAbs);
 
         $ranges       = $this->groupRanges($finalLabels);
-        $bucketOrder  = array_keys(self::DOC_TYPES);
+        $bucketOrder  = array_keys($this->docTypes());
         $bucketRanges = array_fill_keys($bucketOrder, []);
         foreach ($ranges as $r) {
             $bucketRanges[$r['label']][] = $r;
@@ -770,7 +768,7 @@ class PdfSplitterController extends Controller
         $lines[] = '';
 
         // Counts for all registered doc types
-        $counts = array_fill_keys(array_keys(self::DOC_TYPES), 0);
+        $counts = array_fill_keys(array_keys($this->docTypes()), 0);
         foreach ($labels as $label) {
             if (isset($counts[$label])) $counts[$label]++;
             else $counts[$label] = 1;
