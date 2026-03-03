@@ -385,7 +385,7 @@ td.num, th.num { text-align: right; }
     align-items: center;
     letter-spacing: 0.12em;
     color: var(--brand);
-    margin-bottom: 12px;
+    margin-bottom: 28px;
 }
 .cover-bar {
     width: 80px;
@@ -588,11 +588,10 @@ a:hover { text-decoration: underline; }
       // ══════════════════════════════════════════════════════════════════════ ?>
 <div class="cover">
     <?php if ($logoBase64): ?>
-    <div class="cover-brand"><img src="<?= $logoBase64 ?>" alt="Home Finders Coastal" style="max-height:60px;width:auto;"></div>
+    <div class="cover-brand"><img src="<?= $logoBase64 ?>" alt="Home Finders Coastal" style="max-height:120px;width:auto;"></div>
     <?php else: ?>
     <div class="cover-brand">Home Finders Coastal</div>
     <?php endif ?>
-    <div class="cover-bar"></div>
     <h1>Market Analysis<br>&amp; Pricing Strategy</h1>
     <div style="height:24px"></div>
     <div class="cover-address"><?= $address ?></div>
