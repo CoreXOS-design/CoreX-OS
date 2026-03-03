@@ -148,7 +148,17 @@ class PresentationPdfController extends Controller
         $scriptPath = base_path('scripts/html-to-pdf.mjs');
 
         $browserPath = env('PUPPETEER_BROWSER_PATH', '');
-        $envPrefix = $browserPath ? sprintf('PUPPETEER_BROWSER_PATH=%s ', escapeshellarg($browserPath)) : '';
+        $isWindows = DIRECTORY_SEPARATOR === '\\';
+
+        // Build env prefix — POSIX syntax (VAR=val command), only for Linux
+        $envPrefix = '';
+        if (!$isWindows) {
+            $envPrefix = 'HOME=/tmp';
+            if ($browserPath) {
+                $envPrefix .= sprintf(' PUPPETEER_BROWSER_PATH=%s', escapeshellarg($browserPath));
+            }
+            $envPrefix .= ' ';
+        }
 
         $command = sprintf(
             '%snode %s %s %s 2>&1',

@@ -47,7 +47,13 @@ try {
     browser = await puppeteer.launch({
         executablePath,
         headless: true,
-        args: ['--no-sandbox', '--disable-gpu', '--disable-software-rasterizer'],
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+        ],
     });
 
     const page = await browser.newPage();
