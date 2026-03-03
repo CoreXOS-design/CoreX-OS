@@ -351,7 +351,6 @@ class WorksheetController extends Controller
             ->fromSub($dealIdsSub, 'du')
             ->join('deals', 'deals.id', '=', 'du.deal_id')
             ->whereNotNull('deals.deal_date')
-            ->where('deals.deal_date', '!=', '')
             ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
             ->select([
                 'deals.id',
@@ -431,7 +430,6 @@ class WorksheetController extends Controller
             ->join('deals', 'deals.id', '=', 'deal_money_lines.deal_id')
             ->where('deal_money_lines.user_id', $userId)
             ->whereNotNull('deals.deal_date')
-            ->where('deals.deal_date', '!=', '')
             ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
             ->selectRaw("
                 CASE
