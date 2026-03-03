@@ -51,6 +51,12 @@
                     <h2 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter</h2>
                     <div class="text-sm text-white/60">Upload a pack PDF and set a base name</div>
                 </div>
+                @if(auth()->user()?->isEffectiveAdmin())
+                <a href="{{ route('admin.splitter.doc-types.index') }}"
+                   class="px-3 py-1.5 bg-white/10 text-white text-xs font-medium rounded hover:bg-white/20">
+                    Manage Labels
+                </a>
+                @endif
             </div>
         </div>
 

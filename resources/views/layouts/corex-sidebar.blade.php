@@ -407,9 +407,6 @@
                 <path d="m9 18 6-6-6-6"/>
             </svg>
         </a>
-        @if($navIsAdmin)
-        <a href="{{ route('admin.splitter.doc-types.index') }}" class="corex-nav-subitem {{ request()->is('admin/splitter/doc-types*') ? 'active' : '' }}" style="padding-left:2.75rem;">Splitter Labels</a>
-        @endif
         @endif
 
 
