@@ -67,7 +67,19 @@ class P24ImapImportService
                 return ['status' => 'error', 'message' => "IMAP folder '{$config['folder']}' not found"];
             }
 
-            $since = Carbon::now()->subDays(30);
+            // Use last successful import date instead of hardcoded 30 days
+            $lastLog = P24ImportLog::where('status', 'success')
+                ->orderByDesc('created_at')
+                ->first();
+
+            if ($lastLog) {
+                // IMAP SINCE is date-only (no time), so subtract 1 day as buffer
+                $since = Carbon::parse($lastLog->created_at)->subDay()->startOfDay();
+            } else {
+                // First run ever — fall back to 30 days
+                $since = Carbon::now()->subDays(30);
+            }
+
             $messages = $folder->search()
                 ->from('no-reply@property24.com')
                 ->since($since)
@@ -181,6 +193,18 @@ class P24ImapImportService
         } finally {
             $client->disconnect();
         }
+
+        // Always log a run-level summary so "Last Import" updates on every run
+        P24ImportLog::create([
+            'email_uid'        => 'run_' . now()->timestamp,
+            'email_subject'    => sprintf('Import run: %d processed, %d new, %d updated, %d skipped, %d errors',
+                $stats['processed'], $stats['new'], $stats['updated'], $stats['skipped'], $stats['errors']),
+            'email_date'       => now(),
+            'listings_found'   => $stats['processed'],
+            'listings_new'     => $stats['new'],
+            'listings_updated' => $stats['updated'],
+            'status'           => 'success',
+        ]);
 
         return ['status' => 'success', 'stats' => $stats];
     }
