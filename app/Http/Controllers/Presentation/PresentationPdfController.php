@@ -147,26 +147,29 @@ class PresentationPdfController extends Controller
         $tmpPath = storage_path('app/tmp_market_analysis_' . uniqid() . '.pdf');
         $scriptPath = base_path('scripts/html-to-pdf.mjs');
 
+        $wrapper = env('PDF_NODE_WRAPPER', '');
         $browserPath = env('PUPPETEER_BROWSER_PATH', '');
         $isWindows = DIRECTORY_SEPARATOR === '\\';
 
-        // Build env prefix — POSIX syntax (VAR=val command), only for Linux
-        $envPrefix = '';
-        if (!$isWindows) {
-            $envPrefix = 'HOME=/tmp';
-            if ($browserPath) {
-                $envPrefix .= sprintf(' PUPPETEER_BROWSER_PATH=%s', escapeshellarg($browserPath));
-            }
-            $envPrefix .= ' ';
-        }
+        $scriptArg = escapeshellarg(str_replace('\\', '/', $scriptPath));
+        $htmlArg   = escapeshellarg(str_replace('\\', '/', $htmlFilePath));
+        $outArg    = escapeshellarg(str_replace('\\', '/', $tmpPath));
 
-        $command = sprintf(
-            '%snode %s %s %s 2>&1',
-            $envPrefix,
-            escapeshellarg(str_replace('\\', '/', $scriptPath)),
-            escapeshellarg(str_replace('\\', '/', $htmlFilePath)),
-            escapeshellarg(str_replace('\\', '/', $tmpPath))
-        );
+        if ($wrapper) {
+            // Server mode: use sudo wrapper script (handles env, browser path, etc.)
+            $command = sprintf('sudo %s %s %s %s 2>&1', escapeshellarg($wrapper), $scriptArg, $htmlArg, $outArg);
+        } else {
+            // Local dev mode
+            $envPrefix = '';
+            if (!$isWindows) {
+                $envPrefix = 'HOME=/tmp';
+                if ($browserPath) {
+                    $envPrefix .= sprintf(' PUPPETEER_BROWSER_PATH=%s', escapeshellarg($browserPath));
+                }
+                $envPrefix .= ' ';
+            }
+            $command = sprintf('%snode %s %s %s 2>&1', $envPrefix, $scriptArg, $htmlArg, $outArg);
+        }
 
         $output = shell_exec($command);
 
