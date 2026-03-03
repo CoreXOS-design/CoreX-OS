@@ -522,6 +522,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->name('corex.settings');
+    Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
 
     // Role Manager (admin only)
     Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->name('corex.role-manager');
