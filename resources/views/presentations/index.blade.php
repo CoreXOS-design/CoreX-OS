@@ -21,6 +21,15 @@
                     P24 Suburbs
                 </a>
                 @endif
+                <a href="/downloads/portal-capture-extension.zip" download
+                   class="corex-btn-outline" style="color:rgba(255,255,255,0.7); border-color:rgba(255,255,255,0.18); background:transparent; font-size:0.75rem; padding:0.3rem 0.7rem;">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:0.875rem;height:0.875rem;">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Capture Tool
+                </a>
                 <a href="{{ route('presentations.create') }}"
                    class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
                     + New Presentation

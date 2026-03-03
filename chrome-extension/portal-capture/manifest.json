@@ -1,10 +1,11 @@
 ﻿{
   "manifest_version": 3,
   "name": "Portal Capture for HFC",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Capture property portal pages (Property24, PrivateProperty, etc.) for HF Coastal presentations",
   "permissions": ["storage", "activeTab", "scripting", "tabs", "cookies"],
   "host_permissions": [
+    "https://corex.hfcoastal.co.za/*",
     "http://127.0.0.1:8000/*",
     "http://localhost:8000/*",
     "<all_urls>"
