@@ -288,18 +288,19 @@
                class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 border border-slate-300 hover:bg-slate-50 transition-colors">
                 Cancel
             </a>
-            @if($property)
-            <form method="POST" action="{{ route('corex.properties.destroy', $property) }}" class="ml-auto"
-                  onsubmit="return confirm('Delete this listing?')">
-                @csrf @method('DELETE')
-                <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                        style="color:#991b1b;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='transparent'">
-                    Delete
-                </button>
-            </form>
-            @endif
         </div>
 
     </form>
+
+    @if($property)
+    <form method="POST" action="{{ route('corex.properties.destroy', $property) }}" class="flex justify-end"
+          onsubmit="return confirm('Delete this listing?')">
+        @csrf @method('DELETE')
+        <button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                style="color:#991b1b;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='transparent'">
+            Delete
+        </button>
+    </form>
+    @endif
 </div>
 @endsection

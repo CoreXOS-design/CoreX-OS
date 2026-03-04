@@ -104,7 +104,7 @@ $propertyData = [
             {{-- Thumbnail — 380×199 container, real template scaled to fit --}}
             <div style="width:100%; height:199px; overflow:hidden; position:relative; background:#071325;">
                 <div style="position:absolute;top:0;left:0;width:1200px;height:628px;transform:scale(0.3167);transform-origin:top left;">
-                    @include('nexus.properties._ad-templates', ['tpl' => 'power', 'baseFontPx' => 16])
+                    @include('corex.properties._ad-templates', ['tpl' => 'power', 'baseFontPx' => 16])
                 </div>
             </div>
             <div style="padding:18px 20px 22px;">
@@ -120,7 +120,7 @@ $propertyData = [
         <div class="tpl-card" @click="selectTemplate('luxe')">
             <div style="width:100%; height:199px; overflow:hidden; position:relative; background:#071325;">
                 <div style="position:absolute;top:0;left:0;width:1200px;height:628px;transform:scale(0.3167);transform-origin:top left;">
-                    @include('nexus.properties._ad-templates', ['tpl' => 'luxe', 'baseFontPx' => 16])
+                    @include('corex.properties._ad-templates', ['tpl' => 'luxe', 'baseFontPx' => 16])
                 </div>
             </div>
             <div style="padding:18px 20px 22px;">
@@ -136,7 +136,7 @@ $propertyData = [
         <div class="tpl-card" @click="selectTemplate('split')">
             <div style="width:100%; height:199px; overflow:hidden; position:relative; background:#071325;">
                 <div style="position:absolute;top:0;left:0;width:1200px;height:628px;transform:scale(0.3167);transform-origin:top left;">
-                    @include('nexus.properties._ad-templates', ['tpl' => 'split', 'baseFontPx' => 16])
+                    @include('corex.properties._ad-templates', ['tpl' => 'split', 'baseFontPx' => 16])
                 </div>
             </div>
             <div style="padding:18px 20px 22px;">
@@ -256,17 +256,17 @@ $propertyData = [
 
                     {{-- Template: POWER --}}
                     <div x-show="template==='power'" style="position:absolute;inset:0;">
-                        @include('nexus.properties._ad-templates', ['tpl' => 'power', 'baseFontPx' => null])
+                        @include('corex.properties._ad-templates', ['tpl' => 'power', 'baseFontPx' => null])
                     </div>
 
                     {{-- Template: LUXE --}}
                     <div x-show="template==='luxe'" style="position:absolute;inset:0;">
-                        @include('nexus.properties._ad-templates', ['tpl' => 'luxe', 'baseFontPx' => null])
+                        @include('corex.properties._ad-templates', ['tpl' => 'luxe', 'baseFontPx' => null])
                     </div>
 
                     {{-- Template: SPLIT --}}
                     <div x-show="template==='split'" style="position:absolute;inset:0;">
-                        @include('nexus.properties._ad-templates', ['tpl' => 'split', 'baseFontPx' => null])
+                        @include('corex.properties._ad-templates', ['tpl' => 'split', 'baseFontPx' => null])
                     </div>
 
                     {{-- Template: CUSTOM (rendered via JS) --}}
