@@ -10,10 +10,13 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     @php
+        // Strip scheme+host from any legacy absolute URLs so crossorigin="anonymous" works
+        // regardless of which hostname the app is accessed from.
+        $toRelative = fn($url) => $url ? (parse_url($url, PHP_URL_PATH) ?: $url) : null;
         $images     = $property->allImages();
-        $img1       = $images[0] ?? null;
-        $img2       = $images[1] ?? null;
-        $img3       = $images[2] ?? null;
+        $img1       = $toRelative($images[0] ?? null);
+        $img2       = $toRelative($images[1] ?? null);
+        $img3       = $toRelative($images[2] ?? null);
         $agent      = $property->agent;
         $initial    = strtoupper(substr($agent?->name ?? 'A', 0, 1));
         $agentName  = strtoupper($agent?->name ?? '');
@@ -56,9 +59,9 @@
 </head>
 @php
 $propertyData = [
-    'image_1'           => $img1,
-    'image_2'           => $img2,
-    'image_3'           => $img3,
+    'image_1'           => $img1 ? asset($img1) : null,
+    'image_2'           => $img2 ? asset($img2) : null,
+    'image_3'           => $img3 ? asset($img3) : null,
     'price'             => $price,
     'title'             => $title,
     'suburb'            => $suburb,

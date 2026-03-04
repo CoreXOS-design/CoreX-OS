@@ -256,7 +256,7 @@ class PropertyController extends Controller
         if ($request->hasFile($field)) {
             foreach ($request->file($field) as $file) {
                 $path   = $file->store("properties/{$propertyId}", 'public');
-                $urls[] = url(Storage::url($path));
+                $urls[] = Storage::url($path);
             }
         }
         return $urls;
