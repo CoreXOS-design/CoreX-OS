@@ -79,6 +79,11 @@ html.dark {
     --hfc-blue:   #1a1e28;
     --hfc-card:   #13161d;
     --hfc-border: rgba(255,255,255,0.08);
+    /* Presentation semantic colour tokens */
+    --pres-success:    #34d399;
+    --pres-success-bg: rgba(5, 150, 105, 0.10);
+    --pres-warn:       #fbbf24;
+    --pres-warn-bg:    rgba(245, 158, 11, 0.10);
 }
 
 /* ========== Cloak ========== */
@@ -2096,3 +2101,116 @@ html.dark .shadow    { box-shadow: 0 2px 8px var(--shadow); }
 /* Ring / focus rings in dark mode */
 html.dark .ring-1,
 html.dark .ring-2 { --tw-ring-color: var(--border-hover); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   BRAND CYAN / SKY / BLUE COLOUR REMAPPING FOR DARK MODE
+   #00b4d8 (brand-secondary) and #38bfe0 stay readable but shift to
+   light text instead of a bright cyan that clashes on dark surfaces.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Brand cyan text → text-primary (near-white) in dark */
+html.dark [class*="text-[#00b4d8]"] { color: var(--text-primary)   !important; }
+html.dark [class*="text-[#38bfe0]"] { color: var(--text-secondary)  !important; }
+
+/* hover:text-[#00b4d8] and hover:text-[#0b2a4a] → use accent so hovers stay visible */
+html.dark [class*="hover\\:text-[#00b4d8]"]:hover { color: var(--accent) !important; }
+
+/* sky backgrounds → dark surfaces */
+html.dark .bg-sky-50  { background-color: var(--surface-2) !important; }
+html.dark .bg-sky-100 { background-color: var(--surface-2) !important; }
+
+/* Sky borders → dark border colours */
+html.dark .border-sky-200  { border-color: var(--border-hover) !important; }
+html.dark .ring-sky-200    { --tw-ring-color: var(--border-hover) !important; }
+
+/* blue-50 / blue-100 badges → dark tinted surface */
+html.dark .bg-blue-50  { background-color: rgba(79, 124, 255, 0.10) !important; }
+html.dark .bg-blue-100 { background-color: rgba(79, 124, 255, 0.14) !important; }
+
+/* blue text → lighter shade for dark */
+html.dark .text-blue-600 { color: #7fa8ff !important; }
+html.dark .text-blue-500 { color: #7fa8ff !important; }
+
+/* Semantic light backgrounds used in JS dynamic colour changes */
+html.dark .bg-red-50     { background-color: rgba(220, 38,  38,  0.10) !important; }
+html.dark .bg-emerald-50 { background-color: rgba(  5, 150, 105, 0.10) !important; }
+html.dark .bg-amber-50   { background-color: rgba(245, 158,  11, 0.10) !important; }
+
+/* Semantic border colours for JS-generated elements */
+html.dark .border-red-200     { border-color: rgba(220, 38,  38,  0.35) !important; }
+html.dark .border-emerald-200 { border-color: rgba(  5, 150, 105, 0.35) !important; }
+
+/* sky-500 bar fill: keep it but tone down slightly */
+html.dark .bg-sky-500 { background-color: #0e9ab8 !important; }
+
+/* Dark sky text shades → readable in dark mode */
+html.dark .text-sky-900,
+html.dark .text-sky-800 { color: var(--text-primary)   !important; }
+html.dark .text-sky-700 { color: var(--text-secondary) !important; }
+
+/* sky border for button outlines */
+html.dark .border-sky-300 { border-color: var(--border-hover) !important; }
+
+/* Semantic text colours: use lighter shades for readability on dark surfaces */
+html.dark .text-red-600    { color: #f87171 !important; }
+html.dark .text-red-700    { color: #f87171 !important; }
+html.dark .text-red-500    { color: #f87171 !important; }
+html.dark .text-emerald-600 { color: #34d399 !important; }
+html.dark .text-emerald-500 { color: #34d399 !important; }
+html.dark .text-green-700  { color: #34d399 !important; }
+html.dark .text-green-600  { color: #34d399 !important; }
+html.dark .text-green-500  { color: #34d399 !important; }
+
+/* amber text and border variants */
+html.dark .text-amber-700  { color: #fbbf24 !important; }
+html.dark .text-amber-600  { color: #fbbf24 !important; }
+html.dark .border-amber-200 { border-color: rgba(245, 158, 11, 0.35) !important; }
+html.dark .bg-amber-50     { background-color: rgba(245, 158, 11, 0.10) !important; }
+
+/* Inline style color overrides for hardcoded dark-on-light colours */
+html.dark [style*="color:#92400e"],
+html.dark [style*="color: #92400e"] { color: #fbbf24 !important; }
+html.dark [style*="color:#166534"],
+html.dark [style*="color: #166534"] { color: #34d399 !important; }
+
+/* CSS variable text colour uses → override to white so prices/labels are readable */
+html.dark [style*="color:var(--brand-primary"],
+html.dark [style*="color: var(--brand-primary"] { color: var(--text-primary) !important; }
+html.dark [style*="color:var(--brand-secondary"],
+html.dark [style*="color: var(--brand-secondary"] { color: var(--text-primary) !important; }
+
+/* Hardcoded dark text colours used in inline styles (KPI stats, badges, etc.) */
+html.dark [style*="color:#1e40af"],
+html.dark [style*="color: #1e40af"] { color: #7fa8ff !important; }
+html.dark [style*="color:#00838f"],
+html.dark [style*="color: #00838f"] { color: #67e8f7 !important; }
+html.dark [style*="color:#64748b"],
+html.dark [style*="color: #64748b"] { color: var(--text-secondary) !important; }
+html.dark [style*="color:#475569"],
+html.dark [style*="color: #475569"] { color: var(--text-secondary) !important; }
+html.dark [style*="color:#334155"],
+html.dark [style*="color: #334155"] { color: var(--text-secondary) !important; }
+html.dark [style*="color:#94a3b8"],
+html.dark [style*="color: #94a3b8"] { color: var(--text-muted) !important; }
+
+/* Light inline backgrounds → dark equivalents */
+html.dark [style*="background:#dcfce7"],
+html.dark [style*="background: #dcfce7"] { background: rgba(5,150,105,0.10) !important; }
+html.dark [style*="background:#dbeafe"],
+html.dark [style*="background: #dbeafe"] { background: rgba(79,124,255,0.10) !important; }
+html.dark [style*="background:#e0f7fa"],
+html.dark [style*="background: #e0f7fa"] { background: rgba(0,180,216,0.10) !important; }
+html.dark [style*="background:#f0fdf4"],
+html.dark [style*="background: #f0fdf4"] { background: rgba(5,150,105,0.10) !important; }
+html.dark [style*="background:#fffbeb"],
+html.dark [style*="background: #fffbeb"] { background: rgba(245,158,11,0.10) !important; }
+html.dark [style*="background:#fee2e2"],
+html.dark [style*="background: #fee2e2"] { background: rgba(220,38,38,0.10) !important; }
+html.dark [style*="background:#f1f5f9"],
+html.dark [style*="background: #f1f5f9"] { background: var(--surface-2) !important; }
+html.dark [style*="background:#f8fafc"],
+html.dark [style*="background: #f8fafc"] { background: var(--surface-2) !important; }
+
+/* pres-badge overrides for dark mode */
+html.dark .pres-badge-success { background: rgba(5,150,105,0.12); color: #34d399; }
+html.dark .pres-badge-warn    { background: rgba(245,158,11,0.12); color: #fbbf24; }
