@@ -8,6 +8,8 @@
         str_starts_with($currentPath, 'agent/dashboard')
     ) {
         $corexSection = 'dashboard';
+    } elseif (str_starts_with($currentPath, 'filing-register')) {
+        $corexSection = 'filing-register';
     } elseif (str_starts_with($currentPath, 'rental')) {
         $corexSection = 'rental-division';
     } elseif (str_starts_with($currentPath, 'docuperfect/sales')) {
@@ -220,6 +222,15 @@
         </a>
         @endif
 
+        {{-- Filing Register (top-level) --}}
+        <a href="{{ route('filing-register.index') }}" class="corex-nav-item {{ $corexSection === 'filing-register' ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+            </svg>
+            <span>Filing Register</span>
+            <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+        </a>
+
         {{-- Rental Division (expandable group) --}}
         @php $rentalExpanded = ($corexSection === 'rental-division'); @endphp
         <div x-data="{ rentalOpen: {{ $rentalExpanded ? 'true' : 'false' }} }">
@@ -287,7 +298,6 @@
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
                 <a href="{{ route('bm.my.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('bm.my.dashboard') ? 'active' : '' }}">My Agent Dashboard</a>
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
-                <a href="{{ route('filing-register.index') }}" class="corex-nav-subitem {{ request()->routeIs('filing-register.*') ? 'active' : '' }}">Filing Register</a>
                 <div class="corex-nav-sublabel">Setup</div>
                 <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Worksheet Market</a>
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets*') ? 'active' : '' }}">Daily Activity Targets</a>
@@ -309,7 +319,6 @@
                 <a href="{{ route('admin.performance-settings.edit') }}" class="corex-nav-subitem {{ request()->routeIs('admin.performance-settings*') ? 'active' : '' }}">Company Settings</a>
                 <a href="{{ route('admin.designations.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.designations*') ? 'active' : '' }}">Designations</a>
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
-                <a href="{{ route('filing-register.index') }}" class="corex-nav-subitem {{ request()->routeIs('filing-register.*') ? 'active' : '' }}">Filing Register</a>
                 <a href="{{ route('admin.listings.agents') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.agents*') ? 'active' : '' }}">Listing Stock</a>
                 <a href="{{ route('admin.listings.import') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.import*') ? 'active' : '' }}">Import Listings</a>
                 <a href="{{ route('admin.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
