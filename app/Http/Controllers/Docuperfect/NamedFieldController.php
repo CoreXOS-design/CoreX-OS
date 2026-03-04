@@ -50,8 +50,7 @@ class NamedFieldController extends Controller
             return response()->json(['field' => $field]);
         }
 
-        return redirect()->route('docuperfect.settings.namedFields')
-            ->with('status', "Named field \"{$request->input('name')}\" created.");
+        return back()->with('status', "Named field \"{$request->input('name')}\" created.");
     }
 
     public function update(Request $request, $id)
@@ -82,8 +81,7 @@ class NamedFieldController extends Controller
             'sort_order' => $request->input('sort_order', 0),
         ]);
 
-        return redirect()->route('docuperfect.settings.namedFields')
-            ->with('status', "Named field \"{$field->name}\" updated.");
+        return back()->with('status', "Named field \"{$field->name}\" updated.");
     }
 
     public function destroy(Request $request, $id)
@@ -97,8 +95,7 @@ class NamedFieldController extends Controller
         $name = $field->name;
         $field->delete();
 
-        return redirect()->route('docuperfect.settings.namedFields')
-            ->with('status', "Named field \"{$name}\" deleted.");
+        return back()->with('status', "Named field \"{$name}\" deleted.");
     }
 
     public function reorder(Request $request)

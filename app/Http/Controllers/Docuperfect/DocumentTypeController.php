@@ -37,8 +37,7 @@ class DocumentTypeController extends Controller
             'sort_order' => $request->input('sort_order') ?? ((int) DocumentType::max('sort_order') + 10),
         ]);
 
-        return redirect()->route('docuperfect.settings.types')
-            ->with('status', "Document type \"{$request->input('name')}\" created.");
+        return back()->with('status', "Document type \"{$request->input('name')}\" created.");
     }
 
     public function update(Request $request, $id)
@@ -60,8 +59,7 @@ class DocumentTypeController extends Controller
             'sort_order' => $request->input('sort_order', 0),
         ]);
 
-        return redirect()->route('docuperfect.settings.types')
-            ->with('status', "Document type \"{$type->name}\" updated.");
+        return back()->with('status', "Document type \"{$type->name}\" updated.");
     }
 
     public function destroy(Request $request, $id)
@@ -74,15 +72,13 @@ class DocumentTypeController extends Controller
         $type = DocumentType::findOrFail($id);
 
         if ($type->templates()->count() > 0) {
-            return redirect()->route('docuperfect.settings.types')
-                ->with('error', "Cannot delete \"{$type->name}\" — it has templates assigned.");
+            return back()->with('error', "Cannot delete \"{$type->name}\" — it has templates assigned.");
         }
 
         $name = $type->name;
         $type->delete();
 
-        return redirect()->route('docuperfect.settings.types')
-            ->with('status', "Document type \"{$name}\" deleted.");
+        return back()->with('status', "Document type \"{$name}\" deleted.");
     }
 
     public function reorder(Request $request)

@@ -39,9 +39,9 @@
         'bm.performance*', 'bm.daily*', 'bm.listings*', 'bm.my.dashboard',
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
-        'admin.listings.*', 'admin.performance-settings*', 'admin.designations*',
+        'admin.listings.*',
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
-        'admin.branch-assignments*', 'admin.users*', 'admin.tv-messages*',
+        'admin.tv-messages*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
         'tools.commission', 'tools.cma', 'tools.history.*'
     )) {
@@ -204,12 +204,6 @@
                 <a href="{{ route('admin.listings.stock') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.stock*') ? 'active' : '' }}">Company Listing Stock</a>
                 @endif
                 @endpermission
-                @permission('manage_performance_settings')
-                <a href="{{ route('admin.performance-settings.edit') }}" class="corex-nav-subitem {{ request()->routeIs('admin.performance-settings*') ? 'active' : '' }}">Company Settings</a>
-                @endpermission
-                @permission('manage_designations')
-                <a href="{{ route('admin.designations.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.designations*') ? 'active' : '' }}">Designations</a>
-                @endpermission
                 @permission('view_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
                 @endpermission
@@ -229,12 +223,6 @@
                 @endpermission
                 @permission('edit_worksheet')
                 <a href="{{ route('admin.worksheet-market') }}" class="corex-nav-subitem {{ request()->routeIs('admin.worksheet-market*') ? 'active' : '' }}">Worksheet Market</a>
-                @endpermission
-                @permission('manage_branch_settings')
-                <a href="{{ route('admin.branch-assignments') }}" class="corex-nav-subitem {{ request()->routeIs('admin.branch-assignments*') ? 'active' : '' }}">Branch Assignments</a>
-                @endpermission
-                @permission('manage_users')
-                <a href="{{ route('admin.users') }}" class="corex-nav-subitem {{ request()->routeIs('admin.users') ? 'active' : '' }}">Users</a>
                 @endpermission
                 @permission('access_tv_messages')
                 <a href="{{ route('admin.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('admin.tv-messages*') ? 'active' : '' }}">TV Messages</a>
@@ -284,9 +272,6 @@
                 @permission('manage_templates')
                 <a href="{{ route('docuperfect.templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
                 @endpermission
-                @permission('manage_docuperfect_settings')
-                <a href="{{ route('docuperfect.settings.types') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.settings.*') ? 'active' : '' }}">Settings</a>
-                @endpermission
             </div>
         </div>
         @endif
@@ -316,9 +301,6 @@
                 @endpermission
                 <a href="{{ route('rental.active-leases') }}" class="corex-nav-subitem {{ request()->routeIs('rental.active-leases') ? 'active' : '' }}">Active Leases</a>
                 <a href="{{ route('rental.expired-leases') }}" class="corex-nav-subitem {{ request()->routeIs('rental.expired-leases') ? 'active' : '' }}">Expired Leases</a>
-                @permission('manage_rentals')
-                <a href="{{ route('rental.settings') }}" class="corex-nav-subitem {{ request()->routeIs('rental.settings*') ? 'active' : '' }}">Settings</a>
-                @endpermission
             </div>
         </div>
         @endpermission
