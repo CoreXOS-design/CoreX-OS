@@ -19,14 +19,53 @@ class TemplateController extends Controller
             abort(403);
         }
 
-        $showArchived = $request->boolean('archived');
-
         $query = Template::visibleTo($user)->with(['owner', 'branches', 'documentType']);
-        $templates = $showArchived
-            ? $query->archived()->orderByDesc('archived_at')->get()
-            : $query->active()->orderBy('name')->get();
+
+        // Status filter (active/archived)
+        $status = $request->input('status', 'active');
+        if ($status === 'archived') {
+            $query->archived();
+        } else {
+            $query->active();
+        }
+
+        // Search
+        if ($search = $request->input('search')) {
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        // Document type filter
+        if ($docType = $request->input('document_type')) {
+            if ($docType === 'none') {
+                $query->whereNull('document_type_id');
+            } else {
+                $query->where('document_type_id', $docType);
+            }
+        }
+
+        // Template type filter (sales/rental/compliance)
+        if ($type = $request->input('type')) {
+            $query->where('template_type', $type);
+        }
+
+        // Visibility filter
+        if ($visibility = $request->input('visibility')) {
+            if ($visibility === 'global') {
+                $query->where('is_global', true);
+            } elseif ($visibility === 'branch') {
+                $query->where('is_global', false);
+            }
+        }
+
+        // Sort
+        $sortField = in_array($request->input('sort'), ['name', 'created_at', 'page_count']) ? $request->input('sort') : 'name';
+        $sortDir = $request->input('direction') === 'desc' ? 'desc' : 'asc';
+        $query->orderBy($sortField, $sortDir);
+
+        $templates = $query->paginate(20)->withQueryString();
 
         $documentTypes = DocumentType::orderBy('sort_order')->get();
+        $showArchived = $status === 'archived';
 
         return view('docuperfect.templates.index', compact('templates', 'showArchived', 'documentTypes', 'user'));
     }

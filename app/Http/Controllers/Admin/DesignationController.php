@@ -9,14 +9,14 @@ use Illuminate\Http\Request;
 
 class DesignationController extends Controller
 {
-    private function ensureAdmin(): void
+    private function ensureAccess(): void
     {
-        abort_unless(auth()->user()?->isEffectiveAdmin(), 403);
+        abort_unless(auth()->user()?->hasPermission('manage_designations'), 403);
     }
 
     public function index()
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $designations = Designation::orderBy('sort_order')->orderBy('name')->get();
 
@@ -25,7 +25,7 @@ class DesignationController extends Controller
 
     public function store(Request $request)
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $data = $request->validate([
             'name' => ['required','string','max:100'],
@@ -47,7 +47,7 @@ class DesignationController extends Controller
 
     public function update(Request $request, Designation $designation)
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $data = $request->validate([
             'name' => ['required','string','max:100'],
@@ -76,7 +76,7 @@ class DesignationController extends Controller
 
     public function delete(Designation $designation)
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $name = (string)$designation->name;
 

@@ -44,15 +44,77 @@ use Illuminate\Http\Request;
 class PresentationController extends Controller
 {
     /**
+     * Abort unless the authenticated user can access this presentation.
+     */
+    private function authorizePresentation(Presentation $presentation): void
+    {
+        $user = auth()->user();
+
+        if ($user->isEffectiveAdmin()) {
+            return;
+        }
+
+        if ($user->isEffectiveBranchManager() && (int) $presentation->branch_id === (int) $user->effectiveBranchId()) {
+            return;
+        }
+
+        if ((int) $presentation->created_by_user_id === (int) $user->id) {
+            return;
+        }
+
+        abort(403);
+    }
+
+    /**
      * List all presentations for this user's branch context.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $presentations = Presentation::with(['snapshots'])
-            ->latest()
-            ->paginate(25);
+        $query = Presentation::visibleTo(auth()->user())->with(['snapshots', 'creator']);
 
-        return view('presentations.index', compact('presentations'));
+        // Search
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('property_address', 'like', "%{$search}%")
+                  ->orWhere('seller_name', 'like', "%{$search}%")
+                  ->orWhere('suburb', 'like', "%{$search}%")
+                  ->orWhere('title', 'like', "%{$search}%");
+            });
+        }
+
+        // Filters
+        if ($status = $request->input('status')) {
+            $query->where('status', $status);
+        }
+        if ($propertyType = $request->input('property_type')) {
+            $query->where('property_type', $propertyType);
+        }
+        if ($agent = $request->input('agent')) {
+            $query->where('created_by_user_id', $agent);
+        }
+
+        // Sort
+        $sortField = $request->input('sort', 'created_at');
+        $sortDir = $request->input('direction', 'desc');
+        $allowed = ['created_at', 'property_address', 'status', 'updated_at', 'suburb', 'seller_name'];
+        if (!in_array($sortField, $allowed)) {
+            $sortField = 'created_at';
+        }
+        $query->orderBy($sortField, $sortDir === 'asc' ? 'asc' : 'desc');
+
+        $presentations = $query->paginate(20)->withQueryString();
+
+        // Data for filter dropdowns
+        $statuses = Presentation::visibleTo(auth()->user())->distinct()->pluck('status')->filter()->sort()->values();
+        $propertyTypes = Presentation::visibleTo(auth()->user())->whereNotNull('property_type')->distinct()->pluck('property_type')->sort()->values();
+        $agents = collect();
+        if (auth()->user()->isEffectiveAdmin() || auth()->user()->isEffectiveBranchManager()) {
+            $agents = \App\Models\User::orderBy('name')
+                ->whereIn('id', Presentation::visibleTo(auth()->user())->distinct()->pluck('created_by_user_id'))
+                ->get(['id', 'name']);
+        }
+
+        return view('presentations.index', compact('presentations', 'statuses', 'propertyTypes', 'agents'));
     }
 
     /**
@@ -128,6 +190,7 @@ class PresentationController extends Controller
      */
     public function edit(Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $isAdmin = auth()->user()->isEffectiveAdmin();
         $branches = $isAdmin ? Branch::orderBy('name')->get() : collect();
 
@@ -139,6 +202,7 @@ class PresentationController extends Controller
      */
     public function update(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $isAdmin = auth()->user()->isEffectiveAdmin();
 
         $rules = [
@@ -195,6 +259,7 @@ class PresentationController extends Controller
      */
     public function show(Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $latestSnapshot = $presentation->snapshots()->latest()->first();
         $snapshotCount  = $presentation->snapshots()->count();
         $links          = $presentation->links()->orderBy('created_at')->get();
@@ -259,6 +324,7 @@ class PresentationController extends Controller
      */
     public function analysis(Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $latestSnapshot = $presentation->snapshots()->latest()->first();
 
         // Readiness gate — redirect to intake if evidence is insufficient
@@ -287,6 +353,7 @@ class PresentationController extends Controller
      */
     public function runAnalysis(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $validated = $request->validate([
             'asking_price_inc' => ['nullable', 'integer', 'min:0'],
         ]);
@@ -320,6 +387,7 @@ class PresentationController extends Controller
      */
     public function updateAnalysisSelections(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $validated = $request->validate([
             'cma_selected_range'             => ['sometimes', 'string', 'in:lower,middle,upper'],
             'vicinity_selected_range'        => ['sometimes', 'string', 'in:lower,middle,upper'],
@@ -350,6 +418,7 @@ class PresentationController extends Controller
      */
     public function storeLink(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $validated = $request->validate([
             'type'             => ['required', 'string', 'in:property24,lightstone,active_listing,competitor_listing,market_article,other'],
             'url'              => ['required', 'url', 'max:2000'],
@@ -431,6 +500,7 @@ class PresentationController extends Controller
      */
     public function destroyLink(Presentation $presentation, \App\Models\PresentationLink $link)
     {
+        $this->authorizePresentation($presentation);
         abort_if($link->presentation_id !== $presentation->id, 403);
         $link->delete();
 
@@ -443,6 +513,7 @@ class PresentationController extends Controller
      */
     public function updateLinkType(Request $request, Presentation $presentation, \App\Models\PresentationLink $link)
     {
+        $this->authorizePresentation($presentation);
         abort_if($link->presentation_id !== $presentation->id, 403);
 
         $validated = $request->validate([
@@ -460,6 +531,7 @@ class PresentationController extends Controller
      */
     public function updateHoldingCost(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $validated = $request->validate([
             'asking_price_inc'         => ['nullable', 'integer', 'min:0'],
             'monthly_bond'             => ['nullable', 'numeric', 'min:0'],
@@ -504,6 +576,7 @@ class PresentationController extends Controller
      */
     public function upload(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $request->validate([
             'doc_type'    => ['required', 'string', 'in:auto,suburb_stats,vicinity_sales,cma,market_article,other'],
             'documents'   => ['required', 'array', 'min:1'],
@@ -533,6 +606,7 @@ class PresentationController extends Controller
      */
     public function updateUploadType(Request $request, Presentation $presentation, PresentationUpload $upload)
     {
+        $this->authorizePresentation($presentation);
         abort_if($upload->presentation_id !== $presentation->id, 403);
 
         $validated = $request->validate([
@@ -552,6 +626,7 @@ class PresentationController extends Controller
      */
     public function destroyUpload(Presentation $presentation, PresentationUpload $upload)
     {
+        $this->authorizePresentation($presentation);
         abort_if($upload->presentation_id !== $presentation->id, 403);
 
         $filename = $upload->original_filename ?? 'document';
@@ -578,6 +653,7 @@ class PresentationController extends Controller
      */
     public function saveUploadOverride(Request $request, Presentation $presentation, PresentationUpload $upload)
     {
+        $this->authorizePresentation($presentation);
         abort_if($upload->presentation_id !== $presentation->id, 403);
 
         $validated = $request->validate([
@@ -599,6 +675,7 @@ class PresentationController extends Controller
      */
     public function clearUploadOverride(Request $request, Presentation $presentation, PresentationUpload $upload)
     {
+        $this->authorizePresentation($presentation);
         abort_if($upload->presentation_id !== $presentation->id, 403);
 
         $upload->update([
@@ -617,6 +694,7 @@ class PresentationController extends Controller
      */
     public function saveLinkOverride(Request $request, Presentation $presentation, \App\Models\PresentationLink $link)
     {
+        $this->authorizePresentation($presentation);
         abort_if($link->presentation_id !== $presentation->id, 403);
 
         $validated = $request->validate([
@@ -638,6 +716,7 @@ class PresentationController extends Controller
      */
     public function clearLinkOverride(Request $request, Presentation $presentation, \App\Models\PresentationLink $link)
     {
+        $this->authorizePresentation($presentation);
         abort_if($link->presentation_id !== $presentation->id, 403);
 
         $link->update([
@@ -655,6 +734,7 @@ class PresentationController extends Controller
      */
     public function reExtractUpload(Presentation $presentation, PresentationUpload $upload)
     {
+        $this->authorizePresentation($presentation);
         abort_if($upload->presentation_id !== $presentation->id, 403);
 
         (new UploadExtractionService())->run($upload);
@@ -668,6 +748,7 @@ class PresentationController extends Controller
      */
     public function reExtractLink(Presentation $presentation, \App\Models\PresentationLink $link)
     {
+        $this->authorizePresentation($presentation);
         abort_if($link->presentation_id !== $presentation->id, 403);
 
         (new LinkExtractionService())->run($link);
@@ -682,6 +763,7 @@ class PresentationController extends Controller
      */
     public function compute(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         // Readiness gate — redirect to intake if evidence is insufficient
         if (!$presentation->isAnalysisReady()) {
             $readiness = (new PresentationReadinessService())->evaluate($presentation);
@@ -899,6 +981,7 @@ class PresentationController extends Controller
      */
     public function compile(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config("features.presentation_blueprint"), 404);
 
         // Readiness gate (P16) — blocks unless can_compile or admin force-overrides
@@ -933,6 +1016,7 @@ class PresentationController extends Controller
      */
     public function storeUrlSnapshot(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $validated = $request->validate([
             'url'         => ['required', 'url', 'max:2000'],
             'source_type' => ['required', 'string', 'in:' . implode(',', UrlSnapshotService::ALLOWED_SOURCE_TYPES)],
@@ -996,6 +1080,7 @@ class PresentationController extends Controller
      */
     public function simulate(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $validated = $request->validate([
             'suburb'        => ['required', 'string', 'max:100'],
             'type'          => ['required', 'string', 'in:house,unit,land,other'],
@@ -1159,6 +1244,7 @@ class PresentationController extends Controller
      */
     public function brain(Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         return redirect()->route('presentations.pricing-simulator', $presentation);
     }
 
@@ -1169,6 +1255,7 @@ class PresentationController extends Controller
      */
     public function simulateTrajectory(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.trajectory_simulation_v1'), 404);
 
         $validated = $request->validate([
@@ -1214,6 +1301,7 @@ class PresentationController extends Controller
      */
     public function priceBand(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.price_band_v1'), 404);
 
         $validated = $request->validate([
@@ -1260,6 +1348,7 @@ class PresentationController extends Controller
      */
     public function competitiveThreats(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.competitive_threat_v1'), 404);
 
         $validated = $request->validate([
@@ -1287,6 +1376,7 @@ class PresentationController extends Controller
      */
     public function pricingSimulator(Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.pricing_simulator_v1'), 404);
 
         $analysisService  = new AnalysisDataService();
@@ -1330,6 +1420,7 @@ class PresentationController extends Controller
      */
     public function computePricingSimulator(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.pricing_simulator_v1'), 404);
 
         $validated = $request->validate([
@@ -1365,6 +1456,7 @@ class PresentationController extends Controller
      */
     public function savePricingSimulator(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.pricing_simulator_v1'), 404);
 
         $validated = $request->validate([
@@ -1392,6 +1484,7 @@ class PresentationController extends Controller
      */
     public function pricingSimulatorPresent(Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.pricing_simulator_v1'), 404);
 
         $savedConfig = $presentation->simulator_config_json;
@@ -1421,6 +1514,7 @@ class PresentationController extends Controller
      */
     public function sellerLive(Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $analysisService  = new AnalysisDataService();
         $simulatorService = new PricingSimulatorService();
 
@@ -1481,6 +1575,7 @@ class PresentationController extends Controller
      */
     public function captureSellerLive(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $validated = $request->validate([
             'price'        => ['required', 'integer', 'min:0'],
             'probability'  => ['required', 'string'],

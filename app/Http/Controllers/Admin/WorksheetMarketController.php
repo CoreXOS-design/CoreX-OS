@@ -16,9 +16,7 @@ class WorksheetMarketController extends Controller
     public function index(Request $request)
     {
         $u = Auth::user();
-        if (!in_array($u->effectiveRole(), ['admin','branch_manager'], true)) {
-            abort(403);
-        }
+        abort_unless($u?->hasPermission('edit_worksheet'), 403);
 
         $period = $request->query('period', now()->format('Y-m'));
 
@@ -262,9 +260,7 @@ $periodStart = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
     public function store(Request $request)
 {
     $u = Auth::user();
-    if (!in_array($u->effectiveRole(), ['admin','branch_manager'], true)) {
-        abort(403);
-    }
+    abort_unless($u?->hasPermission('edit_worksheet'), 403);
 
     $data = $request->validate([
         'period' => ['required', 'string', 'max:7', 'regex:/^\d{4}-\d{2}$/'],

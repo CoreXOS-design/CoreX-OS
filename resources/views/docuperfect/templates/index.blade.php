@@ -1,51 +1,71 @@
 @extends('layouts.corex')
 
 @section('content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="max-w-7xl mx-auto">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-xl font-bold text-white leading-tight">Template Management</h2>
-            <div class="text-sm text-white/60">Manage document templates for your agents.</div>
-        </div>
-        <div class="flex items-center gap-3">
-            @if($showArchived)
-            <a href="{{ route('docuperfect.templates.index') }}" class="text-sm text-white/70 hover:text-white">Show Active</a>
-            @else
-            <a href="{{ route('docuperfect.templates.index', ['archived' => 1]) }}" class="text-sm text-white/70 hover:text-white">Show Archived</a>
-            @endif
+    <x-list-header
+        title="Template Management"
+        :form-action="route('docuperfect.templates.index')"
+        :paginator="$templates"
+        search-placeholder="Search templates..."
+    >
+        <x-slot:filters>
+            <select name="status" onchange="this.form.submit()" class="list-header-filter">
+                <option value="active" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
+                <option value="archived" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
+            </select>
+            <select name="type" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All types</option>
+                <option value="sales" {{ request('type') === 'sales' ? 'selected' : '' }}>Sales</option>
+                <option value="rental" {{ request('type') === 'rental' ? 'selected' : '' }}>Rental</option>
+                <option value="compliance" {{ request('type') === 'compliance' ? 'selected' : '' }}>Compliance</option>
+            </select>
+            <select name="document_type" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All doc types</option>
+                @foreach($documentTypes as $dt)
+                <option value="{{ $dt->id }}" {{ request('document_type') == $dt->id ? 'selected' : '' }}>{{ $dt->name }}</option>
+                @endforeach
+                <option value="none" {{ request('document_type') === 'none' ? 'selected' : '' }}>Uncategorized</option>
+            </select>
+            <select name="visibility" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All visibility</option>
+                <option value="global" {{ request('visibility') === 'global' ? 'selected' : '' }}>Global</option>
+                <option value="branch" {{ request('visibility') === 'branch' ? 'selected' : '' }}>Branch-specific</option>
+            </select>
+        </x-slot:filters>
+        <x-slot:actions>
             <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="flex items-center" id="tplUploadForm">
                 @csrf
-                <label class="corex-btn-primary cursor-pointer text-sm" style="background:rgba(255,255,255,0.15);">
+                <label class="corex-btn-primary cursor-pointer text-sm">
                     + Upload Template
                     <input type="file" name="pdf" accept=".pdf" class="hidden" onchange="document.getElementById('tplUploadForm').submit();">
                 </label>
             </form>
-        </div>
-    </div>
+        </x-slot:actions>
+    </x-list-header>
 
     @if(session('status'))
-        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm">
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm mt-4">
             {{ session('status') }}
         </div>
     @endif
 
     @if($templates->isEmpty())
-        <div class="ds-status-card p-6 text-center">
-            <div class="text-sm text-slate-500">{{ $showArchived ? 'No archived templates.' : 'No templates yet. Upload a PDF to create one.' }}</div>
+        <div class="ds-status-card p-6 text-center mt-4">
+            <div class="text-sm text-slate-500">
+                @if(request('search') || request('document_type') || request('visibility'))
+                    No templates match your search.
+                @elseif($showArchived)
+                    No archived templates.
+                @else
+                    No templates yet. Upload a PDF to create one.
+                @endif
+            </div>
         </div>
     @else
-        <div x-data="{ viewMode: localStorage.getItem('docuperfect_tpl_view') || 'grid', typeFilter: '' }">
-            {{-- Filter + Toggle bar --}}
+        <div x-data="{ viewMode: localStorage.getItem('docuperfect_tpl_view') || 'grid' }" class="mt-4">
+            {{-- View toggle --}}
             <div class="flex items-center justify-end gap-2 mb-4">
-                <select x-model="typeFilter" class="rounded-lg border border-slate-300 bg-white text-slate-700 px-2 py-1.5 text-xs">
-                    <option value="">All Types</option>
-                    @foreach($documentTypes as $dt)
-                    <option value="{{ $dt->id }}">{{ $dt->name }}</option>
-                    @endforeach
-                    <option value="none">Uncategorized</option>
-                </select>
-
                 <div class="flex items-center border border-slate-300 rounded-lg overflow-hidden">
                     <button @click="viewMode = 'grid'; localStorage.setItem('docuperfect_tpl_view', 'grid')"
                             :class="viewMode === 'grid' ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 hover:text-slate-700'"
@@ -67,8 +87,7 @@
             {{-- Grid View --}}
             <div x-show="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 @foreach($templates as $tpl)
-                <div class="ds-status-card p-4 flex flex-col"
-                     x-show="typeFilter === '' || typeFilter === '{{ $tpl->document_type_id ?? 'none' }}'" x-cloak>
+                <div class="ds-status-card p-4 flex flex-col">
                     <div class="flex items-start justify-between mb-1">
                         <div class="font-semibold text-slate-900 text-sm leading-tight">{{ $tpl->name }}</div>
                         @if($tpl->documentType)
@@ -125,22 +144,23 @@
 
             {{-- List View --}}
             <div x-show="viewMode === 'list'" x-cloak>
-                <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                <div class="rounded-2xl border border-slate-200 bg-white overflow-x-auto">
                     <table class="w-full text-sm ds-table">
                         <thead>
                             <tr>
                                 <th class="text-left px-4 py-3 w-12"></th>
-                                <th class="text-left px-4 py-3">Name</th>
+                                <x-sort-header field="name" label="Name" />
                                 <th class="text-left px-4 py-3">Type</th>
                                 <th class="text-left px-4 py-3">Branches</th>
                                 <th class="text-left px-4 py-3">Owner</th>
-                                <th class="text-center px-4 py-3">Pages</th>
+                                <x-sort-header field="page_count" label="Pages" align="center" />
+                                <x-sort-header field="created_at" label="Created" align="right" />
                                 <th class="text-right px-4 py-3">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach($templates as $tpl)
-                            <tr x-show="typeFilter === '' || typeFilter === '{{ $tpl->document_type_id ?? 'none' }}'" x-cloak>
+                            <tr>
                                 <td class="px-4 py-2">
                                     @if($tpl->page_count > 0)
                                     <img src="{{ route('docuperfect.page.image', ['id' => $tpl->id, 'page' => 0]) }}"
@@ -166,6 +186,7 @@
                                 </td>
                                 <td class="px-4 py-2 text-xs text-slate-500">{{ $tpl->owner->name ?? '—' }}</td>
                                 <td class="px-4 py-2 text-center text-slate-500">{{ $tpl->page_count }}</td>
+                                <td class="px-4 py-2 text-right text-xs text-slate-500">{{ $tpl->created_at->format('d M Y') }}</td>
                                 <td class="px-4 py-2 text-right">
                                     <div class="flex items-center justify-end gap-1">
                                         @if($showArchived)
@@ -193,6 +214,10 @@
                     </table>
                 </div>
             </div>
+        </div>
+
+        <div class="mt-4">
+            {{ $templates->links() }}
         </div>
     @endif
 

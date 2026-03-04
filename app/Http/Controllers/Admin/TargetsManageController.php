@@ -14,22 +14,9 @@ use Illuminate\Support\Facades\DB;
 
 class TargetsManageController extends Controller
 {
-    private function role(): string
+    private function ensureAccess(): void
     {
-        $u = auth()->user();
-        return strtolower(trim((string)($u->role ?? '')));
-    }
-
-    private function isAdmin(): bool
-    {
-        $u = auth()->user();
-        if (!$u) return false;
-        return $this->role() === 'admin' || (bool)($u->is_admin ?? 0) === true;
-    }
-
-    private function isBM(): bool
-    {
-        return $this->role() === 'branch_manager';
+        abort_unless(auth()->user()?->hasPermission('manage_targets'), 403);
     }
 
     private function ensureActive(): void
@@ -63,7 +50,7 @@ class TargetsManageController extends Controller
 
     public function index(Request $request)
     {
-        abort_unless($this->isAdmin() || $this->isBM(), 403);
+        $this->ensureAccess();
         $this->ensureActive();
 
         $auth = auth()->user();
@@ -72,7 +59,7 @@ class TargetsManageController extends Controller
         if (!preg_match('/^\d{4}\-\d{2}$/', $period)) $period = Carbon::now()->format('Y-m');
 
         $branchId = (int)($request->get('branch_id') ?: 0);
-        if ($this->isBM()) {
+        if ($auth->isEffectiveBranchManager()) {
             $branchId = (int)($auth->branch_id ?? 0);
         }
 
@@ -175,14 +162,14 @@ class TargetsManageController extends Controller
             'branchId' => $branchId,
             'branchNames' => $branchNames,
             'byBranch' => $byBranch,
-            'isAdmin' => $this->isAdmin(),
-            'isBM' => $this->isBM(),
+            'isAdmin' => $auth->isEffectiveAdmin(),
+            'isBM' => $auth->isEffectiveBranchManager(),
         ]);
     }
 
     public function save(Request $request)
     {
-        abort_unless($this->isAdmin() || $this->isBM(), 403);
+        $this->ensureAccess();
         $this->ensureActive();
 
         $auth = auth()->user();

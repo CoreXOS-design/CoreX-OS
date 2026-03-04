@@ -20,6 +20,15 @@ class PresentationPdfController extends Controller
 {
     public function __construct(private readonly PresentationPdfService $pdfService) {}
 
+    private function authorizePresentation(Presentation $presentation): void
+    {
+        $user = auth()->user();
+        if ($user->isEffectiveAdmin()) return;
+        if ($user->isEffectiveBranchManager() && (int) $presentation->branch_id === (int) $user->effectiveBranchId()) return;
+        if ((int) $presentation->created_by_user_id === (int) $user->id) return;
+        abort(403);
+    }
+
     /**
      * Generate and download the market analysis as a real PDF file.
      *
@@ -27,6 +36,7 @@ class PresentationPdfController extends Controller
      */
     public function download(Request $request, Presentation $presentation, PresentationVersion $version): BinaryFileResponse
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.presentation_pdf_v1', false), 404);
 
         // Ensure the version belongs to this presentation
@@ -57,6 +67,7 @@ class PresentationPdfController extends Controller
      */
     public function downloadCompletePack(Request $request, Presentation $presentation, PresentationVersion $version): BinaryFileResponse
     {
+        $this->authorizePresentation($presentation);
         abort_unless(config('features.presentation_pdf_v1', false), 404);
         abort_if($version->presentation_id !== $presentation->id, 404);
 

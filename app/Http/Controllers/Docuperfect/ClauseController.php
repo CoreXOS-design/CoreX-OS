@@ -13,10 +13,31 @@ class ClauseController extends Controller
     {
         $user = $request->user();
 
-        $clauses = Clause::visibleTo($user)
-            ->with(['owner', 'branches'])
-            ->orderBy('name')
-            ->get();
+        $query = Clause::visibleTo($user)->with(['owner', 'branches']);
+
+        // Search
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('text', 'like', "%{$search}%");
+            });
+        }
+
+        // Visibility filter
+        if ($visibility = $request->input('visibility')) {
+            if ($visibility === 'global') {
+                $query->where('is_global', true);
+            } elseif ($visibility === 'branch') {
+                $query->where('is_global', false);
+            }
+        }
+
+        // Sort
+        $sortField = in_array($request->input('sort'), ['name', 'created_at']) ? $request->input('sort') : 'name';
+        $sortDir = $request->input('direction') === 'desc' ? 'desc' : 'asc';
+        $query->orderBy($sortField, $sortDir);
+
+        $clauses = $query->paginate(20)->withQueryString();
 
         $branches = Branch::orderBy('name')->get();
         $canEdit = $user->isAdmin() || $user->isBranchManager();

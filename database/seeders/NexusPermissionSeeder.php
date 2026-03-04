@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\NexusPermission;
+use App\Models\CoreXPermission;
 use App\Models\RolePermission;
 use Illuminate\Database\Seeder;
 
@@ -30,8 +30,16 @@ class NexusPermissionSeeder extends Seeder
             ['key' => 'manage_targets',          'label' => 'Manage Targets',                  'section' => 'agency-tracker',   'sort_order' => 10],
             ['key' => 'view_rentals',            'label' => 'View Rentals',                    'section' => 'agency-tracker',   'sort_order' => 11],
             ['key' => 'manage_rentals',          'label' => 'Create & Edit Rentals',           'section' => 'agency-tracker',   'sort_order' => 12],
+            ['key' => 'access_rental_signatures','label' => 'Access Rental Signatures',        'section' => 'agency-tracker',   'sort_order' => 22],
             ['key' => 'view_daily_activity',     'label' => 'View Daily Activity',             'section' => 'agency-tracker',   'sort_order' => 13],
             ['key' => 'manage_tv_messages',      'label' => 'Manage TV Messages',              'section' => 'agency-tracker',   'sort_order' => 14],
+            ['key' => 'access_daily_activity',   'label' => 'Access Daily Activity Capture',   'section' => 'agency-tracker',   'sort_order' => 15],
+            ['key' => 'access_deal_register',    'label' => 'Access Deal Register',            'section' => 'agency-tracker',   'sort_order' => 16],
+            ['key' => 'access_listing_stock',    'label' => 'Access Listing Stock',            'section' => 'agency-tracker',   'sort_order' => 17],
+            ['key' => 'access_tv_messages',      'label' => 'Access TV Messages',              'section' => 'agency-tracker',   'sort_order' => 18],
+            ['key' => 'access_import_listings',  'label' => 'Access Import Listings',          'section' => 'agency-tracker',   'sort_order' => 19],
+            ['key' => 'access_worksheet_market', 'label' => 'Access Worksheet Market',         'section' => 'agency-tracker',   'sort_order' => 20],
+            ['key' => 'access_branch_assignments','label' => 'Access Branch Assignments',      'section' => 'agency-tracker',   'sort_order' => 21],
 
             // Compliance
             ['key' => 'access_compliance',       'label' => 'Access Compliance',               'section' => 'compliance',       'sort_order' => 1],
@@ -61,6 +69,7 @@ class NexusPermissionSeeder extends Seeder
             ['key' => 'manage_branches',         'label' => 'Manage Branches',                 'section' => 'franchise-admin',  'sort_order' => 2],
             ['key' => 'manage_users',            'label' => 'Manage Users',                    'section' => 'franchise-admin',  'sort_order' => 3],
             ['key' => 'view_financial_reports',  'label' => 'View Financial Reports',          'section' => 'franchise-admin',  'sort_order' => 4],
+            ['key' => 'impersonate_users',       'label' => 'Impersonate Users',               'section' => 'franchise-admin',  'sort_order' => 5],
 
             // DocuPerfect
             ['key' => 'access_docuperfect',          'label' => 'Access DocuPerfect',          'section' => 'docuperfect',      'sort_order' => 1],
@@ -68,6 +77,8 @@ class NexusPermissionSeeder extends Seeder
             ['key' => 'manage_templates',            'label' => 'Manage Templates',            'section' => 'docuperfect',      'sort_order' => 3],
             ['key' => 'manage_clauses',              'label' => 'Manage Clause Library',       'section' => 'docuperfect',      'sort_order' => 4],
             ['key' => 'manage_docuperfect_settings', 'label' => 'Manage DocuPerfect Settings', 'section' => 'docuperfect',      'sort_order' => 5],
+            ['key' => 'access_docuperfect_packs',   'label' => 'Access Document Packs',       'section' => 'docuperfect',      'sort_order' => 6],
+            ['key' => 'access_clause_library',       'label' => 'Access Clause Library',       'section' => 'docuperfect',      'sort_order' => 7],
 
             // Document Library
             ['key' => 'access_document_library',     'label' => 'Access Document Library',    'section' => 'document-library', 'sort_order' => 1],
@@ -79,6 +90,24 @@ class NexusPermissionSeeder extends Seeder
             ['key' => 'create_presentations',        'label' => 'Create Presentations',        'section' => 'presentations',    'sort_order' => 2],
             ['key' => 'run_analysis',                'label' => 'Run Analysis',                'section' => 'presentations',    'sort_order' => 3],
             ['key' => 'compile_pack',                'label' => 'Compile Pack',                'section' => 'presentations',    'sort_order' => 4],
+
+            // Filing Register
+            ['key' => 'access_filing_register',      'label' => 'Access Filing Register',      'section' => 'filing-register',  'sort_order' => 1],
+
+            // Commercial Evaluations
+            ['key' => 'access_commercial_evaluations','label' => 'Access Commercial Evaluations','section' => 'commercial-evaluations','sort_order' => 1],
+
+            // Calculators / Tools
+            ['key' => 'access_calculators',           'label' => 'Access Calculators & Tools',  'section' => 'calculators',      'sort_order' => 1],
+
+            // Ellie AI
+            ['key' => 'access_ellie',                'label' => 'Access Ellie AI',             'section' => 'ellie',            'sort_order' => 1],
+
+            // P24 Market Intelligence
+            ['key' => 'manage_p24',                  'label' => 'Manage P24 Market Intel',     'section' => 'p24',              'sort_order' => 1],
+
+            // Sales Documents
+            ['key' => 'access_sales_documents',      'label' => 'Access Sales Documents',      'section' => 'sales-documents',  'sort_order' => 1],
 
             // PDF Splitter
             ['key' => 'access_pdf_splitter',         'label' => 'Access PDF Splitter',         'section' => 'pdf-splitter',     'sort_order' => 1],
@@ -115,7 +144,7 @@ class NexusPermissionSeeder extends Seeder
         ];
 
         foreach ($permissions as $perm) {
-            NexusPermission::updateOrCreate(['key' => $perm['key']], $perm);
+            CoreXPermission::updateOrCreate(['key' => $perm['key']], $perm);
         }
 
         $allKeys = array_column($permissions, 'key');
@@ -132,14 +161,19 @@ class NexusPermissionSeeder extends Seeder
                 'access_agency_tracker', 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals',
                 'settle_deals', 'view_listings', 'view_performance', 'manage_targets', 'view_rentals',
                 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
+                'access_daily_activity', 'access_deal_register', 'access_listing_stock',
+                'access_tv_messages', 'access_worksheet_market', 'access_rental_signatures',
                 'access_compliance', 'manage_compliance', 'view_compliance_reports',
                 'access_supervision', 'manage_supervision',
                 'access_training', 'assign_training',
                 'access_communication', 'send_messages', 'manage_announcements',
                 'access_client_portal', 'manage_clients',
                 'access_docuperfect', 'create_docuperfect_docs', 'manage_templates', 'manage_clauses',
+                'access_docuperfect_packs', 'access_clause_library',
                 'access_document_library', 'upload_documents_library',
                 'access_presentations', 'create_presentations', 'run_analysis',
+                'access_filing_register', 'access_commercial_evaluations', 'access_calculators',
+                'access_ellie', 'access_sales_documents',
                 'access_pdf_splitter',
                 'access_properties', 'create_properties', 'publish_properties', 'delete_properties',
             ],
@@ -148,12 +182,16 @@ class NexusPermissionSeeder extends Seeder
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'view_worksheet', 'edit_worksheet', 'view_deals',
                 'view_listings', 'view_performance', 'view_rentals', 'manage_rentals', 'view_daily_activity',
+                'access_daily_activity', 'access_rental_signatures',
                 'access_training',
                 'access_communication', 'send_messages',
                 'access_client_portal',
                 'access_docuperfect', 'create_docuperfect_docs',
+                'access_docuperfect_packs', 'access_clause_library',
                 'access_document_library',
                 'access_presentations',
+                'access_filing_register', 'access_commercial_evaluations', 'access_calculators',
+                'access_ellie', 'access_sales_documents',
                 'access_pdf_splitter',
                 'access_properties', 'create_properties',
             ],
@@ -162,11 +200,14 @@ class NexusPermissionSeeder extends Seeder
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'view_worksheet', 'view_deals',
                 'view_listings', 'view_performance', 'view_rentals', 'view_daily_activity',
+                'access_daily_activity',
                 'access_training',
                 'access_communication',
                 'access_client_portal',
                 'access_document_library',
                 'access_presentations',
+                'access_filing_register', 'access_commercial_evaluations', 'access_calculators',
+                'access_ellie',
                 'access_properties',
             ],
         ];

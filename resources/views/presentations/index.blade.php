@@ -2,49 +2,54 @@
 
 @section('corex-content')
 
-{{-- Navy header bar --}}
 <div class="max-w-6xl mx-auto">
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 mb-6">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-            <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Presentations</h2>
-                <div class="text-sm text-white/60">Seller presentations with market analysis</div>
-            </div>
-            <div class="flex items-center gap-2">
-                @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
-                <a href="{{ route('admin.p24-suburbs.index') }}"
-                   class="corex-btn-outline" style="color:rgba(255,255,255,0.7); border-color:rgba(255,255,255,0.18); background:transparent; font-size:0.75rem; padding:0.3rem 0.7rem;">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:0.875rem;height:0.875rem;">
-                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-                        <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                    P24 Suburbs
-                </a>
-                @endif
-                <a href="/downloads/portal-capture-extension.zip" download
-                   class="corex-btn-outline" style="color:rgba(255,255,255,0.7); border-color:rgba(255,255,255,0.18); background:transparent; font-size:0.75rem; padding:0.3rem 0.7rem;">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:0.875rem;height:0.875rem;">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                    </svg>
-                    Capture Tool
-                </a>
-                <a href="{{ route('presentations.create') }}"
-                   class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
-                    + New Presentation
-                </a>
-            </div>
-        </div>
-    </div>
+    <x-list-header
+        title="Presentations"
+        :form-action="route('presentations.index')"
+        :paginator="$presentations"
+        search-placeholder="Search address, seller, suburb..."
+    >
+        <x-slot:filters>
+            <select name="status" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All statuses</option>
+                @foreach($statuses as $s)
+                <option value="{{ $s }}" {{ request('status') === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
+                @endforeach
+            </select>
 
-    {{-- Flash messages handled by global toast system --}}
+            @if($propertyTypes->isNotEmpty())
+            <select name="property_type" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All types</option>
+                @foreach($propertyTypes as $pt)
+                <option value="{{ $pt }}" {{ request('property_type') === $pt ? 'selected' : '' }}>{{ ucfirst($pt) }}</option>
+                @endforeach
+            </select>
+            @endif
+
+            @if($agents->isNotEmpty())
+            <select name="agent" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All agents</option>
+                @foreach($agents as $ag)
+                <option value="{{ $ag->id }}" {{ request('agent') == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
+                @endforeach
+            </select>
+            @endif
+        </x-slot:filters>
+
+        <x-slot:actions>
+            @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
+            <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline text-xs">P24 Suburbs</a>
+            @endif
+            <a href="/downloads/portal-capture-extension.zip" download class="corex-btn-outline text-xs">Capture Tool</a>
+            <a href="{{ route('presentations.create') }}" class="corex-btn-primary text-sm">+ New Presentation</a>
+        </x-slot:actions>
+    </x-list-header>
 
     {{-- Presentations table --}}
     <div class="ds-status-card" style="border-left-color: var(--ds-cyan); padding: 0; overflow: hidden;">
         @if($presentations->isEmpty())
             <div class="px-6 py-12 text-center">
-                <p class="text-gray-400 text-sm mb-4">No presentations yet.</p>
+                <p class="text-gray-400 text-sm mb-4">No presentations found.</p>
                 <a href="{{ route('presentations.create') }}" class="corex-btn-primary">
                     Create your first presentation
                 </a>
@@ -54,23 +59,23 @@
                 <table class="w-full text-sm ds-table">
                     <thead>
                         <tr>
-                            <th class="text-left px-4 py-3">Title</th>
-                            <th class="text-left px-4 py-3">Address</th>
+                            <x-sort-header field="property_address" label="Title / Address" />
                             <th class="text-left px-4 py-3">Property</th>
-                            <th class="text-left px-4 py-3">Seller</th>
-                            <th class="text-left px-4 py-3">Status</th>
-                            <th class="text-left px-4 py-3">Last Updated</th>
+                            <x-sort-header field="seller_name" label="Seller" />
+                            <x-sort-header field="status" label="Status" />
+                            @if($agents->isNotEmpty())
+                            <th class="text-left px-4 py-3">Agent</th>
+                            @endif
+                            <x-sort-header field="created_at" label="Created" />
                             <th class="text-left px-4 py-3"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach($presentations as $pres)
                             <tr class="hover:bg-gray-50">
-                                <td class="px-4 py-3 font-semibold" style="color:#0b2a4a;">
-                                    {{ $pres->title }}
-                                </td>
-                                <td class="px-4 py-3 text-gray-600 text-xs">
-                                    {{ $pres->property_address ?? '—' }}
+                                <td class="px-4 py-3">
+                                    <div class="font-semibold" style="color:#0b2a4a;">{{ $pres->title }}</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">{{ $pres->property_address ?? '—' }}</div>
                                 </td>
                                 <td class="px-4 py-3 text-xs">
                                     @if($pres->suburb || $pres->property_type)
@@ -97,8 +102,13 @@
                                         {{ ucfirst($pres->status) }}
                                     </span>
                                 </td>
+                                @if($agents->isNotEmpty())
+                                <td class="px-4 py-3 text-gray-600 text-xs">
+                                    {{ $pres->creator?->name ?? '—' }}
+                                </td>
+                                @endif
                                 <td class="px-4 py-3 text-gray-400 text-xs">
-                                    {{ $pres->updated_at->format('Y-m-d H:i') }}
+                                    {{ $pres->created_at->format('d M Y') }}
                                 </td>
                                 <td class="px-4 py-3">
                                     <a href="{{ route('presentations.show', $pres) }}"
@@ -112,11 +122,9 @@
                 </table>
             </div>
 
-            @if($presentations->hasPages())
-                <div class="px-4 py-3 border-t" style="border-color: #e2e8f0;">
-                    {{ $presentations->links() }}
-                </div>
-            @endif
+            <div class="px-4 py-3 border-t" style="border-color: #e2e8f0;">
+                {{ $presentations->links() }}
+            </div>
         @endif
     </div>
 </div>

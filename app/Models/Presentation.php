@@ -118,6 +118,26 @@ class Presentation extends Model
             ->withTimestamps();
     }
 
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    // ── Scopes ──
+
+    public function scopeVisibleTo($query, \App\Models\User $user)
+    {
+        if ($user->isEffectiveAdmin()) {
+            return $query;
+        }
+
+        if ($user->isEffectiveBranchManager()) {
+            return $query->where('branch_id', $user->effectiveBranchId());
+        }
+
+        return $query->where('created_by_user_id', $user->id);
+    }
+
     /**
      * Deterministic readiness check — delegates to PresentationReadinessService.
      * Returns true when all required evidence items are present (same as can_compile).

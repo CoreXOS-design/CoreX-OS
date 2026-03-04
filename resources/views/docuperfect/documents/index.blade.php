@@ -1,56 +1,56 @@
 @extends('layouts.corex')
 
 @section('content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="max-w-6xl mx-auto">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            @if(!empty($packInstance))
-            <h2 class="text-xl font-bold text-white leading-tight">Document Pack</h2>
-            <div class="text-sm text-white/60">Documents created from this pack. Fill named fields once — they populate across all documents.</div>
-            @else
-            <h2 class="text-xl font-bold text-white leading-tight">My Documents</h2>
-            <div class="text-sm text-white/60">All your filled documents. Create new ones from the <a href="{{ route('docuperfect.dashboard') }}" class="text-white/80 underline">Dashboard</a>.</div>
+    <x-list-header
+        :title="!empty($packInstance) ? 'Document Pack' : 'My Documents'"
+        :form-action="route('docuperfect.documents.index', !empty($packInstance) ? ['pack_instance' => $packInstance] : [])"
+        :paginator="$documents"
+        search-placeholder="Search documents..."
+    >
+        <x-slot:filters>
+            @if(empty($packInstance))
+            <select name="filter" onchange="this.form.submit()" class="list-header-filter">
+                <option value="active" {{ ($filter ?? 'active') === 'active' ? 'selected' : '' }}>Active</option>
+                <option value="archived" {{ ($filter ?? 'active') === 'archived' ? 'selected' : '' }}>Archived</option>
+            </select>
             @endif
-        </div>
-        @if(!empty($packInstance))
-        <a href="{{ route('docuperfect.documents.index') }}" class="text-sm text-white/70 hover:text-white">Show All</a>
-        @endif
-    </div>
+        </x-slot:filters>
+        <x-slot:actions>
+            @if(!empty($packInstance))
+            <a href="{{ route('docuperfect.documents.index') }}" class="corex-btn-outline text-sm">Show All</a>
+            @else
+            <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-primary text-sm">+ Create New</a>
+            @endif
+        </x-slot:actions>
+    </x-list-header>
 
     @if(session('status'))
-        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm">
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm mt-4">
             {{ session('status') }}
         </div>
     @endif
 
     @if(session('error'))
-        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm mt-4">
             {{ session('error') }}
         </div>
     @endif
 
-    {{-- Active / Archived tab navigation --}}
-    @if(empty($packInstance))
-    <div class="flex gap-4 border-b border-slate-200">
-        <a href="{{ route('docuperfect.documents.index') }}"
-           class="pb-2 text-sm font-medium {{ ($filter ?? 'active') === 'active' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500 hover:text-slate-700' }}">
-            Active Documents
-        </a>
-        <a href="{{ route('docuperfect.documents.index', ['filter' => 'archived']) }}"
-           class="pb-2 text-sm font-medium {{ ($filter ?? 'active') === 'archived' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-500 hover:text-slate-700' }}">
-            Archived
-        </a>
-    </div>
-    @endif
-
     @if($documents->isEmpty())
-        <div class="ds-status-card p-6 text-center">
-            <div class="text-sm text-slate-500">No documents yet. <a href="{{ route('docuperfect.dashboard') }}" class="ds-link">Create one from a template</a>.</div>
+        <div class="ds-status-card p-6 text-center mt-4">
+            <div class="text-sm text-slate-500">
+                @if(request('search'))
+                    No documents match your search.
+                @else
+                    No documents yet. <a href="{{ route('docuperfect.dashboard') }}" class="ds-link">Create one from a template</a>.
+                @endif
+            </div>
         </div>
     @else
         @if(!empty($packInstance))
-        <div class="flex justify-end">
+        <div class="flex justify-end mt-4">
             <button type="button" id="dpCombinedPdfBtn"
                     class="corex-btn-primary text-sm px-4 py-2" style="background:#0b2a4a;"
                     onclick="downloadCombinedPdf()">
@@ -58,13 +58,13 @@
             </button>
         </div>
         @endif
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div class="rounded-2xl border border-slate-200 bg-white overflow-x-auto mt-4">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>
-                        <th class="text-left px-4 py-3">Name</th>
+                        <x-sort-header field="name" label="Name" />
                         <th class="text-left px-4 py-3">Template</th>
-                        <th class="text-left px-4 py-3">Last Edited</th>
+                        <x-sort-header field="updated_at" label="Last Edited" />
                         @if($user->isAdmin() || $user->isBranchManager())
                         <th class="text-left px-4 py-3">Agent</th>
                         @endif
@@ -105,7 +105,6 @@
                         @endif
                         <td class="px-4 py-3 text-right space-x-2">
                             @if(($filter ?? 'active') === 'archived')
-                                {{-- Archived view: show Restore button --}}
                                 <form method="POST" action="{{ route('docuperfect.documents.restore', $doc->id) }}" class="inline">
                                     @csrf
                                     <button class="text-sm text-blue-600 hover:text-blue-800">Restore</button>
@@ -116,7 +115,6 @@
                                     <button class="text-sm text-slate-400 hover:text-red-600">Delete</button>
                                 </form>
                             @else
-                                {{-- Active view: edit + conditional archive --}}
                                 <a href="{{ route('docuperfect.documents.edit', $doc->id) }}" class="ds-link text-sm">Edit</a>
                                 @php
                                     $sigTemplate = $doc->signatureTemplate;
@@ -147,13 +145,17 @@
                 </tbody>
             </table>
         </div>
+
+        <div class="mt-4">
+            {{ $documents->links() }}
+        </div>
     @endif
 
     {{-- Attachments (KB documents linked to pack instance) --}}
     @if(!empty($packInstance) && isset($attachments) && $attachments->isNotEmpty())
-    <div>
+    <div class="mt-6">
         <h3 class="ds-section-header">Attachments</h3>
-        <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+        <div class="rounded-2xl border border-slate-200 bg-white overflow-x-auto">
             <table class="w-full text-sm ds-table">
                 <thead>
                     <tr>

@@ -5,6 +5,9 @@
 
     <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
         <div>
+            <div class="text-sm text-white/60 mb-1">
+                <a class="hover:underline text-white/60" href="{{ route('bm.daily.summary.activity', array_filter(['definition'=>$def->id,'range'=>$range,'month'=>$month])) }}">&larr; Back to Activity</a>
+            </div>
             <div class="text-sm text-white/60 space-x-2">
                 <a class="hover:underline text-white/60" href="{{ route('bm.daily.summary', array_filter(['range'=>$range,'month'=>$month])) }}">Branch Summary</a>
                 <span>&rsaquo;</span>

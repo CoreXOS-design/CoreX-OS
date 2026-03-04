@@ -16,21 +16,23 @@ use Illuminate\Http\Request;
 
 class CommercialEvaluationController extends Controller
 {
+    private function authorizeEvaluation(CommercialEvaluation $evaluation): void
+    {
+        $user = auth()->user();
+        if ($user->isEffectiveAdmin()) return;
+        if ($user->isEffectiveBranchManager() && (int) $evaluation->branch_id === (int) $user->effectiveBranchId()) return;
+        if ((int) $evaluation->created_by_user_id === (int) $user->id) return;
+        abort(403);
+    }
+
     // ── Index ──
 
     public function index()
     {
-        $user = auth()->user();
-        $isAdmin = $user->isEffectiveAdmin();
-
-        $query = CommercialEvaluation::with(['creator'])
-            ->latest();
-
-        if (!$isAdmin) {
-            $query->where('created_by_user_id', $user->id);
-        }
-
-        $evaluations = $query->paginate(25);
+        $evaluations = CommercialEvaluation::visibleTo(auth()->user())
+            ->with(['creator'])
+            ->latest()
+            ->paginate(25);
 
         return view('commercial-evaluations.index', compact('evaluations'));
     }
@@ -99,6 +101,7 @@ class CommercialEvaluationController extends Controller
 
     public function show(CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $evaluation->load(['financials', 'comparables', 'assets', 'units', 'crops', 'livestock', 'creator']);
 
         $cropConfig = config('agricultural_crops.crops', []);
@@ -111,6 +114,7 @@ class CommercialEvaluationController extends Controller
 
     public function edit(CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $isAdmin = auth()->user()->isEffectiveAdmin();
         $branches = $isAdmin ? Branch::orderBy('name')->get() : collect();
 
@@ -121,6 +125,7 @@ class CommercialEvaluationController extends Controller
 
     public function update(Request $request, CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $isAdmin = auth()->user()->isEffectiveAdmin();
 
         $rules = [
@@ -171,6 +176,7 @@ class CommercialEvaluationController extends Controller
 
     public function destroy(CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $evaluation->delete();
 
         return redirect()->route('commercial-evaluations.index')
@@ -183,6 +189,7 @@ class CommercialEvaluationController extends Controller
 
     public function storeFinancials(Request $request, CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $validated = $request->validate([
             'financial_year'        => ['required', 'string', 'max:20'],
             'period_months'         => ['nullable', 'integer', 'min:1', 'max:24'],
@@ -250,6 +257,7 @@ class CommercialEvaluationController extends Controller
 
     public function updateFinancials(Request $request, CommercialEvaluation $evaluation, CommercialEvaluationFinancial $financial)
     {
+        $this->authorizeEvaluation($evaluation);
         $validated = $request->validate([
             'financial_year'        => ['required', 'string', 'max:20'],
             'period_months'         => ['nullable', 'integer', 'min:1', 'max:24'],
@@ -319,6 +327,7 @@ class CommercialEvaluationController extends Controller
 
     public function storeComparable(Request $request, CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $validated = $request->validate([
             'address'       => ['required', 'string', 'max:255'],
             'suburb'        => ['nullable', 'string', 'max:255'],
@@ -351,6 +360,7 @@ class CommercialEvaluationController extends Controller
 
     public function destroyComparable(CommercialEvaluation $evaluation, CommercialEvaluationComparable $comparable)
     {
+        $this->authorizeEvaluation($evaluation);
         $comparable->delete();
 
         return redirect()->route('commercial-evaluations.show', $evaluation)
@@ -363,6 +373,7 @@ class CommercialEvaluationController extends Controller
 
     public function storeAsset(Request $request, CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $validated = $request->validate([
             'category'        => ['required', 'string', 'max:255'],
             'description'     => ['required', 'string', 'max:255'],
@@ -383,6 +394,7 @@ class CommercialEvaluationController extends Controller
 
     public function destroyAsset(CommercialEvaluation $evaluation, CommercialEvaluationAsset $asset)
     {
+        $this->authorizeEvaluation($evaluation);
         $asset->delete();
 
         return redirect()->route('commercial-evaluations.show', $evaluation)
@@ -395,6 +407,7 @@ class CommercialEvaluationController extends Controller
 
     public function storeUnit(Request $request, CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $validated = $request->validate([
             'unit_name'       => ['required', 'string', 'max:255'],
             'tenant_name'     => ['nullable', 'string', 'max:255'],
@@ -421,6 +434,7 @@ class CommercialEvaluationController extends Controller
 
     public function destroyUnit(CommercialEvaluation $evaluation, CommercialEvaluationUnit $unit)
     {
+        $this->authorizeEvaluation($evaluation);
         $unit->delete();
 
         return redirect()->route('commercial-evaluations.show', $evaluation)
@@ -433,6 +447,7 @@ class CommercialEvaluationController extends Controller
 
     public function storeCrop(Request $request, CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $validated = $request->validate([
             'crop_type'              => ['required', 'string', 'max:50'],
             'variety'                => ['nullable', 'string', 'max:255'],
@@ -514,6 +529,7 @@ class CommercialEvaluationController extends Controller
 
     public function destroyCrop(CommercialEvaluation $evaluation, CommercialEvaluationCrop $crop)
     {
+        $this->authorizeEvaluation($evaluation);
         $crop->delete();
 
         return redirect()->route('commercial-evaluations.show', $evaluation)
@@ -526,6 +542,7 @@ class CommercialEvaluationController extends Controller
 
     public function storeLivestock(Request $request, CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $validated = $request->validate([
             'livestock_type'              => ['required', 'string', 'max:50'],
             'breed'                       => ['nullable', 'string', 'max:255'],
@@ -578,6 +595,7 @@ class CommercialEvaluationController extends Controller
 
     public function destroyLivestock(CommercialEvaluation $evaluation, CommercialEvaluationLivestock $livestock)
     {
+        $this->authorizeEvaluation($evaluation);
         $livestock->delete();
 
         return redirect()->route('commercial-evaluations.show', $evaluation)
@@ -634,6 +652,7 @@ class CommercialEvaluationController extends Controller
 
     public function evaluate(CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         $service = new CommercialEvaluationService();
         $result  = $service->evaluate($evaluation);
 
@@ -658,6 +677,7 @@ class CommercialEvaluationController extends Controller
 
     public function downloadPdf(CommercialEvaluation $evaluation)
     {
+        $this->authorizeEvaluation($evaluation);
         // Run evaluation if not already done
         if (!$evaluation->evaluated_at) {
             $service = new CommercialEvaluationService();

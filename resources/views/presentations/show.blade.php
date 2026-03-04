@@ -3,6 +3,8 @@
 @push('head')
 <meta name="hfc-presentation-id" content="{{ $presentation->id }}">
 <meta name="hfc-presentation-title" content="{{ $presentation->title ?? '' }}">
+{{-- Zero out <main> padding so sticky bar pins flush with no gap --}}
+<style>#appScroll { padding: 0 !important; }</style>
 @endpush
 
 @section('corex-content')
@@ -16,27 +18,32 @@
     $lastSummary = $latestSnapshot ? $latestSnapshot->getOutputSummaryArray() : null;
 @endphp
 
-<div class="pres-page -m-6 p-6">
+{{-- Sticky action bar — no wrapper, no negative margins, <main> padding zeroed --}}
+<div class="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+    <div class="px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-14">
+            <div class="flex items-center gap-3">
+                <a href="{{ route('presentations.index') }}" class="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    All Presentations
+                </a>
+            </div>
+            <div class="flex-1 text-center truncate mx-4">
+                <h2 class="text-sm font-semibold text-gray-700 truncate">{{ $presentation->title }}</h2>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('presentations.edit', $presentation) }}" class="px-3 py-1.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">Edit</a>
+                @if($readiness['can_compile'])
+                <a href="{{ route('presentations.analysis', [$presentation, 'refresh' => 1]) }}" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    {{ $latestSnapshot ? 'Re-run Analysis' : 'Run Analysis' }}
+                </a>
+                @endif
+            </div>
+        </div>
+    </div>
+</div>
 
-<x-sticky-action-bar>
-    <x-slot name="left">
-        <a href="{{ route('presentations.index') }}" class="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-            All Presentations
-        </a>
-    </x-slot>
-    <x-slot name="center">
-        <h2 class="text-sm font-semibold text-gray-700 truncate">{{ $presentation->title }}</h2>
-    </x-slot>
-    <x-slot name="right">
-        <a href="{{ route('presentations.edit', $presentation) }}" class="px-3 py-1.5 text-sm font-medium bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">Edit</a>
-        @if($readiness['can_compile'])
-        <a href="{{ route('presentations.analysis', [$presentation, 'refresh' => 1]) }}" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            {{ $latestSnapshot ? 'Re-run Analysis' : 'Run Analysis' }}
-        </a>
-        @endif
-    </x-slot>
-</x-sticky-action-bar>
+<div class="pres-page p-4 lg:p-6">
 
 {{-- Navy header bar --}}
 <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 mb-8">

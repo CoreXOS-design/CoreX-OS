@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -129,8 +130,24 @@ class User extends Authenticatable
         return stripos($this->designation ?? '', 'Candidate') !== false;
     }
 
+    // --- Permission helpers (delegate to PermissionService) ---
+
+    public function hasPermission(string $key): bool
+    {
+        return PermissionService::userHasPermission($this, $key);
+    }
+
+    public function hasAnyPermission(array $keys): bool
+    {
+        return PermissionService::userHasAnyPermission($this, $keys);
+    }
+
     // --- CoreX OS Section Access ---
 
+    /**
+     * @deprecated Use hasPermission() / hasAnyPermission() instead.
+     *             Will be removed after sidebar rewrite.
+     */
     public function canAccessCorexSection(string $section): bool
     {
         if ($this->isEffectiveAdmin()) {

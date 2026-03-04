@@ -75,6 +75,21 @@ class Property extends Model
         return $this->belongsTo(Agency::class);
     }
 
+    // ── Scopes ──
+
+    public function scopeVisibleTo($query, \App\Models\User $user)
+    {
+        if ($user->isEffectiveAdmin()) {
+            return $query;
+        }
+
+        if ($user->isEffectiveBranchManager()) {
+            return $query->where('branch_id', $user->effectiveBranchId());
+        }
+
+        return $query->where('agent_id', $user->id);
+    }
+
     public function isPublished(): bool
     {
         return $this->published_at !== null;

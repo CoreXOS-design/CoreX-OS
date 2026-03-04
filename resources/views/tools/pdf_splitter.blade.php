@@ -41,24 +41,20 @@
 }
 </style>
 
+<div class="-m-4 lg:-m-6">
+
+<x-page-header title="PDF Pack Splitter" :flush="true">
+    <x-slot:actions>
+        @if(auth()->user()?->isEffectiveAdmin())
+        <a href="{{ route('admin.splitter.doc-types.index') }}" class="corex-btn-outline text-xs">Manage Labels</a>
+        @endif
+        <button type="submit" form="pdf-upload-form" class="corex-btn-primary text-sm">Upload &amp; Split</button>
+    </x-slot:actions>
+</x-page-header>
+
+<div class="p-4 lg:p-6">
 <div id="pdf-splitter-root">
     <div class="wrap">
-
-        {{-- Navy header bar --}}
-        <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 mb-6">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                <div>
-                    <h2 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter</h2>
-                    <div class="text-sm text-white/60">Upload a pack PDF and set a base name</div>
-                </div>
-                @if(auth()->user()?->isEffectiveAdmin())
-                <a href="{{ route('admin.splitter.doc-types.index') }}"
-                   class="px-3 py-1.5 bg-white/10 text-white text-xs font-medium rounded hover:bg-white/20">
-                    Manage Labels
-                </a>
-                @endif
-            </div>
-        </div>
 
         {{-- Status message --}}
         @if(session('status'))
@@ -82,7 +78,8 @@
             <h3 class="ds-section-header" style="margin-bottom:1rem;">Upload PDF</h3>
             <p class="text-sm text-gray-500 mb-4">OCR runs automatically &mdash; you'll review and correct labels before the ZIP is generated.</p>
 
-            <form method="POST"
+            <form id="pdf-upload-form"
+                  method="POST"
                   action="{{ route('tools.pdf_splitter.run') }}"
                   enctype="multipart/form-data">
                 @csrf
@@ -110,15 +107,14 @@
                         <div class="field-error">{{ $message }}</div>
                     @enderror
                 </div>
-
-                <button type="submit" class="corex-btn-primary" style="padding: 0.625rem 1.5rem;">
-                    Upload PDF
-                </button>
             </form>
         </div>
 
     </div>
 </div>
+</div>{{-- /padded content --}}
+
+</div>{{-- /full-bleed wrapper --}}
 
 @if (session('splitter_download_url'))
     <iframe src="{{ session('splitter_download_url') }}" style="display:none; width:0; height:0; border:0;"></iframe>

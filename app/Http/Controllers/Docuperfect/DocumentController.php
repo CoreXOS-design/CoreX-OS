@@ -31,7 +31,23 @@ class DocumentController extends Controller
             $query->where('pack_instance_id', $packInstance);
         }
 
-        $documents = $query->orderByDesc('updated_at')->get();
+        // Search
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhereHas('template', function ($tq) use ($search) {
+                      $tq->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        // Sort
+        $sortField = in_array($request->input('sort'), ['name', 'updated_at']) ? $request->input('sort') : 'updated_at';
+        $sortDir = $request->input('direction', 'desc');
+        $sortDir = in_array($sortDir, ['asc', 'desc']) ? $sortDir : 'desc';
+        $query->orderBy($sortField, $sortDir);
+
+        $documents = $query->paginate(20)->withQueryString();
 
         $attachments = collect();
         if ($packInstance) {

@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Deal;
 use App\Models\DealSettlement;
@@ -22,5 +23,10 @@ class AppServiceProvider extends ServiceProvider
         Deal::observe(DealObserver::class);
         DealSettlement::observe(DealSettlementObserver::class);
         Property::observe(PropertyObserver::class);
+
+        // @permission('permission_key') ... @endpermission
+        Blade::if('permission', function (string $permissionKey) {
+            return auth()->check() && auth()->user()->hasPermission($permissionKey);
+        });
     }
 }

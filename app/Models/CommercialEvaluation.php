@@ -49,6 +49,21 @@ class CommercialEvaluation extends Model
         'total_building_size_m2' => 'decimal:2',
     ];
 
+    // ── Scopes ──
+
+    public function scopeVisibleTo($query, \App\Models\User $user)
+    {
+        if ($user->isEffectiveAdmin()) {
+            return $query;
+        }
+
+        if ($user->isEffectiveBranchManager()) {
+            return $query->where('branch_id', $user->effectiveBranchId());
+        }
+
+        return $query->where('created_by_user_id', $user->id);
+    }
+
     // ── Relationships ──
 
     public function creator()

@@ -40,30 +40,28 @@ Route::middleware('auth')->group(function () {
 
     // Ellie (AI Assistant)
     Route::get('/ellie', [\App\Http\Controllers\EllieController::class, 'index'])
-        ->name('ellie.index');
+        ->middleware('permission:access_ellie')->name('ellie.index');
 
     Route::post('/ellie/send', [\App\Http\Controllers\EllieController::class, 'send'])
-        ->name('ellie.send');
-
-
+        ->middleware('permission:access_ellie')->name('ellie.send');
 
     // ELLIE_ROUTES_2026
     Route::post('/ellie/rename', [\App\Http\Controllers\EllieController::class, 'rename'])
-        ->name('ellie.rename');
+        ->middleware('permission:access_ellie')->name('ellie.rename');
 
     Route::post('/ellie/archive', [\App\Http\Controllers\EllieController::class, 'archive'])
-        ->name('ellie.archive');
+        ->middleware('permission:access_ellie')->name('ellie.archive');
 
     Route::post('/ellie/unarchive', [\App\Http\Controllers\EllieController::class, 'unarchive'])
-        ->name('ellie.unarchive');
+        ->middleware('permission:access_ellie')->name('ellie.unarchive');
 
     // Calculators
-    Route::get('/calculators', [\App\Http\Controllers\CalculatorController::class, 'index'])->name('calculators.index');
-    Route::post('/calculators/commission', [\App\Http\Controllers\CalculatorController::class, 'calculateCommission'])->name('calculators.commission');
-    Route::post('/calculators/bond', [\App\Http\Controllers\CalculatorController::class, 'calculateBond'])->name('calculators.bond');
-    Route::post('/calculators/transfer-costs', [\App\Http\Controllers\CalculatorController::class, 'calculateTransferCosts'])->name('calculators.transferCosts');
-    Route::post('/calculators/upload-fee-sheet', [\App\Http\Controllers\CalculatorController::class, 'uploadFeeSheet'])->name('calculators.uploadFeeSheet');
-    Route::post('/calculators/bond-overpayment', [\App\Http\Controllers\CalculatorController::class, 'calculateBondOverpayment'])->name('calculators.bondOverpayment');
+    Route::get('/calculators', [\App\Http\Controllers\CalculatorController::class, 'index'])->middleware('permission:access_calculators')->name('calculators.index');
+    Route::post('/calculators/commission', [\App\Http\Controllers\CalculatorController::class, 'calculateCommission'])->middleware('permission:access_calculators')->name('calculators.commission');
+    Route::post('/calculators/bond', [\App\Http\Controllers\CalculatorController::class, 'calculateBond'])->middleware('permission:access_calculators')->name('calculators.bond');
+    Route::post('/calculators/transfer-costs', [\App\Http\Controllers\CalculatorController::class, 'calculateTransferCosts'])->middleware('permission:access_calculators')->name('calculators.transferCosts');
+    Route::post('/calculators/upload-fee-sheet', [\App\Http\Controllers\CalculatorController::class, 'uploadFeeSheet'])->middleware('permission:access_calculators')->name('calculators.uploadFeeSheet');
+    Route::post('/calculators/bond-overpayment', [\App\Http\Controllers\CalculatorController::class, 'calculateBondOverpayment'])->middleware('permission:access_calculators')->name('calculators.bondOverpayment');
 
     Route::get('/worksheet', [WorksheetController::class, 'index'])->name('worksheet.index');
     Route::post('/worksheet', [WorksheetController::class, 'store'])->name('worksheet.store');
@@ -71,97 +69,97 @@ Route::middleware('auth')->group(function () {
     Route::get('/company-summary', [CompanySummaryController::class, 'index'])->name('company.summary');
 
     Route::get('/admin/dashboard', [AdminDashboardController::class, 'index'])
-        ->middleware('admin')->name('admin.dashboard');
+        ->middleware('permission:export_reports')->name('admin.dashboard');
 
     Route::post('/admin/dashboard/expenses', [AdminDashboardController::class, 'saveExpenses'])
-        ->middleware('admin')->name('admin.expenses.save');
+        ->middleware('permission:export_reports')->name('admin.expenses.save');
 
     Route::get('/admin/branch-assignments', [BranchAssignmentController::class, 'index'])
-        ->middleware('admin')->name('admin.branch-assignments');
+        ->middleware('permission:access_branch_assignments')->name('admin.branch-assignments');
 
     Route::post('/admin/branch-assignments', [BranchAssignmentController::class, 'update'])
-        ->middleware('admin')->name('admin.branch-assignments.update');
+        ->middleware('permission:access_branch_assignments')->name('admin.branch-assignments.update');
 
     Route::post('/admin/branches', [BranchAssignmentController::class, 'createBranch'])
-        ->middleware('admin')
+        ->middleware('permission:access_branch_assignments')
         ->name('admin.branches.store');
 
     Route::post('/admin/branches/{branch}/delete', [BranchAssignmentController::class, 'deleteBranch'])
-        ->middleware('admin')
+        ->middleware('permission:access_branch_assignments')
         ->name('admin.branches.delete');
 
     Route::post('/admin/branch-settings/{branch}', [BranchAssignmentController::class, 'updateBranchSettings'])
-        ->middleware('admin')
+        ->middleware('permission:access_branch_assignments')
         ->name('admin.branch-settings.update');
 
 
     Route::get('/admin/users', [App\Http\Controllers\Admin\UserManagementController::class, 'index'])
-        ->middleware('admin')->name('admin.users');
+        ->middleware('permission:manage_users')->name('admin.users');
 
     Route::post('/admin/users/{user}/toggle', [App\Http\Controllers\Admin\UserManagementController::class, 'toggle'])
-        ->middleware('admin')->name('admin.users.toggle');
+        ->middleware('permission:manage_users')->name('admin.users.toggle');
 
     Route::post('/admin/users/{user}/delete', [App\Http\Controllers\Admin\UserManagementController::class, 'delete'])
-        ->middleware('admin')->name('admin.users.delete');
+        ->middleware('permission:manage_users')->name('admin.users.delete');
 
     Route::post('/admin/users/{user}/defaults', [App\Http\Controllers\Admin\UserManagementController::class, 'updateDefaults'])
-        ->middleware('admin')->name('admin.users.defaults.update');
-    Route::post('/admin/users/{user}/role', [App\Http\Controllers\Admin\UserManagementController::class, 'updateRole'])->middleware('admin')->name('admin.users.role.update');
-    Route::post('/admin/users/{user}/remove-file', [App\Http\Controllers\Admin\UserManagementController::class, 'removeAgentFile'])->middleware('admin')->name('admin.users.remove-file');
+        ->middleware('permission:manage_users')->name('admin.users.defaults.update');
+    Route::post('/admin/users/{user}/role', [App\Http\Controllers\Admin\UserManagementController::class, 'updateRole'])->middleware('permission:manage_users')->name('admin.users.role.update');
+    Route::post('/admin/users/{user}/remove-file', [App\Http\Controllers\Admin\UserManagementController::class, 'removeAgentFile'])->middleware('permission:manage_users')->name('admin.users.remove-file');
 
     Route::get('/admin/listing-targets', [ListingTargetController::class, 'index'])
-        ->middleware('branch_manager')->name('admin.listing-targets');
+        ->middleware('permission:manage_targets')->name('admin.listing-targets');
 
     Route::post('/admin/listing-targets', [ListingTargetController::class, 'store'])
-        ->middleware('branch_manager')->name('admin.listing-targets.store');
+        ->middleware('permission:manage_targets')->name('admin.listing-targets.store');
 
     // Deals
-    Route::get('/admin/deals', [DealController::class, 'index'])->name('admin.deals')->middleware('admin_or_bm');
+    Route::get('/admin/deals', [DealController::class, 'index'])->name('admin.deals')->middleware('permission:create_deals');
     // Agent: My Deals (read-only, remarks via log)
-    Route::get('/agent/deals', [DealRegisterController::class, 'index'])->name('agent.deals.index');
-    Route::get('/agent/deals/{deal}/log', [DealRegisterController::class, 'log'])->name('agent.deals.log');
-    Route::post('/agent/deals/{deal}/remark', [DealRegisterController::class, 'addRemark'])->name('agent.deals.remark');
+    Route::get('/agent/deals', [DealRegisterController::class, 'index'])->name('agent.deals.index')->middleware('permission:view_deals');
+    Route::get('/agent/deals/{deal}/log', [DealRegisterController::class, 'log'])->name('agent.deals.log')->middleware('permission:view_deals');
+    Route::post('/agent/deals/{deal}/remark', [DealRegisterController::class, 'addRemark'])->name('agent.deals.remark')->middleware('permission:view_deals');
 
 
-    Route::get('/admin/deals/create', [DealController::class, 'create'])->name('admin.deals.create')->middleware('admin_or_bm');
+    Route::get('/admin/deals/create', [DealController::class, 'create'])->name('admin.deals.create')->middleware('permission:create_deals');
 
-    Route::post('/admin/deals', [DealController::class, 'store'])->name('admin.deals.store')->middleware('admin_or_bm');
+    Route::post('/admin/deals', [DealController::class, 'store'])->name('admin.deals.store')->middleware('permission:create_deals');
 
-    Route::get('/admin/deals/{deal}/edit', [DealController::class, 'edit'])->name('admin.deals.edit')->middleware('admin_or_bm');
-    Route::get('/admin/deals/{deal}/log', [DealController::class, 'log'])->name('admin.deals.log')->middleware('admin_or_bm');
-    Route::post('/admin/deals/{deal}/remark', [DealController::class, 'addRemark'])->name('admin.deals.remark')->middleware('admin_or_bm');
+    Route::get('/admin/deals/{deal}/edit', [DealController::class, 'edit'])->name('admin.deals.edit')->middleware('permission:create_deals');
+    Route::get('/admin/deals/{deal}/log', [DealController::class, 'log'])->name('admin.deals.log')->middleware('permission:create_deals');
+    Route::post('/admin/deals/{deal}/remark', [DealController::class, 'addRemark'])->name('admin.deals.remark')->middleware('permission:create_deals');
 
-    Route::post('/admin/deals/{deal}', [DealController::class, 'update'])->name('admin.deals.update')->middleware('admin_or_bm');
-    Route::post('/admin/deals/{deal}/quick', [DealController::class, 'quickUpdate'])->name('admin.deals.quickUpdate')->middleware('admin_or_bm');
+    Route::post('/admin/deals/{deal}', [DealController::class, 'update'])->name('admin.deals.update')->middleware('permission:create_deals');
+    Route::post('/admin/deals/{deal}/quick', [DealController::class, 'quickUpdate'])->name('admin.deals.quickUpdate')->middleware('permission:create_deals');
 
     // Deal Settlement (Per-deal Pay screen)
     Route::get('/admin/deals/{deal}/settle', [DealController::class, 'settle'])
-        ->middleware('admin_or_bm')->name('admin.deals.settle');
+        ->middleware('permission:settle_deals')->name('admin.deals.settle');
 
     Route::post('/admin/deals/{deal}/settle', [DealController::class, 'saveSettlement'])
-        ->middleware('admin_or_bm')->name('admin.deals.settle.save');
+        ->middleware('permission:settle_deals')->name('admin.deals.settle.save');
 
     // Deal Settlement Printing
     Route::get('/admin/deals/{deal}/settle/print', [DealController::class, 'printSettlement'])
-        ->middleware('admin_or_bm')->name('admin.deals.settle.print');
+        ->middleware('permission:settle_deals')->name('admin.deals.settle.print');
 
     Route::get('/admin/deals/{deal}/settle/print/{user}', [DealController::class, 'printAgentPayslip'])
-        ->middleware('admin_or_bm')->name('admin.deals.settle.print.agent');
+        ->middleware('permission:settle_deals')->name('admin.deals.settle.print.agent');
 
     Route::post('/admin/view-as', [ViewAsController::class, 'update'])->name('admin.viewas.update');
     Route::post('/admin/view-as/reset', [ViewAsController::class, 'clear'])->name('admin.viewas.reset');
 
 });
 
-// ===== P24 MARKET INTELLIGENCE (Admin) =====
-Route::prefix('admin/p24')->middleware(['auth', 'admin'])->group(function () {
+// ===== P24 MARKET INTELLIGENCE =====
+Route::prefix('admin/p24')->middleware(['auth', 'permission:manage_p24'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\P24Controller::class, 'index'])->name('admin.p24.index');
     Route::get('/listings', [\App\Http\Controllers\Admin\P24Controller::class, 'listings'])->name('admin.p24.listings');
     Route::post('/import', [\App\Http\Controllers\Admin\P24Controller::class, 'runImport'])->name('admin.p24.import');
 });
 
-// ===== KNOWLEDGE BASE (Admin) =====
-Route::prefix('admin/knowledge')->middleware(['auth', 'admin'])->group(function () {
+// ===== KNOWLEDGE BASE =====
+Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowledge_base'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\KnowledgeController::class, 'index'])->name('admin.knowledge.index');
     Route::get('/category/{id}', [\App\Http\Controllers\Admin\KnowledgeController::class, 'show'])->name('admin.knowledge.category');
     Route::post('/upload', [\App\Http\Controllers\Admin\KnowledgeController::class, 'upload'])->name('admin.knowledge.upload');
@@ -178,8 +176,8 @@ Route::prefix('admin/knowledge')->middleware(['auth', 'admin'])->group(function 
     Route::post('/categories/reorder', [\App\Http\Controllers\Admin\KnowledgeController::class, 'reorderCategories'])->name('admin.knowledge.reorderCategories');
 });
 
-// ===== LISTING IMPORT (ADMIN) =====
-Route::middleware(['auth','admin'])->group(function () {
+// ===== LISTING IMPORT =====
+Route::middleware(['auth','permission:import_listings'])->group(function () {
     Route::get('/admin/listings/import', [\App\Http\Controllers\Admin\ListingImportController::class, 'index'])
         ->name('admin.listings.import');
 
@@ -188,8 +186,8 @@ Route::middleware(['auth','admin'])->group(function () {
 });
 
 
-// ===== LISTING STOCK (ADMIN UI) =====
-Route::middleware(['auth','admin'])->group(function () {
+// ===== LISTING STOCK =====
+Route::middleware(['auth','permission:view_listings'])->group(function () {
     Route::get('/admin/listings/agents', [\App\Http\Controllers\Admin\ListingStockController::class, 'agents'])
         ->name('admin.listings.agents');
 
@@ -197,7 +195,7 @@ Route::middleware(['auth','admin'])->group(function () {
         ->name('admin.listings.agents.show');
 
     Route::get('/admin/listings/stock', [\App\Http\Controllers\Admin\CompanyListingStockController::class, 'index'])
-        ->middleware('admin_or_bm')->name('admin.listings.stock');
+        ->name('admin.listings.stock');
 
 
     // Admin: Fix listing agent assignment (primary + multi agents)
@@ -217,7 +215,7 @@ Route::middleware(['auth'])->group(function () {
         ->name('impersonate.stop');
 
     Route::post('/admin/impersonate/{user}', [\App\Http\Controllers\Admin\ImpersonateController::class, 'start'])
-        ->middleware('admin')->name('impersonate.start');
+        ->middleware('permission:impersonate_users')->name('impersonate.start');
     // Allow click-through (GET) stop for sidebar UX (session-gated)
 });
 
@@ -232,67 +230,67 @@ Route::middleware(['auth'])->group(function () {
 
 
     // Tools
-    Route::get('/tools/commission', [ToolsController::class, 'commission'])->name('tools.commission');
-    Route::get('/tools/cma', [ToolsController::class, 'cma'])->name('tools.cma');
+    Route::get('/tools/commission', [ToolsController::class, 'commission'])->middleware('permission:access_calculators')->name('tools.commission');
+    Route::get('/tools/cma', [ToolsController::class, 'cma'])->middleware('permission:access_calculators')->name('tools.cma');
 
     // Tools History (backend)
-    Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->name('tools.history.index');
-    Route::post('/tools/history', [ToolsController::class, 'historyStore'])->name('tools.history.store');
-    Route::get('/tools/history/{id}', [ToolsController::class, 'historyShow'])->name('tools.history.show');
-    Route::delete('/tools/history/{id}', [ToolsController::class, 'historyDestroy'])->name('tools.history.destroy');
+    Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
+    Route::post('/tools/history', [ToolsController::class, 'historyStore'])->middleware('permission:access_calculators')->name('tools.history.store');
+    Route::get('/tools/history/{id}', [ToolsController::class, 'historyShow'])->middleware('permission:access_calculators')->name('tools.history.show');
+    Route::delete('/tools/history/{id}', [ToolsController::class, 'historyDestroy'])->middleware('permission:access_calculators')->name('tools.history.destroy');
 
     // PDF Pack Splitter
-    Route::get('/tools/pdf-splitter', [PdfSplitterController::class, 'index'])->name('tools.pdf_splitter.index');
-    Route::post('/tools/pdf-splitter/run', [PdfSplitterController::class, 'run'])->name('tools.pdf_splitter.run');
-    Route::get('/tools/pdf-splitter/review', [PdfSplitterController::class, 'review'])->name('tools.pdf_splitter.review');
-    Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->name('tools.pdf_splitter.confirm');
-    Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
-    Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->name('tools.pdf_splitter.download');
+    Route::get('/tools/pdf-splitter', [PdfSplitterController::class, 'index'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.index');
+    Route::post('/tools/pdf-splitter/run', [PdfSplitterController::class, 'run'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.run');
+    Route::get('/tools/pdf-splitter/review', [PdfSplitterController::class, 'review'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.review');
+    Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.confirm');
+    Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
+    Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.download');
 
     // Splitter Doc Type Admin
-    Route::get('/admin/splitter/doc-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'index'])->name('admin.splitter.doc-types.index');
-    Route::post('/admin/splitter/doc-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'store'])->name('admin.splitter.doc-types.store');
-    Route::put('/admin/splitter/doc-types/{doc_type}', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'update'])->name('admin.splitter.doc-types.update');
-    Route::delete('/admin/splitter/doc-types/{doc_type}', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'destroy'])->name('admin.splitter.doc-types.destroy');
-    Route::post('/admin/splitter/doc-types/bulk-save', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'bulkSave'])->name('admin.splitter.doc-types.bulk-save');
+    Route::get('/admin/splitter/doc-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'index'])->middleware('permission:access_pdf_splitter')->name('admin.splitter.doc-types.index');
+    Route::post('/admin/splitter/doc-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'store'])->middleware('permission:access_pdf_splitter')->name('admin.splitter.doc-types.store');
+    Route::put('/admin/splitter/doc-types/{doc_type}', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'update'])->middleware('permission:access_pdf_splitter')->name('admin.splitter.doc-types.update');
+    Route::delete('/admin/splitter/doc-types/{doc_type}', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'destroy'])->middleware('permission:access_pdf_splitter')->name('admin.splitter.doc-types.destroy');
+    Route::post('/admin/splitter/doc-types/bulk-save', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'bulkSave'])->middleware('permission:access_pdf_splitter')->name('admin.splitter.doc-types.bulk-save');
 
       // BM: My Agent Dashboard (BM's own numbers)
-      Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('branch_manager')->name('bm.my.dashboard');
+      Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');
 
 
     // Agent Dashboard (agent-only)
-    Route::get('/agent/dashboard', [\App\Http\Controllers\Agent\DashboardController::class, 'index'])->name('agent.dashboard');
+    Route::get('/agent/dashboard', [\App\Http\Controllers\Agent\DashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('agent.dashboard');
 
     // Agent: My Listings (from imported listing stock)
-    Route::get('/agent/listings', [\App\Http\Controllers\Agent\ListingStockController::class, 'index'])->name('agent.listings');
-    Route::post('/agent/listings/{listing}/cma', [\App\Http\Controllers\Agent\ListingStockController::class, 'saveCma'])->name('agent.listings.cma');
+    Route::get('/agent/listings', [\App\Http\Controllers\Agent\ListingStockController::class, 'index'])->middleware('permission:view_listings')->name('agent.listings');
+    Route::post('/agent/listings/{listing}/cma', [\App\Http\Controllers\Agent\ListingStockController::class, 'saveCma'])->middleware('permission:view_listings')->name('agent.listings.cma');
 
 
-    Route::get('/admin/targets', [TargetController::class, 'index'])->name('admin.targets');
-    Route::post('/admin/targets', [TargetController::class, 'save'])->name('admin.targets.save');
+    Route::get('/admin/targets', [TargetController::class, 'index'])->middleware('permission:manage_targets')->name('admin.targets');
+    Route::post('/admin/targets', [TargetController::class, 'save'])->middleware('permission:manage_targets')->name('admin.targets.save');
     // Monthly Goals (Company + Branch)
     Route::get('/admin/monthly-goals', [MonthlyGoalController::class, 'index'])
-        ->middleware('admin_or_bm')->name('admin.monthly-goals');
+        ->middleware('permission:manage_targets')->name('admin.monthly-goals');
 
     Route::post('/admin/monthly-goals', [MonthlyGoalController::class, 'save'])
-        ->middleware('admin_or_bm')->name('admin.monthly-goals.save');
+        ->middleware('permission:manage_targets')->name('admin.monthly-goals.save');
 
 
-    Route::post('/admin/targets/daily', [TargetController::class, 'saveDaily'])->name('admin.targets.daily.save');
+    Route::post('/admin/targets/daily', [TargetController::class, 'saveDaily'])->middleware('permission:manage_targets')->name('admin.targets.daily.save');
 
-    Route::get('/admin/performance', [\App\Http\Controllers\Admin\PerformanceController::class, 'index'])->middleware('admin_or_bm')->name('admin.performance');
-    Route::get('/admin/branch/{branchId}/performance', [\App\Http\Controllers\Admin\BranchPerformanceController::class, 'index'])->middleware('admin_or_bm')->name('admin.branch.performance');
+    Route::get('/admin/performance', [\App\Http\Controllers\Admin\PerformanceController::class, 'index'])->middleware('permission:view_performance')->name('admin.performance');
+    Route::get('/admin/branch/{branchId}/performance', [\App\Http\Controllers\Admin\BranchPerformanceController::class, 'index'])->middleware('permission:view_performance')->name('admin.branch.performance');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
-          ->middleware('branch_manager')->name('bm.worksheet.market');
+          ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
-          ->middleware('branch_manager')->name('bm.worksheet.market.save');
+          ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market.save');
 
-Route::get('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'index'])->name('bm.performance');
+Route::get('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'index'])->middleware('permission:view_performance')->name('bm.performance');
 
-Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware('branch_manager')->name('bm.listings');
+Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware('permission:access_listing_stock')->name('bm.listings');
 
     // ===== TV MESSAGES (Admin + BM) =====
-    Route::middleware(['admin'])->group(function () {
+    Route::middleware(['permission:manage_tv_messages'])->group(function () {
         Route::get('/admin/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'adminIndex'])->name('admin.tv-messages');
         Route::post('/admin/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'adminStore'])->name('admin.tv-messages.store');
         Route::post('/admin/tv-messages/{tvMessage}', [\App\Http\Controllers\TvMessageController::class, 'adminUpdate'])->name('admin.tv-messages.update');
@@ -305,11 +303,11 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/admin/tv-code/revoke-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'revokeCompany'])->name('admin.tv-code.revoke-company');
 
         // Agency switcher (super admin)
-        Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->name('agency.switch.clear');
-        Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->name('agency.switch');
+        Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('permission:access_agencies')->name('agency.switch.clear');
+        Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('permission:access_agencies')->name('agency.switch');
     });
 
-    Route::middleware(['branch_manager'])->group(function () {
+    Route::middleware(['permission:manage_tv_messages'])->group(function () {
         Route::get('/bm/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'bmIndex'])->name('bm.tv-messages');
         Route::post('/bm/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'bmStore'])->name('bm.tv-messages.store');
         Route::post('/bm/tv-messages/{tvMessage}', [\App\Http\Controllers\TvMessageController::class, 'bmUpdate'])->name('bm.tv-messages.update');
@@ -317,56 +315,56 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
     });
 
 
-    Route::post('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'save'])->middleware('branch_manager')->name('bm.performance.save');
+    Route::post('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'save'])->middleware('permission:manage_targets')->name('bm.performance.save');
 
-    Route::get('/bm/agent/{userId}/performance', [\App\Http\Controllers\BM\AgentPerformanceController::class, 'show'])->name('bm.agent.performance');
-    Route::get('/admin/agent/{userId}/performance', [\App\Http\Controllers\Admin\AgentPerformanceController::class, 'show'])->middleware('admin_or_bm')->name('admin.agent.performance');
+    Route::get('/bm/agent/{userId}/performance', [\App\Http\Controllers\BM\AgentPerformanceController::class, 'show'])->middleware('permission:view_performance')->name('bm.agent.performance');
+    Route::get('/admin/agent/{userId}/performance', [\App\Http\Controllers\Admin\AgentPerformanceController::class, 'show'])->middleware('permission:view_performance')->name('admin.agent.performance');
 
     // Agent Daily Activity (agent menu link)
       // Agent Daily Activity (locked to agents only)
-      Route::get('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'index'])->name('agent.daily');
-Route::get('/agent/daily/summary', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'index'])->name('agent.daily.summary');
-Route::get('/agent/daily/summary/activity/{definition}', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'activity'])->name('agent.daily.summary.activity');
+      Route::get('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'index'])->middleware('permission:access_daily_activity')->name('agent.daily');
+Route::get('/agent/daily/summary', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('agent.daily.summary');
+Route::get('/agent/daily/summary/activity/{definition}', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('agent.daily.summary.activity');
 
 
-Route::get('/bm/daily/summary', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'index'])->name('bm.daily.summary');
-Route::get('/bm/daily/summary/activity/{definition}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'activity'])->name('bm.daily.summary.activity');
-Route::get('/bm/daily/summary/activity/{definition}/agent/{user}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'agent'])->name('bm.daily.summary.activity.agent');
+Route::get('/bm/daily/summary', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('bm.daily.summary');
+Route::get('/bm/daily/summary/activity/{definition}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('bm.daily.summary.activity');
+Route::get('/bm/daily/summary/activity/{definition}/agent/{user}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'agent'])->middleware('permission:view_daily_activity')->name('bm.daily.summary.activity.agent');
 
-Route::get('/admin/daily/summary', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'index'])->name('admin.daily.summary');
-Route::get('/admin/daily/summary/activity/{definition}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'activity'])->name('admin.daily.summary.activity');
-Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'branch'])->name('admin.daily.summary.activity.branch');
-Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}/agent/{user}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'agent'])->name('admin.daily.summary.activity.branch.agent');
+Route::get('/admin/daily/summary', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('admin.daily.summary');
+Route::get('/admin/daily/summary/activity/{definition}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity');
+Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'branch'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity.branch');
+Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}/agent/{user}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'agent'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity.branch.agent');
 
 
 Route::get('/agent/daily/print', [\App\Http\Controllers\Agent\DailyActivityController::class, 'printSheet'])
-    ->name('agent.daily.print');
-        Route::post('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'store']);
+    ->middleware('permission:access_daily_activity')->name('agent.daily.print');
+        Route::post('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'store'])->middleware('permission:access_daily_activity');
 Route::get('/admin/targets/activity-setup', function () {
     return redirect()->route('admin.targets.activity.definitions');
-})->name('admin.targets.activity.setup')->middleware('admin_or_bm');
-    Route::post('/admin/targets/activity-setup', [TargetController::class, 'activitySetupSave'])->name('admin.targets.activity.setup.save')->middleware('admin_or_bm');
-Route::get('/admin/targets/activity-definitions', [TargetController::class, 'activityDefinitions'])->name('admin.targets.activity.definitions')->middleware('admin_or_bm');
-    Route::post('/admin/targets/activity-definitions', [TargetController::class, 'activityDefinitionsSave'])->name('admin.targets.activity.definitions.save')->middleware('admin_or_bm');
+})->name('admin.targets.activity.setup')->middleware('permission:manage_targets');
+    Route::post('/admin/targets/activity-setup', [TargetController::class, 'activitySetupSave'])->name('admin.targets.activity.setup.save')->middleware('permission:manage_targets');
+Route::get('/admin/targets/activity-definitions', [TargetController::class, 'activityDefinitions'])->name('admin.targets.activity.definitions')->middleware('permission:manage_targets');
+    Route::post('/admin/targets/activity-definitions', [TargetController::class, 'activityDefinitionsSave'])->name('admin.targets.activity.definitions.save')->middleware('permission:manage_targets');
 
 
-      Route::post('/admin/targets/activity-columns', [TargetController::class, 'activityColumnCreate'])->name('admin.targets.activity.columns.create')->middleware('admin');
+      Route::post('/admin/targets/activity-columns', [TargetController::class, 'activityColumnCreate'])->name('admin.targets.activity.columns.create')->middleware('permission:manage_targets');
 });
 
 
 Route::post('bm/performance/set-agent-targets', [\App\Http\Controllers\BM\PerformanceController::class, 'setAgentTargets'])
-    ->middleware('branch_manager')->name('bm.performance.setAgentTargets');
+    ->middleware(['auth', 'permission:manage_targets'])->name('bm.performance.setAgentTargets');
 
 // --- BM: TV Code Management ---
 Route::post('/bm/tv-code/generate', [\App\Http\Controllers\BM\TvCodeController::class, 'generate'])
-    ->middleware('branch_manager')->name('bm.tv-code.generate');
+    ->middleware(['auth', 'permission:manage_tv_messages'])->name('bm.tv-code.generate');
 Route::post('/bm/tv-code/revoke', [\App\Http\Controllers\BM\TvCodeController::class, 'revoke'])
-    ->middleware('branch_manager')->name('bm.tv-code.revoke');
+    ->middleware(['auth', 'permission:manage_tv_messages'])->name('bm.tv-code.revoke');
 
 Route::post('bm/performance/align-agent-to-company', [\App\Http\Controllers\BM\PerformanceController::class, 'alignAgentToCompany'])
-    ->middleware('branch_manager')->name('bm.performance.alignAgentToCompany');
+    ->middleware(['auth', 'permission:manage_targets'])->name('bm.performance.alignAgentToCompany');
 
-Route::post('bm/performance/align-targets', [\App\Http\Controllers\BM\PerformanceController::class, 'alignTargets'])->name('bm.performance.align');
+Route::post('bm/performance/align-targets', [\App\Http\Controllers\BM\PerformanceController::class, 'alignTargets'])->middleware(['auth', 'permission:manage_targets'])->name('bm.performance.align');
 
 // --- TV (no login, token-protected — legacy) ---
 Route::get('/tv/branch/{branchId}', [\App\Http\Controllers\TV\BranchTvController::class, 'show'])
@@ -387,7 +385,7 @@ Route::post('/worksheet/apply-branch-default', [\App\Http\Controllers\WorksheetC
 
 
 // Admin: Performance Settings
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'permission:manage_performance_settings'])->group(function () {
     Route::get('/admin/performance-settings', [\App\Http\Controllers\Admin\PerformanceSettingsController::class, 'edit'])
         ->name('admin.performance-settings.edit');
 
@@ -396,7 +394,7 @@ Route::middleware(['auth'])->group(function () {
 });
 
 // Admin: P24 Suburb Mappings
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
     Route::get('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'index'])
         ->name('admin.p24-suburbs.index');
     Route::post('/settings/p24-suburbs', [\App\Http\Controllers\Admin\P24SuburbController::class, 'store'])
@@ -411,7 +409,7 @@ Route::middleware(['auth'])->group(function () {
 
 
 // Admin: Designations (dropdown list management)
-Route::middleware(['auth','verified','admin'])->group(function () {
+Route::middleware(['auth','verified','permission:manage_designations'])->group(function () {
     Route::get('/admin/designations', [\App\Http\Controllers\Admin\DesignationController::class, 'index'])
         ->name('admin.designations.index');
     Route::post('/admin/designations', [\App\Http\Controllers\Admin\DesignationController::class, 'store'])
@@ -423,7 +421,7 @@ Route::middleware(['auth','verified','admin'])->group(function () {
 });
 
 // ===== FINANCE ENGINE & AUDIT (Admin only) =====
-Route::middleware(['auth','verified','admin'])->group(function () {
+Route::middleware(['auth','verified','permission:access_finance_engine'])->group(function () {
     Route::get('/admin/finance/definitions', [\App\Http\Controllers\Admin\FinanceAuditController::class, 'definitions'])
         ->name('admin.finance.definitions');
     Route::get('/admin/finance/audit', [\App\Http\Controllers\Admin\FinanceAuditController::class, 'index'])
@@ -439,9 +437,9 @@ Route::middleware(['auth','verified','admin'])->group(function () {
 
     // ---- Admin: Worksheet Market (per-branch / per-agent market inputs) ----
     Route::get('/admin/worksheet-market', [\App\Http\Controllers\Admin\WorksheetMarketController::class, 'index'])
-        ->middleware(['auth','verified','admin'])->name('admin.worksheet-market');
+        ->middleware(['auth','verified','permission:edit_worksheet'])->name('admin.worksheet-market');
     Route::post('/admin/worksheet-market', [\App\Http\Controllers\Admin\WorksheetMarketController::class, 'store'])
-        ->middleware(['auth','verified','admin'])->name('admin.worksheet-market.store');
+        ->middleware(['auth','verified','permission:edit_worksheet'])->name('admin.worksheet-market.store');
 
 /*
 |--------------------------------------------------------------------------
@@ -449,7 +447,7 @@ Route::middleware(['auth','verified','admin'])->group(function () {
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'permission:view_rentals'])->group(function () {
 
     Route::get('/rentals', [\App\Http\Controllers\RentalsController::class, 'index'])
         ->name('rentals.index');
@@ -476,7 +474,7 @@ Route::middleware(['auth'])->group(function () {
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'permission:manage_rentals'])->group(function () {
 
     Route::get('/rentals/permissions', [\App\Http\Controllers\RentalPermissionsController::class, 'index'])
         ->name('rentals.permissions');
@@ -497,7 +495,7 @@ Route::post('/internal/ai-chat-proxy', [\App\Http\Controllers\Internal\AiChatPro
 Route::get('/ai-buddy', fn() => redirect()->route('ellie.index'))->middleware('auth')->name('ai.buddy');
 
 // ===== DOCUMENT FILING REGISTER =====
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'permission:access_filing_register'])->group(function () {
     Route::get('/filing-register', [\App\Http\Controllers\DocumentFilingController::class, 'index'])->name('filing-register.index');
     Route::post('/filing-register', [\App\Http\Controllers\DocumentFilingController::class, 'store'])->name('filing-register.store');
     Route::put('/filing-register/{id}', [\App\Http\Controllers\DocumentFilingController::class, 'update'])->name('filing-register.update');
@@ -511,29 +509,29 @@ use App\Http\Controllers\CoreX\SettingsController as CoreXSettingsController;
 use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerController;
 
 Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
-    Route::get('/', [CoreXDashboardController::class, 'index'])->name('corex.dashboard');
+    Route::get('/', [CoreXDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard');
 
-    Route::get('/documents', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'documents')->name('corex.documents');
-    Route::get('/compliance', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'compliance')->name('corex.compliance');
-    Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->name('corex.supervision');
-    Route::get('/training', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'training')->name('corex.training');
-    Route::get('/communication', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'communication')->name('corex.communication');
-    Route::get('/client-portal', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'client-portal')->name('corex.client-portal');
-    Route::get('/franchise-admin', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'franchise-admin')->name('corex.franchise-admin');
+    Route::get('/documents', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'documents')->middleware('permission:access_docuperfect')->name('corex.documents');
+    Route::get('/compliance', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'compliance')->middleware('permission:access_compliance')->name('corex.compliance');
+    Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
+    Route::get('/training', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'training')->middleware('permission:access_training')->name('corex.training');
+    Route::get('/communication', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'communication')->middleware('permission:access_communication')->name('corex.communication');
+    Route::get('/client-portal', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'client-portal')->middleware('permission:access_client_portal')->name('corex.client-portal');
+    Route::get('/franchise-admin', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'franchise-admin')->middleware('permission:access_franchise_admin')->name('corex.franchise-admin');
 
     // Settings (admin only)
-    Route::get('/settings', [CoreXSettingsController::class, 'index'])->name('corex.settings');
-    Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
+    Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware('permission:access_settings')->name('corex.settings');
+    Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->middleware('permission:access_settings')->name('corex.settings.generate-token');
 
     // Role Manager (admin only)
-    Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->name('corex.role-manager');
+    Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware('permission:access_role_manager')->name('corex.role-manager');
     Route::post('/role-manager/permissions', [CoreXRoleManagerController::class, 'savePermissions'])
-        ->middleware('admin')->name('corex.role-manager.save');
+        ->middleware('permission:edit_permissions')->name('corex.role-manager.save');
     Route::post('/role-manager/user-role', [CoreXRoleManagerController::class, 'updateUserRole'])
-        ->middleware('admin')->name('corex.role-manager.user-role');
+        ->middleware('permission:change_user_roles')->name('corex.role-manager.user-role');
 
     // Agency Management (super_admin only)
-    Route::middleware('super_admin')->prefix('settings/agencies')->name('agencies.')->group(function () {
+    Route::middleware('permission:access_agencies')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
@@ -542,7 +540,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // Properties — listing sync to website
-    Route::prefix('properties')->name('corex.properties.')->group(function () {
+    Route::prefix('properties')->middleware('permission:access_properties')->name('corex.properties.')->group(function () {
         Route::get('/',                [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])->name('index');
         Route::get('/create',          [\App\Http\Controllers\CoreX\PropertyController::class, 'create'])->name('create');
         Route::post('/',               [\App\Http\Controllers\CoreX\PropertyController::class, 'store'])->name('store');
@@ -553,7 +551,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // Ad Template Builder
-    Route::prefix('ad-templates')->name('corex.ad-templates.')->group(function () {
+    Route::prefix('ad-templates')->middleware('permission:access_properties')->name('corex.ad-templates.')->group(function () {
         Route::get('/builder',                    [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'builder'])->name('builder');
         Route::get('/builder/{template}',         [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'builder'])->name('builder.edit');
         Route::post('/',                          [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'store'])->name('store');
@@ -564,7 +562,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
 
 // ===== COMMERCIAL EVALUATIONS =====
-Route::middleware(['auth'])->prefix('commercial-evaluations')->name('commercial-evaluations.')->group(function () {
+Route::middleware(['auth', 'permission:access_commercial_evaluations'])->prefix('commercial-evaluations')->name('commercial-evaluations.')->group(function () {
     Route::get('/',                                          [\App\Http\Controllers\CommercialEvaluationController::class, 'index'])            ->name('index');
     Route::get('/create',                                   [\App\Http\Controllers\CommercialEvaluationController::class, 'create'])           ->name('create');
     Route::post('/',                                        [\App\Http\Controllers\CommercialEvaluationController::class, 'store'])            ->name('store');
@@ -588,18 +586,18 @@ Route::middleware(['auth'])->prefix('commercial-evaluations')->name('commercial-
 });
 
 // ===== PRESENTATION VERSION HISTORY (P17) =====
-Route::middleware(['auth', 'admin_or_bm'])->group(function () {
+Route::middleware(['auth', 'permission:access_presentations'])->group(function () {
     Route::get('/presentations/versions', [\App\Http\Controllers\Presentation\PresentationVersionController::class, 'index'])
         ->name('presentations.versions.index');
 });
 
-Route::middleware(['auth'])->group(function () {
+Route::middleware(['auth', 'permission:access_presentations'])->group(function () {
     Route::get('/my/presentations/versions', [\App\Http\Controllers\Presentation\PresentationVersionController::class, 'mine'])
         ->name('presentations.versions.mine');
 });
 
 // ===== PRESENTATIONS =====
-Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->group(function () {
+Route::middleware(['auth', 'permission:access_presentations'])->prefix('presentations')->name('presentations.')->group(function () {
     Route::get('/',       [\App\Http\Controllers\Presentation\PresentationController::class, 'index'])  ->name('index');
     Route::get('/create', [\App\Http\Controllers\Presentation\PresentationController::class, 'create']) ->name('create');
     Route::post('/',      [\App\Http\Controllers\Presentation\PresentationController::class, 'store'])  ->name('store');
@@ -712,7 +710,7 @@ Route::middleware(['auth'])->prefix('presentations')->name('presentations.')->gr
 });
 
 // ===== DOCUPERFECT =====
-Route::prefix('docuperfect')->middleware('auth')->group(function () {
+Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Docuperfect\DashboardController::class, 'index'])->name('docuperfect.dashboard');
     Route::get('/create', [\App\Http\Controllers\Docuperfect\DashboardController::class, 'create'])->name('docuperfect.create');
 
@@ -865,7 +863,7 @@ Route::prefix('docuperfect')->middleware('auth')->group(function () {
 });
 
 // ===== RENTAL DIVISION =====
-Route::prefix('rental')->middleware('auth')->name('rental.')->group(function () {
+Route::prefix('rental')->middleware(['auth', 'permission:view_rentals'])->name('rental.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'dashboard'])->name('dashboard');
     Route::get('/signatures', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'signatures'])->name('signatures');
     Route::post('/signatures/{document}/assign-metadata', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'assignMetadata'])->name('signatures.assign-metadata');
@@ -923,7 +921,7 @@ Route::post('/documents/download/{token}/verify', [\App\Http\Controllers\Docuper
 Route::get('/documents/download/{token}/file', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadSignedFile'])->name('signatures.download.file');
 
 // ===== DOCUMENT LIBRARY =====
-Route::middleware(['auth'])->prefix('documents')->name('documents.')->group(function () {
+Route::middleware(['auth', 'permission:access_document_library'])->prefix('documents')->name('documents.')->group(function () {
     Route::get('/library', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'index'])
         ->name('library.index');
     Route::post('/library/upload', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'upload'])

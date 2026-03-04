@@ -11,22 +11,9 @@ use Illuminate\Support\Facades\DB;
 
 class MonthlyGoalController extends Controller
 {
-    private function role(): string
+    private function ensureAccess(): void
     {
-        $u = auth()->user();
-        return strtolower(trim((string)($u->role ?? '')));
-    }
-
-    private function isAdmin(): bool
-    {
-        $u = auth()->user();
-        if (!$u) return false;
-        return $this->role() === 'admin' || (bool)($u->is_admin ?? 0) === true;
-    }
-
-    private function isBM(): bool
-    {
-        return $this->role() === 'branch_manager';
+        abort_unless(auth()->user()?->hasPermission('manage_targets'), 403);
     }
 
     private function ensureActive(): void
@@ -37,7 +24,7 @@ class MonthlyGoalController extends Controller
 
     public function index(Request $request)
     {
-        abort_unless($this->isAdmin() || $this->isBM(), 403);
+        $this->ensureAccess();
         $this->ensureActive();
 
         $auth = auth()->user();
@@ -49,7 +36,7 @@ class MonthlyGoalController extends Controller
 
         // Branch scope (Admin can choose; BM locked to own branch)
         $branchId = (int)($request->get('branch_id') ?: 0);
-        if ($this->isBM()) {
+        if ($auth->isEffectiveBranchManager()) {
             $branchId = (int)($auth->branch_id ?? 0);
         }
 
@@ -123,14 +110,14 @@ class MonthlyGoalController extends Controller
             'branchRollups' => $branchRollups,
             'companyRollup' => $companyRollup,
 
-            'isAdmin' => $this->isAdmin(),
-            'isBM' => $this->isBM(),
+            'isAdmin' => $auth->isEffectiveAdmin(),
+            'isBM' => $auth->isEffectiveBranchManager(),
         ]);
     }
 
     public function save(Request $request)
     {
-        abort_unless($this->isAdmin() || $this->isBM(), 403);
+        $this->ensureAccess();
         $this->ensureActive();
 
         $auth = auth()->user();
@@ -146,7 +133,7 @@ class MonthlyGoalController extends Controller
         // - Admin can save company or any branch
         // - BM can only save branch goal for their branch
         $branchId = (int)($request->input('branch_id') ?? 0);
-        if ($this->isBM()) {
+        if ($auth->isEffectiveBranchManager()) {
             $branchId = (int)($auth->branch_id ?? 0);
             $scope = 'branch';
         }
@@ -193,7 +180,8 @@ class MonthlyGoalController extends Controller
 
         return redirect()->route('admin.monthly-goals', [
             'period' => $period,
-            'branch_id' => $this->isBM() ? (int)($auth->branch_id ?? 0) : $branchId,
+            'branch_id' => $auth->isEffectiveBranchManager() ? (int)($auth->branch_id ?? 0) : $branchId,
         ])->with('status', 'Monthly goal saved.');
     }
+
 }

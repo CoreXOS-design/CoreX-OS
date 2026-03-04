@@ -85,62 +85,94 @@ public function log(Deal $deal)
     }
 
 
-public function index()
+public function index(Request $request)
     {
         abort_unless(auth()->user()?->isEffectiveAdmin() || auth()->user()?->isEffectiveBranchManager(), 403);
 
-        
-    // BM_FILTER_PATCH
-    $user = auth()->user();
-    $query = Deal::query()->visibleTo($user);
-    // Optional status filter (supports legacy 1-letter statuses)
-      if (request('status')) {
-          $st = (string) request('status');
-          $map = [
-              'Pending'    => ['Pending', 'P'],
-              'Granted'    => ['Granted', 'G'],
-              'Registered' => ['Registered', 'R'],
-              'Declined'   => ['Declined', 'D'],
-          ];
+        $user = auth()->user();
+        $query = Deal::query()->visibleTo($user)->with('agents');
 
-          if (isset($map[$st])) {
-              $query->whereIn('accepted_status', $map[$st]);
-          } else {
-              $query->where('accepted_status', $st);
-          }
-      }
-$deals = $query->with('agents')->orderBy('deal_no')->get();
-          // PAID_NOT_SETTLED_EXCEPTION: Admin-only exception report
-          // Deals marked Paid in register but settlement not marked paid (agent might still be unpaid)
-          $paidNotSettledDeals = collect();
+        // Search
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('property_address', 'like', "%{$search}%")
+                  ->orWhere('seller_name', 'like', "%{$search}%")
+                  ->orWhere('buyer_name', 'like', "%{$search}%")
+                  ->orWhere('deal_no', 'like', "%{$search}%")
+                  ->orWhere('file_no', 'like', "%{$search}%");
+            });
+        }
 
-          if (auth()->user()?->isEffectiveAdmin()) {
-              $paidDeals = $deals->filter(fn($d) => (string)($d->commission_status ?? '') === 'Paid')->values();
-              $paidDealIds = $paidDeals->pluck('id')->map(fn($v) => (int)$v)->all();
+        // Status filter (supports legacy 1-letter statuses)
+        if ($status = $request->input('status')) {
+            $map = [
+                'Pending'    => ['Pending', 'P'],
+                'Granted'    => ['Granted', 'G'],
+                'Registered' => ['Registered', 'R'],
+                'Declined'   => ['Declined', 'D'],
+            ];
+            if (isset($map[$status])) {
+                $query->whereIn('accepted_status', $map[$status]);
+            } else {
+                $query->where('accepted_status', $status);
+            }
+        }
 
-              $settledPaidDealIds = [];
-              if (count($paidDealIds) > 0) {
-                  $settledPaidDealIds = \App\Models\DealSettlement::query()
-                      ->whereIn('deal_id', $paidDealIds)
-                      ->whereNotNull('paid_at')
-                      ->distinct()
-                      ->pluck('deal_id')
-                      ->map(fn($v) => (int)$v)
-                      ->all();
-              }
+        // Commission status filter
+        if ($commStatus = $request->input('commission')) {
+            $query->where('commission_status', $commStatus);
+        }
 
-              $settledPaidSet = array_flip($settledPaidDealIds);
-              $paidNotSettledDeals = $paidDeals->filter(function ($d) use ($settledPaidSet) {
-                  return !isset($settledPaidSet[(int)$d->id]);
-              })->values();
-          }
+        // Branch filter (admin only)
+        if ($user->isEffectiveAdmin() && ($branchFilter = $request->input('branch'))) {
+            $query->where('branch_id', $branchFilter);
+        }
+
+        // Agent filter
+        if ($agentFilter = $request->input('agent')) {
+            $query->whereHas('agents', fn($q) => $q->where('users.id', $agentFilter));
+        }
+
+        // Sort
+        $sortField = $request->input('sort', 'deal_no');
+        $sortDir = $request->input('direction', 'desc');
+        $allowed = ['deal_no', 'deal_date', 'property_value', 'accepted_status', 'commission_status', 'property_address'];
+        if (!in_array($sortField, $allowed)) {
+            $sortField = 'deal_no';
+        }
+        $query->orderBy($sortField, $sortDir === 'asc' ? 'asc' : 'desc');
+
+        $deals = $query->paginate(20)->withQueryString();
+
+        // PAID_NOT_SETTLED_EXCEPTION: Admin-only exception report (always checks ALL paid deals)
+        $paidNotSettledDeals = collect();
+        if ($user->isEffectiveAdmin()) {
+            $allPaidDeals = Deal::query()->visibleTo($user)->where('commission_status', 'Paid')->get();
+            $paidDealIds = $allPaidDeals->pluck('id')->map(fn($v) => (int)$v)->all();
+
+            $settledPaidDealIds = [];
+            if (count($paidDealIds) > 0) {
+                $settledPaidDealIds = \App\Models\DealSettlement::query()
+                    ->whereIn('deal_id', $paidDealIds)
+                    ->whereNotNull('paid_at')
+                    ->distinct()
+                    ->pluck('deal_id')
+                    ->map(fn($v) => (int)$v)
+                    ->all();
+            }
+
+            $settledPaidSet = array_flip($settledPaidDealIds);
+            $paidNotSettledDeals = $allPaidDeals->filter(function ($d) use ($settledPaidSet) {
+                return !isset($settledPaidSet[(int)$d->id]);
+            })->values();
+        }
 
         $agents = User::orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
 
-        // Branch context for Branch Commission column (from URL or BM's own branch)
-        $branchIdContext = (int) request('branch_id');
-        if ($branchIdContext <= 0 && $user?->isEffectiveBranchManager()) {
+        // Branch context for Branch Commission column
+        $branchIdContext = (int) $request->input('branch_id');
+        if ($branchIdContext <= 0 && $user->isEffectiveBranchManager()) {
             $branchIdContext = (int) ($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
         }
 

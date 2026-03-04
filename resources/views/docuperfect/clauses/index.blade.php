@@ -1,19 +1,27 @@
 @extends('layouts.corex')
 
 @section('content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+<div class="max-w-5xl mx-auto">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-xl font-bold text-white leading-tight">Clause Library</h2>
-            <div class="text-sm text-white/60">Reusable conditional clauses for document templates.</div>
-        </div>
+    <x-list-header
+        title="Clause Library"
+        :form-action="route('docuperfect.clauses.index')"
+        :paginator="$clauses"
+        search-placeholder="Search clauses..."
+    >
+        <x-slot:filters>
+            <select name="visibility" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All visibility</option>
+                <option value="global" {{ request('visibility') === 'global' ? 'selected' : '' }}>Global</option>
+                <option value="branch" {{ request('visibility') === 'branch' ? 'selected' : '' }}>Branch-specific</option>
+            </select>
+        </x-slot:filters>
         @if($canEdit)
-        <button type="button" onclick="document.getElementById('addClauseSection').classList.toggle('hidden')" class="corex-btn-primary text-sm" style="background:rgba(255,255,255,0.15);">
-            + New Clause
-        </button>
+        <x-slot:actions>
+            <button type="button" onclick="document.getElementById('addClauseSection').classList.toggle('hidden')" class="corex-btn-primary text-sm">+ New Clause</button>
+        </x-slot:actions>
         @endif
-    </div>
+    </x-list-header>
 
     @if(session('status'))
         <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm">
@@ -29,7 +37,7 @@
 
     {{-- Add Clause --}}
     @if($canEdit)
-    <div id="addClauseSection" class="ds-status-card p-4 hidden">
+    <div id="addClauseSection" class="ds-status-card p-4 hidden mt-4">
         <h3 class="ds-section-header mb-3">Add Clause</h3>
         <form method="POST" action="{{ route('docuperfect.clauses.store') }}" class="space-y-3">
             @csrf
@@ -67,11 +75,17 @@
 
     {{-- Clause List --}}
     @if($clauses->isEmpty())
-        <div class="ds-status-card p-6 text-center">
-            <div class="text-sm text-slate-500">No clauses yet.</div>
+        <div class="ds-status-card p-6 text-center mt-4">
+            <div class="text-sm text-slate-500">
+                @if(request('search') || request('visibility'))
+                    No clauses match your search.
+                @else
+                    No clauses yet.
+                @endif
+            </div>
         </div>
     @else
-        <div class="space-y-3">
+        <div class="space-y-3 mt-4">
             @foreach($clauses as $clause)
             <div class="ds-status-card p-4" x-data="{ editing: false }">
                 <div x-show="!editing">
@@ -148,6 +162,10 @@
                 @endif
             </div>
             @endforeach
+        </div>
+
+        <div class="mt-4">
+            {{ $clauses->links() }}
         </div>
     @endif
 

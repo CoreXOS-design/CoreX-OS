@@ -9,17 +9,14 @@ use Illuminate\Support\Facades\Auth;
 
 class P24SuburbController extends Controller
 {
-    private function ensureAdmin(): void
+    private function ensureAccess(): void
     {
-        $u = Auth::user();
-        if (!$u || (!($u->is_admin ?? false) && (($u->role ?? '') !== 'admin'))) {
-            abort(403);
-        }
+        abort_unless(Auth::user()?->hasPermission('manage_p24'), 403);
     }
 
     public function index()
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $suburbs = P24Suburb::orderBy('name')->get();
 
@@ -28,7 +25,7 @@ class P24SuburbController extends Controller
 
     public function store(Request $request)
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $validated = $request->validate([
             'name'            => 'required|string|max:100',
@@ -64,7 +61,7 @@ class P24SuburbController extends Controller
 
     public function update(Request $request, P24Suburb $p24Suburb)
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $validated = $request->validate([
             'name'            => 'required|string|max:100',
@@ -99,7 +96,7 @@ class P24SuburbController extends Controller
 
     public function destroy(P24Suburb $p24Suburb)
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $p24Suburb->delete();
 

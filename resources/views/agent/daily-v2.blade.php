@@ -6,7 +6,10 @@
     <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Daily Activity (v2)</h2>
+                <div class="text-sm text-white/60">
+                    <a class="hover:underline text-white/60" href="{{ route('agent.daily.summary') }}">&larr; Daily Summary</a>
+                </div>
+                <h2 class="text-xl font-bold text-white leading-tight mt-1">Daily Activity (v2)</h2>
                 <div class="text-sm text-white/60">
                     Date: <span class="font-medium text-white">{{ $selectedDate }}</span>
                 </div>

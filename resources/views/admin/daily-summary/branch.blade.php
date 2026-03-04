@@ -4,6 +4,9 @@
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
     <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+        <div class="text-sm text-white/60 mb-1">
+            <a class="hover:underline text-white/60" href="{{ route('admin.daily.summary.activity', array_filter(['definition'=>$def->id,'range'=>$range,'month'=>$month])) }}">&larr; Back to Activity</a>
+        </div>
         <div class="text-sm text-white/60 space-x-2">
             <a class="hover:underline" href="{{ route('admin.daily.summary', array_filter(['range'=>$range,'month'=>$month])) }}">Company Summary</a>
             <span>&rsaquo;</span>

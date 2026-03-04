@@ -11,11 +11,21 @@ use Illuminate\Http\Request;
 
 class PresentationSnapshotController extends Controller
 {
+    private function authorizePresentation(Presentation $presentation): void
+    {
+        $user = auth()->user();
+        if ($user->isEffectiveAdmin()) return;
+        if ($user->isEffectiveBranchManager() && (int) $presentation->branch_id === (int) $user->effectiveBranchId()) return;
+        if ((int) $presentation->created_by_user_id === (int) $user->id) return;
+        abort(403);
+    }
+
     /**
      * Validate inputs, create an immutable snapshot row, and redirect to the snapshot view.
      */
     public function saveSnapshot(Request $request, Presentation $presentation)
     {
+        $this->authorizePresentation($presentation);
         $validated = $request->validate([
             'market_run_id'       => ['required', 'integer', 'exists:market_analytics_runs,id'],
             'prob_run_id'         => ['required', 'integer', 'exists:sale_probability_runs,id'],
@@ -44,6 +54,7 @@ class PresentationSnapshotController extends Controller
      */
     public function showSnapshot(Presentation $presentation, PresentationSnapshot $snapshot)
     {
+        $this->authorizePresentation($presentation);
         abort_if($snapshot->presentation_id !== $presentation->id, 404);
 
         $maRun = $snapshot->market_analytics_run_id

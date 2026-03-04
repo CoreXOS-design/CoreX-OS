@@ -58,8 +58,16 @@ class SalesDocumentSend extends Model
 
     public function scopeVisibleTo($query, User $user)
     {
-        if ($user->isAdmin()) {
+        if ($user->isEffectiveAdmin()) {
             return $query;
+        }
+
+        if ($user->isEffectiveBranchManager()) {
+            return $query->whereIn('sent_by', function ($sub) use ($user) {
+                $sub->select('id')
+                    ->from('users')
+                    ->where('branch_id', $user->effectiveBranchId());
+            });
         }
 
         return $query->where('sent_by', $user->id);

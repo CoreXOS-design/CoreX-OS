@@ -9,18 +9,15 @@ use Illuminate\Support\Facades\Storage;
 
 class PerformanceSettingsController extends Controller
 {
-    private function ensureAdmin(): void
+    private function ensureAccess(): void
     {
-        $u = \Illuminate\Support\Facades\Auth::user();
-        if (!$u || (!($u->is_admin ?? false) && (($u->role ?? '') !== 'admin'))) {
-            abort(403);
-        }
+        abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
     }
 
 
     public function edit()
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
         $vatRate = (float) PerformanceSetting::get('vat_rate', 15);
         $listingsPerSale = (float) PerformanceSetting::get('listings_per_sale', 5);
 
@@ -44,7 +41,7 @@ class PerformanceSettingsController extends Controller
 
     public function update(Request $request)
     {
-        $this->ensureAdmin();
+        $this->ensureAccess();
 
         $data = $request->validate([
             // Company settings

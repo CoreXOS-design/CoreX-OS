@@ -8,16 +8,14 @@ use Illuminate\Support\Facades\Auth;
 
 class RentalPermissionsController extends Controller
 {
-    private function assertAdmin()
+    private function assertAccess()
     {
-        $user = Auth::user();
-
-        abort_unless(($user->role ?? null) === 'admin', 403);
+        abort_unless(Auth::user()?->hasPermission('manage_rentals'), 403);
     }
 
     public function index()
     {
-        $this->assertAdmin();
+        $this->assertAccess();
 
         $users = User::orderBy('name')->get();
 
@@ -26,7 +24,7 @@ class RentalPermissionsController extends Controller
 
     public function update(Request $request)
     {
-        $this->assertAdmin();
+        $this->assertAccess();
 
         $allowedIds = collect($request->input('can_capture_rentals', []))
             ->map(fn($id) => (int)$id)

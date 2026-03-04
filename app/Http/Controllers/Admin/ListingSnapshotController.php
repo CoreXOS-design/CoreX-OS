@@ -12,25 +12,14 @@ use Illuminate\Support\Facades\DB;
 
 class ListingSnapshotController extends Controller
 {
-    private function isAdmin(): bool
+    private function ensureAccess(): void
     {
-        $u = auth()->user();
-        if (!$u) return false;
-        $role = strtolower(trim((string)($u->role ?? '')));
-        return ($role === 'admin') || (bool)($u->is_admin ?? 0) === true;
-    }
-
-    private function isBranchManager(): bool
-    {
-        $u = auth()->user();
-        if (!$u) return false;
-        $role = strtolower(trim((string)($u->role ?? '')));
-        return ($role === 'branch_manager');
+        abort_unless(auth()->user()?->hasPermission('view_listings'), 403);
     }
 
     public function index(Request $request)
     {
-        abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+        $this->ensureAccess();
 
         $auth = auth()->user();
         abort_unless((int)($auth->is_active ?? 0) === 1, 403);
@@ -39,7 +28,7 @@ class ListingSnapshotController extends Controller
         if (!preg_match('/^\d{4}\-\d{2}$/', $period)) $period = Carbon::now()->format('Y-m');
 
         $branchId = (int)($request->get('branch_id') ?: 0);
-        if ($this->isBranchManager()) {
+        if ($auth->isEffectiveBranchManager()) {
             $branchId = (int)($auth->branch_id ?? 0);
         }
 
@@ -63,14 +52,14 @@ class ListingSnapshotController extends Controller
             'branchNames' => $branchNames,
             'users' => $users,
             'snapshots' => $snap,
-            'isAdmin' => $this->isAdmin(),
-            'isBM' => $this->isBranchManager(),
+            'isAdmin' => $auth->isEffectiveAdmin(),
+            'isBM' => $auth->isEffectiveBranchManager(),
         ]);
     }
 
     public function save(Request $request)
     {
-        abort_unless($this->isAdmin() || $this->isBranchManager(), 403);
+        $this->ensureAccess();
 
         $auth = auth()->user();
         abort_unless((int)($auth->is_active ?? 0) === 1, 403);

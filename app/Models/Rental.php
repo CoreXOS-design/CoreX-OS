@@ -30,6 +30,23 @@ class Rental extends Model
         'is_rental_assist' => 'boolean',
     ];
 
+    // ── Scopes ──
+
+    public function scopeVisibleTo($query, \App\Models\User $user)
+    {
+        if ($user->isEffectiveAdmin()) {
+            return $query;
+        }
+
+        if ($user->isEffectiveBranchManager()) {
+            return $query->where('branch_id', $user->effectiveBranchId());
+        }
+
+        return $query->whereHas('agents', function ($q) use ($user) {
+            $q->where('users.id', $user->id);
+        });
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);

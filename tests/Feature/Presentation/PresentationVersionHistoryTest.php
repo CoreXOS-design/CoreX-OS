@@ -99,12 +99,18 @@ class PresentationVersionHistoryTest extends TestCase
         $response->assertDontSeeText('Pres B');
     }
 
-    public function test_agent_cannot_access_admin_versions_index(): void
+    public function test_agent_sees_branch_scoped_versions_index(): void
     {
+        $this->makeVersion($this->presentation, $this->agent);
+        $this->makeVersion($this->otherPresentation, $this->admin);
+
         $this->actingAs($this->agent);
 
-        $this->get(route('presentations.versions.index'))
-             ->assertForbidden();
+        $response = $this->get(route('presentations.versions.index'));
+
+        $response->assertOk();
+        $response->assertSeeText('Pres A');
+        $response->assertDontSeeText('Pres B');
     }
 
     public function test_unauthenticated_cannot_access_versions_index(): void

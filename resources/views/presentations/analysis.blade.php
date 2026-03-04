@@ -1,6 +1,35 @@
 @extends('layouts.corex')
 
+@push('head')
+{{-- Zero out <main> padding so sticky bar pins flush with no gap --}}
+<style>#appScroll { padding: 0 !important; }</style>
+@endpush
+
 @section('corex-content')
+
+{{-- Sticky action bar — <main> padding zeroed, pins flush --}}
+<div class="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+    <div class="px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-14">
+            <div class="flex items-center gap-3">
+                <a href="{{ route('presentations.show', $presentation) }}" class="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Overview
+                </a>
+            </div>
+            <div class="flex-1 text-center truncate mx-4">
+                <h2 class="text-sm font-semibold text-gray-700 truncate">Market Analysis — {{ $presentation->title }}</h2>
+            </div>
+            <div class="flex items-center gap-2">
+                @if(isset($latestSnapshot) && $latestSnapshot && $latestSnapshot->generated_at)
+                <span class="text-xs text-emerald-600 font-medium">Last analysed: {{ $latestSnapshot->generated_at->format('d M Y, H:i') }}</span>
+                @endif
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="p-4 lg:p-6">
 
 {{-- ══════════════════════════════════════════════════════════════════════════
      PAGE HEADER
@@ -15,11 +44,6 @@
                     &nbsp;·&nbsp; {{ $presentation->property_address }}
                 @endif
             </div>
-            @if(isset($latestSnapshot) && $latestSnapshot && $latestSnapshot->generated_at)
-                <div class="text-xs text-emerald-300 mt-1 font-medium">
-                    Last analysed: {{ $latestSnapshot->generated_at->format('d M Y, H:i') }}
-                </div>
-            @endif
         </div>
         <a href="{{ route('presentations.show', $presentation) }}"
            class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
@@ -511,5 +535,7 @@
     }
 })();
 </script>
+
+</div>{{-- /padded content --}}
 
 @endsection

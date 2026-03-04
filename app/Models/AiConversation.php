@@ -21,6 +21,18 @@ class AiConversation extends Model
         'last_message_at' => 'datetime',
     ];
 
+    // ── Scopes ──
+
+    public function scopeVisibleTo($query, \App\Models\User $user)
+    {
+        if ($user->isEffectiveAdmin()) {
+            return $query;
+        }
+
+        // AI conversations are private — only the owner can see them
+        return $query->where('user_id', $user->id);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

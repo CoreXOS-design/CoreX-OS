@@ -48,7 +48,7 @@ class P24Controller extends Controller
             ->orderByDesc('cnt')
             ->first();
 
-        // Listings by suburb
+        // Listings by suburb — aggregate stats
         $suburbStats = P24Listing::active()
             ->select(
                 'suburb',
@@ -63,22 +63,67 @@ class P24Controller extends Controller
             ->orderByDesc('listing_count')
             ->get();
 
-        // Recent listings
+        // Listings by suburb — individual listings grouped for collapsible sub-sections
+        $listingsBySuburb = P24Listing::active()
+            ->whereNotNull('suburb')
+            ->orderBy('suburb')
+            ->orderByDesc('asking_price')
+            ->get()
+            ->groupBy('suburb');
+
+        // Recent listings (all, not paginated — client-side filtering)
         $recentListings = P24Listing::orderByDesc('first_seen_date')
             ->orderByDesc('created_at')
-            ->paginate(25, ['*'], 'listings_page');
+            ->limit(200)
+            ->get();
 
-        // Price changes
+        // Price changes (all recent — client-side filtering)
         $priceChanges = P24PriceChange::with('listing')
             ->orderByDesc('change_date')
             ->orderByDesc('created_at')
-            ->limit(50)
+            ->limit(200)
             ->get();
 
         // Import log
         $importLog = P24ImportLog::orderByDesc('created_at')
             ->limit(50)
             ->get();
+
+        // Filter dropdown data
+        $allSuburbs = P24Listing::whereNotNull('suburb')->distinct()->orderBy('suburb')->pluck('suburb');
+        $allPropertyTypes = P24Listing::whereNotNull('property_type')->distinct()->orderBy('property_type')->pluck('property_type');
+
+        // Pre-transform data for Alpine JSON hydration (no closures in @json)
+        $priceChangesData = $priceChanges->map(function ($c) {
+            $pct = $c->old_price > 0
+                ? round(($c->new_price - $c->old_price) / $c->old_price * 100, 1)
+                : 0;
+            return [
+                'id'          => $c->id,
+                'change_date' => $c->change_date ? $c->change_date->format('Y-m-d') : '',
+                'p24_number'  => $c->listing->p24_listing_number ?? '—',
+                'p24_url'     => $c->listing->p24_url ?? '',
+                'suburb'      => $c->listing->suburb ?? '—',
+                'old_price'   => (float) $c->old_price,
+                'new_price'   => (float) $c->new_price,
+                'pct'         => $pct,
+            ];
+        })->values();
+
+        $recentListingsData = $recentListings->map(function ($l) {
+            return [
+                'id'         => $l->id,
+                'first_seen' => $l->first_seen_date ? $l->first_seen_date->format('Y-m-d') : '',
+                'p24_number' => $l->p24_listing_number ?? '',
+                'p24_url'    => $l->p24_url ?? '',
+                'suburb'     => $l->suburb ?? '',
+                'type'       => $l->property_type ?? '',
+                'price'      => (float) $l->asking_price,
+                'beds'       => $l->bedrooms,
+                'baths'      => $l->bathrooms,
+                'status'     => $l->listing_status ?? '',
+            ];
+        })->values();
 
         return view('admin.p24.index', compact(
             'lastImport',
@@ -92,9 +137,14 @@ class P24Controller extends Controller
             'avgAskingPrice',
             'mostActiveSuburb',
             'suburbStats',
+            'listingsBySuburb',
             'recentListings',
             'priceChanges',
             'importLog',
+            'allSuburbs',
+            'allPropertyTypes',
+            'priceChangesData',
+            'recentListingsData',
         ));
     }
 
