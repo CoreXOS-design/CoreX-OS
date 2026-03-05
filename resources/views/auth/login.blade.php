@@ -46,5 +46,11 @@
 
             <button type="submit" class="login-btn">Sign in</button>
         </div>
+
+        {{-- Register link --}}
+        <div class="mt-4 text-center">
+            <span style="color:#9ca3af; font-size:0.8125rem;">Don't have an account?</span>
+            <a href="{{ route('register') }}" class="forgot-link" style="margin-left:4px;">Register here</a>
+        </div>
     </form>
 </x-guest-layout>
