@@ -74,7 +74,7 @@ class DocumentFilingController extends Controller
         $expiredCount = $allFilings->filter(fn($f) => $f->status === 'expired')->count();
 
         // Data for dropdowns
-        $branches = $isAdmin ? Branch::orderBy('name')->get() : collect();
+        $branches = $isAdmin ? Branch::orderBy('name')->get() : Branch::where('id', $user->effectiveBranchId())->get();
         $agentsQuery = User::where('is_active', 1)->orderBy('name');
         if (!$isAdmin) {
             $agentsQuery->where('branch_id', $user->effectiveBranchId());
@@ -98,9 +98,6 @@ class DocumentFilingController extends Controller
     public function store(Request $request)
     {
         $user = auth()->user();
-        if (!$user->isEffectiveAdmin()) {
-            abort(403);
-        }
 
         $validated = $request->validate([
             'branch_id' => 'required|exists:branches,id',
@@ -114,6 +111,11 @@ class DocumentFilingController extends Controller
             'notes' => 'nullable|string|max:2000',
         ]);
 
+        // Non-admins can only add to their own branch
+        if (!$user->isEffectiveAdmin()) {
+            $validated['branch_id'] = $user->effectiveBranchId();
+        }
+
         $validated['captured_by'] = $user->id;
 
         DocumentFiling::create($validated);
@@ -125,9 +127,6 @@ class DocumentFilingController extends Controller
     public function update(Request $request, $id)
     {
         $user = auth()->user();
-        if (!$user->isEffectiveAdmin()) {
-            abort(403);
-        }
 
         $filing = DocumentFiling::findOrFail($id);
 
@@ -151,11 +150,6 @@ class DocumentFilingController extends Controller
 
     public function destroy($id)
     {
-        $user = auth()->user();
-        if (!$user->isEffectiveAdmin()) {
-            abort(403);
-        }
-
         $filing = DocumentFiling::findOrFail($id);
         $filing->delete();
 

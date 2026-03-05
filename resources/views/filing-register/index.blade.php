@@ -92,8 +92,7 @@
             </div>
         </div>
 
-        {{-- Add new filing (admin only) --}}
-        @if($isAdmin)
+        {{-- Add new filing --}}
         <div class="ds-status-card" x-data="{ open: false }">
             <button type="button" @click="open = !open" class="flex items-center gap-2 text-sm font-semibold" style="color: var(--ds-navy);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
@@ -157,7 +156,6 @@
                 </div>
             </form>
         </div>
-        @endif
 
         {{-- Main table --}}
         <div class="ds-status-card" style="padding:0; overflow:hidden;">
@@ -172,9 +170,7 @@
                             <th class="px-4 py-3 text-left">Agent</th>
                             <th class="px-4 py-3 text-left">Expiry</th>
                             <th class="px-4 py-3 text-left">Status</th>
-                            @if($isAdmin)
                             <th class="px-4 py-3 text-right">Actions</th>
-                            @endif
                         </tr>
                     </thead>
                     <tbody>
@@ -220,7 +216,6 @@
                                     @endif
                                 </td>
                             </template>
-                            @if($isAdmin)
                             <template x-if="!editing">
                                 <td class="px-4 py-3 text-right whitespace-nowrap">
                                     <button @click="editing = true" class="text-xs text-blue-600 hover:underline mr-2">Edit</button>
@@ -230,12 +225,10 @@
                                     </form>
                                 </td>
                             </template>
-                            @endif
 
-                            {{-- Inline edit row (admin only) --}}
-                            @if($isAdmin)
+                            {{-- Inline edit row --}}
                             <template x-if="editing">
-                                <td colspan="{{ $isAdmin ? 8 : 7 }}" class="px-4 py-3">
+                                <td colspan="8" class="px-4 py-3">
                                     <form method="POST" action="{{ route('filing-register.update', $filing->id) }}" class="flex flex-wrap items-end gap-3">
                                         @csrf @method('PUT')
                                         <input type="hidden" name="branch_id" value="{{ $filing->branch_id }}">
@@ -286,12 +279,11 @@
                                     </form>
                                 </td>
                             </template>
-                            @endif
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="{{ $isAdmin ? 8 : 7 }}" class="px-4 py-8 text-center text-gray-400">
-                                No filing entries found. {{ $isAdmin ? 'Click "+ New Filing" to add one.' : '' }}
+                            <td colspan="8" class="px-4 py-8 text-center text-gray-400">
+                                No filing entries found. Click "New Filing" to add one.
                             </td>
                         </tr>
                         @endforelse
