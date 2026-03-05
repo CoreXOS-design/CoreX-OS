@@ -1,29 +1,29 @@
 @extends('layouts.corex')
 
-@section('content')
+@section('corex-content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5"
      x-data="{ activeTab: '{{ request('tab', 'info') }}' }">
 
     {{-- Back link --}}
     <a href="{{ route('corex.contacts.index') }}"
        class="inline-flex items-center gap-1.5 text-sm no-underline"
-       style="color:rgba(255,255,255,0.45);">
+       style="color:var(--text-secondary);">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
         Back to Contacts
     </a>
 
     @if(session('success'))
-        <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 px-4 py-3 text-sm font-medium">
+        <div class="rounded-xl border px-4 py-3 text-sm font-medium" style="border-color:#bbf7d0; background:#f0fdf4; color:#166534;">
             {{ session('success') }}
         </div>
     @endif
     @if(session('error'))
-        <div class="rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 px-4 py-3 text-sm font-medium">
+        <div class="rounded-xl border px-4 py-3 text-sm font-medium" style="border-color:#fecaca; background:#fef2f2; color:#991b1b;">
             {{ session('error') }}
         </div>
     @endif
     @if($errors->any())
-        <div class="rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 px-4 py-3 text-sm">
+        <div class="rounded-xl border px-4 py-3 text-sm" style="border-color:#fecaca; background:#fef2f2; color:#991b1b;">
             {{ $errors->first() }}
         </div>
     @endif
@@ -101,13 +101,18 @@
     </div>
 
     {{-- Tab bar --}}
-    <div style="background:#0d1f35; border:1px solid rgba(255,255,255,0.07); border-radius:16px; overflow:hidden;">
-        <div class="flex" style="border-bottom:1px solid rgba(255,255,255,0.08);" id="tab-bar">
-            @foreach([['key'=>'info','label'=>'Info'],['key'=>'notes','label'=>'Notes <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background:rgba(255,255,255,0.08);">'. $contact->contactNotes->count() .'</span>'],['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background:rgba(255,255,255,0.08);">'. $contact->documents->count() .'</span>']] as $t)
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:16px; overflow:hidden;">
+        <div class="flex" style="border-bottom:1px solid var(--border);" id="tab-bar">
+            @foreach([
+                ['key'=>'info','label'=>'Info'],
+                ['key'=>'notes','label'=>'Notes <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);">'. $contact->contactNotes->count() .'</span>'],
+                ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
+            ] as $t)
             <button type="button"
                     @click="activeTab = '{{ $t['key'] }}'"
-                    :class="activeTab === '{{ $t['key'] }}' ? 'text-[#00b4d8] border-b-2 border-[#00b4d8] bg-[#00b4d8]/5' : 'text-white/50 border-b-2 border-transparent hover:text-white/80'"
-                    class="px-6 py-4 text-sm font-semibold whitespace-nowrap transition-colors duration-150 outline-none"
+                    :class="activeTab === '{{ $t['key'] }}' ? 'text-[#00b4d8] border-b-2 border-[#00b4d8] bg-[#00b4d8]/5' : 'border-b-2 border-transparent'"
+                    :style="activeTab !== '{{ $t['key'] }}' ? 'color:var(--text-secondary);' : ''"
+                    class="px-6 py-4 text-sm font-semibold whitespace-nowrap transition-colors duration-150 outline-none hover:opacity-80"
                     style="background:transparent;">
                 {!! $t['label'] !!}
             </button>
@@ -124,25 +129,25 @@
 
                 {{-- Basic Info --}}
                 <div>
-                    <h3 class="text-xs font-bold uppercase tracking-widest mb-4" style="color:rgba(255,255,255,0.35);">Basic Information</h3>
+                    <h3 class="text-xs font-bold uppercase tracking-widest mb-4" style="color:var(--text-muted);">Basic Information</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:rgba(255,255,255,0.45);">First Name <span class="text-red-400">*</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">First Name <span class="text-red-500">*</span></label>
                             <input type="text" name="first_name" value="{{ old('first_name', $contact->first_name) }}" required
-                                   class="w-full rounded-lg px-3 py-2 text-sm text-white"
-                                   style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                   class="w-full rounded-lg px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:rgba(255,255,255,0.45);">Surname <span class="text-red-400">*</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Surname <span class="text-red-500">*</span></label>
                             <input type="text" name="last_name" value="{{ old('last_name', $contact->last_name) }}" required
-                                   class="w-full rounded-lg px-3 py-2 text-sm text-white"
-                                   style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                   class="w-full rounded-lg px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:rgba(255,255,255,0.45);">Contact Type</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Contact Type</label>
                             <select name="contact_type_id"
-                                    class="w-full rounded-lg px-3 py-2 text-sm text-white"
-                                    style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                    class="w-full rounded-lg px-3 py-2 text-sm"
+                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                 <option value="">— No type —</option>
                                 @foreach($contactTypes as $type)
                                     <option value="{{ $type->id }}" {{ $contact->contact_type_id == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
@@ -150,51 +155,51 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:rgba(255,255,255,0.45);">Phone <span class="text-red-400">*</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone <span class="text-red-500">*</span></label>
                             <input type="text" name="phone" value="{{ old('phone', $contact->phone) }}" required
-                                   class="w-full rounded-lg px-3 py-2 text-sm text-white"
-                                   style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                   class="w-full rounded-lg px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:rgba(255,255,255,0.45);">Email <span style="color:rgba(255,255,255,0.3);">(optional)</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                             <input type="email" name="email" value="{{ old('email', $contact->email) }}"
-                                   class="w-full rounded-lg px-3 py-2 text-sm text-white"
-                                   style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                   class="w-full rounded-lg px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:rgba(255,255,255,0.45);">ID Number <span style="color:rgba(255,255,255,0.3);">(optional)</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID Number <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                             <input type="text" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
                                    placeholder="e.g. 9001010000000"
-                                   class="w-full rounded-lg px-3 py-2 text-sm text-white"
-                                   style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                   class="w-full rounded-lg px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:rgba(255,255,255,0.45);">Date of Birth <span style="color:rgba(255,255,255,0.3);">(optional)</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                             <input type="date" name="birthday" value="{{ old('birthday', $contact->birthday?->format('Y-m-d')) }}"
-                                   class="w-full rounded-lg px-3 py-2 text-sm text-white"
-                                   style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                   class="w-full rounded-lg px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div class="sm:col-span-2">
-                            <label class="block text-xs font-semibold mb-1" style="color:rgba(255,255,255,0.45);">Address <span style="color:rgba(255,255,255,0.3);">(optional)</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Address <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                             <textarea name="address" rows="2"
-                                      class="w-full rounded-lg px-3 py-2 text-sm text-white resize-none"
-                                      style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">{{ old('address', $contact->address) }}</textarea>
+                                      class="w-full rounded-lg px-3 py-2 text-sm resize-none"
+                                      style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">{{ old('address', $contact->address) }}</textarea>
                         </div>
                     </div>
                 </div>
 
                 {{-- General Notes --}}
                 <div>
-                    <h3 class="text-xs font-bold uppercase tracking-widest mb-4" style="color:rgba(255,255,255,0.35);">General Notes</h3>
+                    <h3 class="text-xs font-bold uppercase tracking-widest mb-4" style="color:var(--text-muted);">General Notes</h3>
                     <textarea name="notes" rows="3"
                               placeholder="Any general notes about this contact…"
-                              class="w-full rounded-lg px-3 py-2 text-sm text-white resize-none"
-                              style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">{{ old('notes', $contact->notes) }}</textarea>
+                              class="w-full rounded-lg px-3 py-2 text-sm resize-none"
+                              style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">{{ old('notes', $contact->notes) }}</textarea>
                 </div>
 
                 <div class="flex items-center gap-3 pt-2">
                     <button type="submit" class="corex-btn-primary text-sm">Save Changes</button>
-                    <a href="{{ route('corex.contacts.index') }}" class="text-sm" style="color:rgba(255,255,255,0.4);">Cancel</a>
+                    <a href="{{ route('corex.contacts.index') }}" class="text-sm" style="color:var(--text-muted);">Cancel</a>
                 </div>
             </form>
         </div>
@@ -205,14 +210,14 @@
         <div x-show="activeTab === 'notes'" x-cloak class="p-6 space-y-5" id="tab-notes">
 
             {{-- Add note --}}
-            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:16px;">
-                <div class="text-xs font-semibold mb-3" style="color:rgba(255,255,255,0.5);">Add Note</div>
+            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:16px;">
+                <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Note</div>
                 <form method="POST" action="{{ route('corex.contacts.notes.store', $contact) }}" class="space-y-3">
                     @csrf
                     <textarea name="body" rows="3" required
                               placeholder="Write a note…"
-                              class="w-full rounded-lg px-3 py-2 text-sm text-white resize-none"
-                              style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);"></textarea>
+                              class="w-full rounded-lg px-3 py-2 text-sm resize-none"
+                              style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
                     <div class="flex justify-end">
                         <button type="submit" class="corex-btn-primary text-sm">Add Note</button>
                     </div>
@@ -221,28 +226,28 @@
 
             {{-- Notes list --}}
             @forelse($contact->contactNotes as $note)
-            <div style="background:#0d1f35; border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:16px;">
+            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:16px;">
                 <div class="flex items-start justify-between gap-3">
                     <div class="flex items-center gap-2 flex-shrink-0">
                         <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                             style="background:rgba(0,180,216,0.3);">
+                             style="background:#00b4d8;">
                             {{ strtoupper(substr($note->user?->name ?? '?', 0, 1)) }}
                         </div>
                         <div>
-                            <div class="text-xs font-semibold text-white">{{ $note->user?->name ?? 'Unknown' }}</div>
-                            <div class="text-xs" style="color:rgba(255,255,255,0.35);">{{ $note->created_at->format('d M Y H:i') }} · {{ $note->created_at->diffForHumans() }}</div>
+                            <div class="text-xs font-semibold" style="color:var(--text-primary);">{{ $note->user?->name ?? 'Unknown' }}</div>
+                            <div class="text-xs" style="color:var(--text-muted);">{{ $note->created_at->format('d M Y H:i') }} · {{ $note->created_at->diffForHumans() }}</div>
                         </div>
                     </div>
                     <form method="POST" action="{{ route('corex.contacts.notes.destroy', [$contact, $note]) }}"
                           onsubmit="return confirm('Delete this note?');">
                         @csrf @method('DELETE')
-                        <button type="submit" class="text-xs text-red-400 hover:text-red-300 flex-shrink-0">Delete</button>
+                        <button type="submit" class="text-xs text-red-600 hover:text-red-700 flex-shrink-0">Delete</button>
                     </form>
                 </div>
-                <div class="mt-3 text-sm whitespace-pre-line" style="color:rgba(255,255,255,0.75);">{{ $note->body }}</div>
+                <div class="mt-3 text-sm whitespace-pre-line" style="color:var(--text-primary);">{{ $note->body }}</div>
             </div>
             @empty
-            <div class="py-12 text-center" style="color:rgba(255,255,255,0.3);">
+            <div class="py-12 text-center" style="color:var(--text-muted);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
                 <div class="text-sm">No notes yet.</div>
             </div>
@@ -256,24 +261,24 @@
              x-data="{ dragging: false }">
 
             {{-- Upload area --}}
-            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:16px;">
-                <div class="text-xs font-semibold mb-3" style="color:rgba(255,255,255,0.5);">Upload File</div>
+            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:16px;">
+                <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Upload File</div>
                 <form method="POST" action="{{ route('corex.contacts.documents.store', $contact) }}"
                       enctype="multipart/form-data" class="space-y-3">
                     @csrf
                     <div @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false"
                          @drop.prevent="dragging = false; $refs.fileInput.files = $event.dataTransfer.files"
-                         :class="dragging ? 'border-[#00b4d8] bg-[#00b4d8]/5' : 'border-white/10'"
+                         :class="dragging ? 'border-[#00b4d8] bg-[#00b4d8]/5' : 'border-[var(--border-hover)]'"
                          class="border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer"
                          @click="$refs.fileInput.click()">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-40"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
-                        <div class="text-sm" style="color:rgba(255,255,255,0.5);">Drag & drop or click to upload</div>
-                        <div class="text-xs mt-1" style="color:rgba(255,255,255,0.3);">Max 20 MB — images, PDFs, documents</div>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 mx-auto mb-2 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                        <div class="text-sm" style="color:var(--text-secondary);">Drag & drop or click to upload</div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted);">Max 20 MB — images, PDFs, documents</div>
                         <input x-ref="fileInput" type="file" name="file" class="hidden"
                                @change="$el.closest('form').querySelector('.file-name').textContent = $el.files[0]?.name ?? ''">
                     </div>
                     <div class="flex items-center justify-between gap-3">
-                        <span class="file-name text-xs truncate" style="color:rgba(255,255,255,0.4);"></span>
+                        <span class="file-name text-xs truncate" style="color:var(--text-muted);"></span>
                         <button type="submit" class="corex-btn-primary text-sm flex-shrink-0">Upload</button>
                     </div>
                 </form>
@@ -281,16 +286,16 @@
 
             {{-- Files list --}}
             @if($contact->documents->isNotEmpty())
-            <div style="border:1px solid rgba(255,255,255,0.07); border-radius:12px; overflow:hidden;">
-                <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid rgba(255,255,255,0.07); background:rgba(255,255,255,0.02);">
-                    <div class="text-sm font-semibold text-white">Files</div>
-                    <div class="text-xs" style="color:rgba(255,255,255,0.35);">{{ $contact->documents->count() }} file{{ $contact->documents->count() !== 1 ? 's' : '' }}</div>
+            <div style="border:1px solid var(--border); border-radius:12px; overflow:hidden;">
+                <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
+                    <div class="text-sm font-semibold" style="color:var(--text-primary);">Files</div>
+                    <div class="text-xs" style="color:var(--text-muted);">{{ $contact->documents->count() }} file{{ $contact->documents->count() !== 1 ? 's' : '' }}</div>
                 </div>
                 @foreach($contact->documents as $doc)
-                <div class="px-4 py-3 flex items-center gap-3" style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                <div class="px-4 py-3 flex items-center gap-3" style="border-bottom:1px solid var(--border);">
                     {{-- File icon --}}
                     <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                         style="background:rgba({{ $doc->isImage() ? '99,102,241' : '0,180,216' }},0.15);">
+                         style="background:rgba({{ $doc->isImage() ? '99,102,241' : '0,180,216' }},0.12);">
                         @if($doc->isImage())
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#818cf8" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>
                         @else
@@ -298,8 +303,8 @@
                         @endif
                     </div>
                     <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium text-white truncate">{{ $doc->original_name }}</div>
-                        <div class="text-xs flex gap-2 mt-0.5" style="color:rgba(255,255,255,0.35);">
+                        <div class="text-sm font-medium truncate" style="color:var(--text-primary);">{{ $doc->original_name }}</div>
+                        <div class="text-xs flex gap-2 mt-0.5" style="color:var(--text-muted);">
                             <span>{{ $doc->human_size }}</span>
                             <span>·</span>
                             <span>{{ $doc->created_at->format('d M Y H:i') }}</span>
@@ -314,14 +319,14 @@
                         <form method="POST" action="{{ route('corex.contacts.documents.destroy', [$contact, $doc]) }}"
                               onsubmit="return confirm('Delete {{ addslashes($doc->original_name) }}?');">
                             @csrf @method('DELETE')
-                            <button type="submit" class="text-xs font-semibold text-red-400 hover:text-red-300">Delete</button>
+                            <button type="submit" class="text-xs font-semibold text-red-600 hover:text-red-700">Delete</button>
                         </form>
                     </div>
                 </div>
                 @endforeach
             </div>
             @else
-            <div class="py-10 text-center" style="color:rgba(255,255,255,0.3);">
+            <div class="py-10 text-center" style="color:var(--text-muted);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
                 <div class="text-sm">No files uploaded yet.</div>
             </div>
