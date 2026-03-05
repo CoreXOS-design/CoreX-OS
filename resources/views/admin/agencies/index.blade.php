@@ -1,6 +1,6 @@
 @extends('layouts.corex')
 
-@section('content')
+@section('corex-content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
     {{-- Header --}}

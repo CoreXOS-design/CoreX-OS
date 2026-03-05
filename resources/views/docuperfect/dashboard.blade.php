@@ -1,6 +1,6 @@
 @extends('layouts.corex')
 
-@section('content')
+@section('corex-content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
     <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
