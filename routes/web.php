@@ -528,6 +528,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware('permission:access_settings')->name('corex.settings');
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->middleware('permission:access_settings')->name('corex.settings.generate-token');
+    Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
 
     // Role Manager
     Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware('permission:access_role_manager')->name('corex.role-manager');

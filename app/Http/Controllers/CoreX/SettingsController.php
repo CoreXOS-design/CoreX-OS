@@ -59,6 +59,9 @@ class SettingsController extends Controller
         $data['propStatuses']     = PropertySettingItem::group('property_status')->get();
         $data['propMandateTypes'] = PropertySettingItem::group('mandate_type')->get();
 
+        // Feature Settings tab: Properties — marketing toggle
+        $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
+
         // Agency Settings tab: Company / Performance Settings
         if ($user?->hasPermission('manage_performance_settings')) {
             $data['vatRate']         = (float)  PerformanceSetting::get('vat_rate', 15);
@@ -143,6 +146,13 @@ class SettingsController extends Controller
         }
         $item->delete();
         return back()->with('success', 'Item deleted.')->with('tab', 'feature')->with('fsec', 'properties');
+    }
+
+    public function updateMarketingEnabled(Request $request)
+    {
+        $enabled = $request->boolean('marketing_enabled');
+        PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => $enabled ? 1 : 0]);
+        return back()->with('success', 'Marketing setting updated.')->with('tab', 'feature')->with('fsec', 'properties');
     }
 
     public function generateApiToken(Request $request)

@@ -150,7 +150,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                         Ad Builder
                     </a>
-                    @if(\Illuminate\Support\Facades\Route::has('corex.properties.marketing.index'))
+                    @if(\Illuminate\Support\Facades\Route::has('corex.properties.marketing.index') && \App\Models\PerformanceSetting::get('marketing_enabled', 1))
                     <a href="{{ route('corex.properties.marketing.index', $property) }}"
                        class="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold no-underline transition-colors"
                        style="background:rgba(24,119,242,0.12); color:#1877f2; border:1px solid rgba(24,119,242,0.3);"

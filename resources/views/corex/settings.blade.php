@@ -993,6 +993,32 @@
                 $csrfToken   = csrf_token();
                 @endphp
 
+                {{-- Marketing Toggle --}}
+                <div class="p-4 rounded-xl flex items-center justify-between gap-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Property Marketing</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">When disabled, the "Market Property" button will not appear on property pages.</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.marketing-enabled') }}" class="flex items-center gap-3 flex-shrink-0">
+                        @csrf
+                        <input type="hidden" name="marketing_enabled" value="0">
+                        <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;"
+                               title="{{ $marketingEnabled ? 'Enabled — click to disable' : 'Disabled — click to enable' }}">
+                            <input type="checkbox" name="marketing_enabled" value="1"
+                                   {{ $marketingEnabled ? 'checked' : '' }}
+                                   class="sr-only"
+                                   onchange="this.closest('form').submit()">
+                            <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                  style="background:{{ $marketingEnabled ? '#00b4d8' : 'var(--border-hover)' }}"></span>
+                            <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                  style="transform:translateX({{ $marketingEnabled ? '20px' : '0' }})"></span>
+                        </label>
+                        <span class="text-sm font-semibold" style="color:{{ $marketingEnabled ? '#00b4d8' : 'var(--text-muted)' }};">
+                            {{ $marketingEnabled ? 'On' : 'Off' }}
+                        </span>
+                    </form>
+                </div>
+
                 @foreach($propGroups as $pg)
                 @php
                     $defaultItems    = $pg['items']->where('is_default', true)->values();
