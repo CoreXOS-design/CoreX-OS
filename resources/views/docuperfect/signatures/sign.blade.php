@@ -466,9 +466,8 @@ function signDocument() {
             return (this.documentFields || []).filter(f => f.pageIndex === pageIdx);
         },
 
-        // Detect overlapping fields and compute display offset
+        // Detect overlapping fields and offset non-agent fields
         fieldDisplayStyle(field) {
-            const fields = this.fieldsForCurrentPage();
             const isAgent = field.assignedTo === 'agent';
             let x = field.position.x;
             let y = field.position.y;
@@ -476,27 +475,21 @@ function signDocument() {
             const h = field.size.height;
             const zIndex = isAgent ? 8 : 5;
 
-            // Find fields that overlap with this one (different assignedTo, rendered before this one)
-            const myIdx = fields.indexOf(field);
-            for (let i = 0; i < myIdx; i++) {
-                const other = fields[i];
-                if (other.assignedTo === field.assignedTo) continue;
-                const ox = other.position.x, oy = other.position.y;
-                const ow = other.size.width, oh = other.size.height;
-                // Check bounding box overlap (>50% area overlap)
-                const overlapX = Math.max(0, Math.min(x + w, ox + ow) - Math.max(x, ox));
-                const overlapY = Math.max(0, Math.min(y + h, oy + oh) - Math.max(y, oy));
-                const overlapArea = overlapX * overlapY;
-                const fieldArea = w * h;
-                if (fieldArea > 0 && overlapArea / fieldArea > 0.3) {
-                    // Offset: try right of the other field first
-                    if (ox + ow + w <= 100) {
-                        x = ox + ow + 0.5;
-                    } else if (ox - w - 0.5 >= 0) {
-                        x = ox - w - 0.5;
-                    } else {
-                        y = oy + oh + 0.3;
+            // If this is NOT the agent's field, check if it overlaps with any agent field
+            if (!isAgent) {
+                const pageFields = this.fieldsForCurrentPage();
+                let overlapCount = 0;
+                for (const other of pageFields) {
+                    if (other.id === field.id) continue;
+                    if (other.assignedTo !== 'agent') continue;
+                    const ox = other.position.x, oy = other.position.y;
+                    // Within 2% = overlapping
+                    if (Math.abs(x - ox) < 2 && Math.abs(y - oy) < 2) {
+                        overlapCount++;
                     }
+                }
+                if (overlapCount > 0) {
+                    y = y + (h + 0.5) * overlapCount;
                 }
             }
 

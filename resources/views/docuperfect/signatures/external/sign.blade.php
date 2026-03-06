@@ -868,9 +868,8 @@ function externalSign() {
             return (this.documentFields || []).filter(f => f.pageIndex === pageIdx);
         },
 
-        // Detect overlapping fields and compute display offset
+        // Detect overlapping fields and offset non-signer fields
         fieldDisplayStyle(field) {
-            const fields = this.fieldsForCurrentPage();
             const isMine = this.isMyField(field);
             let x = field.position.x;
             let y = field.position.y;
@@ -878,24 +877,20 @@ function externalSign() {
             const h = field.size.height;
             const zIndex = isMine ? 8 : 5;
 
-            const myIdx = fields.indexOf(field);
-            for (let i = 0; i < myIdx; i++) {
-                const other = fields[i];
-                if (other.assignedTo === field.assignedTo) continue;
-                const ox = other.position.x, oy = other.position.y;
-                const ow = other.size.width, oh = other.size.height;
-                const overlapX = Math.max(0, Math.min(x + w, ox + ow) - Math.max(x, ox));
-                const overlapY = Math.max(0, Math.min(y + h, oy + oh) - Math.max(y, oy));
-                const overlapArea = overlapX * overlapY;
-                const fieldArea = w * h;
-                if (fieldArea > 0 && overlapArea / fieldArea > 0.3) {
-                    if (ox + ow + w <= 100) {
-                        x = ox + ow + 0.5;
-                    } else if (ox - w - 0.5 >= 0) {
-                        x = ox - w - 0.5;
-                    } else {
-                        y = oy + oh + 0.3;
+            // If this is NOT my field, check if it overlaps with any of my fields
+            if (!isMine) {
+                const pageFields = this.fieldsForCurrentPage();
+                let overlapCount = 0;
+                for (const other of pageFields) {
+                    if (other.id === field.id) continue;
+                    if (!this.isMyField(other)) continue;
+                    const ox = other.position.x, oy = other.position.y;
+                    if (Math.abs(x - ox) < 2 && Math.abs(y - oy) < 2) {
+                        overlapCount++;
                     }
+                }
+                if (overlapCount > 0) {
+                    y = y + (h + 0.5) * overlapCount;
                 }
             }
 
@@ -964,13 +959,23 @@ function externalSign() {
                     },
                     body: JSON.stringify({ fields: this.documentFields }),
                 });
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    console.error('Save fields HTTP error:', resp.status, text);
+                    if (resp.status === 419) {
+                        this.showNotification('Session expired. Please reload the page and try again.', 'error');
+                    }
+                    return false;
+                }
                 const data = await resp.json();
                 if (data.ok) {
                     this.fieldsDirty = false;
                     return true;
                 }
+                console.error('Save fields server error:', data);
                 return false;
             } catch (e) {
+                console.error('Save fields exception:', e);
                 return false;
             }
         },

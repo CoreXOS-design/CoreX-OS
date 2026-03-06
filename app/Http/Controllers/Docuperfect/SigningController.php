@@ -376,11 +376,14 @@ class SigningController extends Controller
 
         SignatureAuditLog::create([
             'signature_template_id' => $signingRequest->template->id,
-            'event' => 'fields_saved',
+            'action' => 'fields_saved',
+            'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
             'actor_name' => $signingRequest->signer_name,
             'actor_email' => $signingRequest->signer_email,
-            'ip_address' => $request->ip(),
-            'metadata' => ['party_role' => $partyRole],
+            'actor_ip_address' => $request->ip(),
+            'actor_user_agent' => $request->userAgent(),
+            'signature_request_id' => $signingRequest->id,
+            'metadata_json' => ['party_role' => $partyRole],
         ]);
 
         return response()->json(['ok' => true]);
