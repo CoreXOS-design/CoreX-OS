@@ -323,11 +323,23 @@
     // Template-mode field
     // ------------------------------------------------------------------
     function buildTemplateField(field, el) {
+        // Backward compat: default assignedTo to 'creator'
+        if (!field.assignedTo) field.assignedTo = 'creator';
+
         // Type label
         var lbl = document.createElement('div');
         lbl.className = 'dp-field-label';
         lbl.textContent = field.type;
         el.appendChild(lbl);
+
+        // Show assignedTo badge if not creator
+        if (field.assignedTo !== 'creator') {
+            var atBadge = document.createElement('div');
+            atBadge.className = 'dp-assigned-badge';
+            var atLabels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller' };
+            atBadge.textContent = atLabels[field.assignedTo] || field.assignedTo;
+            el.appendChild(atBadge);
+        }
 
         // Select on click
         el.addEventListener('mousedown', function (e) {
@@ -348,7 +360,7 @@
                     // Faint label centered in each zone
                     var zLbl = document.createElement('div');
                     var zoneW = 100 / opts.length;
-                    zLbl.style.cssText = 'position:absolute;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-size:8px;color:rgba(0,0,0,0.3);pointer-events:none;overflow:hidden;white-space:nowrap;';
+                    zLbl.style.cssText = 'position:absolute;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-size:9px;color:rgba(0,0,0,0.5);font-weight:500;pointer-events:none;overflow:hidden;white-space:nowrap;';
                     zLbl.style.left = (zi * zoneW) + '%';
                     zLbl.style.width = zoneW + '%';
                     zLbl.textContent = opts[zi];
@@ -356,7 +368,7 @@
                     // Divider line (skip first)
                     if (zi > 0) {
                         var zDiv = document.createElement('div');
-                        zDiv.style.cssText = 'position:absolute;top:0;height:100%;width:1px;background:rgba(0,0,0,0.12);pointer-events:none;';
+                        zDiv.style.cssText = 'position:absolute;top:0;height:100%;width:1px;background:rgba(0,0,0,0.2);pointer-events:none;';
                         zDiv.style.left = (zi * zoneW) + '%';
                         el.appendChild(zDiv);
                     }
@@ -384,7 +396,24 @@
     // Document-mode field
     // ------------------------------------------------------------------
     function buildDocumentField(field, el) {
+        // Backward compat: default assignedTo to 'creator'
+        if (!field.assignedTo) field.assignedTo = 'creator';
+
         var userAdded = !!field.isUserAdded;
+
+        // If field is assigned to a signer (not creator), show greyed-out placeholder
+        if (field.assignedTo !== 'creator') {
+            el.style.background = 'rgba(148,163,184,0.15)';
+            el.style.border = '1px dashed rgba(148,163,184,0.5)';
+            el.style.pointerEvents = 'none';
+            el.style.cursor = 'default';
+            var signerLabel = document.createElement('div');
+            signerLabel.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;font-style:italic;text-align:center;padding:2px;line-height:1.2;';
+            var signerLabels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller' };
+            signerLabel.textContent = (signerLabels[field.assignedTo] || field.assignedTo) + ' will complete';
+            el.appendChild(signerLabel);
+            return;
+        }
 
         // User-added fields get handles
         if (userAdded) appendHandles(el, field.id);
@@ -469,10 +498,10 @@
             }
 
             var textOverlay = document.createElement('div');
-            textOverlay.style.cssText = 'position:absolute;top:0;height:100%;display:flex;align-items:center;justify-content:center;color:#000;pointer-events:none;z-index:2;overflow:hidden;white-space:nowrap;';
+            textOverlay.style.cssText = 'position:absolute;top:0;height:100%;display:flex;align-items:center;justify-content:center;color:#000;font-weight:600;pointer-events:none;z-index:2;overflow:hidden;white-space:nowrap;';
             textOverlay.style.left = (selIdx * sectionW) + '%';
             textOverlay.style.width = sectionW + '%';
-            textOverlay.style.fontSize = (el.offsetHeight ? Math.round(el.offsetHeight * 0.6) + 'px' : '0.85em');
+            textOverlay.style.fontSize = (el.offsetHeight ? Math.round(el.offsetHeight * 0.65) + 'px' : '0.9em');
             textOverlay.textContent = field.selectedValue;
             el.appendChild(textOverlay);
         } else if (hasSolidBg) {
@@ -521,10 +550,10 @@
             }
 
             var tickOverlay = document.createElement('div');
-            tickOverlay.style.cssText = 'position:absolute;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-weight:bold;color:#000;pointer-events:none;z-index:2;';
+            tickOverlay.style.cssText = 'position:absolute;top:0;height:100%;display:flex;align-items:center;justify-content:center;font-weight:900;color:#000;pointer-events:none;z-index:2;';
             tickOverlay.style.left = (selIdx * sectionW) + '%';
             tickOverlay.style.width = sectionW + '%';
-            tickOverlay.style.fontSize = (el.offsetHeight ? Math.round(el.offsetHeight * 0.8) + 'px' : '1.2em');
+            tickOverlay.style.fontSize = (el.offsetHeight ? Math.round(el.offsetHeight * 0.85) + 'px' : '1.3em');
             tickOverlay.textContent = 'X';
             el.appendChild(tickOverlay);
         }
@@ -755,6 +784,41 @@
                 isDirty = true;
             });
             bar.appendChild(flInp);
+
+            // Assigned To dropdown — who completes this field
+            var atSep = document.createElement('div');
+            atSep.style.cssText = 'width:1px;height:20px;background:rgba(255,255,255,0.2);margin:0 4px;';
+            bar.appendChild(atSep);
+
+            var atLbl = document.createElement('span');
+            atLbl.textContent = 'Assigned:';
+            atLbl.style.cssText = 'color:white;font-size:10px;white-space:nowrap;';
+            bar.appendChild(atLbl);
+
+            var atSel = document.createElement('select');
+            atSel.style.cssText = 'background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);color:white;border-radius:4px;padding:2px 4px;font-size:10px;outline:none;';
+            var atOptions = [
+                { value: 'creator', label: 'Document Creator' },
+                { value: 'agent', label: 'Agent' },
+                { value: 'tenant', label: 'Tenant / Lessee' },
+                { value: 'landlord', label: 'Landlord / Lessor' },
+                { value: 'buyer', label: 'Buyer' },
+                { value: 'seller', label: 'Seller' }
+            ];
+            atOptions.forEach(function (opt) {
+                var o = document.createElement('option');
+                o.value = opt.value;
+                o.textContent = opt.label;
+                o.style.color = '#000';
+                if ((field.assignedTo || 'creator') === opt.value) o.selected = true;
+                atSel.appendChild(o);
+            });
+            atSel.addEventListener('change', function () {
+                field.assignedTo = this.value;
+                isDirty = true;
+                renderFieldsForPage(field.pageIndex);
+            });
+            bar.appendChild(atSel);
         }
 
         // Named Field dropdown (template mode, text-capable only)
@@ -971,6 +1035,7 @@
         };
 
         // Type-specific defaults
+        nf.assignedTo = 'creator'; // Default: document creator fills this field
         if (placementMode === 'strikethrough')  { nf.active = false; nf.strikethroughType = placementStrikeType || 'horizontal'; }
         if (placementMode === 'selection')      { nf.options = ['Option 1', 'Option 2']; nf.selectedValue = null; nf.solidBg = false; }
         if (placementMode === 'tick')           { nf.options = ['Yes', 'No', 'N/A']; nf.selectedValue = null; nf.solidBg = true; }

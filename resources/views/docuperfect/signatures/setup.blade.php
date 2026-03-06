@@ -312,7 +312,8 @@
                              @load="pageLoaded = true"
                              x-ref="pageImage">
 
-                        {{-- Render document field values (read-only overlay) --}}
+                        {{-- Render document field values (read-only overlay) — only when NOT flattened --}}
+                        <template x-if="!hasFlattened">
                         <template x-for="field in fieldsForCurrentPage()" :key="field.id">
                             <div class="absolute pointer-events-none overflow-hidden"
                                  :style="`left:${field.position.x}%;top:${field.position.y}%;width:${field.size.width}%;height:${field.size.height}%;z-index:5;`">
@@ -362,6 +363,7 @@
                                     </div>
                                 </template>
                             </div>
+                        </template>
                         </template>
 
                         {{-- Render markers for current page --}}
@@ -581,6 +583,7 @@
             markers: @json($markersJson),
             pageImages: @json($pageImages),
             documentFields: @json($document->fields_json ?? []),
+            hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
             currentPage: 1,
             totalPages: {{ $pageCount }},
             selectedType: 'signature',

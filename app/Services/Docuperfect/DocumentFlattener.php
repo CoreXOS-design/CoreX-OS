@@ -53,8 +53,19 @@ class DocumentFlattener
             foreach ($pageFields as $field) {
                 $type = $field['type'] ?? 'placeholder';
 
+                // Backward compat: migrate old selection+renderMode:"tick" → type "tick"
+                if ($type === 'selection' && !empty($field['renderMode']) && $field['renderMode'] === 'tick') {
+                    $type = 'tick';
+                }
+
                 // Skip signature/initial fields — those are handled by signature markers
                 if (in_array($type, ['signature', 'initial'])) {
+                    continue;
+                }
+
+                // Skip fields assigned to signers — they must remain interactive for the signer
+                $assignedTo = $field['assignedTo'] ?? 'creator';
+                if ($assignedTo !== 'creator') {
                     continue;
                 }
 
@@ -83,10 +94,11 @@ class DocumentFlattener
                         break;
 
                     case 'selection':
-                        $value = trim((string) ($field['selectedValue'] ?? ''));
-                        if ($value !== '') {
-                            $this->renderText($image, $value, $x, $y, $w, $h, $style);
-                        }
+                        $this->renderSelectionField($image, $field, $x, $y, $w, $h, $style);
+                        break;
+
+                    case 'tick':
+                        $this->renderTickField($image, $field, $x, $y, $w, $h);
                         break;
 
                     case 'condition':
@@ -120,6 +132,105 @@ class DocumentFlattener
         ]);
 
         return $newPaths;
+    }
+
+    /**
+     * Flatten signer-completed fields onto the current flattened page images.
+     * Call this after a signer completes their fields (before or during signing completion).
+     *
+     * Only flattens fields where assignedTo matches the given party role.
+     *
+     * @return array<int, string> Updated flattened page paths
+     */
+    public function flattenSignerFields(SignatureTemplate $template, string $partyRole): array
+    {
+        $document = $template->document;
+        $docTemplate = $document->template;
+
+        if (!$docTemplate || $docTemplate->page_count < 1) {
+            return $template->flattened_pages_json ?? [];
+        }
+
+        $fields = $document->fields_json ?? [];
+        $currentPages = $template->flattened_pages_json ?? [];
+
+        for ($pageNum = 0; $pageNum < $docTemplate->page_count; $pageNum++) {
+            // Use flattened page if available, otherwise original
+            $imagePath = $currentPages[$pageNum] ?? $this->findOriginalPageImage($docTemplate->id, $pageNum);
+            if (!$imagePath) continue;
+
+            $fullPath = Storage::disk('local')->path($imagePath);
+            $image = $this->loadImage($fullPath);
+            if (!$image) continue;
+
+            $imgWidth = imagesx($image);
+            $imgHeight = imagesy($image);
+
+            $pageFields = array_filter($fields, function ($f) use ($pageNum, $partyRole) {
+                return ($f['pageIndex'] ?? 0) == $pageNum
+                    && ($f['assignedTo'] ?? 'creator') === $partyRole;
+            });
+
+            if (empty($pageFields)) {
+                imagedestroy($image);
+                continue;
+            }
+
+            foreach ($pageFields as $field) {
+                $type = $field['type'] ?? 'placeholder';
+                if ($type === 'selection' && !empty($field['renderMode']) && $field['renderMode'] === 'tick') {
+                    $type = 'tick';
+                }
+                if (in_array($type, ['signature', 'initial'])) {
+                    continue;
+                }
+
+                $pos = $field['position'] ?? [];
+                $size = $field['size'] ?? [];
+                $style = $field['style'] ?? [];
+
+                $x = (floatval($pos['x'] ?? 0) / 100) * $imgWidth;
+                $y = (floatval($pos['y'] ?? 0) / 100) * $imgHeight;
+                $w = (floatval($size['width'] ?? 10) / 100) * $imgWidth;
+                $h = (floatval($size['height'] ?? 3) / 100) * $imgHeight;
+
+                switch ($type) {
+                    case 'placeholder':
+                    case 'date':
+                        $value = trim((string) ($field['value'] ?? ''));
+                        if ($value !== '') {
+                            $this->renderText($image, $value, $x, $y, $w, $h, $style);
+                        }
+                        break;
+                    case 'selection':
+                        $this->renderSelectionField($image, $field, $x, $y, $w, $h, $style);
+                        break;
+                    case 'tick':
+                        $this->renderTickField($image, $field, $x, $y, $w, $h);
+                        break;
+                    case 'condition':
+                        $value = trim((string) ($field['text'] ?? ''));
+                        if ($value !== '') {
+                            $white = imagecolorallocatealpha($image, 255, 255, 255, 30);
+                            imagefilledrectangle($image, (int) $x, (int) $y, (int) ($x + $w), (int) ($y + $h), $white);
+                            $this->renderText($image, $value, $x, $y, $w, $h, $style);
+                        }
+                        break;
+                    case 'strikethrough':
+                        if (!empty($field['active'])) {
+                            $this->renderStrikethrough($image, $x, $y, $w, $h, $field);
+                        }
+                        break;
+                }
+            }
+
+            $newPath = $this->saveFlattenedPage($template->id, $pageNum, $image);
+            $currentPages[$pageNum] = $newPath;
+            imagedestroy($image);
+        }
+
+        $template->update(['flattened_pages_json' => $currentPages]);
+        return $currentPages;
     }
 
     /**
@@ -169,7 +280,8 @@ class DocumentFlattener
             $this->compositeSignatureImage($image, $signature->signature_data, $x, $y, $w, $h);
         } elseif ($signature->signature_type === 'typed') {
             // Fallback: render typed name when no image data available
-            $this->renderTypedSignature($image, $signature->signer_name, $x, $y, $w, $h);
+            $isInitial = $markerType === 'initial';
+            $this->renderTypedSignature($image, $signature->signer_name, $x, $y, $w, $h, $isInitial);
         }
 
         // Audit metadata (signer name, timestamp) is stored in the database
@@ -551,6 +663,70 @@ class DocumentFlattener
         }
     }
 
+    /**
+     * Render a selection field — show the selected value in its column position.
+     */
+    private function renderSelectionField($image, array $field, float $x, float $y, float $w, float $h, array $style = []): void
+    {
+        $value = trim((string) ($field['selectedValue'] ?? ''));
+        if ($value === '') return;
+
+        $opts = $field['options'] ?? [];
+        $optCount = count($opts) ?: 1;
+        $selIdx = array_search($value, $opts);
+        if ($selIdx === false) $selIdx = 0;
+
+        $sectionW = $w / $optCount;
+        $sectionX = $x + $selIdx * $sectionW;
+
+        // Solid background if enabled
+        if (!empty($field['solidBg'])) {
+            $white = imagecolorallocate($image, 255, 255, 255);
+            imagefilledrectangle($image, (int) $sectionX, (int) $y, (int) ($sectionX + $sectionW), (int) ($y + $h), $white);
+        }
+
+        $this->renderText($image, $value, $sectionX, $y, $sectionW, $h, $style);
+    }
+
+    /**
+     * Render a tick field — show "X" in the selected column position.
+     */
+    private function renderTickField($image, array $field, float $x, float $y, float $w, float $h): void
+    {
+        $value = trim((string) ($field['selectedValue'] ?? ''));
+        if ($value === '') return;
+
+        $opts = $field['options'] ?? [];
+        $optCount = count($opts) ?: 1;
+        $selIdx = array_search($value, $opts);
+        if ($selIdx === false) $selIdx = 0;
+
+        $sectionW = $w / $optCount;
+        $sectionX = $x + $selIdx * $sectionW;
+
+        // Solid background (default on for tick)
+        if ($field['solidBg'] ?? true) {
+            $white = imagecolorallocate($image, 255, 255, 255);
+            imagefilledrectangle($image, (int) $sectionX, (int) $y, (int) ($sectionX + $sectionW), (int) ($y + $h), $white);
+        }
+
+        // Render bold "X" centered in the section
+        $color = imagecolorallocate($image, 0, 0, 0);
+        $font = $this->findFont(true);
+
+        if ($font && function_exists('imagettftext')) {
+            $fontSize = max(8, $h * 0.6);
+            $bbox = imagettfbbox($fontSize, 0, $font, 'X');
+            $textW = abs($bbox[2] - $bbox[0]);
+            $textH = abs($bbox[7] - $bbox[1]);
+            $textX = $sectionX + ($sectionW - $textW) / 2;
+            $textY = $y + ($h + $textH) / 2;
+            imagettftext($image, $fontSize, 0, (int) $textX, (int) $textY, $color, $font, 'X');
+        } else {
+            imagestring($image, 4, (int) ($sectionX + $sectionW / 2 - 4), (int) ($y + $h / 2 - 8), 'X', $color);
+        }
+    }
+
     // ========== HELPER METHODS ==========
 
     /**
@@ -619,15 +795,17 @@ class DocumentFlattener
         $ttfFont = $this->findFont($bold);
 
         if ($ttfFont && function_exists('imagettftext')) {
-            // Scale font size to match ~11pt physical text on an A4 page.
-            // GD's imagettftext renders at 96 DPI internally.
-            // Compute the image's effective DPI from its width vs A4 (8.27 inches),
-            // then scale the target point size by (effectiveDPI / 96).
+            // Scale font size to match the editor's CSS pixel rendering.
+            // The editor displays page images at ~800px CSS width.
+            // A CSS font-size of N pixels at 800px display = N/800 of image width.
+            // GD's imagettftext uses points at 96 DPI (1pt = 96/72 = 1.333 pixels).
+            // Formula: gdPoints = cssPx * (imgWidth / editorDisplayWidth) * (72/96)
             $imgWidth = imagesx($image);
-            $targetPt = floatval($style['fontSize'] ?? 11);
-            $targetPt = max(8, min(16, $targetPt));
-            $effectiveDpi = $imgWidth / 8.27; // A4 width in inches
-            $fontSize = $targetPt * ($effectiveDpi / 96);
+            $cssFontPx = floatval($style['fontSize'] ?? 11);
+            $cssFontPx = max(8, min(16, $cssFontPx));
+            $editorDisplayWidth = 800; // matches max-width:800px on signing/setup containers
+            $imgScalePixels = $cssFontPx * ($imgWidth / $editorDisplayWidth);
+            $fontSize = $imgScalePixels * 72 / 96; // convert image pixels to GD points
 
             // Cap so text never exceeds field height
             $fontSize = min($fontSize, $h * 0.75);
@@ -635,9 +813,8 @@ class DocumentFlattener
             Log::debug('DocumentFlattener::renderText', [
                 'text' => mb_substr($text, 0, 30),
                 'imgWidth' => $imgWidth,
-                'effectiveDpi' => round($effectiveDpi, 1),
-                'targetPt' => $targetPt,
-                'finalFontSize' => round($fontSize, 2),
+                'cssFontPx' => $cssFontPx,
+                'finalGdPts' => round($fontSize, 2),
                 'fieldH' => round($h, 1),
                 'font' => basename($ttfFont),
             ]);
@@ -722,24 +899,38 @@ class DocumentFlattener
     /**
      * Render a typed signature name in a stylised font.
      */
-    private function renderTypedSignature($image, string $name, float $x, float $y, float $w, float $h): void
+    private function renderTypedSignature($image, string $name, float $x, float $y, float $w, float $h, bool $isInitial = false): void
     {
-        $color = imagecolorallocate($image, 26, 26, 138); // Dark blue, matching CSS
-        $font = $this->findFont(false);
+        $color = imagecolorallocate($image, 0, 0, 0); // Black, matching canvas rendering
 
-        if ($font && function_exists('imagettftext')) {
-            $fontSize = max(10, $h * 0.6);
-            $fontSize = min($fontSize, $h * 0.85);
-            $textY = $y + ($h * 0.7);
-            // Center horizontally
-            $bbox = imagettfbbox($fontSize, 0, $font, $name);
-            $textWidth = abs($bbox[2] - $bbox[0]);
-            $textX = $x + ($w - $textWidth) / 2;
-            $textX = max($textX, $x + 2);
-
-            imagettftext($image, $fontSize, 0, (int) $textX, (int) $textY, $color, $font, $name);
+        if ($isInitial) {
+            // Initials: 80% of field height, bold, centered both ways
+            $font = $this->findFont(true);
+            if ($font && function_exists('imagettftext')) {
+                $fontSize = max(10, $h * 0.8);
+                $bbox = imagettfbbox($fontSize, 0, $font, $name);
+                $textWidth = abs($bbox[2] - $bbox[0]);
+                $textHeight = abs($bbox[7] - $bbox[1]);
+                $textX = $x + ($w - $textWidth) / 2;
+                $textY = $y + ($h + $textHeight) / 2;
+                imagettftext($image, $fontSize, 0, (int) $textX, (int) $textY, $color, $font, $name);
+            } else {
+                imagestring($image, 5, (int) ($x + $w * 0.3), (int) ($y + $h * 0.2), $name, $color);
+            }
         } else {
-            imagestring($image, 4, (int) $x + 4, (int) ($y + $h * 0.3), $name, $color);
+            $font = $this->findFont(false);
+            if ($font && function_exists('imagettftext')) {
+                $fontSize = max(10, $h * 0.6);
+                $fontSize = min($fontSize, $h * 0.85);
+                $textY = $y + ($h * 0.7);
+                $bbox = imagettfbbox($fontSize, 0, $font, $name);
+                $textWidth = abs($bbox[2] - $bbox[0]);
+                $textX = $x + ($w - $textWidth) / 2;
+                $textX = max($textX, $x + 2);
+                imagettftext($image, $fontSize, 0, (int) $textX, (int) $textY, $color, $font, $name);
+            } else {
+                imagestring($image, 4, (int) $x + 4, (int) ($y + $h * 0.3), $name, $color);
+            }
         }
     }
 

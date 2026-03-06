@@ -110,47 +110,154 @@
                      draggable="false"
                      x-ref="pageImage">
 
-                {{-- Render document field values (read-only overlay) --}}
+                {{-- Render document field values --}}
+                {{-- Creator fields: show only when NOT flattened (baked in when flattened) --}}
+                {{-- Agent-assigned fields: interactive (agent fills during signing) --}}
+                {{-- Other signer fields: locked with label --}}
                 <template x-for="field in fieldsForCurrentPage()" :key="field.id">
-                    <div class="absolute pointer-events-none overflow-hidden"
+                    <div x-show="!hasFlattened || (field.assignedTo && field.assignedTo !== 'creator')"
+                         class="absolute overflow-hidden"
+                         :class="(field.assignedTo === 'agent') ? '' : 'pointer-events-none'"
                          :style="`left:${field.position.x}%;top:${field.position.y}%;width:${field.size.width}%;height:${field.size.height}%;z-index:5;`">
-                        <template x-if="field.type === 'placeholder' && field.value">
-                            <div class="w-full h-full flex items-start px-0.5 overflow-hidden"
-                                 :style="fieldStyle(field)"
-                                 x-text="field.value"></div>
-                        </template>
-                        <template x-if="field.type === 'date' && field.value">
-                            <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
-                                 :style="fieldStyle(field)"
-                                 x-text="field.value"></div>
-                        </template>
-                        <template x-if="field.type === 'selection' && field.selectedValue">
-                            <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
-                                 :style="fieldStyle(field)">
-                                <span class="bg-cyan-100 text-cyan-800 px-1.5 py-0.5 rounded text-xs" x-text="field.selectedValue"></span>
+
+                        {{-- Agent-assigned field: INTERACTIVE — agent fills these during signing --}}
+                        <template x-if="field.assignedTo === 'agent'">
+                            <div class="w-full h-full">
+                                {{-- Tick --}}
+                                <template x-if="field.type === 'tick'">
+                                    <div class="w-full h-full relative" style="background:rgba(59,130,246,0.08);border:2px solid rgba(59,130,246,0.5);border-radius:4px;">
+                                        <template x-for="(opt, optIdx) in (field.options || [])" :key="optIdx">
+                                            <div class="absolute top-0 h-full flex items-center justify-center cursor-pointer hover:bg-blue-100/50 transition-colors"
+                                                 :style="`left:${optIdx * (100 / (field.options || []).length)}%;width:${100 / (field.options || []).length}%;`"
+                                                 @click="selectFieldOption(field, opt)">
+                                                <span class="font-bold text-lg"
+                                                      :class="field.selectedValue === opt ? 'text-black' : 'text-slate-300'"
+                                                      x-text="field.selectedValue === opt ? 'X' : opt"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                {{-- Selection --}}
+                                <template x-if="field.type === 'selection'">
+                                    <div class="w-full h-full relative" style="background:rgba(59,130,246,0.08);border:2px solid rgba(59,130,246,0.5);border-radius:4px;">
+                                        <template x-for="(opt, optIdx) in (field.options || [])" :key="optIdx">
+                                            <div class="absolute top-0 h-full flex items-center justify-center cursor-pointer hover:bg-blue-100/50 transition-colors"
+                                                 :style="`left:${optIdx * (100 / (field.options || []).length)}%;width:${100 / (field.options || []).length}%;`"
+                                                 @click="selectFieldOption(field, opt)">
+                                                <span class="text-xs px-1"
+                                                      :class="field.selectedValue === opt ? 'font-bold text-blue-800 underline' : 'text-slate-400'"
+                                                      x-text="opt"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                {{-- Strikethrough --}}
+                                <template x-if="field.type === 'strikethrough'">
+                                    <div class="w-full h-full relative cursor-pointer"
+                                         :style="field.active ? 'background:rgba(239,68,68,0.08);border:2px solid rgba(239,68,68,0.4);border-radius:4px;' : 'background:rgba(59,130,246,0.08);border:2px solid rgba(59,130,246,0.5);border-radius:4px;'"
+                                         @click="field.active = !field.active; fieldsDirty = true;">
+                                        <template x-if="field.active && (field.strikethroughType || 'horizontal') === 'horizontal'">
+                                            <div class="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 -translate-y-1/2"></div>
+                                        </template>
+                                        <template x-if="field.active && field.strikethroughType === 'diagonal'">
+                                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full">
+                                                <line x1="0" y1="0" x2="100" y2="100" stroke="#ef4444" stroke-width="3" />
+                                            </svg>
+                                        </template>
+                                        <template x-if="!field.active">
+                                            <div class="absolute inset-0 flex items-center justify-center">
+                                                <span class="text-[10px] text-blue-600 italic">Click to strike</span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                {{-- Text --}}
+                                <template x-if="field.type === 'placeholder'">
+                                    <div class="w-full h-full" style="background:rgba(59,130,246,0.08);border:2px solid rgba(59,130,246,0.5);border-radius:4px;">
+                                        <input type="text" class="w-full h-full bg-transparent border-0 outline-none px-1 text-sm"
+                                               :style="fieldStyle(field)"
+                                               :value="field.value || ''"
+                                               @input="field.value = $event.target.value; fieldsDirty = true;"
+                                               placeholder="Enter text...">
+                                    </div>
+                                </template>
+                                {{-- Date --}}
+                                <template x-if="field.type === 'date'">
+                                    <div class="w-full h-full" style="background:rgba(59,130,246,0.08);border:2px solid rgba(59,130,246,0.5);border-radius:4px;">
+                                        <input type="date" class="w-full h-full bg-transparent border-0 outline-none px-1 text-sm"
+                                               :value="field.value || ''"
+                                               @change="field.value = $event.target.value; fieldsDirty = true;">
+                                    </div>
+                                </template>
+                                {{-- Condition --}}
+                                <template x-if="field.type === 'condition'">
+                                    <div class="w-full h-full" style="background:rgba(59,130,246,0.08);border:2px solid rgba(59,130,246,0.5);border-radius:4px;">
+                                        <textarea class="w-full h-full bg-transparent border-0 outline-none px-1 text-xs resize-none"
+                                                  :style="fieldStyle(field)"
+                                                  @input="field.text = $event.target.value; fieldsDirty = true;"
+                                                  x-text="field.text || ''"></textarea>
+                                    </div>
+                                </template>
                             </div>
                         </template>
-                        <template x-if="field.type === 'condition' && field.text">
-                            <div class="w-full h-full overflow-hidden px-0.5 bg-white/85"
-                                 :style="fieldStyle(field)"
-                                 x-text="field.text"></div>
-                        </template>
-                        <template x-if="field.type === 'strikethrough' && field.active">
-                            <div class="w-full h-full relative">
-                                <template x-if="(field.strikethroughType || 'horizontal') === 'horizontal'">
-                                    <div class="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 -translate-y-1/2"></div>
-                                </template>
-                                <template x-if="field.strikethroughType === 'diagonal'">
-                                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full">
-                                        <line x1="0" y1="0" x2="100" y2="100" stroke="#ef4444" stroke-width="3" />
-                                    </svg>
-                                </template>
+
+                        {{-- Other signer's field: locked with label --}}
+                        <template x-if="field.assignedTo && field.assignedTo !== 'creator' && field.assignedTo !== 'agent'">
+                            <div class="w-full h-full flex items-center justify-center pointer-events-none"
+                                 style="background:rgba(148,163,184,0.15);border:1px dashed rgba(148,163,184,0.5);">
+                                <span class="text-[10px] text-slate-500 italic text-center leading-tight px-1"
+                                      x-text="signerLabel(field.assignedTo) + ' will complete'"></span>
                             </div>
                         </template>
-                        <template x-if="field.type === 'signature' || field.type === 'initial'">
-                            <div class="w-full h-full flex flex-col justify-end p-0.5">
-                                <div class="border-b border-black mb-0.5"></div>
-                                <div class="text-[8px] uppercase text-gray-500" x-text="field.type === 'initial' ? 'Initial' : 'Signature'"></div>
+
+                        {{-- Creator fields (read-only, shown when not flattened) --}}
+                        <template x-if="!field.assignedTo || field.assignedTo === 'creator'">
+                            <div class="w-full h-full">
+                                <template x-if="field.type === 'placeholder' && field.value">
+                                    <div class="w-full h-full flex items-start px-0.5 overflow-hidden"
+                                         :style="fieldStyle(field)"
+                                         x-text="field.value"></div>
+                                </template>
+                                <template x-if="field.type === 'date' && field.value">
+                                    <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
+                                         :style="fieldStyle(field)"
+                                         x-text="field.value"></div>
+                                </template>
+                                <template x-if="field.type === 'selection' && field.selectedValue">
+                                    <div class="w-full h-full flex items-center px-0.5 overflow-hidden"
+                                         :style="fieldStyle(field)">
+                                        <span class="bg-cyan-100 text-cyan-800 px-1.5 py-0.5 rounded text-xs" x-text="field.selectedValue"></span>
+                                    </div>
+                                </template>
+                                <template x-if="field.type === 'tick' && field.selectedValue">
+                                    <div class="w-full h-full flex items-center justify-center"
+                                         :style="fieldStyle(field)">
+                                        <span class="font-bold text-black" style="font-size:1.2em;" x-text="'X'"></span>
+                                    </div>
+                                </template>
+                                <template x-if="field.type === 'condition' && field.text">
+                                    <div class="w-full h-full overflow-hidden px-0.5 bg-white/85"
+                                         :style="fieldStyle(field)"
+                                         x-text="field.text"></div>
+                                </template>
+                                <template x-if="field.type === 'strikethrough' && field.active">
+                                    <div class="w-full h-full relative">
+                                        <template x-if="(field.strikethroughType || 'horizontal') === 'horizontal'">
+                                            <div class="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 -translate-y-1/2"></div>
+                                        </template>
+                                        <template x-if="field.strikethroughType === 'diagonal'">
+                                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full">
+                                                <line x1="0" y1="0" x2="100" y2="100" stroke="#ef4444" stroke-width="3" />
+                                            </svg>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template x-if="field.type === 'signature' || field.type === 'initial'">
+                                    <div class="w-full h-full flex flex-col justify-end p-0.5">
+                                        <div class="border-b border-black mb-0.5"></div>
+                                        <div class="text-[8px] uppercase text-gray-500" x-text="field.type === 'initial' ? 'Initial' : 'Signature'"></div>
+                                    </div>
+                                </template>
                             </div>
                         </template>
                     </div>
@@ -314,6 +421,7 @@ function signDocument() {
         markers: @json($markersJson),
         pageImages: @json($pageImages),
         documentFields: @json($document->fields_json ?? []),
+        hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
         currentPage: 1,
         totalPages: {{ $pageCount }},
         signedCount: {{ $signedCount }},
@@ -331,6 +439,7 @@ function signDocument() {
 
         // Complete form state
         completingForm: false,
+        fieldsDirty: false,
 
         // Apply-to-all state
         showApplyAll: false,
@@ -355,6 +464,47 @@ function signDocument() {
         fieldsForCurrentPage() {
             const pageIdx = this.currentPage - 1;
             return (this.documentFields || []).filter(f => f.pageIndex === pageIdx);
+        },
+
+        signerLabel(role) {
+            const labels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller' };
+            return labels[role] || (role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Signer');
+        },
+
+        selectFieldOption(field, opt) {
+            if (field.selectedValue === opt) {
+                field.selectedValue = null;
+            } else {
+                field.selectedValue = opt;
+            }
+            this.fieldsDirty = true;
+        },
+
+        async saveAgentFields() {
+            const agentFields = (this.documentFields || []).filter(f => f.assignedTo === 'agent');
+            if (agentFields.length === 0) return true;
+
+            try {
+                const resp = await fetch(@json(route('docuperfect.signatures.saveAgentFields', $document)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': @json(csrf_token()),
+                    },
+                    body: JSON.stringify({ fields: agentFields }),
+                });
+                const data = await resp.json();
+                if (!data.ok) {
+                    alert(data.error || 'Failed to save field values.');
+                    return false;
+                }
+                this.fieldsDirty = false;
+                return true;
+            } catch (err) {
+                alert('Network error saving fields. Please try again.');
+                return false;
+            }
         },
 
         fieldStyle(field) {
@@ -458,22 +608,35 @@ function signDocument() {
         },
 
         // ── Typed signature → PNG (4× resolution for crisp compositing) ──
-        generateTypedSignature(name) {
+        generateTypedSignature(name, isInitial = false) {
             const canvas = this.$refs.typedCanvas;
             if (!canvas) return null;
 
             const scale = 4;
-            canvas.width = 400 * scale;
-            canvas.height = 100 * scale;
+            const cW = isInitial ? 200 : 400;
+            const cH = 100;
+            canvas.width = cW * scale;
+            canvas.height = cH * scale;
             const ctx = canvas.getContext('2d');
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.scale(scale, scale);
-            ctx.font = '48px "Dancing Script", cursive';
-            ctx.fillStyle = '#000000';
-            ctx.textBaseline = 'middle';
-            ctx.imageSmoothingEnabled = true;
-            ctx.fillText(name, 10, 50);
+
+            if (isInitial) {
+                // Initials: 80% of field height, bold, centered
+                ctx.font = 'bold 80px Arial, Helvetica, sans-serif';
+                ctx.fillStyle = '#000000';
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'center';
+                ctx.imageSmoothingEnabled = true;
+                ctx.fillText(name, cW / 2, cH / 2);
+            } else {
+                ctx.font = '48px "Dancing Script", cursive';
+                ctx.fillStyle = '#000000';
+                ctx.textBaseline = 'middle';
+                ctx.imageSmoothingEnabled = true;
+                ctx.fillText(name, 10, cH / 2);
+            }
 
             return canvas.toDataURL('image/png');
         },
@@ -531,7 +694,8 @@ function signDocument() {
                     this.applying = false;
                     return;
                 }
-                signatureData = this.generateTypedSignature(this.typedName.trim());
+                const isInitial = this.activeMarker && this.activeMarker.type === 'initial';
+                signatureData = this.generateTypedSignature(this.typedName.trim(), isInitial);
                 signatureType = 'typed';
             }
 
@@ -632,7 +796,7 @@ function signDocument() {
         },
 
         // ── Complete signing (with guided navigation if unsigned markers remain) ──
-        handleComplete() {
+        async handleComplete() {
             // Check if all agent markers are signed
             const unsignedMarkers = this.markers.filter(m => m.assigned_party === 'agent' && !m.signed);
 
@@ -646,6 +810,16 @@ function signDocument() {
 
             if (this.completingForm) return;
             this.completingForm = true;
+
+            // Save agent-assigned field values before completing
+            const agentFields = (this.documentFields || []).filter(f => f.assignedTo === 'agent');
+            if (agentFields.length > 0) {
+                const saved = await this.saveAgentFields();
+                if (!saved) {
+                    this.completingForm = false;
+                    return;
+                }
+            }
 
             // Submit via form POST for redirect
             const form = document.createElement('form');

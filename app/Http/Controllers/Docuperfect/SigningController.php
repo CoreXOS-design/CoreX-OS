@@ -316,6 +316,73 @@ class SigningController extends Controller
     }
 
     /**
+     * Save signer-completed field values back to the document.
+     * Only allows updating fields assigned to the signer's party role.
+     */
+    public function saveFields(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        $document = $signingRequest->template->document;
+        if (!$document) {
+            return response()->json(['ok' => false, 'error' => 'Document not found.'], 404);
+        }
+
+        $incomingFields = $request->input('fields', []);
+        $partyRole = $signingRequest->party_role;
+        $existingFields = $document->fields_json ?? [];
+
+        // Build a map of existing fields by ID for quick lookup
+        $fieldMap = [];
+        foreach ($existingFields as $idx => $field) {
+            if (isset($field['id'])) {
+                $fieldMap[$field['id']] = $idx;
+            }
+        }
+
+        // Only update fields that are assigned to this signer's role
+        foreach ($incomingFields as $incoming) {
+            $id = $incoming['id'] ?? null;
+            if (!$id || !isset($fieldMap[$id])) continue;
+
+            $idx = $fieldMap[$id];
+            $assignedTo = $existingFields[$idx]['assignedTo'] ?? 'creator';
+            if ($assignedTo !== $partyRole) continue;
+
+            // Update allowed value fields based on type
+            $type = $existingFields[$idx]['type'] ?? 'placeholder';
+            if (in_array($type, ['placeholder', 'date'])) {
+                $existingFields[$idx]['value'] = $incoming['value'] ?? '';
+            } elseif (in_array($type, ['selection', 'tick'])) {
+                $existingFields[$idx]['selectedValue'] = $incoming['selectedValue'] ?? null;
+            } elseif ($type === 'strikethrough') {
+                $existingFields[$idx]['active'] = !empty($incoming['active']);
+            } elseif ($type === 'condition') {
+                $existingFields[$idx]['text'] = $incoming['text'] ?? '';
+            }
+        }
+
+        $document->update(['fields_json' => $existingFields]);
+
+        SignatureAuditLog::create([
+            'signature_template_id' => $signingRequest->template->id,
+            'event' => 'fields_saved',
+            'actor_name' => $signingRequest->signer_name,
+            'actor_email' => $signingRequest->signer_email,
+            'ip_address' => $request->ip(),
+            'metadata' => ['party_role' => $partyRole],
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * Complete external signing (all markers done for this party).
      */
     public function complete(Request $request, $token)
@@ -338,6 +405,10 @@ class SigningController extends Controller
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ]);
+
+            // Flatten any signer-completed fields onto the page images
+            $flattener = app(DocumentFlattener::class);
+            $flattener->flattenSignerFields($template, $party);
 
             $this->signatureService->handlePartyCompletion($template, $party);
 

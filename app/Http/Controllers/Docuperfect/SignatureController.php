@@ -268,6 +268,7 @@ class SignatureController extends Controller
             'parties' => $parties,
             'pageImages' => $pageImages,
             'pageCount' => $pageCount,
+            'hasFlattened' => $hasFlattened,
             'step' => $step,
             'user' => $user,
             'templateType' => $templateType,
@@ -596,6 +597,7 @@ class SignatureController extends Controller
             'allAgentSigned' => $signedCount >= $totalAgent && $totalAgent > 0,
             'pageImages' => $pageImages,
             'pageCount' => $pageCount,
+            'hasFlattened' => $hasFlattened,
             'user' => $user,
         ]);
     }
@@ -672,6 +674,47 @@ class SignatureController extends Controller
     }
 
     /**
+     * Save agent-assigned field values during agent signing.
+     */
+    public function saveAgentFields(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $submittedFields = $request->input('fields', []);
+        $currentFields = $document->fields_json ?? [];
+
+        // Only update fields where assignedTo === 'agent'
+        foreach ($submittedFields as $submitted) {
+            if (($submitted['assignedTo'] ?? 'creator') !== 'agent') {
+                continue;
+            }
+            foreach ($currentFields as &$field) {
+                if (($field['id'] ?? null) === ($submitted['id'] ?? null) && ($field['assignedTo'] ?? 'creator') === 'agent') {
+                    // Update mutable values based on type
+                    $type = $field['type'] ?? 'placeholder';
+                    if (in_array($type, ['placeholder', 'date'])) {
+                        $field['value'] = $submitted['value'] ?? '';
+                    } elseif (in_array($type, ['tick', 'selection'])) {
+                        $field['selectedValue'] = $submitted['selectedValue'] ?? null;
+                    } elseif ($type === 'condition') {
+                        $field['text'] = $submitted['text'] ?? '';
+                    } elseif ($type === 'strikethrough') {
+                        $field['active'] = !empty($submitted['active']);
+                    }
+                    break;
+                }
+            }
+            unset($field);
+        }
+
+        $document->fields_json = $currentFields;
+        $document->save();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * Complete internal signing for a document.
      */
     public function signComplete(Request $request, Document $document)
@@ -692,6 +735,10 @@ class SignatureController extends Controller
         // From this point forward, external signers see flattened images only.
         $flattener = app(DocumentFlattener::class);
         $flattener->flattenFields($template);
+
+        // Flatten agent-assigned fields (filled by agent during signing)
+        $template->refresh();
+        $flattener->flattenSignerFields($template, 'agent');
 
         // Now flatten all agent signatures onto the already-flattened field images
         $agentMarkers = $template->markers->where('assigned_party', 'agent');
