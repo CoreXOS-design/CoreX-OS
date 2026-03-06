@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\Property;
 use App\Models\PropertyAdTemplate;
+use App\Models\PropertySettingItem;
 use App\Models\User;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
@@ -26,6 +27,25 @@ class PropertyController extends Controller
         $query = Property::with(['agent', 'branch']);
 
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
+
+        // Agent filter with session persistence (admin/BM only)
+        if ($canPickAgent) {
+            if ($request->has('agent_id')) {
+                $raw           = $request->query('agent_id', '');
+                $filterAgentId = $raw;
+                session(['corex_properties_agent_id' => $raw === '' ? 'all' : $raw]);
+            } else {
+                $saved = session('corex_properties_agent_id');
+                if ($saved === null) {
+                    $filterAgentId = (string) $user->id;
+                    session(['corex_properties_agent_id' => $filterAgentId]);
+                } elseif ($saved === 'all') {
+                    $filterAgentId = '';
+                } else {
+                    $filterAgentId = $saved;
+                }
+            }
+        }
 
         // Scope
         if ($canPickAgent && $filterAgentId !== '') {
@@ -84,15 +104,46 @@ class PropertyController extends Controller
         ));
     }
 
-    public function create()
+    public function show(Property $property)
     {
+        $this->authorizeProperty($property);
+        $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type']);
+
+        $settingItems = [
+            'categories'   => PropertySettingItem::group('category')->get(),
+            'types'        => PropertySettingItem::group('property_type')->where('active', true)->get(),
+            'statuses'     => PropertySettingItem::group('property_status')->get(),
+            'mandateTypes' => PropertySettingItem::group('mandate_type')->get(),
+        ];
+
         $branches = Branch::orderBy('name')->get();
         $agents   = $this->agentList();
-        return view('corex.properties.create-edit', [
-            'property' => null,
-            'branches' => $branches,
-            'agents'   => $agents,
-        ]);
+        $activeTab = request('tab', 'overview');
+
+        return view('corex.properties.show', compact(
+            'property', 'settingItems', 'branches', 'agents', 'activeTab'
+        ));
+    }
+
+    public function create()
+    {
+        $property          = new Property();
+        $property->status  = 'draft';
+        $property->beds    = 0;
+        $property->baths   = 0;
+        $property->garages = 0;
+
+        $settingItems = [
+            'categories'   => PropertySettingItem::group('category')->get(),
+            'types'        => PropertySettingItem::group('property_type')->where('active', true)->get(),
+            'statuses'     => PropertySettingItem::group('property_status')->get(),
+            'mandateTypes' => PropertySettingItem::group('mandate_type')->get(),
+        ];
+        $branches  = Branch::orderBy('name')->get();
+        $agents    = $this->agentList();
+        $activeTab = 'info';
+
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab'));
     }
 
     public function store(Request $request)
@@ -105,29 +156,48 @@ class PropertyController extends Controller
             'excerpt'          => 'nullable|string|max:500',
             'description'      => 'nullable|string',
             'price'            => 'required|integer|min:0',
+            'rates_taxes'      => 'nullable|integer|min:0',
+            'levy'             => 'nullable|integer|min:0',
+            'special_levy'     => 'nullable|integer|min:0',
             'city'             => 'nullable|string|max:100',
             'suburb'           => 'required|string|max:100',
+            'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
             'size_m2'          => 'nullable|integer|min:0',
             'erf_size_m2'      => 'nullable|integer|min:0',
-            'property_type'    => 'required|string|max:50',
+            'property_type'    => 'nullable|string|max:50',
+            'category'         => 'nullable|string|max:100',
             'mandate_type'     => 'nullable|string|max:50',
-            'status'           => 'required|in:draft,active,sold,withdrawn',
+            'status'           => 'nullable|string|max:100',
+            'features'         => 'nullable|array',
+            'features.*'       => 'string|max:100',
+            'spaces_json'      => 'nullable|string',
+            'listed_date'      => 'nullable|date',
+            'expiry_date'      => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
             'agent_id'         => 'nullable|exists:users,id',
             'publish'          => 'nullable|boolean',
-            'dawn_images'      => 'nullable|array',
-            'dawn_images.*'    => 'image|max:5120',
-            'noon_images'      => 'nullable|array',
-            'noon_images.*'    => 'image|max:5120',
-            'dusk_images'      => 'nullable|array',
-            'dusk_images.*'    => 'image|max:5120',
-            'gallery_images'   => 'nullable|array',
-            'gallery_images.*' => 'image|max:5120',
+            'dawn_images'               => 'nullable|array',
+            'dawn_images.*'             => 'image|max:5120',
+            'noon_images'               => 'nullable|array',
+            'noon_images.*'             => 'image|max:5120',
+            'dusk_images'               => 'nullable|array',
+            'dusk_images.*'             => 'image|max:5120',
+            'gallery_images'            => 'nullable|array',
+            'gallery_images.*'          => 'image|max:5120',
+            // Create-form extras
+            'initial_note'              => 'nullable|string|max:5000',
+            'drive_files'               => 'nullable|array',
+            'drive_files.*'             => 'file|max:51200',
+            'pending_contact_ids'       => 'nullable|array',
+            'pending_contact_ids.*'     => 'integer',
+            'pending_new_contacts'      => 'nullable|array',
         ]);
+
+        $data = $this->processSpacesJson($data);
 
         $storeScope = PermissionService::getDataScope($user, 'properties');
         if (! in_array($storeScope, ['all', 'branch']) || empty($data['agent_id'])) {
@@ -155,16 +225,59 @@ class PropertyController extends Controller
             \App\Jobs\SyncPropertyToWebsite::dispatchSync($property->fresh(['agent', 'branch', 'agency']), 'upsert');
         }
 
-        return redirect()->route('corex.properties.index')
-            ->with('success', 'Property listing created.');
+        // Initial note (written from create form)
+        if ($request->filled('initial_note')) {
+            $property->notes()->create([
+                'user_id' => auth()->id(),
+                'content' => $request->input('initial_note'),
+            ]);
+        }
+
+        // Drive files uploaded during create
+        if ($request->hasFile('drive_files')) {
+            foreach ($request->file('drive_files') as $file) {
+                $path = $file->store("properties/{$property->id}/files", 'public');
+                $property->files()->create([
+                    'user_id'   => auth()->id(),
+                    'name'      => $file->getClientOriginalName(),
+                    'path'      => $path,
+                    'size'      => $file->getSize(),
+                    'mime_type' => $file->getMimeType(),
+                ]);
+            }
+        }
+
+        // Link existing contacts selected during create
+        foreach ((array) $request->input('pending_contact_ids', []) as $cid) {
+            $cid = (int) $cid;
+            if ($cid > 0) {
+                $property->contacts()->syncWithoutDetaching([$cid => ['role' => null]]);
+            }
+        }
+
+        // Create + link new contacts added during create
+        foreach ((array) $request->input('pending_new_contacts', []) as $nc) {
+            if (empty($nc['first_name']) || empty($nc['last_name']) || empty($nc['phone'])) continue;
+            $contact = \App\Models\Contact::create([
+                'first_name'         => substr($nc['first_name'], 0, 100),
+                'last_name'          => substr($nc['last_name'],  0, 100),
+                'phone'              => substr($nc['phone'],       0, 30),
+                'email'              => !empty($nc['email']) ? substr($nc['email'], 0, 150) : null,
+                'contact_type_id'    => !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null,
+                'created_by_user_id' => auth()->id(),
+            ]);
+            $property->contacts()->attach($contact->id, ['role' => null]);
+        }
+
+        return redirect()->route('corex.properties.show', $property)
+            ->with('success', 'Property created.')
+            ->with('tab', 'info');
     }
 
     public function edit(Property $property)
     {
-        $this->authorizeProperty($property);
-        $branches = Branch::orderBy('name')->get();
-        $agents   = $this->agentList();
-        return view('corex.properties.create-edit', compact('property', 'branches', 'agents'));
+        // Redirect edit to the show page's info tab
+        return redirect()->route('corex.properties.show', $property);
     }
 
     public function update(Request $request, Property $property)
@@ -176,17 +289,27 @@ class PropertyController extends Controller
             'excerpt'          => 'nullable|string|max:500',
             'description'      => 'nullable|string',
             'price'            => 'required|integer|min:0',
+            'rates_taxes'      => 'nullable|integer|min:0',
+            'levy'             => 'nullable|integer|min:0',
+            'special_levy'     => 'nullable|integer|min:0',
             'city'             => 'nullable|string|max:100',
             'suburb'           => 'required|string|max:100',
+            'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
             'size_m2'          => 'nullable|integer|min:0',
             'erf_size_m2'      => 'nullable|integer|min:0',
-            'property_type'    => 'required|string|max:50',
+            'property_type'    => 'nullable|string|max:50',
+            'category'         => 'nullable|string|max:100',
             'mandate_type'     => 'nullable|string|max:50',
-            'status'           => 'required|in:draft,active,sold,withdrawn',
+            'status'           => 'nullable|string|max:100',
+            'features'         => 'nullable|array',
+            'features.*'       => 'string|max:100',
+            'spaces_json'      => 'nullable|string',
+            'listed_date'      => 'nullable|date',
+            'expiry_date'      => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
             'agent_id'         => 'nullable|exists:users,id',
             'publish'          => 'nullable|boolean',
@@ -199,6 +322,8 @@ class PropertyController extends Controller
             'gallery_images'   => 'nullable|array',
             'gallery_images.*' => 'image|max:5120',
         ]);
+
+        $data = $this->processSpacesJson($data);
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
@@ -219,8 +344,9 @@ class PropertyController extends Controller
 
         $property->update($data);
 
-        return redirect()->route('corex.properties.index')
-            ->with('success', 'Property listing updated.');
+        return redirect()->route('corex.properties.show', $property)
+            ->with('success', 'Property updated.')
+            ->with('tab', 'info');
     }
 
     public function destroy(Property $property)
@@ -229,6 +355,57 @@ class PropertyController extends Controller
         $property->delete();
         return redirect()->route('corex.properties.index')
             ->with('success', 'Property listing removed.');
+    }
+
+    public function deleteImage(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $request->validate([
+            'group' => 'required|in:gallery_images_json,dawn_images_json,noon_images_json,dusk_images_json',
+            'index' => 'required|integer|min:0',
+        ]);
+
+        $group  = $request->group;
+        $index  = (int) $request->index;
+        $images = $property->$group ?? [];
+
+        if (isset($images[$index])) {
+            // Delete the file from storage
+            $url  = $images[$index];
+            $path = str_replace('/storage/', '', parse_url($url, PHP_URL_PATH));
+            Storage::disk('public')->delete($path);
+
+            array_splice($images, $index, 1);
+            $property->update([$group => $images]);
+        }
+
+        return back()->with('success', 'Image deleted.')->with('tab', 'gallery');
+    }
+
+    public function reorderImages(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $request->validate([
+            'group'  => 'required|in:gallery_images_json,dawn_images_json,noon_images_json,dusk_images_json',
+            'order'  => 'required|array',
+            'order.*'=> 'integer|min:0',
+        ]);
+
+        $group     = $request->group;
+        $oldImages = $property->$group ?? [];
+        $newImages = [];
+
+        foreach ($request->order as $oldIndex) {
+            if (isset($oldImages[(int) $oldIndex])) {
+                $newImages[] = $oldImages[(int) $oldIndex];
+            }
+        }
+
+        $property->update([$group => $newImages]);
+
+        return response()->json(['ok' => true]);
     }
 
     public function ad(Property $property)
@@ -251,6 +428,44 @@ class PropertyController extends Controller
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    private function processSpacesJson(array $data): array
+    {
+        $rawJson = $data['spaces_json'] ?? null;
+        unset($data['features'], $data['spaces_json']);
+
+        if (!empty($rawJson)) {
+            $decoded = json_decode($rawJson, true);
+            if ($decoded) {
+                $data['spaces_json'] = $decoded;
+
+                // Build flat features_json for backward compat (overview tab)
+                $flat = [];
+                foreach ($decoded['spaces'] ?? [] as $sp) {
+                    foreach ($sp['featuresAll'] ?? [] as $f) { $flat[] = $f; }
+                    foreach ($sp['units'] ?? [] as $u) {
+                        foreach ($u['features'] ?? [] as $f) { $flat[] = $f; }
+                    }
+                }
+                foreach ($decoded['features'] ?? [] as $catArr) {
+                    if (is_array($catArr)) {
+                        foreach ($catArr as $f) { $flat[] = $f; }
+                    }
+                }
+                $data['features_json'] = array_values(array_unique(array_filter($flat)));
+
+                // Sync beds/baths from spaces so DB columns stay correct
+                foreach ($decoded['spaces'] ?? [] as $sp) {
+                    if ($sp['type'] === 'Bedroom')  { $data['beds']  = (int) ($sp['count'] ?? 0); }
+                    if ($sp['type'] === 'Bathroom') { $data['baths'] = (int) ($sp['count'] ?? 0); }
+                }
+            }
+        } else {
+            $data['spaces_json'] = null;
+        }
+
+        return $data;
+    }
 
     private function storeImages(Request $request, string $field, int $propertyId): array
     {

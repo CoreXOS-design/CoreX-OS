@@ -1,6 +1,6 @@
 @extends('layouts.corex')
 
-@section('content')
+@section('corex-content')
 @php
     $uCol      = $users instanceof \Illuminate\Pagination\AbstractPaginator ? $users->getCollection() : $users;
     $totalUsers = is_countable($uCol) ? count($uCol) : 0;
@@ -22,12 +22,12 @@
     </div>
 
     @if(session('status'))
-        <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 px-4 py-3 text-sm font-medium">
+        <div class="rounded-xl px-4 py-3 text-sm font-medium" style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534;">
             {{ session('status') }}
         </div>
     @endif
     @if($errors->any())
-        <div class="rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 px-4 py-3 text-sm">
+        <div class="rounded-xl px-4 py-3 text-sm" style="background:#fef2f2; border:1px solid #fecaca; color:#991b1b;">
             {{ $errors->first() }}
         </div>
     @endif
@@ -35,27 +35,27 @@
     {{-- Filters --}}
     <div class="flex flex-wrap gap-2">
         <input type="text" x-model="search" placeholder="Search name or email…"
-               class="flex-1 min-w-[200px] rounded-lg px-3 py-2 text-sm text-white placeholder-white/40 outline-none"
-               style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);">
+               class="flex-1 min-w-[200px] rounded-lg px-3 py-2 text-sm outline-none"
+               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
         <select x-model="roleFilter"
-                class="rounded-lg px-3 py-2 text-sm text-white outline-none"
-                style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);">
+                class="rounded-lg px-3 py-2 text-sm outline-none"
+                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
             <option value="">All roles</option>
             @foreach($roles as $r)
             <option value="{{ $r }}">{{ str_replace('_',' ',$r) }}</option>
             @endforeach
         </select>
         <select x-model="branchFilter"
-                class="rounded-lg px-3 py-2 text-sm text-white outline-none"
-                style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);">
+                class="rounded-lg px-3 py-2 text-sm outline-none"
+                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
             <option value="">All branches</option>
             @foreach($branchList as $b)
             <option value="{{ $b->id }}">{{ $b->name }}</option>
             @endforeach
         </select>
         <select x-model="activeFilter"
-                class="rounded-lg px-3 py-2 text-sm text-white outline-none"
-                style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);">
+                class="rounded-lg px-3 py-2 text-sm outline-none"
+                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
             <option value="">All</option>
             <option value="1">Active</option>
             <option value="0">Inactive</option>
@@ -74,7 +74,7 @@
              "
              x-transition
              class="rounded-xl overflow-hidden"
-             style="background:#0d1f35; border:1px solid rgba(255,255,255,0.07);">
+             style="background:var(--surface); border:1px solid var(--border);">
 
             {{-- ── Collapsed row ── --}}
             <div class="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
@@ -89,37 +89,37 @@
                 {{-- Name + email --}}
                 <div class="flex-1 min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-sm font-semibold text-white truncate">{{ $u->name }}</span>
+                        <span class="text-sm font-semibold truncate" style="color:var(--text-primary);">{{ $u->name }}</span>
                         {{-- Role --}}
                         <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                              style="background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.6); border:1px solid rgba(255,255,255,0.1);">
+                              style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
                             {{ str_replace('_',' ',$u->role) }}
                         </span>
                         {{-- Active badge --}}
                         @if($u->is_active)
                         <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                              style="background:rgba(34,197,94,0.15); color:#86efac; border:1px solid rgba(34,197,94,0.25);">Active</span>
+                              style="background:#dcfce7; color:#166534; border:1px solid #bbf7d0;">Active</span>
                         @else
                         <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                              style="background:rgba(239,68,68,0.15); color:#fca5a5; border:1px solid rgba(239,68,68,0.25);">Inactive</span>
+                              style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca;">Inactive</span>
                         @endif
                     </div>
                     <div class="flex flex-wrap items-center gap-3 mt-0.5">
-                        <span class="text-xs" style="color:rgba(255,255,255,0.4);">{{ $u->email }}</span>
+                        <span class="text-xs" style="color:var(--text-muted);">{{ $u->email }}</span>
                         @if($branchList->firstWhere('id',$u->branch_id))
-                        <span class="text-xs" style="color:rgba(255,255,255,0.35);">
+                        <span class="text-xs" style="color:var(--text-muted);">
                             · {{ $branchList->firstWhere('id',$u->branch_id)->name }}
                         </span>
                         @endif
                         @if($u->designation)
-                        <span class="text-xs" style="color:rgba(255,255,255,0.35);">· {{ $u->designation }}</span>
+                        <span class="text-xs" style="color:var(--text-muted);">· {{ $u->designation }}</span>
                         @endif
                     </div>
                 </div>
 
                 {{-- Chevron --}}
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
-                     stroke="rgba(255,255,255,0.3)"
+                     style="stroke:var(--text-muted);"
                      class="w-4 h-4 flex-shrink-0 transition-transform duration-200"
                      :class="open && 'rotate-90'">
                     <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
@@ -128,7 +128,7 @@
 
             {{-- ── Expanded edit panel ── --}}
             <div x-show="open" x-cloak x-transition
-                 style="border-top:1px solid rgba(255,255,255,0.07); background:rgba(0,0,0,0.15);">
+                 style="border-top:1px solid var(--border); background:var(--surface-2);">
                 <form method="POST" action="{{ route('admin.users.role.update', $u) }}"
                       enctype="multipart/form-data"
                       class="p-4 space-y-5">
@@ -137,23 +137,23 @@
                     {{-- Section: Role & Access --}}
                     <div>
                         <div class="text-xs font-bold uppercase tracking-widest mb-3"
-                             style="color:rgba(255,255,255,0.3); border-left:2px solid #00b4d8; padding-left:8px;">
+                             style="color:var(--text-muted); border-left:2px solid #00b4d8; padding-left:8px;">
                             Role &amp; Access
                         </div>
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                             <div>
-                                <label class="block text-xs mb-1" style="color:rgba(255,255,255,0.4);">Role</label>
-                                <select name="role" class="w-full rounded-lg px-3 py-2 text-sm text-white outline-none"
-                                        style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Role</label>
+                                <select name="role" class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                     <option value="agent"          {{ $u->role==='agent'?'selected':'' }}>Agent</option>
                                     <option value="branch_manager" {{ $u->role==='branch_manager'?'selected':'' }}>Branch Manager</option>
                                     <option value="admin"          {{ $u->role==='admin'?'selected':'' }}>Admin</option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs mb-1" style="color:rgba(255,255,255,0.4);">Branch</label>
-                                <select name="branch_id" class="w-full rounded-lg px-3 py-2 text-sm text-white outline-none"
-                                        style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Branch</label>
+                                <select name="branch_id" class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                     <option value="">(no branch)</option>
                                     @foreach($branchList as $b)
                                     <option value="{{ $b->id }}" {{ (string)$u->branch_id===(string)$b->id?'selected':'' }}>{{ $b->name }}</option>
@@ -161,9 +161,9 @@
                                 </select>
                             </div>
                             <div class="sm:col-span-2">
-                                <label class="block text-xs mb-1" style="color:rgba(255,255,255,0.4);">Designation</label>
-                                <select name="designation" class="w-full rounded-lg px-3 py-2 text-sm text-white outline-none"
-                                        style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Designation</label>
+                                <select name="designation" class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                     @php $des = old('designation', $u->designation ?? ''); @endphp
                                     <option value="" {{ $des===''?'selected':'' }}>(none)</option>
                                     @foreach(($designations ?? []) as $d)
@@ -173,13 +173,13 @@
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-4 mt-3">
-                            <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:rgba(255,255,255,0.65);">
+                            <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
                                 <input type="hidden" name="can_capture_rentals" value="0">
                                 <input type="checkbox" name="can_capture_rentals" value="1" class="rounded"
                                        {{ old('can_capture_rentals',(int)($u->can_capture_rentals??0)) ? 'checked' : '' }}>
                                 Can Capture Rentals
                             </label>
-                            <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:rgba(255,255,255,0.65);">
+                            <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
                                 <input type="hidden" name="counts_for_branch_split" value="0">
                                 <input type="checkbox" name="counts_for_branch_split" value="1" class="rounded"
                                        {{ old('counts_for_branch_split',(int)($u->counts_for_branch_split??1)) ? 'checked' : '' }}>
@@ -191,35 +191,35 @@
                     {{-- Section: Finance --}}
                     <div>
                         <div class="text-xs font-bold uppercase tracking-widest mb-3"
-                             style="color:rgba(255,255,255,0.3); border-left:2px solid #00b4d8; padding-left:8px;">
+                             style="color:var(--text-muted); border-left:2px solid #00b4d8; padding-left:8px;">
                             Finance
                         </div>
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
                             <div>
-                                <label class="block text-xs mb-1" style="color:rgba(255,255,255,0.4);">Agent Cut %</label>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Agent Cut %</label>
                                 <input type="number" step="0.01" min="0" max="100" name="agent_cut_percent"
                                        value="{{ old('agent_cut_percent', $u->agent_cut_percent ?? 50) }}"
-                                       class="w-full rounded-lg px-3 py-2 text-sm text-white outline-none"
-                                       style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                       class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
-                                <label class="block text-xs mb-1" style="color:rgba(255,255,255,0.4);">PAYE Method</label>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">PAYE Method</label>
                                 @php $pm = old('paye_method', $u->paye_method ?? 'percentage'); @endphp
-                                <select name="paye_method" class="w-full rounded-lg px-3 py-2 text-sm text-white outline-none"
-                                        style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                <select name="paye_method" class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                     <option value="percentage" {{ $pm==='percentage'?'selected':'' }}>Percentage</option>
                                     <option value="fixed"      {{ $pm==='fixed'?'selected':'' }}>Fixed</option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs mb-1" style="color:rgba(255,255,255,0.4);">PAYE Value</label>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">PAYE Value</label>
                                 <input type="number" step="0.01" min="0" name="paye_value"
                                        value="{{ old('paye_value', $u->paye_value ?? 0) }}"
-                                       class="w-full rounded-lg px-3 py-2 text-sm text-white outline-none"
-                                       style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);">
+                                       class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div class="flex items-center gap-2 pb-1">
-                                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:rgba(255,255,255,0.65);">
+                                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
                                     <input type="hidden" name="sliding_enabled" value="0">
                                     <input type="checkbox" name="sliding_enabled" value="1" class="rounded"
                                            {{ old('sliding_enabled',(int)($u->sliding_enabled??0)) ? 'checked' : '' }}>
@@ -232,36 +232,36 @@
                     {{-- Section: Files --}}
                     <div>
                         <div class="text-xs font-bold uppercase tracking-widest mb-3"
-                             style="color:rgba(255,255,255,0.3); border-left:2px solid #00b4d8; padding-left:8px;">
+                             style="color:var(--text-muted); border-left:2px solid #00b4d8; padding-left:8px;">
                             Files
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {{-- Agent Photo --}}
                             <div>
-                                <label class="block text-xs mb-1" style="color:rgba(255,255,255,0.4);">
-                                    Agent Photo <span style="color:rgba(255,255,255,0.25);">(jpg/png/webp, max 2MB)</span>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">
+                                    Agent Photo <span style="color:var(--text-muted);">(jpg/png/webp, max 2MB)</span>
                                 </label>
                                 @if($u->agent_photo_path)
                                 <div class="flex items-center gap-3 mb-2">
                                     <img src="{{ asset('storage/'.$u->agent_photo_path) }}" alt="Photo"
                                          class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
-                                         style="border:1px solid rgba(255,255,255,0.1);">
+                                         style="border:1px solid var(--border);">
                                     <form method="POST" action="{{ route('admin.users.remove-file', $u) }}"
                                           class="inline" onsubmit="return confirm('Remove agent photo?');">
                                         @csrf
                                         <input type="hidden" name="field" value="agent_photo">
-                                        <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+                                        <button type="submit" class="text-xs text-red-600 hover:text-red-700">Remove</button>
                                     </form>
                                 </div>
                                 @endif
                                 <input type="file" name="agent_photo" accept="image/jpeg,image/png,image/webp"
                                        class="block w-full text-sm rounded-lg px-3 py-2"
-                                       style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.6);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                             </div>
                             {{-- FFC Certificate --}}
                             <div>
-                                <label class="block text-xs mb-1" style="color:rgba(255,255,255,0.4);">
-                                    FFC Certificate <span style="color:rgba(255,255,255,0.25);">(pdf/jpg/png, max 5MB)</span>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">
+                                    FFC Certificate <span style="color:var(--text-muted);">(pdf/jpg/png, max 5MB)</span>
                                 </label>
                                 @if($u->ffc_certificate_path)
                                 <div class="flex items-center gap-3 mb-2">
@@ -273,26 +273,26 @@
                                           class="inline flex-shrink-0" onsubmit="return confirm('Remove FFC certificate?');">
                                         @csrf
                                         <input type="hidden" name="field" value="ffc_certificate">
-                                        <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+                                        <button type="submit" class="text-xs text-red-600 hover:text-red-700">Remove</button>
                                     </form>
                                 </div>
                                 @endif
                                 <input type="file" name="ffc_certificate" accept=".pdf,.jpg,.jpeg,.png"
                                        class="block w-full text-sm rounded-lg px-3 py-2"
-                                       style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.6);">
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                             </div>
                         </div>
                     </div>
 
                     {{-- Actions --}}
                     <div class="flex items-center justify-between gap-3 pt-1"
-                         style="border-top:1px solid rgba(255,255,255,0.07); padding-top:16px;">
+                         style="border-top:1px solid var(--border); padding-top:16px;">
                         <div class="flex items-center gap-3">
                             <form method="POST" action="{{ route('admin.users.toggle', $u) }}">
                                 @csrf
                                 <button type="submit"
                                         class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-                                        style="{{ $u->is_active ? 'background:rgba(239,68,68,0.12); color:#fca5a5; border:1px solid rgba(239,68,68,0.2);' : 'background:rgba(34,197,94,0.12); color:#86efac; border:1px solid rgba(34,197,94,0.2);' }}">
+                                        style="{{ $u->is_active ? 'background:#fee2e2; color:#991b1b; border:1px solid #fecaca;' : 'background:#dcfce7; color:#166534; border:1px solid #bbf7d0;' }}">
                                     {{ $u->is_active ? 'Deactivate' : 'Activate' }}
                                 </button>
                             </form>
@@ -301,7 +301,7 @@
                                 @csrf
                                 <button type="submit"
                                         class="px-3 py-1.5 rounded-lg text-sm font-medium"
-                                        style="background:rgba(239,68,68,0.08); color:#fca5a5; border:1px solid rgba(239,68,68,0.15);">
+                                        style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca;">
                                     Delete
                                 </button>
                             </form>

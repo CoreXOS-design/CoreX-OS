@@ -1,30 +1,57 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div x-data="roleManager()" x-cloak>
+<style>
+/* ── Role Manager: dark-mode colour fixes ── */
+html.dark #rm-root .text-slate-800 { color: #eef0f5 !important; }
+html.dark #rm-root .text-slate-700 { color: #eef0f5 !important; }
+html.dark #rm-root .text-slate-600 { color: #8890a4 !important; }
+html.dark #rm-root .text-slate-500 { color: #8890a4 !important; }
+html.dark #rm-root .text-slate-400 { color: #545b6e !important; }
+html.dark #rm-root [style*="color:#0b2a4a"] { color: #eef0f5 !important; }
+html.dark #rm-root .bg-white { background: #13161d !important; }
+html.dark #rm-root [style*="background:#f8fafc"] { background: #1a1e28 !important; }
+html.dark #rm-root [style*="background:#f1f5f9"] { background: #1a1e28 !important; }
+html.dark #rm-root [style*="background:#fef2f2"] { background: rgba(220,38,38,0.12) !important; }
+html.dark #rm-root .border-slate-200 { border-color: rgba(255,255,255,0.06) !important; }
+html.dark #rm-root .border-slate-100 { border-color: rgba(255,255,255,0.04) !important; }
+html.dark #rm-root .divide-slate-100 > * + * { border-color: rgba(255,255,255,0.04) !important; }
+html.dark #rm-root .hover\:bg-slate-50:hover { background: #1a1e28 !important; }
+html.dark #rm-root .hover\:bg-slate-100:hover { background: #1a1e28 !important; }
+html.dark #rm-root input[type="text"],
+html.dark #rm-root input[type="number"],
+html.dark #rm-root textarea,
+html.dark #rm-root select { background: #1a1e28 !important; color: #eef0f5 !important; border-color: rgba(255,255,255,0.12) !important; }
+html.dark #rm-root option { background: #1a1e28; color: #eef0f5; }
+html.dark #rm-root input::placeholder,
+html.dark #rm-root textarea::placeholder { color: #545b6e !important; }
+html.dark #rm-root input:disabled { background: #0d0f14 !important; color: #545b6e !important; }
+html.dark #rm-root .text-slate-600.border-slate-200,
+html.dark #rm-root .border-slate-200.text-slate-600 { border-color: rgba(255,255,255,0.08) !important; color: #8890a4 !important; }
+html.dark #rm-root .bg-slate-100 { background: #1a1e28 !important; }
+</style>
+<div id="rm-root" x-data="roleManager()">
 
-    {{-- Page header --}}
-    <x-page-header title="Role & Permissions Manager">
-        <x-slot:actions>
-            <button x-show="activeTab === 'permissions'"
-                    @click="saveMatrix()"
-                    class="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors"
-                    style="background:#0b2a4a;"
-                    onmouseover="this.style.background='#00b4d8'" onmouseout="this.style.background='#0b2a4a'">
-                Save Changes
+    <div x-cloak class="px-4 lg:px-6 space-y-4 pb-6">
+
+        {{-- Tabs --}}
+        <div class="flex gap-1 rounded-xl p-1 w-fit" style="background:#f1f5f9;">
+            <button type="button" @click="activeTab = 'permissions'"
+                    :style="activeTab === 'permissions' ? ('background:' + (dark ? '#4f7cff' : '#0b2a4a') + ';color:#fff;') : ('background:transparent;color:' + (dark ? '#eef0f5' : '#64748b'))"
+                    class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
+                Permissions Matrix
             </button>
-            <button x-show="activeTab === 'roles'" @click="openAddRole()"
-                    class="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors"
-                    style="background:#0b2a4a;"
-                    onmouseover="this.style.background='#00b4d8'" onmouseout="this.style.background='#0b2a4a'">
-                + Add New Role
+            <button type="button" @click="activeTab = 'users'"
+                    :style="activeTab === 'users' ? ('background:' + (dark ? '#4f7cff' : '#0b2a4a') + ';color:#fff;') : ('background:transparent;color:' + (dark ? '#eef0f5' : '#64748b'))"
+                    class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
+                User Roles
             </button>
-        </x-slot:actions>
-    </x-page-header>
-
-    <div class="px-4 lg:px-6 space-y-4 pb-2">
-
-        <p class="text-sm text-slate-500 -mt-2">Manage roles, permissions, and user assignments. The System Owner role always has full access.</p>
+            <button type="button" @click="activeTab = 'roles'"
+                    :style="activeTab === 'roles' ? ('background:' + (dark ? '#4f7cff' : '#0b2a4a') + ';color:#fff;') : ('background:transparent;color:' + (dark ? '#eef0f5' : '#64748b'))"
+                    class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
+                Roles
+            </button>
+        </div>
 
         @if(session('success'))
             <div class="rounded-xl border px-4 py-3 text-sm font-medium" style="background:#f0fdf4;border-color:#bbf7d0;color:#166534;">
@@ -39,25 +66,6 @@
                 @endforeach
             </div>
         @endif
-
-        {{-- Tabs --}}
-        <div class="flex gap-1 rounded-xl p-1 w-fit" style="background:#f1f5f9;">
-            <button type="button" @click="activeTab = 'permissions'"
-                    :style="activeTab === 'permissions' ? 'background:#0b2a4a;color:#fff;' : 'background:transparent;color:#64748b;'"
-                    class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
-                Permissions Matrix
-            </button>
-            <button type="button" @click="activeTab = 'users'"
-                    :style="activeTab === 'users' ? 'background:#0b2a4a;color:#fff;' : 'background:transparent;color:#64748b;'"
-                    class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
-                User Roles
-            </button>
-            <button type="button" @click="activeTab = 'roles'"
-                    :style="activeTab === 'roles' ? 'background:#0b2a4a;color:#fff;' : 'background:transparent;color:#64748b;'"
-                    class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
-                Roles
-            </button>
-        </div>
 
         {{-- ─────────────────────────────────────────────
              TAB 1: Permissions Matrix (Action-Level)
@@ -75,7 +83,7 @@
                                 @click="selectedRole = '{{ $role->name }}'"
                                 :style="selectedRole === '{{ $role->name }}'
                                     ? 'background:{{ $role->color }};color:#fff;'
-                                    : 'background:#f1f5f9;color:#64748b;'"
+                                    : ('background:' + (dark ? '#1a1e28' : '#f1f5f9') + ';color:' + (dark ? '#eef0f5' : '#64748b'))"
                                 class="px-3 py-1.5 rounded-full text-xs font-semibold transition-all">
                             {{ $role->label }}
                             @if($role->is_owner)
@@ -84,8 +92,6 @@
                         </button>
                         @endforeach
                     </div>
-
-                    {{-- Copy from another role --}}
                     <div class="flex items-center gap-2 ml-auto">
                         <label class="text-xs text-slate-500">Copy from:</label>
                         <select x-model="copyFromRole"
@@ -111,233 +117,224 @@
                     </div>
                 </div>
 
-                <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col">
-                    <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between flex-shrink-0" style="background:#f8fafc;">
-                        <h3 class="font-semibold text-sm" style="color:#0b2a4a;">
-                            Permissions for: <span x-text="selectedRoleLabel()" class="text-[#00b4d8]"></span>
-                        </h3>
-                        <span class="text-xs text-slate-400">{{ $permissions->count() }} permissions</span>
+                {{-- Two-column layout: Feature tabs (left) + Permission detail (right) --}}
+                <div class="flex gap-4 items-start">
+
+                    {{-- LEFT: Vertical feature tabs --}}
+                    <div class="w-52 flex-shrink-0 rounded-xl border border-slate-200 bg-white overflow-y-auto sticky top-4" style="max-height:calc(100vh - 8rem);">
+                        @foreach($matrixSections as $sectionLabel => $modules)
+                            <div class="px-3 pt-3 pb-1">
+                                <p class="text-[10px] font-bold uppercase tracking-wider" style="color:#0b2a4a;">{{ $sectionLabel }}</p>
+                            </div>
+                            @foreach($modules as $moduleKey => $moduleData)
+                            <div class="px-2 pb-1">
+                                <button type="button"
+                                        @click="selectedFeature = '{{ $moduleKey }}'"
+                                        :style="selectedFeature === '{{ $moduleKey }}' ? ('background:' + (dark ? '#4f7cff' : '#0b2a4a') + ';color:#fff;') : ('color:' + (dark ? '#eef0f5' : '#475569'))"
+                                        class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-all hover:bg-slate-100"
+                                        :class="selectedFeature === '{{ $moduleKey }}' ? '' : 'hover:bg-slate-100'">
+                                    {{ $moduleData['label'] }}
+                                </button>
+                            </div>
+                            @endforeach
+                            @if(!$loop->last)
+                            <div class="mx-3 my-1 border-t border-slate-100"></div>
+                            @endif
+                        @endforeach
+                        <div class="h-2"></div>
                     </div>
 
-                    {{-- Scrollable matrix --}}
-                    <div class="overflow-auto" style="max-height: calc(100vh - 22rem);">
-                        <table class="min-w-full text-sm">
-                            <thead>
-                                <tr class="border-b" style="background:#f8fafc;">
-                                    <th class="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider sticky top-0 z-20 min-w-[280px]"
-                                        style="background:#f8fafc;color:#0b2a4a;">
-                                        Module / Permission
-                                    </th>
-                                    <th class="text-center py-3 px-2 font-semibold text-xs uppercase tracking-wider sticky top-0 z-20"
-                                        style="background:#f8fafc;color:#0b2a4a;min-width:200px;">
-                                        <span>Data Scope</span>
-                                        <div class="text-[10px] font-normal normal-case tracking-normal text-slate-400 mt-0.5">None / Own / Branch / All</div>
-                                    </th>
-                                    <th class="text-center py-3 px-2 w-16 font-semibold text-xs uppercase tracking-wider sticky top-0 z-20"
-                                        style="background:#f8fafc;color:#0b2a4a;">Create</th>
-                                    <th class="text-center py-3 px-2 w-16 font-semibold text-xs uppercase tracking-wider sticky top-0 z-20"
-                                        style="background:#f8fafc;color:#0b2a4a;">Edit</th>
-                                    <th class="text-center py-3 px-2 w-16 font-semibold text-xs uppercase tracking-wider sticky top-0 z-20"
-                                        style="background:#f8fafc;color:#0b2a4a;">Archive</th>
-                                    <th class="text-center py-3 px-2 w-16 font-semibold text-xs uppercase tracking-wider sticky top-0 z-20"
-                                        style="background:#f8fafc;color:#0b2a4a;">Other</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach($matrixSections as $sectionLabel => $modules)
-                                    {{-- Section header --}}
-                                    <tr>
-                                        <td colspan="6"
-                                            class="py-2 px-4 cursor-pointer select-none"
-                                            style="background:#0b2a4a;"
-                                            @click="toggleSection('{{ md5($sectionLabel) }}')">
-                                            <div class="flex items-center gap-2">
-                                                <svg :class="openSections['{{ md5($sectionLabel) }}'] ? 'rotate-90' : ''" class="w-3 h-3 text-white transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
-                                                <span class="text-xs font-bold uppercase tracking-wider text-white">
-                                                    {{ $sectionLabel }}
-                                                </span>
-                                            </div>
-                                        </td>
-                                    </tr>
+                    {{-- RIGHT: Permission detail for selected feature --}}
+                    <div class="flex-1 min-w-0 overflow-y-auto sticky top-4" style="max-height:calc(100vh - 8rem);">
+                        @if($permissions->isEmpty())
+                            <div class="rounded-xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-400">
+                                No permissions defined. Run: <code class="font-mono bg-slate-100 px-1 rounded">php artisan db:seed --class=NexusPermissionSeeder</code>
+                            </div>
+                        @endif
 
-                                    @foreach($modules as $moduleKey => $moduleData)
-                                        {{-- Module sub-header --}}
-                                        <tr x-show="openSections['{{ md5($sectionLabel) }}']"
-                                            class="border-b border-slate-100" style="background:#f1f5f9;">
-                                            <td class="py-2 px-4 min-w-[280px]">
-                                                <span class="text-xs font-bold uppercase tracking-wider" style="color:#0b2a4a;">
-                                                    {{ $moduleData['label'] }}
-                                                </span>
-                                            </td>
-                                            <td class="w-16"></td>
-                                            <td class="w-16"></td>
-                                            <td class="w-16"></td>
-                                            <td class="w-16"></td>
-                                            <td class="w-16"></td>
-                                        </tr>
+                        @foreach($matrixSections as $sectionLabel => $modules)
+                            @foreach($modules as $moduleKey => $moduleData)
+                            @php
+                                $fActionMap = [];
+                                foreach ($moduleData['actions'] as $fap) {
+                                    $fparts = explode('.', $fap->key);
+                                    $fsuffix = end($fparts);
+                                    $fActionMap[$fsuffix] = $fap;
+                                }
+                                $fStandardActions = ['create','edit','archive'];
+                                $fOtherActions = array_diff(array_keys($fActionMap), array_merge(['view'], $fStandardActions));
+                                $fIsShared = in_array($moduleKey, $sharedModules);
+                                $fViewKey = $fActionMap['view']->key ?? null;
+                            @endphp
+                            <div x-show="selectedFeature === '{{ $moduleKey }}'">
+                                <div class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+                                    <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between" style="background:#f8fafc;">
+                                        <div>
+                                            <h3 class="font-semibold text-sm" style="color:#0b2a4a;">{{ $moduleData['label'] }}</h3>
+                                            <p class="text-xs text-slate-400 mt-0.5">Editing permissions for: <span x-text="selectedRoleLabel()" style="color:#00b4d8;" class="font-medium"></span></p>
+                                        </div>
+                                        <button type="button" @click="saveMatrix()"
+                                                class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors"
+                                                style="background:#0b2a4a;"
+                                                onmouseover="this.style.background='#00b4d8'" onmouseout="this.style.background='#0b2a4a'">
+                                            Save Changes
+                                        </button>
+                                    </div>
+                                    <div class="divide-y divide-slate-100">
 
-                                        {{-- Access permissions (menu visibility) --}}
+                                        {{-- Access permissions (menu / section visibility) --}}
                                         @foreach($moduleData['access'] as $perm)
-                                        <tr x-show="openSections['{{ md5($sectionLabel) }}']"
-                                            class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                                            <td class="py-2 px-4 pl-8 text-slate-600 min-w-[280px]">
-                                                <span class="inline-flex items-center gap-1.5">
-                                                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-                                                    {{ $perm->label }}
-                                                </span>
-                                            </td>
-                                            <td colspan="5" class="py-2 px-2 text-center">
+                                        <div class="px-5 py-4 flex items-center justify-between gap-4">
+                                            <div>
+                                                <p class="text-sm font-medium text-slate-700">{{ $perm->label }}</p>
+                                                <p class="text-xs text-slate-400 mt-0.5">Menu / section visibility</p>
+                                            </div>
+                                            <div class="flex-shrink-0">
                                                 @foreach($roles as $role)
                                                 <template x-if="selectedRole === '{{ $role->name }}'">
-                                                    <label class="inline-flex items-center justify-center {{ $role->is_owner ? '' : 'cursor-pointer' }}">
+                                                    <label class="inline-flex items-center gap-2 {{ $role->is_owner ? '' : 'cursor-pointer' }}">
                                                         @if($role->is_owner)
                                                             <input type="checkbox" checked disabled
-                                                                   class="w-4 h-4 rounded border-slate-300 opacity-50 cursor-not-allowed"
+                                                                   class="w-5 h-5 rounded border-slate-300 opacity-50 cursor-not-allowed"
                                                                    style="accent-color:#0b2a4a;">
                                                         @else
                                                             <input type="checkbox"
                                                                    x-model="matrix['{{ $perm->key }}']['{{ $role->name }}']"
                                                                    @change="dirty = true"
-                                                                   class="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                                                                   class="w-5 h-5 rounded border-slate-300 cursor-pointer"
                                                                    style="accent-color:#00b4d8;">
                                                         @endif
+                                                        <span class="text-xs text-slate-500" x-text="matrix['{{ $perm->key }}']?.['{{ $role->name }}'] ? 'Enabled' : 'Disabled'"></span>
                                                     </label>
                                                 </template>
                                                 @endforeach
-                                            </td>
-                                        </tr>
+                                            </div>
+                                        </div>
                                         @endforeach
 
-                                        {{-- Action permissions (Scope + Create/Edit/Archive grid) --}}
+                                        {{-- Action permissions --}}
                                         @if(count($moduleData['actions']) > 0)
-                                        @php
-                                            $actionMap = [];
-                                            foreach ($moduleData['actions'] as $ap) {
-                                                $parts = explode('.', $ap->key);
-                                                $suffix = end($parts);
-                                                $actionMap[$suffix] = $ap;
-                                            }
-                                            $standardActions = ['create','edit','archive'];
-                                            $otherActions = array_diff(array_keys($actionMap), array_merge(['view'], $standardActions));
-                                            $isShared = in_array($moduleKey, $sharedModules);
-                                            $viewKey = $actionMap['view']->key ?? null;
-                                        @endphp
-                                        <tr x-show="openSections['{{ md5($sectionLabel) }}']"
-                                            class="border-b border-slate-100 hover:bg-blue-50/30 transition-colors">
-                                            <td class="py-2.5 px-4 pl-8 font-medium text-slate-800 min-w-[280px]">
-                                                <span class="inline-flex items-center gap-1.5">
-                                                    <svg class="w-3.5 h-3.5 text-[#00b4d8]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
-                                                    Actions
-                                                </span>
-                                            </td>
-                                            {{-- Scope column (replaces View checkbox) --}}
-                                            <td class="py-2.5 px-2 text-center" style="min-width:200px;">
-                                                @if($viewKey)
+
+                                            {{-- Data Scope --}}
+                                            @if($fViewKey)
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4">
+                                                <div>
+                                                    <p class="text-sm font-medium text-slate-700">Data Scope</p>
+                                                    <p class="text-xs text-slate-400 mt-0.5">What records can this role see?</p>
+                                                </div>
+                                                <div class="flex-shrink-0">
                                                     @foreach($roles as $role)
                                                     <template x-if="selectedRole === '{{ $role->name }}'">
-                                                        <div class="inline-flex items-center gap-0.5">
+                                                        <div>
                                                             @if($role->is_owner)
-                                                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold text-slate-400 bg-slate-100">
-                                                                    All (Owner)
-                                                                </span>
-                                                            @elseif($isShared)
-                                                                <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold text-emerald-600 bg-emerald-50">
-                                                                    Shared — all users
-                                                                </span>
+                                                                <span class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 bg-slate-100">All (Owner)</span>
+                                                            @elseif($fIsShared)
+                                                                <span class="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-600 bg-emerald-50">Shared — all users</span>
                                                             @else
-                                                                @foreach(['none','own','branch','all'] as $scopeVal)
-                                                                <label class="inline-flex items-center gap-0.5 cursor-pointer px-1.5 py-1 rounded transition-colors text-[11px]"
-                                                                       :class="scopeMatrix['{{ $viewKey }}']?.['{{ $role->name }}'] === '{{ $scopeVal }}'
-                                                                           ? '{{ $scopeVal === 'none' ? 'bg-slate-200 text-slate-700 font-semibold' : ($scopeVal === 'own' ? 'bg-blue-100 text-blue-700 font-semibold' : ($scopeVal === 'branch' ? 'bg-amber-100 text-amber-700 font-semibold' : 'bg-emerald-100 text-emerald-700 font-semibold')) }}'
-                                                                           : 'text-slate-400 hover:bg-slate-50'"
-                                                                       >
-                                                                    <input type="radio"
-                                                                           name="scope_ui_{{ $viewKey }}_{{ $role->name }}"
-                                                                           value="{{ $scopeVal }}"
-                                                                           x-model="scopeMatrix['{{ $viewKey }}']['{{ $role->name }}']"
-                                                                           @change="handleScopeChange('{{ $moduleKey }}', '{{ $role->name }}', '{{ $scopeVal }}')"
-                                                                           class="sr-only">
-                                                                    {{ ucfirst($scopeVal === 'none' ? 'None' : ($scopeVal === 'branch' ? 'Br' : ucfirst($scopeVal))) }}
-                                                                </label>
-                                                                @endforeach
+                                                                <div class="inline-flex rounded-lg overflow-hidden border border-slate-200">
+                                                                    @foreach(['none','own','branch','all'] as $scopeVal)
+                                                                    <label class="inline-flex items-center cursor-pointer px-3 py-1.5 transition-colors text-xs border-r border-slate-200 last:border-r-0 whitespace-nowrap"
+                                                                           :class="scopeMatrix['{{ $fViewKey }}']?.['{{ $role->name }}'] === '{{ $scopeVal }}'
+                                                                               ? '{{ $scopeVal === 'none' ? 'bg-slate-700 text-white font-semibold' : ($scopeVal === 'own' ? 'bg-blue-600 text-white font-semibold' : ($scopeVal === 'branch' ? 'bg-amber-500 text-white font-semibold' : 'bg-emerald-600 text-white font-semibold')) }}'
+                                                                               : 'bg-white text-slate-500 hover:bg-slate-50'">
+                                                                        <input type="radio"
+                                                                               name="scope_ui_{{ $fViewKey }}_{{ $role->name }}"
+                                                                               value="{{ $scopeVal }}"
+                                                                               x-model="scopeMatrix['{{ $fViewKey }}']['{{ $role->name }}']"
+                                                                               @change="handleScopeChange('{{ $moduleKey }}', '{{ $role->name }}', '{{ $scopeVal }}')"
+                                                                               class="sr-only">
+                                                                        {{ $scopeVal === 'none' ? 'None' : ($scopeVal === 'branch' ? 'Branch' : ucfirst($scopeVal)) }}
+                                                                    </label>
+                                                                    @endforeach
+                                                                </div>
                                                             @endif
                                                         </div>
                                                     </template>
                                                     @endforeach
-                                                @else
-                                                    <span class="text-slate-300">&mdash;</span>
-                                                @endif
-                                            </td>
-                                            @foreach($standardActions as $action)
-                                                <td class="py-2.5 px-2 text-center w-16">
-                                                    @if(isset($actionMap[$action]))
-                                                        @php $ap = $actionMap[$action]; @endphp
-                                                        @foreach($roles as $role)
-                                                        <template x-if="selectedRole === '{{ $role->name }}'">
-                                                            <label class="inline-flex items-center justify-center {{ $role->is_owner ? '' : 'cursor-pointer' }}">
-                                                                @if($role->is_owner)
-                                                                    <input type="checkbox" checked disabled
-                                                                           class="w-4 h-4 rounded border-slate-300 opacity-50 cursor-not-allowed"
-                                                                           style="accent-color:#0b2a4a;">
-                                                                @else
-                                                                    <input type="checkbox"
-                                                                           x-model="matrix['{{ $ap->key }}']['{{ $role->name }}']"
-                                                                           @change="handleActionChange('{{ $moduleKey }}', '{{ $action }}', '{{ $role->name }}')"
-                                                                           class="w-4 h-4 rounded border-slate-300 cursor-pointer"
-                                                                           style="accent-color:#00b4d8;"
-                                                                           :disabled="scopeMatrix['{{ $viewKey }}']?.['{{ $role->name }}'] === 'none'">
-                                                                @endif
-                                                            </label>
-                                                        </template>
-                                                        @endforeach
-                                                    @else
-                                                        <span class="text-slate-300">&mdash;</span>
-                                                    @endif
-                                                </td>
-                                            @endforeach
-                                            {{-- "Other" column for manage/send --}}
-                                            <td class="py-2.5 px-2 text-center w-16">
-                                                @if(count($otherActions) > 0)
-                                                    @foreach($otherActions as $otherKey)
-                                                        @php $op = $actionMap[$otherKey]; @endphp
-                                                        @foreach($roles as $role)
-                                                        <template x-if="selectedRole === '{{ $role->name }}'">
-                                                            <label class="inline-flex items-center gap-1 {{ $role->is_owner ? '' : 'cursor-pointer' }}">
-                                                                @if($role->is_owner)
-                                                                    <input type="checkbox" checked disabled
-                                                                           class="w-4 h-4 rounded border-slate-300 opacity-50 cursor-not-allowed"
-                                                                           style="accent-color:#0b2a4a;">
-                                                                @else
-                                                                    <input type="checkbox"
-                                                                           x-model="matrix['{{ $op->key }}']['{{ $role->name }}']"
-                                                                           @change="dirty = true"
-                                                                           class="w-4 h-4 rounded border-slate-300 cursor-pointer"
-                                                                           style="accent-color:#00b4d8;">
-                                                                @endif
-                                                                <span class="text-[10px] text-slate-500">{{ ucfirst($otherKey) }}</span>
-                                                            </label>
-                                                        </template>
-                                                        @endforeach
-                                                    @endforeach
-                                                @else
-                                                    <span class="text-slate-300">&mdash;</span>
-                                                @endif
-                                            </td>
-                                        </tr>
-                                        @endif
-                                    @endforeach
-                                @endforeach
+                                                </div>
+                                            </div>
+                                            @endif
 
-                                @if($permissions->isEmpty())
-                                    <tr>
-                                        <td colspan="6" class="py-12 text-center text-sm text-slate-400">
-                                            No permissions defined. Run: <code class="font-mono bg-slate-100 px-1 rounded">php artisan db:seed --class=NexusPermissionSeeder</code>
-                                        </td>
-                                    </tr>
-                                @endif
-                            </tbody>
-                        </table>
+                                            {{-- Create / Edit / Archive --}}
+                                            @foreach($fStandardActions as $action)
+                                            @if(isset($fActionMap[$action]))
+                                            @php $fAp = $fActionMap[$action]; @endphp
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4">
+                                                <div>
+                                                    <p class="text-sm font-medium text-slate-700">{{ ucfirst($action) }}</p>
+                                                    <p class="text-xs text-slate-400 mt-0.5">Can {{ strtolower($action) }} records in this module</p>
+                                                </div>
+                                                <div class="flex-shrink-0">
+                                                    @foreach($roles as $role)
+                                                    <template x-if="selectedRole === '{{ $role->name }}'">
+                                                        <label class="inline-flex items-center gap-2 {{ $role->is_owner ? '' : 'cursor-pointer' }}">
+                                                            @if($role->is_owner)
+                                                                <input type="checkbox" checked disabled
+                                                                       class="w-5 h-5 rounded border-slate-300 opacity-50 cursor-not-allowed"
+                                                                       style="accent-color:#0b2a4a;">
+                                                            @else
+                                                                <input type="checkbox"
+                                                                       x-model="matrix['{{ $fAp->key }}']['{{ $role->name }}']"
+                                                                       @change="handleActionChange('{{ $moduleKey }}', '{{ $action }}', '{{ $role->name }}')"
+                                                                       class="w-5 h-5 rounded border-slate-300 cursor-pointer"
+                                                                       style="accent-color:#00b4d8;"
+                                                                       :disabled="scopeMatrix['{{ $fViewKey ?? '' }}']?.['{{ $role->name }}'] === 'none'">
+                                                            @endif
+                                                            <span class="text-xs text-slate-500" x-text="matrix['{{ $fAp->key }}']?.['{{ $role->name }}'] ? 'Enabled' : 'Disabled'"></span>
+                                                        </label>
+                                                    </template>
+                                                    @endforeach
+                                                </div>
+                                            </div>
+                                            @endif
+                                            @endforeach
+
+                                            {{-- Other actions (manage, send, etc.) --}}
+                                            @foreach($fOtherActions as $otherKey)
+                                            @php $fOp = $fActionMap[$otherKey]; @endphp
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4">
+                                                <div>
+                                                    <p class="text-sm font-medium text-slate-700">{{ ucfirst($otherKey) }}</p>
+                                                    <p class="text-xs text-slate-400 mt-0.5">{{ $fOp->label }}</p>
+                                                </div>
+                                                <div class="flex-shrink-0">
+                                                    @foreach($roles as $role)
+                                                    <template x-if="selectedRole === '{{ $role->name }}'">
+                                                        <label class="inline-flex items-center gap-2 {{ $role->is_owner ? '' : 'cursor-pointer' }}">
+                                                            @if($role->is_owner)
+                                                                <input type="checkbox" checked disabled
+                                                                       class="w-5 h-5 rounded border-slate-300 opacity-50 cursor-not-allowed"
+                                                                       style="accent-color:#0b2a4a;">
+                                                            @else
+                                                                <input type="checkbox"
+                                                                       x-model="matrix['{{ $fOp->key }}']['{{ $role->name }}']"
+                                                                       @change="dirty = true"
+                                                                       class="w-5 h-5 rounded border-slate-300 cursor-pointer"
+                                                                       style="accent-color:#00b4d8;">
+                                                            @endif
+                                                            <span class="text-xs text-slate-500" x-text="matrix['{{ $fOp->key }}']?.['{{ $role->name }}'] ? 'Enabled' : 'Disabled'"></span>
+                                                        </label>
+                                                    </template>
+                                                    @endforeach
+                                                </div>
+                                            </div>
+                                            @endforeach
+
+                                        @endif
+
+                                        @if(count($moduleData['access']) === 0 && count($moduleData['actions']) === 0)
+                                        <div class="px-5 py-8 text-center text-sm text-slate-400">
+                                            No permissions defined for this module.
+                                        </div>
+                                        @endif
+
+                                    </div>
+                                </div>
+                            </div>
+                            @endforeach
+                        @endforeach
                     </div>
+
                 </div>
 
                 {{-- Hidden inputs to submit ALL role data (not just the selected one) --}}
@@ -364,21 +361,7 @@
                     @endforeach
                 </div>
 
-                {{-- Sticky bottom save bar --}}
-                <div class="sticky bottom-0 z-20 -mx-4 lg:-mx-6 bg-white border-t border-slate-200 px-5 py-3 flex items-center justify-between mt-4"
-                     style="box-shadow: 0 -2px 8px rgba(0,0,0,0.06);">
-                    <div class="text-xs text-amber-600 font-medium" x-show="dirty" x-cloak>
-                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1"></span>
-                        Unsaved changes
-                    </div>
-                    <div class="flex-1"></div>
-                    <button type="button" @click="saveMatrix()"
-                            class="px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"
-                            style="background:#0b2a4a;"
-                            onmouseover="this.style.background='#00b4d8'" onmouseout="this.style.background='#0b2a4a'">
-                        Save Changes
-                    </button>
-                </div>
+
             </form>
         </div>
 
@@ -466,8 +449,16 @@
         <div x-show="activeTab === 'roles'" x-cloak>
             <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
                 <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between" style="background:#f8fafc;">
-                    <h3 class="font-semibold text-sm" style="color:#0b2a4a;">Roles</h3>
-                    <span class="text-xs text-slate-400">{{ $roles->count() }} roles</span>
+                    <div>
+                        <h3 class="font-semibold text-sm" style="color:#0b2a4a;">Roles</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">{{ $roles->count() }} roles defined</p>
+                    </div>
+                    <button type="button" @click="openAddRole()"
+                            class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors"
+                            style="background:#0b2a4a;"
+                            onmouseover="this.style.background='#00b4d8'" onmouseout="this.style.background='#0b2a4a'">
+                        + Add New Role
+                    </button>
                 </div>
                 <div class="divide-y divide-slate-100">
                     @foreach($roles as $role)
@@ -712,16 +703,13 @@ function roleManager() {
     });
 
     return {
+        dark: document.documentElement.classList.contains('dark'),
         activeTab: 'permissions',
         selectedRole: rolesData.find(r => !r.is_owner)?.name || rolesData[0]?.name || 'admin',
         matrix: matrix,
         scopeMatrix: scopeMatrix,
         dirty: false,
-        openSections: {
-            @foreach($matrixSections as $sectionLabel => $modules)
-                '{{ md5($sectionLabel) }}': true,
-            @endforeach
-        },
+        selectedFeature: @json(collect($matrixSections)->flatMap(fn($m) => array_keys($m))->first() ?? ''),
 
         // Copy from role
         copyFromRole: '',
@@ -740,10 +728,6 @@ function roleManager() {
         selectedRoleLabel() {
             const r = rolesData.find(r => r.name === this.selectedRole);
             return r ? r.label : this.selectedRole;
-        },
-
-        toggleSection(key) {
-            this.openSections[key] = !this.openSections[key];
         },
 
         handleScopeChange(moduleKey, roleName, scopeVal) {

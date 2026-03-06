@@ -122,48 +122,31 @@
             </div>
         </div>
 
-        {{-- ── Images ───────────────────────────────────────────────────────── --}}
-        <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-6">
-            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-primary,#0b2a4a);">Images</h3>
-            <p class="text-xs text-slate-400">Max 5 MB per image. New uploads are added to existing — not replaced.</p>
+        {{-- ── Gallery Images ────────────────────────────────────────────────── --}}
+        <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-primary,#0b2a4a);">Image Gallery</h3>
+            <p class="text-xs text-slate-400">Max 5 MB per image. After saving you can manage, reorder and delete images from the property's Gallery tab.</p>
 
-            @php
-            $imageGroups = [
-                'dawn_images'    => ['label' => 'Dawn Images',   'hint' => 'Golden-hour morning shots',       'col' => 'dawn_images_json'],
-                'noon_images'    => ['label' => 'Noon Images',   'hint' => 'Bright midday shots',             'col' => 'noon_images_json'],
-                'dusk_images'    => ['label' => 'Dusk Images',   'hint' => 'Sunset / evening shots',          'col' => 'dusk_images_json'],
-                'gallery_images' => ['label' => 'Image Gallery', 'hint' => 'General interior/exterior shots', 'col' => 'gallery_images_json'],
-            ];
-            @endphp
+            @php $existingGallery = $property ? ($property->gallery_images_json ?? []) : []; @endphp
 
-            @foreach($imageGroups as $field => $group)
-            @php $existing = $property ? ($property->{$group['col']} ?? []) : []; @endphp
-            <div>
-                <label class="block text-sm font-semibold mb-0.5 text-slate-700">{{ $group['label'] }}</label>
-                <p class="text-xs text-slate-400 mb-2">{{ $group['hint'] }}</p>
-
-                {{-- Saved images --}}
-                @if(count($existing))
-                <div class="flex flex-wrap gap-2 mb-2" id="saved-{{ $field }}">
-                    @foreach($existing as $img)
-                        <img src="{{ $img }}" alt="" class="h-20 w-28 object-cover rounded-lg border border-slate-200 shadow-sm">
-                    @endforeach
-                </div>
-                @endif
-
-                {{-- Live preview of newly selected files --}}
-                <div class="flex flex-wrap gap-2 mb-2 min-h-0" id="preview-{{ $field }}"></div>
-
-                <label class="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-300 cursor-pointer hover:border-blue-400 transition-colors text-sm text-slate-500 w-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-                    </svg>
-                    <span id="label-{{ $field }}">Select images (multiple)</span>
-                    <input type="file" name="{{ $field }}[]" multiple accept="image/*"
-                           class="hidden" data-preview="preview-{{ $field }}" data-label="label-{{ $field }}">
-                </label>
+            @if(count($existingGallery))
+            <div class="flex flex-wrap gap-2">
+                @foreach($existingGallery as $img)
+                    <img src="{{ $img }}" alt="" class="h-20 w-28 object-cover rounded-lg border border-slate-200 shadow-sm">
+                @endforeach
             </div>
-            @endforeach
+            @endif
+
+            <div class="flex flex-wrap gap-2 mb-2 min-h-0" id="preview-gallery_images"></div>
+
+            <label class="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-300 cursor-pointer hover:border-blue-400 transition-colors text-sm text-slate-500 w-full">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                </svg>
+                <span id="label-gallery_images">Select images (multiple)</span>
+                <input type="file" name="gallery_images[]" multiple accept="image/*"
+                       class="hidden" data-preview="preview-gallery_images" data-label="label-gallery_images">
+            </label>
         </div>
 
         @push('scripts')

@@ -47,6 +47,56 @@
   @media (max-width: 980px) {
     .ellie-row { grid-template-columns: 1fr; }
   }
+
+  /* ---- Dark mode overrides ---- */
+  html.dark .ellie-pane {
+    background: #13161d;
+    border-color: rgba(255,255,255,0.06);
+    box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+  }
+  html.dark .ellie-pane-h {
+    background: #13161d;
+    border-bottom-color: rgba(255,255,255,0.06);
+    color: #eef0f5;
+  }
+  html.dark .ellie-scroll {
+    background: #0d0f14;
+  }
+  html.dark .ellie-list a {
+    color: #eef0f5;
+    border-bottom-color: rgba(255,255,255,0.05);
+  }
+  html.dark .ellie-list a:hover { background: rgba(79,124,255,0.10); }
+  html.dark .ellie-list a.active { background: rgba(79,124,255,0.18); }
+  html.dark .ellie-list .meta { color: #8890a4; }
+  html.dark .bubble.assistant {
+    background: #1a1e28;
+    border-color: rgba(255,255,255,0.08);
+    color: #eef0f5;
+  }
+  html.dark .ellie-compose {
+    background: #13161d;
+    border-top-color: rgba(255,255,255,0.06);
+  }
+  html.dark .ellie-input {
+    background: #1a1e28;
+    border-color: rgba(255,255,255,0.12);
+    color: #eef0f5;
+  }
+  html.dark .ellie-input::placeholder { color: #545b6e; }
+  html.dark .ellie-btn.secondary {
+    background: rgba(255,255,255,0.08);
+    color: #eef0f5;
+  }
+  html.dark .ellie-send {
+    background: #4f7cff;
+  }
+  html.dark input[type="text"].ellie-pane-h input,
+  html.dark .ellie-pane-h input[type="text"] {
+    background: #1a1e28;
+    border-color: rgba(255,255,255,0.12);
+    color: #eef0f5;
+  }
 </style>
 
 <div class="ellie-app">
@@ -54,8 +104,8 @@
   <div class="ellie-top">
     <img src="/images/ellie-32-circle.png" alt="Ellie">
     <div>
-      <div style="font-weight:800; font-size:18px; color:#0f172a;">Ellie, Your AI Assistant</div>
-      <div style="font-size:12px; opacity:0.6; color:#0f172a;">Logged in as {{ auth()->user()->name }}</div>
+      <div style="font-weight:800; font-size:18px;">Ellie, Your AI Assistant</div>
+      <div style="font-size:12px; opacity:0.6;">Logged in as {{ auth()->user()->name }}</div>
     </div>
   </div>
 
@@ -99,7 +149,7 @@
                 @csrf
                 <input type="hidden" name="conversation_id" value="{{ $conversation_id }}">
                 <input type="hidden" name="return_archived" value="{{ $archived ? '1' : '' }}">
-                <input type="text" name="title" value="{{ $conversation->title ?? '' }}" placeholder="Rename…" style="min-width:220px;" />
+                <input type="text" name="title" value="{{ $conversation->title ?? '' }}" placeholder="Rename…" class="ellie-input" style="min-width:220px; min-height:unset; max-height:unset; resize:none; padding:6px 10px;" />
                 <button type="submit" class="ellie-btn secondary">Rename</button>
               </form>
 
