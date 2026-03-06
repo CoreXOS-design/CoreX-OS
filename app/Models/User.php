@@ -34,6 +34,13 @@ class User extends Authenticatable
         // Agent document uploads
         'agent_photo_path',
         'ffc_certificate_path',
+
+        // Contact fields (email signatures, profile, presentations)
+        'phone',
+        'cell',
+        'fax',
+        'ffc_number',
+        'website',
     ];
 
     protected $hidden = [

@@ -112,6 +112,21 @@ class UserManagementController extends Controller
         $user->can_capture_rentals = isset($defaults['can_capture_rentals']) && $defaults['can_capture_rentals'] == '1' ? 1 : 0;
 
           $user->counts_for_branch_split = isset($defaults['counts_for_branch_split']) && $defaults['counts_for_branch_split'] == '1' ? 1 : 0;
+
+        // ---- Contact fields ----
+        $contact = $request->validate([
+            'phone' => ['nullable','string','max:50'],
+            'cell' => ['nullable','string','max:50'],
+            'fax' => ['nullable','string','max:50'],
+            'ffc_number' => ['nullable','string','max:100'],
+            'website' => ['nullable','string','max:255'],
+        ]);
+        $user->phone = $contact['phone'] ?? null;
+        $user->cell = $contact['cell'] ?? null;
+        $user->fax = $contact['fax'] ?? null;
+        $user->ffc_number = $contact['ffc_number'] ?? null;
+        $user->website = $contact['website'] ?? null;
+
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
         // Safety: prevent editing your own role/branch by mistake

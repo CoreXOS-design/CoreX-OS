@@ -78,30 +78,29 @@
                     <x-slot name="content">
                         <x-dropdown-link :href="route('profile.edit')">Profile</x-dropdown-link>
 
-                        @permission('impersonate_users')
+                        @if(auth()->user()->isOwnerRole())
                             <div class="px-4 py-2 text-xs text-gray-500 uppercase">View As</div>
 
-                            <form method="POST" action="{{ url('/admin/view-as') }}">@csrf
-                                <input type="hidden" name="role" value="admin">
-                                <button type="submit" class="w-full text-left px-4 py-2 text-sm">Admin</button>
-                            </form>
+                            @foreach(\App\Models\Role::orderBy('sort_order')->get() as $viewRole)
+                                @if(!$viewRole->is_owner)
+                                <form method="POST" action="{{ route('admin.viewas.update') }}">@csrf
+                                    <input type="hidden" name="role" value="{{ $viewRole->name }}">
+                                    <button type="submit" class="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                                            style="{{ session('view_as_role') === $viewRole->name ? 'font-weight:700; color:#00b4d8;' : '' }}">
+                                        {{ $viewRole->label }}
+                                    </button>
+                                </form>
+                                @endif
+                            @endforeach
 
-                            <form method="POST" action="{{ url('/admin/view-as') }}">@csrf
-                                <input type="hidden" name="role" value="branch_manager">
-                                <button type="submit" class="w-full text-left px-4 py-2 text-sm">Branch Manager</button>
+                            @if(session('view_as_role'))
+                            <form method="POST" action="{{ route('admin.viewas.reset') }}">@csrf
+                                <button type="submit" class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700">Reset View As</button>
                             </form>
-
-                            <form method="POST" action="{{ url('/admin/view-as') }}">@csrf
-                                <input type="hidden" name="role" value="agent">
-                                <button type="submit" class="w-full text-left px-4 py-2 text-sm">Agent</button>
-                            </form>
-
-                            <form method="POST" action="{{ url('/admin/view-as/reset') }}">@csrf
-                                <button type="submit" class="w-full text-left px-4 py-2 text-sm text-red-600">Reset View As</button>
-                            </form>
+                            @endif
 
                             <div class="border-t my-1"></div>
-                        @endpermission
+                        @endif
 
                         <form method="POST" action="{{ route('logout') }}">@csrf
                             <x-dropdown-link :href="route('logout')" onclick="event.preventDefault(); this.closest('form').submit();">

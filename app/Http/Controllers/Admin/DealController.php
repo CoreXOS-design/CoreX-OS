@@ -236,11 +236,11 @@ public function index(Request $request)
             $deal = new Deal();            // NUMERIC DEAL NUMBERING — supports legacy D-#### and numeric formats
             $maxNumericOnly = (int) Deal::query()
                 ->whereRaw("deal_no NOT LIKE 'D-%'")
-                ->whereRaw("deal_no GLOB '[0-9]*'")
+                ->whereRaw("deal_no REGEXP '^[0-9]+$'")
                 ->max('deal_no');
 
             $maxFromPrefixed = (int) Deal::query()
-                ->selectRaw("MAX(CAST(SUBSTR(deal_no, 3) AS INTEGER)) as m")
+                ->selectRaw("MAX(CAST(SUBSTR(deal_no, 3) AS UNSIGNED)) as m")
                 ->where('deal_no', 'like', 'D-%')
                 ->value('m');
 

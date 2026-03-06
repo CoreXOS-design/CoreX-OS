@@ -129,7 +129,7 @@
             {{-- ── Expanded edit panel ── --}}
             <div x-show="open" x-cloak x-transition
                  style="border-top:1px solid var(--border); background:var(--surface-2);">
-                <form method="POST" action="{{ route('admin.users.role.update', $u) }}"
+                <form id="roleForm-{{ $u->id }}" method="POST" action="{{ route('admin.users.role.update', $u) }}"
                       enctype="multipart/form-data"
                       class="p-4 space-y-5">
                     @csrf
@@ -145,9 +145,11 @@
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">Role</label>
                                 <select name="role" class="w-full rounded-lg px-3 py-2 text-sm outline-none"
                                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <option value="agent"          {{ $u->role==='agent'?'selected':'' }}>Agent</option>
-                                    <option value="branch_manager" {{ $u->role==='branch_manager'?'selected':'' }}>Branch Manager</option>
-                                    <option value="admin"          {{ $u->role==='admin'?'selected':'' }}>Admin</option>
+                                    @foreach(\App\Models\Role::orderBy('sort_order')->get() as $role)
+                                        @if(!$role->is_owner)
+                                        <option value="{{ $role->name }}" {{ $u->role===$role->name?'selected':'' }}>{{ $role->label }}</option>
+                                        @endif
+                                    @endforeach
                                 </select>
                             </div>
                             <div>
@@ -229,6 +231,48 @@
                         </div>
                     </div>
 
+                    {{-- Section: Contact Details --}}
+                    <div>
+                        <div class="text-xs font-bold uppercase tracking-widest mb-3"
+                             style="color:var(--text-muted); border-left:2px solid #00b4d8; padding-left:8px;">
+                            Contact Details
+                        </div>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Phone</label>
+                                <input type="tel" name="phone" value="{{ old('phone', $u->phone) }}" placeholder="Landline"
+                                       class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Cell</label>
+                                <input type="tel" name="cell" value="{{ old('cell', $u->cell) }}" placeholder="Mobile"
+                                       class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Fax</label>
+                                <input type="tel" name="fax" value="{{ old('fax', $u->fax) }}" placeholder="Fax number"
+                                       class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mt-3">
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">FFC Number</label>
+                                <input type="text" name="ffc_number" value="{{ old('ffc_number', $u->ffc_number) }}" placeholder="Certificate number"
+                                       class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs mb-1" style="color:var(--text-secondary);">Website</label>
+                                <input type="url" name="website" value="{{ old('website', $u->website) }}" placeholder="https://…"
+                                       class="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+
                     {{-- Section: Files --}}
                     <div>
                         <div class="text-xs font-bold uppercase tracking-widest mb-3"
@@ -246,12 +290,8 @@
                                     <img src="{{ asset('storage/'.$u->agent_photo_path) }}" alt="Photo"
                                          class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                                          style="border:1px solid var(--border);">
-                                    <form method="POST" action="{{ route('admin.users.remove-file', $u) }}"
-                                          class="inline" onsubmit="return confirm('Remove agent photo?');">
-                                        @csrf
-                                        <input type="hidden" name="field" value="agent_photo">
-                                        <button type="submit" class="text-xs text-red-600 hover:text-red-700">Remove</button>
-                                    </form>
+                                    <button type="button" class="text-xs text-red-600 hover:text-red-700"
+                                            onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $u) }}';f.innerHTML='@csrf<input name=field value=agent_photo>';document.body.appendChild(f);f.submit();}">Remove</button>
                                 </div>
                                 @endif
                                 <input type="file" name="agent_photo" accept="image/jpeg,image/png,image/webp"
@@ -269,12 +309,8 @@
                                        class="text-xs text-blue-400 hover:text-blue-300 truncate flex-1">
                                         {{ basename($u->ffc_certificate_path) }}
                                     </a>
-                                    <form method="POST" action="{{ route('admin.users.remove-file', $u) }}"
-                                          class="inline flex-shrink-0" onsubmit="return confirm('Remove FFC certificate?');">
-                                        @csrf
-                                        <input type="hidden" name="field" value="ffc_certificate">
-                                        <button type="submit" class="text-xs text-red-600 hover:text-red-700">Remove</button>
-                                    </form>
+                                    <button type="button" class="text-xs text-red-600 hover:text-red-700 flex-shrink-0"
+                                            onclick="if(confirm('Remove FFC certificate?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $u) }}';f.innerHTML='@csrf<input name=field value=ffc_certificate>';document.body.appendChild(f);f.submit();}">Remove</button>
                                 </div>
                                 @endif
                                 <input type="file" name="ffc_certificate" accept=".pdf,.jpg,.jpeg,.png"
@@ -284,8 +320,10 @@
                         </div>
                     </div>
 
-                    {{-- Actions --}}
-                    <div class="flex items-center justify-between gap-3 pt-1"
+                </form>
+
+                    {{-- Actions (outside main form to avoid nesting) --}}
+                    <div class="flex items-center justify-between gap-3 pt-1 px-4 pb-4"
                          style="border-top:1px solid var(--border); padding-top:16px;">
                         <div class="flex items-center gap-3">
                             <form method="POST" action="{{ route('admin.users.toggle', $u) }}">
@@ -306,9 +344,8 @@
                                 </button>
                             </form>
                         </div>
-                        <button type="submit" class="corex-btn-primary text-sm">Save Changes</button>
+                        <button type="submit" form="roleForm-{{ $u->id }}" class="corex-btn-primary text-sm">Save Changes</button>
                     </div>
-                </form>
             </div>
 
         </div>

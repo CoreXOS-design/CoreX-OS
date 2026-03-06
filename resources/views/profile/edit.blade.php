@@ -144,7 +144,7 @@
     {{-- Profile Information --}}
     <div style="background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:20px 24px;">
         <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); border-left:3px solid #00b4d8; padding-left:12px; margin:0 0 6px;">Profile Information</h3>
-        <p style="font-size:0.8rem; color:var(--text-secondary); margin:0 0 20px;">Update your name and email address.</p>
+        <p style="font-size:0.8rem; color:var(--text-secondary); margin:0 0 20px;">Update your name, email and contact details.</p>
 
         <form id="send-verification" method="post" action="{{ route('verification.send') }}">
             @csrf
@@ -186,13 +186,61 @@
                         </div>
                     @endif
                 </div>
+            </div>
 
-                <div>
-                    <button type="submit"
-                            style="padding:9px 18px; border-radius:8px; border:none; background:#00b4d8; color:#fff; font-size:0.8rem; font-weight:600; cursor:pointer;">
-                        Save
-                    </button>
+            {{-- Contact Details --}}
+            <div style="margin-top:20px; padding-top:20px; border-top:1px solid var(--border);">
+                <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:12px; text-transform:uppercase; letter-spacing:0.06em;">Contact Details</div>
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; max-width:480px;">
+                    <div>
+                        <label for="phone" style="display:block; font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.06em;">Phone</label>
+                        <input id="phone" name="phone" type="tel" value="{{ old('phone', $user->phone) }}" placeholder="Landline"
+                               style="width:100%; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:8px 12px; font-size:0.875rem; box-sizing:border-box;">
+                        @error('phone')
+                            <p style="font-size:0.75rem; color:#f87171; margin-top:4px;">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div>
+                        <label for="cell" style="display:block; font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.06em;">Cell</label>
+                        <input id="cell" name="cell" type="tel" value="{{ old('cell', $user->cell) }}" placeholder="Mobile"
+                               style="width:100%; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:8px 12px; font-size:0.875rem; box-sizing:border-box;">
+                        @error('cell')
+                            <p style="font-size:0.75rem; color:#f87171; margin-top:4px;">{{ $message }}</p>
+                        @enderror
+                    </div>
+                    <div>
+                        <label for="fax" style="display:block; font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.06em;">Fax</label>
+                        <input id="fax" name="fax" type="tel" value="{{ old('fax', $user->fax) }}" placeholder="Fax number"
+                               style="width:100%; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:8px 12px; font-size:0.875rem; box-sizing:border-box;">
+                        @error('fax')
+                            <p style="font-size:0.75rem; color:#f87171; margin-top:4px;">{{ $message }}</p>
+                        @enderror
+                    </div>
                 </div>
+                <div style="display:grid; grid-template-columns:1fr; gap:12px; max-width:480px; margin-top:12px;">
+                    <div>
+                        <label for="website" style="display:block; font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.06em;">Website</label>
+                        <input id="website" name="website" type="url" value="{{ old('website', $user->website) }}" placeholder="https://…"
+                               style="width:100%; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:8px 12px; font-size:0.875rem; box-sizing:border-box;">
+                        @error('website')
+                            <p style="font-size:0.75rem; color:#f87171; margin-top:4px;">{{ $message }}</p>
+                        @enderror
+                    </div>
+                </div>
+                @if($user->ffc_number)
+                <div style="margin-top:12px; max-width:480px;">
+                    <div style="font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.06em;">FFC Number</div>
+                    <div style="padding:8px 12px; border-radius:8px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.875rem;">{{ $user->ffc_number }}</div>
+                    <p style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">Managed by admin.</p>
+                </div>
+                @endif
+            </div>
+
+            <div style="margin-top:16px;">
+                <button type="submit"
+                        style="padding:9px 18px; border-radius:8px; border:none; background:#00b4d8; color:#fff; font-size:0.8rem; font-weight:600; cursor:pointer;">
+                    Save
+                </button>
             </div>
         </form>
     </div>
