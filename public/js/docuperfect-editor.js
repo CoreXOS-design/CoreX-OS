@@ -316,6 +316,28 @@
             buildDocumentField(field, el);
         }
 
+        // Overlap warning: check if this field overlaps another field with a different assignedTo
+        if (C.mode === 'template') {
+            var pageFields = fields.filter(function (f) { return f.pageIndex === field.pageIndex && f.id !== field.id; });
+            var hasOverlap = pageFields.some(function (other) {
+                if ((other.assignedTo || 'creator') === (field.assignedTo || 'creator')) return false;
+                var ox = other.position.x, oy = other.position.y, ow = other.size.width, oh = other.size.height;
+                var fx = field.position.x, fy = field.position.y, fw = field.size.width, fh = field.size.height;
+                var overlapX = Math.max(0, Math.min(fx + fw, ox + ow) - Math.max(fx, ox));
+                var overlapY = Math.max(0, Math.min(fy + fh, oy + oh) - Math.max(fy, oy));
+                return (overlapX * overlapY) / (fw * fh) > 0.3;
+            });
+            if (hasOverlap) {
+                el.style.outline = '2px dashed #ef4444';
+                el.style.outlineOffset = '1px';
+                var warnBadge = document.createElement('div');
+                warnBadge.style.cssText = 'position:absolute;top:-8px;right:-8px;width:16px;height:16px;background:#ef4444;color:white;border-radius:50%;font-size:10px;font-weight:bold;display:flex;align-items:center;justify-content:center;z-index:20;';
+                warnBadge.textContent = '!';
+                warnBadge.title = 'Overlaps a field assigned to a different signer';
+                el.appendChild(warnBadge);
+            }
+        }
+
         return el;
     }
 

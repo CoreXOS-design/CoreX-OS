@@ -206,7 +206,7 @@
                             <div x-show="shouldShowField(field)"
                                  class="absolute overflow-hidden"
                                  :class="isMyField(field) ? '' : 'pointer-events-none'"
-                                 :style="`left:${field.position.x}%;top:${field.position.y}%;width:${field.size.width}%;height:${field.size.height}%;z-index:5;`">
+                                 :style="fieldDisplayStyle(field)">
 
                                 {{-- MY signer-assigned field: interactive --}}
                                 <template x-if="isMyField(field)">
@@ -866,6 +866,40 @@ function externalSign() {
         fieldsForCurrentPage() {
             const pageIdx = this.currentPage - 1;
             return (this.documentFields || []).filter(f => f.pageIndex === pageIdx);
+        },
+
+        // Detect overlapping fields and compute display offset
+        fieldDisplayStyle(field) {
+            const fields = this.fieldsForCurrentPage();
+            const isMine = this.isMyField(field);
+            let x = field.position.x;
+            let y = field.position.y;
+            const w = field.size.width;
+            const h = field.size.height;
+            const zIndex = isMine ? 8 : 5;
+
+            const myIdx = fields.indexOf(field);
+            for (let i = 0; i < myIdx; i++) {
+                const other = fields[i];
+                if (other.assignedTo === field.assignedTo) continue;
+                const ox = other.position.x, oy = other.position.y;
+                const ow = other.size.width, oh = other.size.height;
+                const overlapX = Math.max(0, Math.min(x + w, ox + ow) - Math.max(x, ox));
+                const overlapY = Math.max(0, Math.min(y + h, oy + oh) - Math.max(y, oy));
+                const overlapArea = overlapX * overlapY;
+                const fieldArea = w * h;
+                if (fieldArea > 0 && overlapArea / fieldArea > 0.3) {
+                    if (ox + ow + w <= 100) {
+                        x = ox + ow + 0.5;
+                    } else if (ox - w - 0.5 >= 0) {
+                        x = ox - w - 0.5;
+                    } else {
+                        y = oy + oh + 0.3;
+                    }
+                }
+            }
+
+            return `left:${x}%;top:${y}%;width:${w}%;height:${h}%;z-index:${zIndex};`;
         },
 
         fieldStyle(field) {
