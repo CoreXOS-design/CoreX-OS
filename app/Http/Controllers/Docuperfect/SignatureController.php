@@ -731,6 +731,40 @@ class SignatureController extends Controller
             return redirect()->back()->with('error', 'Sign all your markers before completing.');
         }
 
+        // Validate required fields assigned to agent are completed
+        $docFields = $document->fields_json ?? [];
+        $docTemplate = $document->template;
+        $templateFields = $docTemplate ? ($docTemplate->fields_json ?? []) : [];
+        $missingFields = [];
+        foreach ($templateFields as $tField) {
+            if (empty($tField['required'])) continue;
+            if (($tField['assignedTo'] ?? 'creator') !== 'agent') continue;
+
+            $fieldId = $tField['id'] ?? null;
+            if (!$fieldId) continue;
+
+            $docField = collect($docFields)->firstWhere('id', $fieldId);
+            $hasValue = false;
+            if ($docField) {
+                $type = $tField['type'] ?? 'placeholder';
+                if (in_array($type, ['placeholder', 'date'])) {
+                    $hasValue = !empty(trim((string) ($docField['value'] ?? '')));
+                } elseif ($type === 'condition') {
+                    $hasValue = !empty(trim((string) ($docField['text'] ?? '')));
+                } elseif (in_array($type, ['selection', 'tick'])) {
+                    $hasValue = !empty($docField['selectedValue']);
+                } else {
+                    $hasValue = true;
+                }
+            }
+            if (!$hasValue) {
+                $missingFields[] = $tField['field_label'] ?? $tField['field_name'] ?? 'Required field';
+            }
+        }
+        if (!empty($missingFields)) {
+            return redirect()->back()->with('error', 'Complete all required fields: ' . implode(', ', $missingFields));
+        }
+
         // FLATTEN: Bake field values + agent signatures into page images
         // From this point forward, external signers see flattened images only.
         $flattener = app(DocumentFlattener::class);

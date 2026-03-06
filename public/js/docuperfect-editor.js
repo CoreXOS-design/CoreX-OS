@@ -336,7 +336,7 @@
         if (field.assignedTo !== 'creator') {
             var atBadge = document.createElement('div');
             atBadge.className = 'dp-assigned-badge';
-            var atLabels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller' };
+            var atLabels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller', lessor: 'Landlord', lessee: 'Tenant' };
             atBadge.textContent = atLabels[field.assignedTo] || field.assignedTo;
             el.appendChild(atBadge);
         }
@@ -409,7 +409,7 @@
             el.style.cursor = 'default';
             var signerLabel = document.createElement('div');
             signerLabel.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;font-style:italic;text-align:center;padding:2px;line-height:1.2;';
-            var signerLabels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller' };
+            var signerLabels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller', lessor: 'Landlord', lessee: 'Tenant' };
             signerLabel.textContent = (signerLabels[field.assignedTo] || field.assignedTo) + ' will complete';
             el.appendChild(signerLabel);
             return;

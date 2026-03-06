@@ -166,9 +166,13 @@ class DocumentFlattener
             $imgWidth = imagesx($image);
             $imgHeight = imagesy($image);
 
-            $pageFields = array_filter($fields, function ($f) use ($pageNum, $partyRole) {
+            // Role aliases: assignedTo may use "lessor"/"lessee" while partyRole uses "landlord"/"tenant"
+            $roleAliases = ['lessor' => 'landlord', 'lessee' => 'tenant'];
+            $pageFields = array_filter($fields, function ($f) use ($pageNum, $partyRole, $roleAliases) {
+                $assignedTo = $f['assignedTo'] ?? 'creator';
+                $normalized = $roleAliases[$assignedTo] ?? $assignedTo;
                 return ($f['pageIndex'] ?? 0) == $pageNum
-                    && ($f['assignedTo'] ?? 'creator') === $partyRole;
+                    && $normalized === $partyRole;
             });
 
             if (empty($pageFields)) {

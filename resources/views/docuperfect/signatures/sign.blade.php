@@ -467,7 +467,7 @@ function signDocument() {
         },
 
         signerLabel(role) {
-            const labels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller' };
+            const labels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller', lessor: 'Landlord', lessee: 'Tenant' };
             return labels[role] || (role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Signer');
         },
 

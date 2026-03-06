@@ -338,6 +338,9 @@ class SigningController extends Controller
         $partyRole = $signingRequest->party_role;
         $existingFields = $document->fields_json ?? [];
 
+        // Role aliases: assignedTo may use "lessor"/"lessee" while party_role uses "landlord"/"tenant"
+        $roleAliases = ['lessor' => 'landlord', 'lessee' => 'tenant'];
+
         // Build a map of existing fields by ID for quick lookup
         $fieldMap = [];
         foreach ($existingFields as $idx => $field) {
@@ -353,7 +356,8 @@ class SigningController extends Controller
 
             $idx = $fieldMap[$id];
             $assignedTo = $existingFields[$idx]['assignedTo'] ?? 'creator';
-            if ($assignedTo !== $partyRole) continue;
+            $normalizedAssignedTo = $roleAliases[$assignedTo] ?? $assignedTo;
+            if ($normalizedAssignedTo !== $partyRole) continue;
 
             // Update allowed value fields based on type
             $type = $existingFields[$idx]['type'] ?? 'placeholder';
@@ -397,6 +401,46 @@ class SigningController extends Controller
 
         $template = $signingRequest->template;
         $party = $signingRequest->party_role;
+
+        // Validate required fields assigned to this signer are completed
+        $roleAliases = ['lessor' => 'landlord', 'lessee' => 'tenant'];
+        $document = $template->document;
+        $docFields = $document->fields_json ?? [];
+        $templateFields = $document->template ? ($document->template->fields_json ?? []) : [];
+        $missingFields = [];
+        foreach ($templateFields as $tField) {
+            if (empty($tField['required'])) continue;
+            $assignedTo = $tField['assignedTo'] ?? 'creator';
+            $normalized = $roleAliases[$assignedTo] ?? $assignedTo;
+            if ($normalized !== $party) continue;
+
+            $fieldId = $tField['id'] ?? null;
+            if (!$fieldId) continue;
+
+            $docField = collect($docFields)->firstWhere('id', $fieldId);
+            $hasValue = false;
+            if ($docField) {
+                $type = $tField['type'] ?? 'placeholder';
+                if (in_array($type, ['placeholder', 'date'])) {
+                    $hasValue = !empty(trim((string) ($docField['value'] ?? '')));
+                } elseif ($type === 'condition') {
+                    $hasValue = !empty(trim((string) ($docField['text'] ?? '')));
+                } elseif (in_array($type, ['selection', 'tick'])) {
+                    $hasValue = !empty($docField['selectedValue']);
+                } else {
+                    $hasValue = true;
+                }
+            }
+            if (!$hasValue) {
+                $missingFields[] = $tField['field_label'] ?? $tField['field_name'] ?? 'Required field';
+            }
+        }
+        if (!empty($missingFields)) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'Please complete all required fields: ' . implode(', ', $missingFields),
+            ], 422);
+        }
 
         if ($this->signatureService->isPartyComplete($template, $party)) {
             $signingRequest->update([

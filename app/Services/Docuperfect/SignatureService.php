@@ -103,6 +103,12 @@ class SignatureService
                 continue;
             }
 
+            // Skip fields assigned to signers — they complete during signing, not document creation
+            $assignedTo = $tField['assignedTo'] ?? 'creator';
+            if ($assignedTo !== 'creator') {
+                continue;
+            }
+
             $total++;
 
             // Find matching document field by ID

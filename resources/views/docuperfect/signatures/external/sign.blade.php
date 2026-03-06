@@ -880,13 +880,18 @@ function externalSign() {
         },
 
         // ── Field assignment helpers ──
+        normalizeRole(role) {
+            const aliases = { lessor: 'landlord', lessee: 'tenant' };
+            return aliases[role] || role;
+        },
+
         isMyField(field) {
-            const at = field.assignedTo || 'creator';
+            const at = this.normalizeRole(field.assignedTo || 'creator');
             return at !== 'creator' && at === this.partyRole;
         },
 
         isOtherSignerField(field) {
-            const at = field.assignedTo || 'creator';
+            const at = this.normalizeRole(field.assignedTo || 'creator');
             return at !== 'creator' && at !== this.partyRole;
         },
 
@@ -903,7 +908,7 @@ function externalSign() {
         },
 
         signerLabel(role) {
-            const labels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller' };
+            const labels = { agent: 'Agent', tenant: 'Tenant', landlord: 'Landlord', buyer: 'Buyer', seller: 'Seller', lessor: 'Landlord', lessee: 'Tenant' };
             return labels[role] || (role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Signer');
         },
 
