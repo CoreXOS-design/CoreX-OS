@@ -2,6 +2,9 @@
 
 @section('corex-content')
 <style>
+/* Remove main's padding so the sticky bar can truly touch the top */
+#appScroll { padding: 0 !important; }
+
 #pdf-splitter-root, #pdf-splitter-root * { box-sizing: border-box; }
 
 #pdf-splitter-root {
@@ -40,8 +43,6 @@
     margin-top: 4px;
 }
 </style>
-
-<div class="-m-4 lg:-m-6">
 
 <x-page-header title="PDF Pack Splitter" :flush="true">
     <x-slot:actions>
@@ -112,9 +113,7 @@
 
     </div>
 </div>
-</div>{{-- /padded content --}}
-
-</div>{{-- /full-bleed wrapper --}}
+</div>{{-- /p-4 lg:p-6 --}}
 
 @if (session('splitter_download_url'))
     <iframe src="{{ session('splitter_download_url') }}" style="display:none; width:0; height:0; border:0;"></iframe>

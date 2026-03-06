@@ -1,24 +1,53 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div x-data="roleManager()">
+<style>
+/* ── Role Manager: dark-mode colour fixes ── */
+html.dark #rm-root .text-slate-800 { color: #eef0f5 !important; }
+html.dark #rm-root .text-slate-700 { color: #eef0f5 !important; }
+html.dark #rm-root .text-slate-600 { color: #8890a4 !important; }
+html.dark #rm-root .text-slate-500 { color: #8890a4 !important; }
+html.dark #rm-root .text-slate-400 { color: #545b6e !important; }
+html.dark #rm-root [style*="color:#0b2a4a"] { color: #eef0f5 !important; }
+html.dark #rm-root .bg-white { background: #13161d !important; }
+html.dark #rm-root [style*="background:#f8fafc"] { background: #1a1e28 !important; }
+html.dark #rm-root [style*="background:#f1f5f9"] { background: #1a1e28 !important; }
+html.dark #rm-root [style*="background:#fef2f2"] { background: rgba(220,38,38,0.12) !important; }
+html.dark #rm-root .border-slate-200 { border-color: rgba(255,255,255,0.06) !important; }
+html.dark #rm-root .border-slate-100 { border-color: rgba(255,255,255,0.04) !important; }
+html.dark #rm-root .divide-slate-100 > * + * { border-color: rgba(255,255,255,0.04) !important; }
+html.dark #rm-root .hover\:bg-slate-50:hover { background: #1a1e28 !important; }
+html.dark #rm-root .hover\:bg-slate-100:hover { background: #1a1e28 !important; }
+html.dark #rm-root input[type="text"],
+html.dark #rm-root input[type="number"],
+html.dark #rm-root textarea,
+html.dark #rm-root select { background: #1a1e28 !important; color: #eef0f5 !important; border-color: rgba(255,255,255,0.12) !important; }
+html.dark #rm-root option { background: #1a1e28; color: #eef0f5; }
+html.dark #rm-root input::placeholder,
+html.dark #rm-root textarea::placeholder { color: #545b6e !important; }
+html.dark #rm-root input:disabled { background: #0d0f14 !important; color: #545b6e !important; }
+html.dark #rm-root .text-slate-600.border-slate-200,
+html.dark #rm-root .border-slate-200.text-slate-600 { border-color: rgba(255,255,255,0.08) !important; color: #8890a4 !important; }
+html.dark #rm-root .bg-slate-100 { background: #1a1e28 !important; }
+</style>
+<div id="rm-root" x-data="roleManager()">
 
     <div x-cloak class="px-4 lg:px-6 space-y-4 pb-6">
 
         {{-- Tabs --}}
         <div class="flex gap-1 rounded-xl p-1 w-fit" style="background:#f1f5f9;">
             <button type="button" @click="activeTab = 'permissions'"
-                    :style="activeTab === 'permissions' ? 'background:#0b2a4a;color:#fff;' : 'background:transparent;color:#64748b;'"
+                    :style="activeTab === 'permissions' ? ('background:' + (dark ? '#4f7cff' : '#0b2a4a') + ';color:#fff;') : ('background:transparent;color:' + (dark ? '#eef0f5' : '#64748b'))"
                     class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
                 Permissions Matrix
             </button>
             <button type="button" @click="activeTab = 'users'"
-                    :style="activeTab === 'users' ? 'background:#0b2a4a;color:#fff;' : 'background:transparent;color:#64748b;'"
+                    :style="activeTab === 'users' ? ('background:' + (dark ? '#4f7cff' : '#0b2a4a') + ';color:#fff;') : ('background:transparent;color:' + (dark ? '#eef0f5' : '#64748b'))"
                     class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
                 User Roles
             </button>
             <button type="button" @click="activeTab = 'roles'"
-                    :style="activeTab === 'roles' ? 'background:#0b2a4a;color:#fff;' : 'background:transparent;color:#64748b;'"
+                    :style="activeTab === 'roles' ? ('background:' + (dark ? '#4f7cff' : '#0b2a4a') + ';color:#fff;') : ('background:transparent;color:' + (dark ? '#eef0f5' : '#64748b'))"
                     class="px-4 py-2 rounded-lg text-sm font-medium transition-all">
                 Roles
             </button>
@@ -54,7 +83,7 @@
                                 @click="selectedRole = '{{ $role->name }}'"
                                 :style="selectedRole === '{{ $role->name }}'
                                     ? 'background:{{ $role->color }};color:#fff;'
-                                    : 'background:#f1f5f9;color:#64748b;'"
+                                    : ('background:' + (dark ? '#1a1e28' : '#f1f5f9') + ';color:' + (dark ? '#eef0f5' : '#64748b'))"
                                 class="px-3 py-1.5 rounded-full text-xs font-semibold transition-all">
                             {{ $role->label }}
                             @if($role->is_owner)
@@ -101,7 +130,7 @@
                             <div class="px-2 pb-1">
                                 <button type="button"
                                         @click="selectedFeature = '{{ $moduleKey }}'"
-                                        :style="selectedFeature === '{{ $moduleKey }}' ? 'background:#0b2a4a;color:#fff;' : 'color:#475569;'"
+                                        :style="selectedFeature === '{{ $moduleKey }}' ? ('background:' + (dark ? '#4f7cff' : '#0b2a4a') + ';color:#fff;') : ('color:' + (dark ? '#eef0f5' : '#475569'))"
                                         class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-all hover:bg-slate-100"
                                         :class="selectedFeature === '{{ $moduleKey }}' ? '' : 'hover:bg-slate-100'">
                                     {{ $moduleData['label'] }}
@@ -674,6 +703,7 @@ function roleManager() {
     });
 
     return {
+        dark: document.documentElement.classList.contains('dark'),
         activeTab: 'permissions',
         selectedRole: rolesData.find(r => !r.is_owner)?.name || rolesData[0]?.name || 'admin',
         matrix: matrix,
