@@ -94,7 +94,7 @@
                 !e.target.closest('.dp-options-editor') &&
                 !e.target.closest('.dp-strike-opts') &&
                 !e.target.closest('.dp-zone-props') &&
-                !e.target.closest('.dp-sidebar')) {
+                !e.target.closest('.dp-toolbar')) {
                 deselectAll();
             }
         });
@@ -102,41 +102,50 @@
         // Global drag handlers
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
+
+        // Fix-position page header and toolbar
+        setupFixedBars();
     }
 
     // ======================================================================
     // LAYOUT
     // ======================================================================
     function buildLayout() {
-        // Sidebar — shown in both modes so users can add fields
+        // Horizontal toolbar — sticky below the page action bar
         sidebarEl = document.createElement('div');
-        sidebarEl.className = 'dp-sidebar';
+        sidebarEl.className = 'dp-toolbar';
         buildSidebar();
         editorEl.appendChild(sidebarEl);
+
+        // Body row: optional fields panel (left) + canvas (right)
+        var bodyRow = document.createElement('div');
+        bodyRow.className = 'dp-body-row';
 
         // Quick fill sidebar (document mode only)
         if (C.mode === 'document') {
             quickFillEl = document.createElement('div');
             quickFillEl.className = 'dp-quick-fill-sidebar';
             buildQuickFill();
-            editorEl.appendChild(quickFillEl);
+            bodyRow.appendChild(quickFillEl);
         }
 
         // Canvas area
         canvasEl = document.createElement('div');
         canvasEl.className = 'dp-canvas-area';
-        editorEl.appendChild(canvasEl);
+        bodyRow.appendChild(canvasEl);
+
+        editorEl.appendChild(bodyRow);
     }
 
     function buildSidebar() {
-        var lbl = document.createElement('div');
-        lbl.className = 'dp-sidebar-label';
+        var lbl = document.createElement('span');
+        lbl.className = 'dp-toolbar-label';
         lbl.textContent = 'Fields';
         sidebarEl.appendChild(lbl);
 
         TYPES.forEach(function (t) {
             var btn = document.createElement('button');
-            btn.className = 'dp-sidebar-btn';
+            btn.className = 'dp-toolbar-btn';
             btn.dataset.type = t.type;
             if (t.strikethroughType) btn.dataset.strikeType = t.strikethroughType;
             btn.innerHTML = '<span class="dp-btn-icon">' + t.icon + '</span>' + t.label;
@@ -153,11 +162,11 @@
         // Signature Zones section (template mode only)
         if (C.mode === 'template') {
             var sep = document.createElement('div');
-            sep.style.cssText = 'height:1px;background:rgba(255,255,255,0.15);margin:8px 4px;';
+            sep.className = 'dp-toolbar-sep';
             sidebarEl.appendChild(sep);
 
-            var zoneLbl = document.createElement('div');
-            zoneLbl.className = 'dp-sidebar-label';
+            var zoneLbl = document.createElement('span');
+            zoneLbl.className = 'dp-toolbar-label';
             zoneLbl.textContent = 'Sign Zones';
             sidebarEl.appendChild(zoneLbl);
 
@@ -168,7 +177,7 @@
 
             ZONE_TYPES.forEach(function (zt) {
                 var btn = document.createElement('button');
-                btn.className = 'dp-sidebar-btn';
+                btn.className = 'dp-toolbar-btn';
                 btn.dataset.zoneType = zt.zoneType;
                 btn.innerHTML = '<span class="dp-btn-icon">' + zt.icon + '</span>' + zt.label;
                 btn.addEventListener('click', function () {
@@ -716,7 +725,7 @@
         placementMode = type;
         placementStrikeType = strikethroughType || null;
         editorEl.classList.add('dp-placement-active');
-        sidebarEl.querySelectorAll('.dp-sidebar-btn').forEach(function (b) {
+        sidebarEl.querySelectorAll('.dp-toolbar-btn').forEach(function (b) {
             var match = b.dataset.type === type;
             if (strikethroughType) match = match && b.dataset.strikeType === strikethroughType;
             b.classList.toggle('active', match);
@@ -728,14 +737,14 @@
         placementStrikeType = null;
         placementZoneType = null;
         editorEl.classList.remove('dp-placement-active');
-        if (sidebarEl) sidebarEl.querySelectorAll('.dp-sidebar-btn').forEach(function (b) { b.classList.remove('active'); });
+        if (sidebarEl) sidebarEl.querySelectorAll('.dp-toolbar-btn').forEach(function (b) { b.classList.remove('active'); });
     }
 
     function startZonePlacement(zoneType) {
         placementMode = 'zone';
         placementZoneType = zoneType;
         editorEl.classList.add('dp-placement-active');
-        sidebarEl.querySelectorAll('.dp-sidebar-btn').forEach(function (b) {
+        sidebarEl.querySelectorAll('.dp-toolbar-btn').forEach(function (b) {
             b.classList.toggle('active', b.dataset.zoneType === zoneType);
         });
     }
@@ -1829,6 +1838,80 @@
                 value: value
             })
         }).catch(function () { /* silent fail for debounced saves */ });
+    }
+
+    // ======================================================================
+    // FIXED HEADER + TOOLBAR POSITIONING
+    // ======================================================================
+    function setupFixedBars() {
+        var appScroll = document.getElementById('appScroll');
+        var sidebar = document.querySelector('aside');
+        var phWrap = document.getElementById('dp-page-header');
+        if (!phWrap) return;
+        var phEl = phWrap.firstElementChild; // the page-header component's outer div
+        if (!phEl) return;
+        var toolbar = sidebarEl; // the .dp-toolbar element created in buildLayout
+
+        // Insert spacer for page header (replaces its space in document flow)
+        var phSpacer = document.createElement('div');
+        phSpacer.id = 'dp-ph-spacer';
+        phWrap.parentNode.insertBefore(phSpacer, phWrap.nextSibling);
+
+        // Insert spacer for toolbar inside the editor layout
+        var tbSpacer = document.createElement('div');
+        tbSpacer.id = 'dp-tb-spacer';
+        if (toolbar && toolbar.parentNode) {
+            toolbar.parentNode.insertBefore(tbSpacer, toolbar.nextSibling);
+        }
+
+        function recalc() {
+            // Sidebar width: on desktop (>= 1024px) use actual width, on mobile 0
+            var sidebarWidth = 0;
+            if (window.innerWidth >= 1024 && sidebar) {
+                sidebarWidth = sidebar.getBoundingClientRect().width;
+            }
+
+            // Top offset: where #appScroll begins relative to viewport
+            var scrollTop = appScroll ? appScroll.getBoundingClientRect().top : 0;
+            var phHeight = 56; // h-14 = 3.5rem = 56px
+
+            // Fix page header
+            phEl.style.position = 'fixed';
+            phEl.style.top = scrollTop + 'px';
+            phEl.style.left = sidebarWidth + 'px';
+            phEl.style.right = '0';
+            phEl.style.zIndex = '40';
+            phEl.style.background = '#fff';
+            phEl.style.borderBottom = '1px solid #e5e7eb';
+            phEl.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+
+            // Spacer replaces header in flow
+            phSpacer.style.height = phHeight + 'px';
+
+            // Fix toolbar
+            if (toolbar) {
+                var tbHeight = toolbar.offsetHeight || 44;
+                toolbar.style.position = 'fixed';
+                toolbar.style.top = (scrollTop + phHeight) + 'px';
+                toolbar.style.left = sidebarWidth + 'px';
+                toolbar.style.right = '0';
+                toolbar.style.zIndex = '35';
+                toolbar.style.borderRadius = '0';
+
+                // Spacer replaces toolbar in editor flow
+                tbSpacer.style.height = tbHeight + 'px';
+            }
+        }
+
+        recalc();
+
+        // Recalculate on resize
+        window.addEventListener('resize', recalc);
+
+        // Watch sidebar for size changes (collapse/expand toggle)
+        if (sidebar && window.ResizeObserver) {
+            new ResizeObserver(recalc).observe(sidebar);
+        }
     }
 
     // ======================================================================
