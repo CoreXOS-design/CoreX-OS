@@ -131,4 +131,14 @@ class User extends Authenticatable
         return PermissionService::userHasAnyPermission($this, $keys);
     }
 
+    public function socialAccounts(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(AgentSocialAccount::class);
+    }
+
+    public function marketingPosts(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(PropertyMarketingPost::class);
+    }
+
 }
