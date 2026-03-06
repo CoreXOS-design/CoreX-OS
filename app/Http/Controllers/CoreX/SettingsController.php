@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\AgentSocialAccount;
 use App\Models\ContactType;
 use App\Models\Designation;
 use App\Models\PropertySettingItem;
@@ -29,6 +30,17 @@ class SettingsController extends Controller
         $data['designations'] = $user?->hasPermission('manage_designations')
             ? Designation::orderBy('sort_order')->orderBy('name')->get()
             : collect([]);
+
+        // User Settings tab: Social Media Accounts
+        if ($user) {
+            $data['agentSocialAccounts'] = AgentSocialAccount::where('user_id', $user->id)
+                ->active()
+                ->get();
+            $fbAccount = $data['agentSocialAccounts']->firstWhere('platform', 'facebook');
+            $data['socialAccountExpiringSoon'] = $fbAccount
+                && $fbAccount->token_expires_at
+                && $fbAccount->token_expires_at->lessThan(now()->addDays(7));
+        }
 
         // Feature Settings tab: Docuperfect
         $data['docTypes']    = DocumentType::orderBy('sort_order')->orderBy('name')->get();

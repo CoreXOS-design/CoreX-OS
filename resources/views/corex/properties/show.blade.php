@@ -150,6 +150,15 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                         Ad Builder
                     </a>
+                    @if(\Illuminate\Support\Facades\Route::has('corex.properties.marketing.index'))
+                    <a href="{{ route('corex.properties.marketing.index', $property) }}"
+                       class="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold no-underline transition-colors"
+                       style="background:rgba(24,119,242,0.12); color:#1877f2; border:1px solid rgba(24,119,242,0.3);"
+                       onmouseover="this.style.background='rgba(24,119,242,0.22)'" onmouseout="this.style.background='rgba(24,119,242,0.12)'">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
+                        Market Property
+                    </a>
+                    @endif
                 </div>
                 @endif
             </div>
