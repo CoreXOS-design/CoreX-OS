@@ -58,9 +58,14 @@ class PermissionService
      */
     public static function getDataScope(User $user, string $module): ?string
     {
+        // Owner's REAL role always gets full scope — even when using View As
+        if ($user->isOwnerRole()) {
+            return 'all';
+        }
+
         $role = $user->effectiveRole();
 
-        // Owner role always gets full scope
+        // Owner role always gets full scope (covers edge cases)
         $roleModel = Role::allRoles()->firstWhere('name', $role);
         if ($roleModel && $roleModel->is_owner) {
             return 'all';
@@ -92,9 +97,14 @@ class PermissionService
      */
     public static function userHasPermission(User $user, string $permissionKey): bool
     {
+        // Owner's REAL role always bypasses — even when using View As
+        if ($user->isOwnerRole()) {
+            return true;
+        }
+
         $role = $user->effectiveRole();
 
-        // Owner role bypasses all permission checks
+        // Owner role bypasses all permission checks (covers edge cases)
         $roleModel = Role::allRoles()->firstWhere('name', $role);
         if ($roleModel && $roleModel->is_owner) {
             return true;
