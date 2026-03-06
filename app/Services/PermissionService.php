@@ -50,6 +50,16 @@ class PermissionService
     }
 
     /**
+     * Return true if this role has no permissions configured at all.
+     * Used to give newly-created roles full access until explicitly restricted.
+     */
+    protected static function roleIsUnconfigured(string $role): bool
+    {
+        return empty(static::getPermissionsForRole($role))
+            && empty(static::getScopesForRole($role));
+    }
+
+    /**
      * Get the data scope for a user on a specific module.
      *
      * Looks up role_permissions where permission_key = '{module}.view'
@@ -83,7 +93,13 @@ class PermissionService
             };
         }
 
-        $scopes = static::getScopesForRole($role);
+        // If this specific role has no permissions configured yet, give full scope
+        // (matches the userHasPermission fallback for newly created roles)
+        if (static::roleIsUnconfigured($role)) {
+            return 'all';
+        }
+
+        $scopes  = static::getScopesForRole($role);
         $viewKey = $module . '.view';
 
         return $scopes[$viewKey] ?? null;
@@ -118,15 +134,22 @@ class PermissionService
             return true;
         }
 
+        // If this specific role has no permissions configured yet (e.g. newly created via
+        // the Role Manager before any permissions are saved), allow full access so the
+        // role isn't silently broken. Admins can then lock it down in the Role Manager.
+        if (static::roleIsUnconfigured($role)) {
+            return true;
+        }
+
+        $permissions = static::getPermissionsForRole($role);
+        $scopes      = static::getScopesForRole($role);
+
         // For {module}.view keys, check scope instead of simple presence
         if (str_ends_with($permissionKey, '.view')) {
-            $scopes = static::getScopesForRole($role);
             if (isset($scopes[$permissionKey])) {
                 return true;
             }
         }
-
-        $permissions = static::getPermissionsForRole($role);
 
         return in_array($permissionKey, $permissions, true);
     }

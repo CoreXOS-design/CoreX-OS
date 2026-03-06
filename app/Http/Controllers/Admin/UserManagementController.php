@@ -159,7 +159,7 @@ class UserManagementController extends Controller
         }
 
         $user->role = $role;
-        $user->is_admin = ($role === 'admin') ? 1 : 0;
+        $user->is_admin = in_array($role, ['admin', 'super_admin']) ? 1 : 0;
         $user->branch_id = $branchId;
 
         // Designation (blank => NULL)

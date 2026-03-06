@@ -337,27 +337,23 @@ html.dark #rm-root .bg-slate-100 { background: #1a1e28 !important; }
 
                 </div>
 
-                {{-- Hidden inputs to submit ALL role data (not just the selected one) --}}
+                {{-- Hidden inputs — SELECTED ROLE only to stay under PHP max_input_vars (1000) --}}
+                {{-- savePermissions does per-role delete+insert; other roles are untouched --}}
                 <div class="hidden">
-                    @foreach($roles as $role)
-                        @foreach($permissions as $perm)
-                            @if($perm->type === 'action' && str_ends_with($perm->key, '.view'))
-                                {{-- For .view action permissions, submit based on scope (scope != 'none' means granted) --}}
-                                <input type="hidden"
-                                       name="permissions[{{ $perm->key }}][{{ $role->name }}]"
-                                       :value="scopeMatrix['{{ $perm->key }}']?.['{{ $role->name }}'] && scopeMatrix['{{ $perm->key }}']['{{ $role->name }}'] !== 'none' ? '1' : '0'"
-                                       x-bind:value="scopeMatrix['{{ $perm->key }}']?.['{{ $role->name }}'] && scopeMatrix['{{ $perm->key }}']['{{ $role->name }}'] !== 'none' ? '1' : '0'">
-                                <input type="hidden"
-                                       name="scopes[{{ $perm->key }}][{{ $role->name }}]"
-                                       :value="scopeMatrix['{{ $perm->key }}']?.['{{ $role->name }}'] || 'none'"
-                                       x-bind:value="scopeMatrix['{{ $perm->key }}']?.['{{ $role->name }}'] || 'none'">
-                            @else
-                                <input type="hidden"
-                                       name="permissions[{{ $perm->key }}][{{ $role->name }}]"
-                                       :value="matrix['{{ $perm->key }}']?.['{{ $role->name }}'] ? '1' : '0'"
-                                       x-bind:value="matrix['{{ $perm->key }}']?.['{{ $role->name }}'] ? '1' : '0'">
-                            @endif
-                        @endforeach
+                    <input type="hidden" name="role" :value="selectedRole">
+                    @foreach($permissions as $perm)
+                        @if($perm->type === 'action' && str_ends_with($perm->key, '.view'))
+                            <input type="hidden"
+                                   name="permissions[{{ $perm->key }}]"
+                                   :value="scopeMatrix['{{ $perm->key }}']?.[selectedRole] && scopeMatrix['{{ $perm->key }}'][selectedRole] !== 'none' ? '1' : '0'">
+                            <input type="hidden"
+                                   name="scopes[{{ $perm->key }}]"
+                                   :value="scopeMatrix['{{ $perm->key }}']?.[selectedRole] || 'none'">
+                        @else
+                            <input type="hidden"
+                                   name="permissions[{{ $perm->key }}]"
+                                   :value="matrix['{{ $perm->key }}']?.[selectedRole] ? '1' : '0'">
+                        @endif
                     @endforeach
                 </div>
 

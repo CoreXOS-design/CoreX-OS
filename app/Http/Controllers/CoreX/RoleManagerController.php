@@ -181,42 +181,42 @@ class RoleManagerController extends Controller
     public function savePermissions(Request $request)
     {
         $request->validate([
+            'role'          => ['required', Rule::in(Role::where('is_owner', false)->pluck('name'))],
             'permissions'   => 'nullable|array',
-            'permissions.*' => 'array',
+            'permissions.*' => 'string',
             'scopes'        => 'nullable|array',
-            'scopes.*'      => 'array',
+            'scopes.*'      => 'string',
         ]);
 
-        $validRoles = Role::roleNames();
+        $role = $request->input('role');
 
-        // Wipe existing and rebuild
-        RolePermission::truncate();
+        // Delete only this role's permissions, then rebuild — preserves all other roles.
+        // (Replacing truncate-all so form only needs to submit one role's data,
+        //  keeping the POST payload under PHP's max_input_vars limit.)
+        RolePermission::where('role', $role)->delete();
 
         $matrix = $request->input('permissions', []);
-        $scopes = $request->input('scopes', []);
-        $rows = [];
-        $now = now();
+        $scopes  = $request->input('scopes', []);
+        $rows    = [];
+        $now     = now();
 
-        foreach ($matrix as $permKey => $roles) {
-            foreach ($roles as $role => $on) {
-                if ($on && in_array($role, $validRoles)) {
-                    // For .view keys, attach the scope value
-                    $scope = null;
-                    if (str_ends_with($permKey, '.view') && isset($scopes[$permKey][$role])) {
-                        $scopeVal = $scopes[$permKey][$role];
-                        if (in_array($scopeVal, ['own', 'branch', 'all'])) {
-                            $scope = $scopeVal;
-                        }
+        foreach ($matrix as $permKey => $on) {
+            if ($on && $on !== '0') {
+                $scope = null;
+                if (str_ends_with($permKey, '.view') && isset($scopes[$permKey])) {
+                    $scopeVal = $scopes[$permKey];
+                    if (in_array($scopeVal, ['own', 'branch', 'all'])) {
+                        $scope = $scopeVal;
                     }
-
-                    $rows[] = [
-                        'role'           => $role,
-                        'permission_key' => $permKey,
-                        'scope'          => $scope,
-                        'created_at'     => $now,
-                        'updated_at'     => $now,
-                    ];
                 }
+
+                $rows[] = [
+                    'role'           => $role,
+                    'permission_key' => $permKey,
+                    'scope'          => $scope,
+                    'created_at'     => $now,
+                    'updated_at'     => $now,
+                ];
             }
         }
 
