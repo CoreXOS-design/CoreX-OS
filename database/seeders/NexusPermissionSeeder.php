@@ -209,6 +209,13 @@ class NexusPermissionSeeder extends Seeder
             ['key' => 'properties.edit',             'label' => 'Edit',                        'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 12],
             ['key' => 'properties.archive',          'label' => 'Archive',                     'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 13],
 
+            // ── Contacts ──
+            ['key' => 'access_contacts',             'label' => 'Access Contacts',             'section' => 'contacts',         'type' => 'access',  'module' => 'contacts',         'sort_order' => 1],
+            ['key' => 'contacts.view',               'label' => 'View',                        'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 10],
+            ['key' => 'contacts.create',             'label' => 'Create',                      'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 11],
+            ['key' => 'contacts.edit',               'label' => 'Edit',                        'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 12],
+            ['key' => 'contacts.archive',            'label' => 'Archive',                     'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 13],
+
             // ── Calculators / Tools ──
             ['key' => 'access_calculators',          'label' => 'Access Calculators & Tools',  'section' => 'calculators',      'type' => 'access',  'module' => 'calculators',      'sort_order' => 1],
 
@@ -348,6 +355,9 @@ class NexusPermissionSeeder extends Seeder
                 // Properties
                 'access_properties', 'create_properties', 'publish_properties', 'delete_properties',
                 'properties.view', 'properties.create', 'properties.edit',
+                // Contacts
+                'access_contacts',
+                'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
                 // P24
                 'p24.view',
                 // Knowledge
@@ -413,6 +423,9 @@ class NexusPermissionSeeder extends Seeder
                 // Properties
                 'access_properties', 'create_properties',
                 'properties.view', 'properties.create', 'properties.edit',
+                // Contacts
+                'access_contacts',
+                'contacts.view', 'contacts.create', 'contacts.edit',
                 // P24
                 'p24.view',
                 // Knowledge
@@ -452,6 +465,8 @@ class NexusPermissionSeeder extends Seeder
                 'access_calculators', 'access_ellie',
                 // Properties
                 'access_properties', 'properties.view',
+                // Contacts
+                'access_contacts', 'contacts.view',
                 // P24
                 'p24.view',
                 // Knowledge

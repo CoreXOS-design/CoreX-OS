@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\AgentSocialAccount;
 use App\Models\ContactType;
 use App\Models\Designation;
 use App\Models\PropertySettingItem;
@@ -30,6 +31,17 @@ class SettingsController extends Controller
             ? Designation::orderBy('sort_order')->orderBy('name')->get()
             : collect([]);
 
+        // User Settings tab: Social Media Accounts
+        if ($user) {
+            $data['agentSocialAccounts'] = AgentSocialAccount::where('user_id', $user->id)
+                ->active()
+                ->get();
+            $fbAccount = $data['agentSocialAccounts']->firstWhere('platform', 'facebook');
+            $data['socialAccountExpiringSoon'] = $fbAccount
+                && $fbAccount->token_expires_at
+                && $fbAccount->token_expires_at->lessThan(now()->addDays(7));
+        }
+
         // Feature Settings tab: Docuperfect
         $data['docTypes']    = DocumentType::orderBy('sort_order')->orderBy('name')->get();
         $data['namedFields'] = NamedField::orderBy('sort_order')->orderBy('name')->get();
@@ -46,6 +58,9 @@ class SettingsController extends Controller
         $data['propTypes']        = PropertySettingItem::group('property_type')->get();
         $data['propStatuses']     = PropertySettingItem::group('property_status')->get();
         $data['propMandateTypes'] = PropertySettingItem::group('mandate_type')->get();
+
+        // Feature Settings tab: Properties — marketing toggle
+        $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
 
         // Agency Settings tab: Company / Performance Settings
         if ($user?->hasPermission('manage_performance_settings')) {
@@ -131,6 +146,13 @@ class SettingsController extends Controller
         }
         $item->delete();
         return back()->with('success', 'Item deleted.')->with('tab', 'feature')->with('fsec', 'properties');
+    }
+
+    public function updateMarketingEnabled(Request $request)
+    {
+        $enabled = $request->boolean('marketing_enabled');
+        PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => $enabled ? 1 : 0]);
+        return back()->with('success', 'Marketing setting updated.')->with('tab', 'feature')->with('fsec', 'properties');
     }
 
     public function generateApiToken(Request $request)

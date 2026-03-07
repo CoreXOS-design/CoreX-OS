@@ -103,7 +103,7 @@
 
             {{-- Clear agent filter --}}
             @if($selectedAgent)
-            <a href="{{ route('corex.properties.index', ['status' => $status, 'search' => $search]) }}"
+            <a href="{{ route('corex.properties.index', ['status' => $status, 'search' => $search, 'agent_id' => '']) }}"
                class="ml-1 inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
                style="background:#fee2e2;color:#991b1b;" title="Clear agent filter">&times;</a>
             @endif
@@ -137,7 +137,7 @@
                 {{-- Agent list --}}
                 <div style="max-height:260px;overflow-y:auto;">
                     {{-- All agents option --}}
-                    <a href="{{ route('corex.properties.index', ['status' => $status, 'search' => $search]) }}"
+                    <a href="{{ route('corex.properties.index', ['status' => $status, 'search' => $search, 'agent_id' => '']) }}"
                        class="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold"
                        style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">

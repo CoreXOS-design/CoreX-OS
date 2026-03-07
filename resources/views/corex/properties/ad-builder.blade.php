@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800,900&display=swap" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; overflow: hidden; }
@@ -176,6 +177,14 @@
             <a :href="useOnPropertyUrl" class="tb-btn" style="color:rgba(255,255,255,0.6);">
                 Use on Property →
             </a>
+        </template>
+
+        {{-- Export for Marketing (only when opened from marketing hub) --}}
+        <template x-if="savedId && returnMarketingPropertyId">
+            <button class="tb-btn primary" @click="exportForMarketing()" :disabled="exporting">
+                <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282"/></svg>
+                <span x-text="exporting ? 'Exporting…' : 'Use for Marketing'"></span>
+            </button>
         </template>
     </div>
 </div>
@@ -523,6 +532,8 @@ function builder() {
         canvasPreset: existingTemplate?.layout_json?.canvasPreset || 'facebook',
         savedId:      existingTemplate?.id || null,
         saving:       false,
+        exporting:    false,
+        returnMarketingPropertyId: new URLSearchParams(window.location.search).get('return_marketing') || null,
         selectedIndex: -1,
 
         // Drag state
@@ -743,6 +754,39 @@ function builder() {
                 this.toast('Error: ' + (err?.message || 'unknown'));
             } finally {
                 this.saving = false;
+            }
+        },
+
+        // ── EXPORT FOR MARKETING ──
+        async exportForMarketing() {
+            if (!this.savedId || !this.returnMarketingPropertyId) return;
+            this.exporting = true;
+            try {
+                const canvas = await html2canvas(document.getElementById('canvas'), {
+                    useCORS:     true,
+                    allowTaint:  false,
+                    scale:       1,
+                    logging:     false,
+                    backgroundColor: this.canvasBg || '#071325',
+                });
+                const dataUrl = canvas.toDataURL('image/png');
+
+                const res  = await fetch('{{ route('corex.marketing.upload-template-image') }}', {
+                    method:  'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({ image: dataUrl }),
+                });
+                const json = await res.json();
+                if (!res.ok || !json.ok) throw new Error(json.error || 'Upload failed');
+
+                const returnUrl = `/corex/properties/${this.returnMarketingPropertyId}/marketing?marketing_img=${encodeURIComponent(json.url)}&media_tab=photos`;
+                window.location.href = returnUrl;
+            } catch(err) {
+                this.toast('Export failed: ' + (err?.message || 'unknown'));
+                this.exporting = false;
             }
         },
 

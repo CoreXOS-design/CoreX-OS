@@ -111,6 +111,82 @@
         </template>
     </div>
 
+    {{-- Social Media Accounts --}}
+    @if(\Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
+    @php
+        $fbSocial = $socialAccounts->firstWhere('platform', 'facebook');
+        $igSocial = $socialAccounts->firstWhere('platform', 'instagram');
+    @endphp
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:20px 24px;">
+        <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); border-left:3px solid #00b4d8; padding-left:12px; margin:0 0 6px;">Social Media Accounts</h3>
+        <p style="font-size:0.8rem; color:var(--text-secondary); margin:0 0 20px;">Connect your <strong>Facebook Page</strong> or Instagram Business account to publish property listings directly from CoreX. Facebook requires a Page (not a personal profile) — create one at facebook.com/pages/create if you don't have one yet.</p>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
+
+            {{-- Facebook --}}
+            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:16px;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+                    <div style="width:40px; height:40px; border-radius:10px; background:#1877f222; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#1877f2" style="width:20px; height:20px;"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-size:0.875rem; font-weight:600; color:var(--text-primary);">Facebook</div>
+                        @if($fbSocial)
+                        <div style="font-size:0.75rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ $fbSocial->platform_page_name }}</div>
+                        <span style="display:inline-block; font-size:0.625rem; font-weight:700; padding:2px 8px; border-radius:20px; background:rgba(34,197,94,0.12); color:#22c55e; margin-top:2px;">Connected</span>
+                        @else
+                        <span style="display:inline-block; font-size:0.625rem; font-weight:700; padding:2px 8px; border-radius:20px; background:rgba(148,163,184,0.12); color:var(--text-muted); margin-top:2px;">Not Connected</span>
+                        @endif
+                    </div>
+                </div>
+                @if($fbSocial)
+                <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">
+                    @csrf
+                    <input type="hidden" name="platform" value="facebook">
+                    <button type="submit" style="font-size:0.75rem; padding:6px 14px; border-radius:8px; font-weight:500; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2); cursor:pointer;">Disconnect</button>
+                </form>
+                @else
+                <a href="{{ route('corex.social.oauth.redirect', ['platform' => 'facebook']) }}"
+                   style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; padding:6px 14px; border-radius:8px; font-weight:600; background:#1877f2; color:#fff; text-decoration:none;">
+                    Connect Facebook
+                </a>
+                @endif
+            </div>
+
+            {{-- Instagram --}}
+            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:12px; padding:16px;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+                    <div style="width:40px; height:40px; border-radius:10px; background:#e1306c22; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e1306c" style="width:20px; height:20px;"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-size:0.875rem; font-weight:600; color:var(--text-primary);">Instagram</div>
+                        @if($igSocial)
+                        <div style="font-size:0.75rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ $igSocial->platform_page_name }}</div>
+                        <span style="display:inline-block; font-size:0.625rem; font-weight:700; padding:2px 8px; border-radius:20px; background:rgba(34,197,94,0.12); color:#22c55e; margin-top:2px;">Connected</span>
+                        @else
+                        <span style="display:inline-block; font-size:0.625rem; font-weight:700; padding:2px 8px; border-radius:20px; background:rgba(148,163,184,0.12); color:var(--text-muted); margin-top:2px;">Not Connected</span>
+                        @endif
+                    </div>
+                </div>
+                @if($igSocial)
+                <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">
+                    @csrf
+                    <input type="hidden" name="platform" value="instagram">
+                    <button type="submit" style="font-size:0.75rem; padding:6px 14px; border-radius:8px; font-weight:500; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2); cursor:pointer;">Disconnect</button>
+                </form>
+                @else
+                <a href="{{ route('corex.social.oauth.redirect', ['platform' => 'instagram']) }}"
+                   style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; padding:6px 14px; border-radius:8px; font-weight:600; background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888); color:#fff; text-decoration:none;">
+                    Connect Instagram
+                </a>
+                @endif
+            </div>
+
+        </div>
+    </div>
+    @endif
+
     {{-- Agent Documents (read-only) --}}
     @if($user->agent_photo_path || $user->ffc_certificate_path)
     <div style="background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:20px 24px;">

@@ -12,8 +12,8 @@ class ImpersonateController extends Controller
     {
         $admin = Auth::user();
 
-        // Admin-only
-        if (!$admin || !($admin->is_admin ?? false)) {
+        // Only owner role or users with impersonate_users permission
+        if (!$admin || !($admin->isOwnerRole() || $admin->hasPermission('impersonate_users'))) {
             abort(403);
         }
 

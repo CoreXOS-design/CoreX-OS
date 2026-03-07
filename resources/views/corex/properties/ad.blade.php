@@ -241,12 +241,22 @@ $propertyData = [
         </button>
 
         {{-- Download --}}
-        <button @click="download()" :disabled="generating"
+        <button @click="download()" :disabled="generating || exporting"
                 style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#e63946;border:none;color:#fff;font-family:inherit;transition:opacity 0.12s;"
                 onmouseover="if(!this.disabled)this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
             <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
             <span x-text="generating ? 'Generating…' : 'Download PNG'"></span>
         </button>
+
+        {{-- Use for Marketing (only shown when coming from the hub) --}}
+        <template x-if="returnMarketing">
+            <button @click="exportForMarketing()" :disabled="generating || exporting"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:#00b4d8;border:none;color:#fff;font-family:inherit;transition:opacity 0.12s;"
+                    onmouseover="if(!this.disabled)this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                <svg style="width:14px;height:14px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+                <span x-text="exporting ? 'Sending…' : 'Use for Marketing'"></span>
+            </button>
+        </template>
     </div>
 
     {{-- Preview --}}
@@ -296,6 +306,8 @@ function adApp(savedTemplates, propertyData) {
         template: null,
         platform: 'facebook',
         generating: false,
+        exporting: false,
+        returnMarketing: new URLSearchParams(window.location.search).get('return_marketing') || null,
         platforms,
         savedTemplates: savedTemplates || [],
         propertyData:   propertyData   || {},
@@ -411,6 +423,47 @@ function adApp(savedTemplates, propertyData) {
 
                 root.appendChild(div);
             });
+        },
+
+        async exportForMarketing() {
+            if (!this.returnMarketing) return;
+            this.exporting = true;
+            try {
+                const wrapper = document.getElementById('ad-scale-wrapper');
+                const canvas  = document.getElementById('ad-canvas');
+                const cfg     = this.cfg;
+                const bgColor = (this.template === 'custom' && this._customLayout?.canvasBg) ? this._customLayout.canvasBg : '#071325';
+
+                if (this.template === 'custom' && this._customLayout) {
+                    canvas.style.width  = (this._customLayout.canvasW || 1200) + 'px';
+                    canvas.style.height = (this._customLayout.canvasH || 628) + 'px';
+                }
+
+                const saved = wrapper.style.transform;
+                wrapper.style.transform = 'none';
+                await new Promise(r => setTimeout(r, 80));
+
+                const c = await html2canvas(canvas, {
+                    width: cfg.w, height: cfg.h, scale: 2,
+                    useCORS: true, allowTaint: false,
+                    backgroundColor: bgColor, logging: false,
+                });
+
+                wrapper.style.transform = saved;
+
+                const dataUrl = c.toDataURL('image/png');
+                const res = await fetch('{{ route('corex.marketing.upload-template-image') }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                    body: JSON.stringify({ image: dataUrl }),
+                });
+                const json = await res.json();
+                if (!res.ok || !json.ok) throw new Error(json.error || 'Upload failed');
+                window.location.href = `/corex/properties/${this.returnMarketing}/marketing?marketing_img=${encodeURIComponent(json.url)}&media_tab=photos`;
+            } catch(err) {
+                alert('Export failed: ' + (err?.message || 'unknown'));
+                this.exporting = false;
+            }
         },
 
         async download() {

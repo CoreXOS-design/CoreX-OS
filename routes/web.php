@@ -528,6 +528,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware('permission:access_settings')->name('corex.settings');
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->middleware('permission:access_settings')->name('corex.settings.generate-token');
+    Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
 
     // Role Manager
     Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware('permission:access_role_manager')->name('corex.role-manager');
@@ -577,6 +578,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/contacts/link',        [\App\Http\Controllers\CoreX\PropertyContactController::class, 'link'])->name('contacts.link');
         Route::post('/{property}/contacts/create-link', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'createAndLink'])->name('contacts.createAndLink');
         Route::delete('/{property}/contacts/{contact}', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'unlink'])->name('contacts.unlink');
+        // Marketing
+        Route::get('/{property}/marketing',              [\App\Http\Controllers\PropertyMarketingController::class, 'index'])->name('marketing.index');
+        Route::post('/{property}/marketing/generate-copy', [\App\Http\Controllers\PropertyMarketingController::class, 'generateCopy'])->name('marketing.generateCopy');
+        Route::post('/{property}/marketing/publish',     [\App\Http\Controllers\PropertyMarketingController::class, 'publish'])->name('marketing.publish');
     });
 
     // Ad Template Builder
@@ -626,6 +631,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/batch-toggle/{group}', [\App\Http\Controllers\CoreX\SettingsController::class, 'batchToggleDefaultItems'])->name('batch-toggle');
         Route::delete('/{item}',           [\App\Http\Controllers\CoreX\SettingsController::class, 'destroyPropertySettingItem'])->name('destroy');
     });
+
+    // Marketing: post insights sync + social account disconnect
+    Route::post('/marketing/posts/{post}/sync-insights', [\App\Http\Controllers\PropertyMarketingController::class, 'syncInsights'])->name('corex.marketing.sync-insights');
+    Route::post('/marketing/social/disconnect', [\App\Http\Controllers\PropertyMarketingController::class, 'disconnectAccount'])->name('corex.marketing.social.disconnect');
+    Route::post('/marketing/upload-template-image', [\App\Http\Controllers\PropertyMarketingController::class, 'uploadTemplateImage'])->name('corex.marketing.upload-template-image');
+
+    // Social OAuth
+    Route::get('/social/oauth/redirect', [\App\Http\Controllers\PropertyMarketingController::class, 'oauthRedirect'])->name('corex.social.oauth.redirect');
+    Route::get('/social/oauth/callback', [\App\Http\Controllers\PropertyMarketingController::class, 'oauthCallback'])->name('corex.social.oauth.callback');
 });
 
 
