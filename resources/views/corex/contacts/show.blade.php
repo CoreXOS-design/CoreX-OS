@@ -190,6 +190,64 @@
                     </div>
                 </div>
 
+                {{-- Banking Details (collapsible) --}}
+                <div x-data="{ open: {{ ($contact->bank_name || $contact->bank_account_name || $contact->bank_account_number || $contact->bank_branch_name || $contact->bank_branch_code || $contact->bank_account_type) ? 'true' : 'false' }} }">
+                    <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left mb-4">
+                        <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Banking Details</h3>
+                        <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                    </button>
+                    <div x-show="open" x-cloak>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Bank Name</label>
+                                <input type="text" name="bank_name" value="{{ old('bank_name', $contact->bank_name) }}"
+                                       placeholder="e.g. FNB"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Name</label>
+                                <input type="text" name="bank_account_name" value="{{ old('bank_account_name', $contact->bank_account_name) }}"
+                                       placeholder="Account holder name"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Number</label>
+                                <input type="text" name="bank_account_number" value="{{ old('bank_account_number', $contact->bank_account_number) }}"
+                                       placeholder="e.g. 62000000000"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Name</label>
+                                <input type="text" name="bank_branch_name" value="{{ old('bank_branch_name', $contact->bank_branch_name) }}"
+                                       placeholder="e.g. Margate"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Code</label>
+                                <input type="text" name="bank_branch_code" value="{{ old('bank_branch_code', $contact->bank_branch_code) }}"
+                                       placeholder="e.g. 210835"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Type</label>
+                                <select name="bank_account_type"
+                                        class="w-full rounded-lg px-3 py-2 text-sm"
+                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="">— Select —</option>
+                                    @foreach(['Savings', 'Cheque/Current', 'Transmission'] as $atype)
+                                        <option value="{{ $atype }}" {{ old('bank_account_type', $contact->bank_account_type) === $atype ? 'selected' : '' }}>{{ $atype }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 {{-- General Notes --}}
                 <div>
                     <h3 class="text-xs font-bold uppercase tracking-widest mb-4" style="color:var(--text-muted);">General Notes</h3>

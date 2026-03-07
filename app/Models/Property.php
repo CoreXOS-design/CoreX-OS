@@ -21,15 +21,24 @@ class Property extends Model
         'rates_taxes',
         'levy',
         'special_levy',
+        'rental_amount',
+        'deposit_amount',
+        'commission_percent',
+        'admin_fee',
+        'marketing_fee',
         'city',
         'suburb',
         'address',
         'region',
+        'district',
         'beds',
         'baths',
         'garages',
         'size_m2',
         'erf_size_m2',
+        'property_number',
+        'complex_name',
+        'unit_number',
         'property_type',
         'category',
         'mandate_type',
@@ -47,6 +56,8 @@ class Property extends Model
         'published_at',
         'listed_date',
         'expiry_date',
+        'lease_start_date',
+        'lease_end_date',
     ];
 
     protected $casts = [
@@ -64,6 +75,13 @@ class Property extends Model
         'special_levy'        => 'integer',
         'listed_date'         => 'date',
         'expiry_date'         => 'date',
+        'lease_start_date'    => 'date',
+        'lease_end_date'      => 'date',
+        'rental_amount'       => 'float',
+        'deposit_amount'      => 'float',
+        'commission_percent'  => 'float',
+        'admin_fee'           => 'float',
+        'marketing_fee'       => 'float',
     ];
 
     protected static function boot(): void

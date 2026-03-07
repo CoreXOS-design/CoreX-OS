@@ -13,6 +13,8 @@ class Contact extends Model
         'contact_type_id', 'created_by_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
         'birthday', 'id_number', 'address',
+        'bank_name', 'bank_account_name', 'bank_account_number',
+        'bank_branch_name', 'bank_branch_code', 'bank_account_type',
     ];
 
     protected $casts = [

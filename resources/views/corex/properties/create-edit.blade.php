@@ -236,6 +236,82 @@
             </div>
         </div>
 
+        {{-- ── Rental & Lease Details (collapsible) ──────────────────────────── --}}
+        <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-5" x-data="{ open: false }">
+            <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left">
+                <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-primary,#0b2a4a);">Rental & Lease Details</h3>
+                <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            </button>
+            <div x-show="open" x-cloak class="space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Property / Erf Number</label>
+                        <input type="text" name="property_number" value="{{ old('property_number', $property?->property_number) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="e.g. Erf 789">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Complex Name</label>
+                        <input type="text" name="complex_name" value="{{ old('complex_name', $property?->complex_name) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="e.g. Ocean View">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Unit Number</label>
+                        <input type="text" name="unit_number" value="{{ old('unit_number', $property?->unit_number) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="e.g. 14">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">District / Municipality</label>
+                        <input type="text" name="district" value="{{ old('district', $property?->district) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="e.g. Ray Nkonyeni">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Monthly Rental (R)</label>
+                        <input type="number" name="rental_amount" value="{{ old('rental_amount', $property?->rental_amount) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="0.00" min="0" step="0.01">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Deposit (R)</label>
+                        <input type="number" name="deposit_amount" value="{{ old('deposit_amount', $property?->deposit_amount) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="0.00" min="0" step="0.01">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Commission (%)</label>
+                        <input type="number" name="commission_percent" value="{{ old('commission_percent', $property?->commission_percent) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="0.00" min="0" max="100" step="0.01">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Admin Fee (R)</label>
+                        <input type="number" name="admin_fee" value="{{ old('admin_fee', $property?->admin_fee) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="0.00" min="0" step="0.01">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Marketing Fee (R)</label>
+                        <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property?->marketing_fee) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="0.00" min="0" step="0.01">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Lease Start Date</label>
+                        <input type="date" name="lease_start_date" value="{{ old('lease_start_date', $property?->lease_start_date?->format('Y-m-d')) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1 text-slate-700">Lease End Date</label>
+                        <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property?->lease_end_date?->format('Y-m-d')) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {{-- ── Publish ───────────────────────────────────────────────────────── --}}
         <div class="rounded-2xl border border-slate-200 bg-white px-6 py-4">
             <div class="flex items-start gap-3">

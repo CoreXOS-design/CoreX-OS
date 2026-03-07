@@ -113,6 +113,12 @@ class ContactController extends Controller
             'birthday'        => 'nullable|date',
             'id_number'       => 'nullable|string|max:20',
             'address'         => 'nullable|string|max:500',
+            'bank_name'           => 'nullable|string|max:255',
+            'bank_account_name'   => 'nullable|string|max:255',
+            'bank_account_number' => 'nullable|string|max:100',
+            'bank_branch_name'    => 'nullable|string|max:255',
+            'bank_branch_code'    => 'nullable|string|max:50',
+            'bank_account_type'   => 'nullable|string|max:50',
         ]);
 
         $contact->update($data);

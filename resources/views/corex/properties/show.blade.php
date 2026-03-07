@@ -958,6 +958,93 @@
                     </div>
                 </div>
 
+                {{-- Rental & Lease Details (collapsible) --}}
+                <div x-data="{ open: {{ ($property->rental_amount || $property->property_number || $property->complex_name || $property->unit_number || $property->district || $property->deposit_amount || $property->commission_percent || $property->admin_fee || $property->marketing_fee || $property->lease_start_date || $property->lease_end_date) ? 'true' : 'false' }} }">
+                    <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left mb-4">
+                        <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Rental & Lease Details</h3>
+                        <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                    </button>
+                    <div x-show="open" x-cloak class="space-y-4">
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property / Erf Number</label>
+                                <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}"
+                                       placeholder="e.g. Erf 789"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Complex Name</label>
+                                <input type="text" name="complex_name" value="{{ old('complex_name', $property->complex_name) }}"
+                                       placeholder="e.g. Ocean View"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Unit Number</label>
+                                <input type="text" name="unit_number" value="{{ old('unit_number', $property->unit_number) }}"
+                                       placeholder="e.g. 14"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
+                                <input type="text" name="district" value="{{ old('district', $property->district) }}"
+                                       placeholder="e.g. Ray Nkonyeni"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Monthly Rental (R)</label>
+                                <input type="number" name="rental_amount" value="{{ old('rental_amount', $property->rental_amount) }}"
+                                       placeholder="0.00" min="0" step="0.01"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Deposit (R)</label>
+                                <input type="number" name="deposit_amount" value="{{ old('deposit_amount', $property->deposit_amount) }}"
+                                       placeholder="0.00" min="0" step="0.01"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Commission (%)</label>
+                                <input type="number" name="commission_percent" value="{{ old('commission_percent', $property->commission_percent) }}"
+                                       placeholder="0.00" min="0" max="100" step="0.01"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Admin Fee (R)</label>
+                                <input type="number" name="admin_fee" value="{{ old('admin_fee', $property->admin_fee) }}"
+                                       placeholder="0.00" min="0" step="0.01"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Marketing Fee (R)</label>
+                                <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}"
+                                       placeholder="0.00" min="0" step="0.01"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Lease Start Date</label>
+                                <input type="date" name="lease_start_date" value="{{ old('lease_start_date', $property->lease_start_date?->format('Y-m-d')) }}"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Lease End Date</label>
+                                <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </form>{{-- /prop-update-form --}}
 
             {{-- Save / Delete — outside the update form to prevent nesting --}}
