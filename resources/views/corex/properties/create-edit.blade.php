@@ -4,7 +4,7 @@
 <div class="max-w-3xl mx-auto space-y-5">
 
     {{-- Header --}}
-    <div class="rounded-2xl px-6 py-4" style="background:var(--brand-primary, #0b2a4a);">
+    <div class="rounded-2xl px-6 py-4" style="background:var(--brand-default, #0b2a4a);">
         <h2 class="text-xl font-bold text-white">{{ $property ? 'Edit Property' : 'New Property Listing' }}</h2>
         <div class="text-sm mt-0.5" style="color:rgba(255,255,255,0.6);">
             {{ $property ? "Editing: {$property->title}" : 'Add a new listing to Nexus.' }}
@@ -30,7 +30,7 @@
 
         {{-- ── Core Details ──────────────────────────────────────────────────── --}}
         <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
-            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-primary,#0b2a4a);">Listing Details</h3>
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-default,#0b2a4a);">Listing Details</h3>
 
             {{-- Title --}}
             <div>
@@ -105,7 +105,7 @@
 
         {{-- ── Description ──────────────────────────────────────────────────── --}}
         <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
-            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-primary,#0b2a4a);">Description</h3>
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-default,#0b2a4a);">Description</h3>
 
             <div>
                 <label class="block text-sm font-semibold mb-1 text-slate-700">Excerpt <span class="text-xs font-normal text-slate-400">(short summary, max 500 chars)</span></label>
@@ -124,7 +124,7 @@
 
         {{-- ── Gallery Images ────────────────────────────────────────────────── --}}
         <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
-            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-primary,#0b2a4a);">Image Gallery</h3>
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-default,#0b2a4a);">Image Gallery</h3>
             <p class="text-xs text-slate-400">Max 5 MB per image. After saving you can manage, reorder and delete images from the property's Gallery tab.</p>
 
             @php $existingGallery = $property ? ($property->gallery_images_json ?? []) : []; @endphp
@@ -191,7 +191,7 @@
 
         {{-- ── Meta ─────────────────────────────────────────────────────────── --}}
         <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
-            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-primary,#0b2a4a);">Additional Info</h3>
+            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-default,#0b2a4a);">Additional Info</h3>
 
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
@@ -239,7 +239,7 @@
         {{-- ── Rental & Lease Details (collapsible) ──────────────────────────── --}}
         <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-5" x-data="{ open: false }">
             <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left">
-                <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-primary,#0b2a4a);">Rental & Lease Details</h3>
+                <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-default,#0b2a4a);">Rental & Lease Details</h3>
                 <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
             </button>
             <div x-show="open" x-cloak class="space-y-4">
@@ -320,7 +320,7 @@
                        {{ ($property && $property->isPublished()) ? 'checked' : '' }}
                        {{ ($property && $property->isPublished()) ? 'disabled' : '' }}
                        class="w-4 h-4 mt-0.5 rounded border-slate-300 cursor-pointer"
-                       style="accent-color:var(--brand-secondary,#00b4d8);">
+                       style="accent-color:var(--brand-icon,#0ea5e9);">
                 <div>
                     <label for="publish_toggle" class="text-sm font-semibold cursor-pointer text-slate-800">
                         Publish to website
@@ -339,8 +339,8 @@
         <div class="flex items-center gap-3">
             <button type="submit"
                     class="px-5 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-                    style="background:var(--brand-primary,#0b2a4a);"
-                    onmouseover="this.style.background='#0a2340'" onmouseout="this.style.background='var(--brand-primary,#0b2a4a)'">
+                    style="background:var(--brand-default,#0b2a4a);"
+                    onmouseover="this.style.background='#0a2340'" onmouseout="this.style.background='var(--brand-default,#0b2a4a)'">
                 {{ $property ? 'Update Listing' : 'Create Listing' }}
             </button>
             <a href="{{ route('corex.properties.index') }}"

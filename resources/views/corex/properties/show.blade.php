@@ -1168,7 +1168,7 @@
             <div class="flex items-center justify-between pt-4">
                 <button type="submit" form="prop-update-form"
                         class="px-5 py-2 rounded-lg text-sm font-semibold text-white"
-                        style="background:var(--brand-primary,#0b2a4a); border:1px solid var(--border);"
+                        style="background:var(--brand-default,#0b2a4a); border:1px solid var(--border);"
                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                     {{ $isNew ? 'Create Property' : 'Save Changes' }}
                 </button>

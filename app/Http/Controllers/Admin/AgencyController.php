@@ -24,18 +24,20 @@ class AgencyController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'name'             => 'required|string|max:100',
-            'slug'             => 'nullable|string|max:80|unique:agencies,slug',
-            'primary_color'    => 'nullable|string|max:20',
-            'secondary_color'  => 'nullable|string|max:20',
-            'tertiary_color'   => 'nullable|string|max:20',
-            'is_active'        => 'nullable|boolean',
+            'name'           => 'required|string|max:100',
+            'slug'           => 'nullable|string|max:80|unique:agencies,slug',
+            'sidebar_color'  => 'nullable|string|max:20',
+            'icon_color'     => 'nullable|string|max:20',
+            'default_color'  => 'nullable|string|max:20',
+            'button_color'   => 'nullable|string|max:20',
+            'is_active'      => 'nullable|boolean',
         ]);
 
-        $data['slug']            = $data['slug'] ?? Str::slug($data['name']);
-        $data['primary_color']   = $data['primary_color']   ?? '#0b2a4a';
-        $data['secondary_color'] = $data['secondary_color'] ?? '#00b4d8';
-        $data['tertiary_color']  = $data['tertiary_color']  ?? '#1a4a73';
+        $data['slug']          = $data['slug'] ?? Str::slug($data['name']);
+        $data['sidebar_color'] = $data['sidebar_color'] ?? '#0ea5e9';
+        $data['icon_color']    = $data['icon_color']    ?? '#0ea5e9';
+        $data['default_color'] = $data['default_color'] ?? '#0b2a4a';
+        $data['button_color']  = $data['button_color']  ?? '#0ea5e9';
         $data['is_active']       = (bool) ($data['is_active'] ?? true);
 
         Agency::create($data);
@@ -51,16 +53,18 @@ class AgencyController extends Controller
     public function update(Request $request, Agency $agency)
     {
         $data = $request->validate([
-            'name'            => 'required|string|max:100',
-            'primary_color'   => 'nullable|string|max:20',
-            'secondary_color' => 'nullable|string|max:20',
-            'tertiary_color'  => 'nullable|string|max:20',
-            'is_active'       => 'nullable|boolean',
+            'name'           => 'required|string|max:100',
+            'sidebar_color'  => 'nullable|string|max:20',
+            'icon_color'     => 'nullable|string|max:20',
+            'default_color'  => 'nullable|string|max:20',
+            'button_color'   => 'nullable|string|max:20',
+            'is_active'      => 'nullable|boolean',
         ]);
 
-        $data['primary_color']   = $data['primary_color']   ?? '#0b2a4a';
-        $data['secondary_color'] = $data['secondary_color'] ?? '#00b4d8';
-        $data['tertiary_color']  = $data['tertiary_color']  ?? '#1a4a73';
+        $data['sidebar_color'] = $data['sidebar_color'] ?? '#0ea5e9';
+        $data['icon_color']    = $data['icon_color']    ?? '#0ea5e9';
+        $data['default_color'] = $data['default_color'] ?? '#0b2a4a';
+        $data['button_color']  = $data['button_color']  ?? '#0ea5e9';
         $data['is_active']       = (bool) ($data['is_active'] ?? false);
 
         $agency->update($data);

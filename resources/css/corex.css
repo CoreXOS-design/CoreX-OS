@@ -3,16 +3,16 @@
    ======================================== */
 
 :root {
-    /* Brand colour vars — injected per-agency via nexus.blade.php <style> tag.
-       Only the sidebar reads these. Everything else uses hardcoded values. */
-    --brand-primary:   #0b2a4a;
-    --brand-secondary: #00b4d8;
-    --brand-tertiary:  #1a4a73;
+    /* Brand colour vars — 4 semantic roles, injected per-agency via corex.blade.php <style> tag */
+    --brand-sidebar: #0ea5e9;
+    --brand-icon:    #0ea5e9;
+    --brand-default: #0b2a4a;
+    --brand-button:  #0ea5e9;
 
-    /* Sidebar-only — follow the agency brand colours */
-    --corex-sidebar-bg: var(--brand-primary);
-    --corex-accent:     var(--brand-secondary);
-    --corex-mid:        var(--brand-tertiary);
+    /* Semantic aliases */
+    --corex-sidebar-hover: var(--brand-sidebar);
+    --corex-accent:        var(--brand-icon);
+    --corex-mid:           var(--brand-default);
 
     /* Everything else is fixed regardless of agency */
     --corex-sidebar-width: 240px;
@@ -91,7 +91,7 @@ html.dark {
 
 /* ========== Nexus Sidebar ========== */
 .corex-sidebar {
-    background: var(--corex-sidebar-bg);
+    background: var(--surface);
     color: #e5e7eb;
     display: flex;
     flex-direction: column;
@@ -138,13 +138,13 @@ html.dark {
 }
 
 .corex-nav-item:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #f1f5f9; /* slate-100 */
+    background: color-mix(in srgb, var(--corex-sidebar-hover) 12%, transparent);
+    color: var(--corex-sidebar-hover);
 }
 
 .corex-nav-item.active {
-    background: #0d9488; /* teal-600 */
-    color: #fff;
+    background: color-mix(in srgb, var(--corex-sidebar-hover) 18%, transparent);
+    color: var(--corex-sidebar-hover);
     font-weight: 600;
 }
 
@@ -2177,10 +2177,12 @@ html.dark [style*="color:#166534"],
 html.dark [style*="color: #166534"] { color: #34d399 !important; }
 
 /* CSS variable text colour uses → override to white so prices/labels are readable */
-html.dark [style*="color:var(--brand-primary"],
-html.dark [style*="color: var(--brand-primary"] { color: var(--text-primary) !important; }
-html.dark [style*="color:var(--brand-secondary"],
-html.dark [style*="color: var(--brand-secondary"] { color: var(--text-primary) !important; }
+html.dark [style*="color:var(--brand-default"],
+html.dark [style*="color: var(--brand-default"] { color: var(--text-primary) !important; }
+html.dark [style*="color:var(--brand-icon"],
+html.dark [style*="color: var(--brand-icon"] { color: var(--text-primary) !important; }
+html.dark [style*="color:var(--brand-button"],
+html.dark [style*="color: var(--brand-button"] { color: var(--text-primary) !important; }
 
 /* Hardcoded dark text colours used in inline styles (KPI stats, badges, etc.) */
 html.dark [style*="color:#1e40af"],

@@ -4,14 +4,14 @@
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
     {{-- Header --}}
-    <div class="rounded-2xl px-6 py-4 flex items-center justify-between" style="background:var(--brand-primary, #0b2a4a);">
+    <div class="rounded-2xl px-6 py-4 flex items-center justify-between" style="background:var(--brand-default, #0b2a4a);">
         <div>
             <h2 class="text-xl font-bold text-white">Agency Management</h2>
             <div class="text-sm mt-0.5" style="color:rgba(255,255,255,0.6);">Create and manage all agencies on the platform.</div>
         </div>
         <a href="{{ route('agencies.create') }}"
            class="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-           style="background:var(--brand-secondary, #00b4d8);"
+           style="background:var(--brand-button, #0ea5e9);"
            onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
             + New Agency
         </a>
@@ -28,12 +28,12 @@
         <table class="min-w-full text-sm">
             <thead>
                 <tr class="border-b" style="background:#f8fafc;">
-                    <th class="text-left py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-primary, #0b2a4a);">Agency</th>
-                    <th class="text-left py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-primary, #0b2a4a);">Slug</th>
-                    <th class="text-center py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-primary, #0b2a4a);">Branches</th>
-                    <th class="text-center py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-primary, #0b2a4a);">Users</th>
-                    <th class="text-left py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-primary, #0b2a4a);">Brand Colours</th>
-                    <th class="text-center py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-primary, #0b2a4a);">Status</th>
+                    <th class="text-left py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-default, #0b2a4a);">Agency</th>
+                    <th class="text-left py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-default, #0b2a4a);">Slug</th>
+                    <th class="text-center py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-default, #0b2a4a);">Branches</th>
+                    <th class="text-center py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-default, #0b2a4a);">Users</th>
+                    <th class="text-left py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-default, #0b2a4a);">Brand Colours</th>
+                    <th class="text-center py-3 px-5 font-semibold text-xs uppercase tracking-wider" style="color:var(--brand-default, #0b2a4a);">Status</th>
                     <th class="py-3 px-5"></th>
                 </tr>
             </thead>
@@ -47,15 +47,17 @@
                         <td class="py-3 px-5">
                             <div class="flex items-center gap-1.5">
                                 <span class="inline-block w-5 h-5 rounded border border-slate-200 shadow-sm"
-                                      style="background:{{ $agency->primary_color }}"
-                                      title="Primary: {{ $agency->primary_color }}"></span>
+                                      style="background:{{ $agency->sidebar_color }}"
+                                      title="Sidebar: {{ $agency->sidebar_color }}"></span>
                                 <span class="inline-block w-5 h-5 rounded border border-slate-200 shadow-sm"
-                                      style="background:{{ $agency->secondary_color }}"
-                                      title="Secondary: {{ $agency->secondary_color }}"></span>
+                                      style="background:{{ $agency->icon_color }}"
+                                      title="Icons: {{ $agency->icon_color }}"></span>
                                 <span class="inline-block w-5 h-5 rounded border border-slate-200 shadow-sm"
-                                      style="background:{{ $agency->tertiary_color ?? '#1a4a73' }}"
-                                      title="Tertiary: {{ $agency->tertiary_color ?? '#1a4a73' }}"></span>
-                                <span class="text-xs text-slate-400 ml-1">{{ $agency->primary_color }} / {{ $agency->secondary_color }} / {{ $agency->tertiary_color ?? '#1a4a73' }}</span>
+                                      style="background:{{ $agency->default_color }}"
+                                      title="Default: {{ $agency->default_color }}"></span>
+                                <span class="inline-block w-5 h-5 rounded border border-slate-200 shadow-sm"
+                                      style="background:{{ $agency->button_color }}"
+                                      title="Button: {{ $agency->button_color }}"></span>
                             </div>
                         </td>
                         <td class="py-3 px-5 text-center">
@@ -70,8 +72,8 @@
                         <td class="py-3 px-5 text-right">
                             <a href="{{ route('agencies.edit', $agency) }}"
                                class="text-xs font-semibold transition-colors"
-                               style="color:var(--brand-secondary, #00b4d8);"
-                               onmouseover="this.style.color='var(--brand-primary, #0b2a4a)'" onmouseout="this.style.color='var(--brand-secondary, #00b4d8)'">
+                               style="color:var(--brand-icon, #0ea5e9);"
+                               onmouseover="this.style.color='var(--brand-default, #0b2a4a)'" onmouseout="this.style.color='var(--brand-icon, #0ea5e9)'">
                                 Edit
                             </a>
                         </td>
@@ -79,7 +81,7 @@
                 @empty
                     <tr>
                         <td colspan="7" class="py-10 text-center text-sm text-slate-400 italic">
-                            No agencies yet. <a href="{{ route('agencies.create') }}" style="color:var(--brand-secondary, #00b4d8);">Create the first one.</a>
+                            No agencies yet. <a href="{{ route('agencies.create') }}" style="color:var(--brand-icon, #0ea5e9);">Create the first one.</a>
                         </td>
                     </tr>
                 @endforelse

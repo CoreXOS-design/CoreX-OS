@@ -27,7 +27,7 @@
         @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
         <link rel="stylesheet" href="/css/paye-fix.css">
 
-        {{-- Agency brand colours — injects --brand-primary/secondary/tertiary into :root --}}
+        {{-- Agency brand colours — 4 semantic roles injected into :root --}}
         @auth
         @php
             $_agencyId = auth()->user()?->effectiveAgencyId();
@@ -36,9 +36,10 @@
         @if($_agency)
         <style>
             :root {
-                --brand-primary:   {{ $_agency->primary_color   ?? '#0b2a4a' }};
-                --brand-secondary: {{ $_agency->secondary_color ?? '#00b4d8' }};
-                --brand-tertiary:  {{ $_agency->tertiary_color  ?? '#1a4a73' }};
+                --brand-sidebar: {{ $_agency->sidebar_color ?? '#0ea5e9' }};
+                --brand-icon:    {{ $_agency->icon_color    ?? '#0ea5e9' }};
+                --brand-default: {{ $_agency->default_color ?? '#0b2a4a' }};
+                --brand-button:  {{ $_agency->button_color  ?? '#0ea5e9' }};
             }
         </style>
         @endif

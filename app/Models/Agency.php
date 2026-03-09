@@ -10,9 +10,10 @@ class Agency extends Model
     protected $fillable = [
         'name',
         'slug',
-        'primary_color',
-        'secondary_color',
-        'tertiary_color',
+        'sidebar_color',
+        'icon_color',
+        'default_color',
+        'button_color',
         'logo_path',
         'is_active',
     ];
