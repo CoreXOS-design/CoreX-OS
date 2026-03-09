@@ -473,6 +473,13 @@
                         style="background:transparent;">
                     Properties
                 </button>
+                <button type="button"
+                        @click="featureSection = 'matches'"
+                        :class="featureSection === 'matches' ? 'bg-[#00b4d8]/10 text-[#00b4d8] border-[#00b4d8]/40' : 'text-gray-400 border-gray-200 hover:text-gray-600 hover:border-gray-300'"
+                        class="px-4 py-2 rounded-lg text-sm font-semibold border transition-colors duration-150 outline-none"
+                        style="background:transparent;">
+                    Matches
+                </button>
             </div>
 
             {{-- DOCUMENTS section --}}
@@ -1240,6 +1247,83 @@
                 @endforeach
 
             </div>{{-- /properties --}}
+
+            {{-- MATCHES section --}}
+            <div x-show="featureSection === 'matches'" x-cloak class="space-y-5">
+
+                {{-- Enable / Disable toggle --}}
+                <div class="p-4 rounded-xl flex items-center justify-between gap-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Core Matches</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">When disabled, the Core Matches tab is hidden on contacts and properties, and the sidebar link is removed.</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.matches-enabled') }}" class="flex items-center gap-3 flex-shrink-0">
+                        @csrf
+                        <input type="hidden" name="matches_enabled" value="0">
+                        <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;"
+                               title="{{ $matchesEnabled ? 'Enabled — click to disable' : 'Disabled — click to enable' }}">
+                            <input type="checkbox" name="matches_enabled" value="1"
+                                   {{ $matchesEnabled ? 'checked' : '' }}
+                                   class="sr-only"
+                                   onchange="this.closest('form').submit()">
+                            <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                  style="background:{{ $matchesEnabled ? '#00b4d8' : 'var(--border-hover)' }}"></span>
+                            <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                  style="transform:translateX({{ $matchesEnabled ? '20px' : '0' }})"></span>
+                        </label>
+                        <span class="text-sm font-semibold" style="color:{{ $matchesEnabled ? '#00b4d8' : 'var(--text-muted)' }};">
+                            {{ $matchesEnabled ? 'On' : 'Off' }}
+                        </span>
+                    </form>
+                </div>
+
+                {{-- Show on Properties toggle --}}
+                <div class="p-4 rounded-xl flex items-center justify-between gap-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Show Core Matches on Properties</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">When disabled, the Core Matches tab is hidden on individual property pages only. Contacts and the sidebar are unaffected.</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.matches-show-on-properties') }}" class="flex items-center gap-3 flex-shrink-0">
+                        @csrf
+                        <input type="hidden" name="matches_show_on_properties" value="0">
+                        <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;"
+                               title="{{ $matchesShowOnProperties ? 'Enabled — click to disable' : 'Disabled — click to enable' }}">
+                            <input type="checkbox" name="matches_show_on_properties" value="1"
+                                   {{ $matchesShowOnProperties ? 'checked' : '' }}
+                                   class="sr-only"
+                                   onchange="this.closest('form').submit()">
+                            <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                  style="background:{{ $matchesShowOnProperties ? '#00b4d8' : 'var(--border-hover)' }}"></span>
+                            <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                  style="transform:translateX({{ $matchesShowOnProperties ? '20px' : '0' }})"></span>
+                        </label>
+                        <span class="text-sm font-semibold" style="color:{{ $matchesShowOnProperties ? '#00b4d8' : 'var(--text-muted)' }};">
+                            {{ $matchesShowOnProperties ? 'On' : 'Off' }}
+                        </span>
+                    </form>
+                </div>
+
+                {{-- WhatsApp message template --}}
+                <div class="p-4 rounded-xl space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">WhatsApp Message Template</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                            This is the default message pre-filled when sending matches via WhatsApp. Use <code style="background:var(--surface); padding:1px 4px; border-radius:4px; font-size:11px;">{name}</code> for the client's first name and <code style="background:var(--surface); padding:1px 4px; border-radius:4px; font-size:11px;">{link}</code> for the matches page link.
+                        </div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.matches-wa-message') }}" class="space-y-3">
+                        @csrf
+                        <textarea name="matches_wa_message" rows="8" maxlength="1000"
+                                  class="w-full rounded-lg px-3 py-2 text-sm font-mono"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); resize:vertical; line-height:1.6;">{{ old('matches_wa_message', $matchesWaMessage) }}</textarea>
+                        <div class="flex items-center justify-between">
+                            <span class="text-[10px]" style="color:var(--text-muted);">Max 1000 characters.</span>
+                            <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save Template</button>
+                        </div>
+                    </form>
+                </div>
+
+            </div>{{-- /matches --}}
 
         </div>
 

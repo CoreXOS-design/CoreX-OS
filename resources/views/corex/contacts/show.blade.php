@@ -109,7 +109,11 @@
                 ['key'=>'properties','label'=>'Properties <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);">'. $contact->properties->count() .'</span>'],
                 ['key'=>'notes','label'=>'Notes <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);">'. $contact->contactNotes->count() .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
+                ['key'=>'matches','label'=>'Core Matches <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2);">'. $contact->matches->count() .'</span>'],
             ] as $t)
+            @if($t['key'] === 'matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !auth()->user()->hasPermission('access_core_matches')))
+                @continue
+            @endif
             <button type="button"
                     @click="activeTab = '{{ $t['key'] }}'"
                     :class="activeTab === '{{ $t['key'] }}' ? 'text-[#00b4d8] border-b-2 border-[#00b4d8] bg-[#00b4d8]/5' : 'border-b-2 border-transparent'"
@@ -484,6 +488,262 @@
             </div>
             @endif
         </div>
+
+        {{-- ════════════════════════════
+             CORE MATCHES TAB
+             ════════════════════════════ --}}
+        <div x-show="activeTab === 'matches'" x-cloak class="p-6 space-y-6" id="tab-matches">
+
+            {{-- Add new match form --}}
+            <div class="rounded-xl p-5 space-y-5" style="background:var(--surface-2); border:1px solid var(--border);">
+                <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Add New Match Criteria</h3>
+
+                <form method="POST" action="{{ route('corex.contacts.matches.store', $contact) }}"
+                      x-data="{ listingType: 'sale' }"
+                      class="space-y-5">
+                    @csrf
+
+                    {{-- Listing type toggle --}}
+                    <div>
+                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Listing Type</label>
+                        <input type="hidden" name="listing_type" :value="listingType">
+                        <div class="inline-flex rounded-lg p-0.5 gap-0.5" style="background:var(--surface); border:1px solid var(--border);">
+                            <button type="button"
+                                    @click="listingType = 'sale'"
+                                    :class="listingType === 'sale' ? 'text-white' : ''"
+                                    :style="listingType === 'sale' ? 'background:#00b4d8;' : 'color:var(--text-secondary);'"
+                                    class="px-4 py-1.5 rounded-md text-xs font-semibold transition-all duration-150">
+                                For Sale
+                            </button>
+                            <button type="button"
+                                    @click="listingType = 'rental'"
+                                    :class="listingType === 'rental' ? 'text-white' : ''"
+                                    :style="listingType === 'rental' ? 'background:#00b4d8;' : 'color:var(--text-secondary);'"
+                                    class="px-4 py-1.5 rounded-md text-xs font-semibold transition-all duration-150">
+                                Rental
+                            </button>
+                        </div>
+                    </div>
+
+                    {{-- Row 1: Category + Property Type + Suburb --}}
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Category</label>
+                            <select name="category" class="w-full rounded-lg px-3 py-2 text-sm"
+                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="">— Any —</option>
+                                @foreach($matchCategories as $cat)
+                                <option value="{{ $cat->name }}">{{ $cat->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Property Type</label>
+                            <select name="property_type" class="w-full rounded-lg px-3 py-2 text-sm"
+                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="">— Any —</option>
+                                @foreach($matchTypes as $type)
+                                <option value="{{ $type->name }}">{{ $type->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Suburb</label>
+                            <input type="text" name="suburb" placeholder="e.g. Uvongo, Margate"
+                                   class="w-full rounded-lg px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+
+                    {{-- Row 2: Price range --}}
+                    <div>
+                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Price Range (R)</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <input type="number" name="price_min" placeholder="Min price" min="0" step="50000"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <input type="number" name="price_max" placeholder="Max price" min="0" step="50000"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Row 3: Beds / Baths / Garages / Parking --}}
+                    <div>
+                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Minimum Rooms</label>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            @foreach([['beds_min','Bedrooms'],['baths_min','Bathrooms'],['garages_min','Garages'],['parking_min','Parking']] as [$field,$label])
+                            <div>
+                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">{{ $label }}</label>
+                                <input type="number" name="{{ $field }}" placeholder="Any" min="0" max="20"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    {{-- Row 4: Floor size / Erf size --}}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Floor Size (m²)</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="number" name="floor_size_min" placeholder="Min" min="0"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <input type="number" name="floor_size_max" placeholder="Max" min="0"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Erf Size (m²)</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="number" name="erf_size_min" placeholder="Min" min="0"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <input type="number" name="erf_size_max" placeholder="Max" min="0"
+                                       class="w-full rounded-lg px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Notes --}}
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notes (optional)</label>
+                        <textarea name="notes" rows="2" placeholder="Any additional requirements..."
+                                  class="w-full rounded-lg px-3 py-2 text-sm resize-none"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button type="submit"
+                                class="px-5 py-2 rounded-lg text-sm font-semibold text-white"
+                                style="background:#00b4d8;"
+                                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                            Save Match
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            {{-- Existing matches --}}
+            @if($contact->matches->count())
+            <div class="space-y-3">
+                <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Saved Matches ({{ $contact->matches->count() }})</h3>
+                @foreach($contact->matches as $match)
+                <div class="rounded-xl p-4" style="background:var(--surface); border:1px solid var(--border);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0 space-y-3">
+
+                            {{-- Header row: type badge + price --}}
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-xs font-bold px-2.5 py-1 rounded-full"
+                                      style="{{ $match->listing_type === 'rental' ? 'background:rgba(168,85,247,0.12); color:#a855f7; border:1px solid rgba(168,85,247,0.25);' : 'background:rgba(0,180,216,0.12); color:#00b4d8; border:1px solid rgba(0,180,216,0.25);' }}">
+                                    {{ $match->listingTypeLabel() }}
+                                </span>
+                                @if($match->price_min || $match->price_max)
+                                <span class="text-sm font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
+                                @endif
+                                @if($match->suburb)
+                                <span class="text-xs px-2 py-0.5 rounded-full" style="background:var(--surface-2); color:var(--text-secondary);">
+                                    📍 {{ $match->suburb }}
+                                </span>
+                                @endif
+                            </div>
+
+                            {{-- Detail grid --}}
+                            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1.5">
+                                @if($match->category)
+                                <div>
+                                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Category</span>
+                                    <div class="text-xs font-medium mt-0.5" style="color:var(--text-primary);">{{ $match->category }}</div>
+                                </div>
+                                @endif
+                                @if($match->property_type)
+                                <div>
+                                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Type</span>
+                                    <div class="text-xs font-medium mt-0.5" style="color:var(--text-primary);">{{ $match->property_type }}</div>
+                                </div>
+                                @endif
+                                @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Garages'],[$match->parking_min,'Parking']] as [$val,$lbl])
+                                @if($val !== null)
+                                <div>
+                                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">{{ $lbl }}</span>
+                                    <div class="text-xs font-medium mt-0.5" style="color:var(--text-primary);">{{ $val }}+</div>
+                                </div>
+                                @endif
+                                @endforeach
+                                @if($match->floor_size_min || $match->floor_size_max)
+                                <div>
+                                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Floor m²</span>
+                                    <div class="text-xs font-medium mt-0.5" style="color:var(--text-primary);">
+                                        {{ $match->floor_size_min ? number_format($match->floor_size_min) : '—' }} – {{ $match->floor_size_max ? number_format($match->floor_size_max) : '—' }}
+                                    </div>
+                                </div>
+                                @endif
+                                @if($match->erf_size_min || $match->erf_size_max)
+                                <div>
+                                    <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Erf m²</span>
+                                    <div class="text-xs font-medium mt-0.5" style="color:var(--text-primary);">
+                                        {{ $match->erf_size_min ? number_format($match->erf_size_min) : '—' }} – {{ $match->erf_size_max ? number_format($match->erf_size_max) : '—' }}
+                                    </div>
+                                </div>
+                                @endif
+                            </div>
+
+                            @if($match->notes)
+                            <p class="text-xs leading-relaxed" style="color:var(--text-muted);">{{ $match->notes }}</p>
+                            @endif
+
+                            <div class="flex items-center justify-between gap-3 flex-wrap">
+                                <div class="text-[10px]" style="color:var(--text-muted);">
+                                    Added {{ $match->created_at->diffForHumans() }}
+                                    @if($match->createdBy) · by {{ $match->createdBy->name }} @endif
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold no-underline"
+                                       style="background:rgba(0,180,216,0.10); color:#00b4d8; border:1px solid rgba(0,180,216,0.25);"
+                                       onmouseover="this.style.background='rgba(0,180,216,0.20)'" onmouseout="this.style.background='rgba(0,180,216,0.10)'">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
+                                        View Matches
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Delete --}}
+                        <form method="POST" action="{{ route('corex.contacts.matches.destroy', [$contact, $match]) }}"
+                              onsubmit="return confirm('Remove this match criteria?');"
+                              class="flex-shrink-0">
+                            @csrf @method('DELETE')
+                            <button type="submit"
+                                    class="p-1.5 rounded-lg transition-colors"
+                                    style="color:var(--text-muted);"
+                                    onmouseover="this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.08)'"
+                                    onmouseout="this.style.color='var(--text-muted)'; this.style.background='transparent'">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                @endforeach
+            </div>
+            @else
+            <div class="py-12 text-center">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-25" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
+                <p class="text-sm font-semibold" style="color:var(--text-muted);">No match criteria saved yet.</p>
+                <p class="text-xs mt-1" style="color:var(--text-muted); opacity:.7;">Use the form above to add what this contact is looking for.</p>
+            </div>
+            @endif
+
+        </div>{{-- /matches tab --}}
 
     </div>{{-- /tab container --}}
 

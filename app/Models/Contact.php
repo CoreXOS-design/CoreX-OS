@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\ContactMatch;
 
 class Contact extends Model
 {
@@ -39,6 +40,11 @@ class Contact extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(ContactDocument::class)->latest();
+    }
+
+    public function matches(): HasMany
+    {
+        return $this->hasMany(ContactMatch::class)->latest();
     }
 
     public function properties(): BelongsToMany

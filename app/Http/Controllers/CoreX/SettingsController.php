@@ -62,6 +62,12 @@ class SettingsController extends Controller
         // Feature Settings tab: Properties — marketing toggle
         $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
 
+        // Feature Settings tab: Matches
+        $data['matchesEnabled']            = (bool) PerformanceSetting::get('matches_enabled', 1);
+        $data['matchesShowOnProperties']   = (bool) PerformanceSetting::get('matches_show_on_properties', 1);
+        $defaultWaMsg = "Hi {name}! 👋\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!";
+        $data['matchesWaMessage'] = (string) PerformanceSetting::get('matches_wa_message', $defaultWaMsg);
+
         // Agency Settings tab: Company / Performance Settings
         if ($user?->hasPermission('manage_performance_settings')) {
             $data['vatRate']         = (float)  PerformanceSetting::get('vat_rate', 15);
@@ -153,6 +159,27 @@ class SettingsController extends Controller
         $enabled = $request->boolean('marketing_enabled');
         PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => $enabled ? 1 : 0]);
         return back()->with('success', 'Marketing setting updated.')->with('tab', 'feature')->with('fsec', 'properties');
+    }
+
+    public function updateMatchesEnabled(Request $request)
+    {
+        $enabled = $request->boolean('matches_enabled');
+        PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => $enabled ? 1 : 0]);
+        return back()->with('success', 'Core Matches setting updated.')->with('tab', 'feature')->with('fsec', 'matches');
+    }
+
+    public function updateMatchesShowOnProperties(Request $request)
+    {
+        $enabled = $request->boolean('matches_show_on_properties');
+        PerformanceSetting::updateOrCreate(['key' => 'matches_show_on_properties'], ['value' => $enabled ? 1 : 0]);
+        return back()->with('success', 'Setting updated.')->with('tab', 'feature')->with('fsec', 'matches');
+    }
+
+    public function updateMatchesWaMessage(Request $request)
+    {
+        $message = substr($request->input('matches_wa_message', ''), 0, 1000);
+        PerformanceSetting::updateOrCreate(['key' => 'matches_wa_message'], ['value' => $message]);
+        return back()->with('success', 'WhatsApp message template saved.')->with('tab', 'feature')->with('fsec', 'matches');
     }
 
     public function generateApiToken(Request $request)

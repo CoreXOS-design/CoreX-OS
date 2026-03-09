@@ -216,6 +216,12 @@ class NexusPermissionSeeder extends Seeder
             ['key' => 'contacts.edit',               'label' => 'Edit',                        'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 12],
             ['key' => 'contacts.archive',            'label' => 'Archive',                     'section' => 'contacts',         'type' => 'action',  'module' => 'contacts',         'sort_order' => 13],
 
+            // ── Core Matches ──
+            ['key' => 'access_core_matches',         'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
+            ['key' => 'core_matches.view',           'label' => 'View',                        'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 10],
+            ['key' => 'core_matches.create',         'label' => 'Create',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 11],
+            ['key' => 'core_matches.delete',         'label' => 'Delete',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 12],
+
             // ── Calculators / Tools ──
             ['key' => 'access_calculators',          'label' => 'Access Calculators & Tools',  'section' => 'calculators',      'type' => 'access',  'module' => 'calculators',      'sort_order' => 1],
 
@@ -358,6 +364,9 @@ class NexusPermissionSeeder extends Seeder
                 // Contacts
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
+                // Core Matches
+                'access_core_matches',
+                'core_matches.view', 'core_matches.create', 'core_matches.delete',
                 // P24
                 'p24.view',
                 // Knowledge
@@ -426,6 +435,9 @@ class NexusPermissionSeeder extends Seeder
                 // Contacts
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit',
+                // Core Matches
+                'access_core_matches',
+                'core_matches.view', 'core_matches.create', 'core_matches.delete',
                 // P24
                 'p24.view',
                 // Knowledge
@@ -467,6 +479,8 @@ class NexusPermissionSeeder extends Seeder
                 'access_properties', 'properties.view',
                 // Contacts
                 'access_contacts', 'contacts.view',
+                // Core Matches
+                'access_core_matches', 'core_matches.view',
                 // P24
                 'p24.view',
                 // Knowledge

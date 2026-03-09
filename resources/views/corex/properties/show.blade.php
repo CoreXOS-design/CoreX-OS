@@ -185,6 +185,116 @@
             </div>
         </div>
 
+    {{-- Syndication bar --}}
+    @if(!$isNew)
+    <div class="flex items-center justify-end px-4 py-2"
+         style="border-bottom:1px solid var(--border);"
+         x-data="{ synOpen: false, synStep: 'main' }">
+        <div class="relative">
+            {{-- Syndication button --}}
+            <button type="button"
+                    @click="synOpen = !synOpen; synStep = 'main'"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                    style="background:rgba(0,180,216,0.10); color:#00b4d8; border:1px solid rgba(0,180,216,0.30);"
+                    onmouseover="this.style.background='rgba(0,180,216,0.20)'" onmouseout="this.style.background='rgba(0,180,216,0.10)'">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
+                </svg>
+                Syndication
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-150" :class="synOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
+
+            {{-- Dropdown panel --}}
+            <div x-show="synOpen"
+                 x-cloak
+                 @click.away="synOpen = false; synStep = 'main'"
+                 x-transition:enter="transition ease-out duration-150"
+                 x-transition:enter-start="opacity-0 translate-y-1"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 x-transition:leave="transition ease-in duration-100"
+                 x-transition:leave-start="opacity-100 translate-y-0"
+                 x-transition:leave-end="opacity-0 translate-y-1"
+                 class="absolute right-0 top-full mt-2 z-50 rounded-xl shadow-2xl overflow-hidden"
+                 style="width:260px; background:var(--surface); border:1px solid var(--border);">
+
+                {{-- Step: main --}}
+                <div x-show="synStep === 'main'" class="p-4 space-y-3">
+                    <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Publish to Website</p>
+
+                    @if(!$property->isPublished())
+                    <form method="POST" action="{{ route('corex.properties.update', $property) }}">
+                        @csrf @method('PUT')
+                        <input type="hidden" name="title"   value="{{ $property->title }}">
+                        <input type="hidden" name="suburb"  value="{{ $property->suburb }}">
+                        <input type="hidden" name="price"   value="{{ $property->price }}">
+                        <input type="hidden" name="beds"    value="{{ $property->beds }}">
+                        <input type="hidden" name="baths"   value="{{ $property->baths }}">
+                        <input type="hidden" name="garages" value="{{ $property->garages }}">
+                        <input type="hidden" name="status"  value="{{ $property->status }}">
+                        <input type="hidden" name="publish" value="1">
+                        <button type="submit"
+                                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold"
+                                style="background:#22c55e; color:#fff;"
+                                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                            Publish Now
+                        </button>
+                    </form>
+                    @else
+                    <div class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold"
+                         style="background:rgba(34,197,94,0.10); color:#22c55e; border:1px solid rgba(34,197,94,0.25);">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                        Published {{ $property->published_at->diffForHumans() }}
+                    </div>
+                    @endif
+
+                    <div style="border-top:1px solid var(--border);"></div>
+
+                    <button type="button"
+                            @click="synStep = 'preview'"
+                            class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold"
+                            style="background:rgba(0,180,216,0.08); color:#00b4d8; border:1px solid rgba(0,180,216,0.20);"
+                            onmouseover="this.style.background='rgba(0,180,216,0.18)'" onmouseout="this.style.background='rgba(0,180,216,0.08)'">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                        Live Preview
+                    </button>
+                </div>
+
+                {{-- Step: preview agent choice --}}
+                <div x-show="synStep === 'preview'" x-cloak class="p-4 space-y-3">
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="synStep = 'main'"
+                                class="flex-shrink-0 p-0.5 rounded transition-colors"
+                                style="color:var(--text-muted);"
+                                onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                        </button>
+                        <p class="text-xs font-semibold" style="color:var(--text-secondary);">Show contact info for:</p>
+                    </div>
+                    <a href="{{ route('corex.properties.preview', $property) }}?agent=me"
+                       target="_blank"
+                       class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold no-underline"
+                       style="background:rgba(0,180,216,0.08); color:#00b4d8; border:1px solid rgba(0,180,216,0.20);"
+                       onmouseover="this.style.background='rgba(0,180,216,0.18)'" onmouseout="this.style.background='rgba(0,180,216,0.08)'">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                        Show my info
+                    </a>
+                    <a href="{{ route('corex.properties.preview', $property) }}?agent=listing"
+                       target="_blank"
+                       class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold no-underline"
+                       style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                       onmouseover="this.style.background='var(--surface-3,#2a3a4a)'" onmouseout="this.style.background='var(--surface-2)'">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
+                        Show listing agent info
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
+
     {{-- Tab bar (shared) --}}
         <div class="flex overflow-x-auto" style="border-bottom:1px solid var(--border);">
             @foreach([
@@ -193,8 +303,12 @@
                 ['key'=>'gallery',   'label'=>'Gallery'],
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
-                ['key'=>'drive',     'label'=>'Drive'],
+                ['key'=>'drive',        'label'=>'Drive'],
+                ['key'=>'core-matches', 'label'=>'Core Matches'],
             ] as $tab)
+            @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
+                @continue
+            @endif
             <button type="button"
                     @click="activeTab = '{{ $tab['key'] }}'"
                     :class="activeTab === '{{ $tab['key'] }}' ? 'border-b-2 border-[#00b4d8] bg-[#00b4d8]/5' : 'border-b-2 border-transparent'"
@@ -210,6 +324,9 @@
                 @endif
                 @if(!$isNew && $tab['key'] === 'drive' && $property->files->count())
                 <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:rgba(0,180,216,0.2);color:#00b4d8;">{{ $property->files->count() }}</span>
+                @endif
+                @if(!$isNew && $tab['key'] === 'core-matches' && $coreMatches->count())
+                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:rgba(0,180,216,0.2);color:#00b4d8;">{{ $coreMatches->count() }}</span>
                 @endif
             </button>
             @endforeach
@@ -1642,6 +1759,152 @@
                 @endforelse
             </div>
         @endif {{-- /!$isNew drive --}}
+        </div>
+
+        {{-- ── CORE MATCHES TAB ──────────────────────────────────────────── --}}
+        <div x-show="activeTab === 'core-matches'" x-cloak class="p-6 space-y-4">
+        @if($isNew)
+            <p class="text-sm" style="color:var(--text-muted);">Save the property first to see Core Matches.</p>
+        @elseif($coreMatches->isEmpty())
+            <div class="rounded-2xl py-14 text-center" style="background:var(--surface-2); border:1px solid var(--border);">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-20" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 15.803a7.5 7.5 0 0 0 10.607 0Z" /></svg>
+                <p class="font-bold text-sm" style="color:var(--text-muted);">This property doesn't match any active Core Match criteria.</p>
+                <p class="text-xs mt-1" style="color:var(--text-muted); opacity:.7;">When a client's search criteria matches this property it will appear here.</p>
+            </div>
+        @else
+            <p class="text-xs font-semibold" style="color:var(--text-muted);">
+                This property matches the criteria of <strong style="color:var(--text-secondary);">{{ $coreMatches->count() }} {{ Str::plural('client search', $coreMatches->count()) }}</strong>.
+            </p>
+            <div class="space-y-3">
+            @foreach($coreMatches as $cm)
+            @php $views = $cm->propertyViewCount($property->id); @endphp
+            <div x-data="{ open: false }"
+                 class="rounded-xl overflow-hidden"
+                 style="background:var(--surface); border:1px solid var(--border);">
+
+                {{-- Row --}}
+                <button type="button"
+                        @click="open = !open"
+                        class="w-full flex items-center gap-4 px-5 py-4 text-left"
+                        style="background:transparent;">
+
+                    {{-- Client avatar --}}
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
+                         style="background:linear-gradient(135deg,#0b2a4a,#00b4d8);">
+                        {{ strtoupper(substr($cm->contact->first_name ?? '?', 0, 1) . substr($cm->contact->last_name ?? '', 0, 1)) }}
+                    </div>
+
+                    {{-- Client info --}}
+                    <div class="flex-1 min-w-0 text-left">
+                        <div class="text-sm font-bold truncate" style="color:var(--text-primary);">
+                            {{ $cm->contact->full_name ?? '—' }}
+                        </div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-muted);">
+                            {{ $cm->listingTypeLabel() }} · {{ $cm->priceRangeLabel() }}
+                            @if($cm->suburb) · 📍 {{ $cm->suburb }} @endif
+                        </div>
+                    </div>
+
+                    {{-- View count --}}
+                    <div class="flex-shrink-0 text-center px-3">
+                        <div class="text-base font-extrabold" style="color:{{ $views > 0 ? '#00b4d8' : 'var(--text-muted)' }};">
+                            {{ $views }}
+                        </div>
+                        <div class="text-[10px] font-semibold" style="color:var(--text-muted);">
+                            {{ $views === 1 ? 'view' : 'views' }}
+                        </div>
+                    </div>
+
+                    {{-- Chevron --}}
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0 transition-transform duration-200"
+                         :class="open ? 'rotate-90' : ''"
+                         fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+                         style="color:var(--text-muted);">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                    </svg>
+                </button>
+
+                {{-- Expanded: agent details --}}
+                <div x-show="open" x-collapse style="border-top:1px solid var(--border);">
+                    <div class="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                        {{-- Agent card --}}
+                        <div class="rounded-xl p-4 space-y-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <div class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Agent</div>
+                            @if($cm->createdBy)
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
+                                     style="background:linear-gradient(135deg,#1e3a5f,#00b4d8);">
+                                    {{ strtoupper(substr($cm->createdBy->name, 0, 2)) }}
+                                </div>
+                                <div class="min-w-0">
+                                    <div class="text-sm font-bold truncate" style="color:var(--text-primary);">{{ $cm->createdBy->name }}</div>
+                                    @if($cm->createdBy->branch)
+                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ $cm->createdBy->branch->name }}</div>
+                                    @endif
+                                </div>
+                            </div>
+                            <div class="space-y-1.5 pt-1">
+                                @if($cm->createdBy->email)
+                                <a href="mailto:{{ $cm->createdBy->email }}"
+                                   class="flex items-center gap-2 text-xs no-underline hover:underline"
+                                   style="color:var(--text-secondary);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                                    {{ $cm->createdBy->email }}
+                                </a>
+                                @endif
+                                @if($cm->createdBy->cell ?? $cm->createdBy->phone ?? null)
+                                <a href="tel:{{ $cm->createdBy->cell ?? $cm->createdBy->phone }}"
+                                   class="flex items-center gap-2 text-xs no-underline hover:underline"
+                                   style="color:var(--text-secondary);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
+                                    {{ $cm->createdBy->cell ?? $cm->createdBy->phone }}
+                                </a>
+                                @endif
+                            </div>
+                            @else
+                            <p class="text-xs" style="color:var(--text-muted);">Agent not found.</p>
+                            @endif
+                        </div>
+
+                        {{-- Client + match details --}}
+                        <div class="rounded-xl p-4 space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <div class="text-[10px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Client</div>
+                            <div class="text-sm font-bold" style="color:var(--text-primary);">{{ $cm->contact->full_name ?? '—' }}</div>
+                            <div class="space-y-1">
+                                @if($cm->contact->phone ?? null)
+                                <a href="tel:{{ $cm->contact->phone }}" class="flex items-center gap-2 text-xs no-underline hover:underline" style="color:var(--text-secondary);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
+                                    {{ $cm->contact->phone }}
+                                </a>
+                                @endif
+                                @if($cm->contact->email ?? null)
+                                <a href="mailto:{{ $cm->contact->email }}" class="flex items-center gap-2 text-xs no-underline hover:underline" style="color:var(--text-secondary);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                                    {{ $cm->contact->email }}
+                                </a>
+                                @endif
+                            </div>
+                            <div class="pt-1 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px]" style="color:var(--text-muted);">
+                                @foreach([[$cm->beds_min,'Min Beds'],[$cm->baths_min,'Min Baths'],[$cm->garages_min,'Min Gar']] as [$v,$l])
+                                @if($v !== null)<span><strong style="color:var(--text-secondary);">{{ $v }}+</strong> {{ $l }}</span>@endif
+                                @endforeach
+                                @if($cm->floor_size_min || $cm->floor_size_max)
+                                <span><strong style="color:var(--text-secondary);">{{ $cm->floor_size_min ? number_format($cm->floor_size_min) : '—' }}–{{ $cm->floor_size_max ? number_format($cm->floor_size_max) : '—' }}</strong> m² floor</span>
+                                @endif
+                            </div>
+                            <a href="{{ route('corex.contacts.matches.results', [$cm->contact, $cm]) }}"
+                               class="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold no-underline"
+                               style="color:#00b4d8;">
+                                View match results →
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            @endforeach
+            </div>
+        @endif
         </div>
 
         </div>{{-- /tab container (right column) --}}
