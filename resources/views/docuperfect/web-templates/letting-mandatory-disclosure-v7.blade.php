@@ -168,15 +168,18 @@
 
         /* ---- Field values (inline blanks) ---- */
         .field {
-            display: inline-block;
-            min-width: 200pt;
+            display: inline;
             border-bottom: 1pt solid #1a1a1a;
-            padding: 0 2pt;
-            text-align: left;
+            padding: 0 1pt;
+            min-width: 80pt;
+            font-weight: normal;
             vertical-align: baseline;
             line-height: inherit;
-            overflow: visible;
-            position: relative;
+            white-space: nowrap;
+        }
+
+        .field:not(:empty) {
+            font-weight: bold;
         }
 
         .field:empty::after {
@@ -306,6 +309,12 @@
             color: #999;
         }
 
+        /* ---- Initials Row ---- */
+        .initials-row { display:flex; justify-content:flex-end; gap:20pt; margin-top:10pt; }
+        .initial-block { text-align:center; }
+        .initial-line { border-bottom:1pt solid #000; width:40pt; margin-bottom:2pt; }
+        .initial-label { font-size:7pt; }
+
         /* ---- Page break ---- */
         .page-break {
             margin-top: 0;
@@ -337,7 +346,7 @@
     <div class="clause">
         <div class="clause-heading">1. Disclaimer</div>
         <p>This condition report concerns the immovable property situated at
-            <span class="field field-wide">{{ $property_address ?? '' }}</span>
+            <span class="field field-wide" data-field="property_address">{{ $property_address ?? '' }}</span>
             (the &ldquo;Property&rdquo;).</p>
         <p>This report does not constitute a guarantee or warranty of any kind by the lessor
             of the Property or by the property practitioners representing that lessor in any
@@ -381,6 +390,15 @@
             of the statements with a &ldquo;yes&rdquo;, the lessor shall be obliged to provide, in the
             additional information area of this form, a full explanation as to the response to
             the statement concerned.</p>
+    </div>
+
+    <div class="initials-row">
+        @foreach($initialsParties ?? [] as $party)
+            <div class="initial-block">
+                <div class="initial-line"></div>
+                <div class="initial-label">{{ $party }}</div>
+            </div>
+        @endforeach
     </div>
 
     {{-- Footer --}}
@@ -505,10 +523,10 @@
                 <td>
                     2. Are you in possession of a valid Certificate of Compliance for the following:
                     <div style="padding-left: 12pt; margin-top: 4pt;">
-                        &bull; Electrical Compliance Certificate &ndash; If Yes, when was it issued? <span class="field field-medium">{{ $electrical_cert_date ?? '' }}</span><br>
-                        &bull; Electrical Fence Certificate &ndash; If Yes, when was it issued? <span class="field field-medium">{{ $fence_cert_date ?? '' }}</span><br>
-                        &bull; Gas Compliance Certificate &ndash; If Yes, when was it issued? <span class="field field-medium">{{ $gas_cert_date ?? '' }}</span><br>
-                        &bull; Entomology Certificate &ndash; If Yes, when was it issued? <span class="field field-medium">{{ $entomology_cert_date ?? '' }}</span>
+                        &bull; Electrical Compliance Certificate &ndash; If Yes, when was it issued? <span class="field field-medium" data-field="electrical_cert_date">{{ $electrical_cert_date ?? '' }}</span><br>
+                        &bull; Electrical Fence Certificate &ndash; If Yes, when was it issued? <span class="field field-medium" data-field="fence_cert_date">{{ $fence_cert_date ?? '' }}</span><br>
+                        &bull; Gas Compliance Certificate &ndash; If Yes, when was it issued? <span class="field field-medium" data-field="gas_cert_date">{{ $gas_cert_date ?? '' }}</span><br>
+                        &bull; Entomology Certificate &ndash; If Yes, when was it issued? <span class="field field-medium" data-field="entomology_cert_date">{{ $entomology_cert_date ?? '' }}</span>
                     </div>
                 </td>
                 <td class="col-check">&square;</td>
@@ -528,6 +546,15 @@
     <div class="info-line"></div>
     <div class="info-line"></div>
     <div class="info-line"></div>
+
+    <div class="initials-row">
+        @foreach($initialsParties ?? [] as $party)
+            <div class="initial-block">
+                <div class="initial-line"></div>
+                <div class="initial-label">{{ $party }}</div>
+            </div>
+        @endforeach
+    </div>
 
     {{-- Footer --}}
     <div class="doc-footer">Version 7</div>
@@ -586,30 +613,39 @@
         <div class="clause-heading">10. Signatures</div>
     </div>
 
+    @php
+        $sigParties = [];
+        $sigNames = [];
+        if (!empty($lessor_signature_name ?? '')) { $sigParties[] = 'Owner'; $sigNames[] = $lessor_signature_name; }
+        if (!empty($lessor_signature_name_2 ?? '')) { $sigParties[] = 'Owner'; $sigNames[] = $lessor_signature_name_2; }
+        if (!empty($lessee_signature_name ?? '')) { $sigParties[] = 'Tenant'; $sigNames[] = $lessee_signature_name; }
+        if (!empty($agent_signature_name ?? '')) { $sigParties[] = 'Agent'; $sigNames[] = $agent_signature_name; }
+    @endphp
+
     {{-- Lessor Signature --}}
-    <div class="signature-section">
+    <div class="signature-section" data-marker-party="owner" data-marker-index="0">
         <p><strong>Lessor</strong></p>
-        <p>Signed at <span class="field field-medium">{{ $lessor_signed_at ?? '' }}</span>
-            on <span class="field field-medium">{{ $lessor_signed_date ?? '' }}</span></p>
-        <p style="margin-top: 8pt;">Signature of Lessor <span class="field">{{ $lessor_signature ?? '' }}</span></p>
+        <p>Signed at <span class="field field-medium" data-field="lessor_signed_at">{{ $lessor_signed_at ?? '' }}</span>
+            on <span class="field field-medium" data-field="lessor_signed_date">{{ $lessor_signed_date ?? '' }}</span></p>
+        <p style="margin-top: 8pt;">Signature of Lessor <span class="field" data-field="lessor_signature">{{ $lessor_signature ?? '' }}</span></p>
     </div>
 
     {{-- Tenant Signature --}}
-    <div class="signature-section">
+    <div class="signature-section" data-marker-party="tenant" data-marker-index="1">
         <p><strong>Tenant</strong></p>
-        <p>Signed at <span class="field field-medium">{{ $tenant_signed_at ?? '' }}</span>
-            on <span class="field field-medium">{{ $tenant_signed_date ?? '' }}</span></p>
-        <p style="margin-top: 8pt;">Signature of Tenant <span class="field">{{ $tenant_signature ?? '' }}</span></p>
+        <p>Signed at <span class="field field-medium" data-field="tenant_signed_at">{{ $tenant_signed_at ?? '' }}</span>
+            on <span class="field field-medium" data-field="tenant_signed_date">{{ $tenant_signed_date ?? '' }}</span></p>
+        <p style="margin-top: 8pt;">Signature of Tenant <span class="field" data-field="tenant_signature">{{ $tenant_signature ?? '' }}</span></p>
     </div>
 
     {{-- Property Practitioner Signature --}}
-    <div class="signature-section">
+    <div class="signature-section" data-marker-party="agent" data-marker-index="2">
         <p><strong>Property Practitioner</strong></p>
-        <p>Signed at <span class="field field-medium">{{ $practitioner_signed_at ?? '' }}</span>
-            on <span class="field field-medium">{{ $practitioner_signed_date ?? '' }}</span></p>
-        <p style="margin-top: 8pt;">Signature of Property Practitioner <span class="field">{{ $practitioner_signature ?? '' }}</span></p>
+        <p>Signed at <span class="field field-medium" data-field="practitioner_signed_at">{{ $practitioner_signed_at ?? '' }}</span>
+            on <span class="field field-medium" data-field="practitioner_signed_date">{{ $practitioner_signed_date ?? '' }}</span></p>
+        <p style="margin-top: 8pt;">Signature of Property Practitioner <span class="field" data-field="practitioner_signature">{{ $practitioner_signature ?? '' }}</span></p>
         <p style="margin-top: 8pt;">Co-signature (if required)</p>
-        <p>Signature of Property Practitioner <span class="field">{{ $co_signature ?? '' }}</span></p>
+        <p>Signature of Property Practitioner <span class="field" data-field="co_signature">{{ $co_signature ?? '' }}</span></p>
     </div>
 
     {{-- Footer --}}

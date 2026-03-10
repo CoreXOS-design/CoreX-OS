@@ -175,6 +175,65 @@
             {{-- Document viewer --}}
             <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 overflow-hidden flex flex-col" style="min-height:600px;">
 
+                {{-- Web template: render HTML directly with markers --}}
+                <template x-if="isWebTemplate">
+                    <div class="flex-1 overflow-auto" style="background:#e2e8f0;">
+                        <div class="relative" style="width:210mm; max-width:100%; background:white; padding:20mm; margin:0 auto; box-shadow:0 2px 8px rgba(0,0,0,0.15);"
+                             x-ref="pageContainer">
+                            <div x-html="webTemplateHtml"></div>
+
+                            {{-- Render markers on web template --}}
+                            <template x-for="marker in markersForCurrentPage()" :key="marker.id">
+                                <div x-show="!hasFlattened || (marker.is_mine && !marker.signed)"
+                                     class="absolute flex items-center justify-center select-none transition-all duration-200"
+                                     :id="'marker-' + marker.id"
+                                     :style="`left:${marker.x_position}%;top:${marker.y_position}%;width:${marker.width}%;height:${marker.height}%;z-index:10;`"
+                                     :class="markerDisplayClasses(marker)"
+                                     @click="handleMarkerClick(marker)">
+
+                                    {{-- My unsigned marker (clickable) --}}
+                                    <template x-if="marker.is_mine && !marker.signed">
+                                        <div class="flex flex-col items-center justify-center w-full h-full px-1">
+                                            <span class="text-xs font-bold leading-tight truncate" x-text="markerActionLabel(marker)"></span>
+                                            <span class="text-[10px] leading-tight opacity-70 truncate" x-text="marker.label || markerTypeLabel(marker)"></span>
+                                        </div>
+                                    </template>
+
+                                    {{-- My signed marker --}}
+                                    <template x-if="marker.is_mine && marker.signed">
+                                        <div class="flex flex-col items-center justify-center w-full h-full relative">
+                                            <template x-if="marker.signature_data && marker.type !== 'date' && marker.type !== 'text'">
+                                                <img :src="marker.signature_data" class="w-full h-full object-contain p-0.5" alt="Signature">
+                                            </template>
+                                            <template x-if="marker.type === 'date'">
+                                                <span class="text-xs font-medium" x-text="marker.text_value || marker.date_value || formatDate(new Date())"></span>
+                                            </template>
+                                            <template x-if="marker.type === 'text'">
+                                                <span class="text-xs font-medium truncate px-1" x-text="marker.text_value || ''"></span>
+                                            </template>
+                                            <span class="absolute -bottom-0.5 right-0.5 text-[9px] text-emerald-700 font-semibold" x-text="marker.type === 'text' ? 'Done' : 'Signed'"></span>
+                                        </div>
+                                    </template>
+
+                                    {{-- Other party's marker --}}
+                                    <template x-if="!marker.is_mine">
+                                        <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
+                                            <svg class="w-3.5 h-3.5 mb-0.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                            </svg>
+                                            <span class="text-[10px] leading-tight capitalize truncate" x-text="marker.assigned_party"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                {{-- PDF template: page images with overlays --}}
+                <template x-if="!isWebTemplate">
+                    <div>
+
                 {{-- Page navigation --}}
                 <div class="flex items-center justify-between mb-3 flex-shrink-0">
                     <button @click="prevPage()" :disabled="currentPage <= 1"
@@ -412,6 +471,9 @@
                         </template>
                     </div>
                 </div>
+
+                    </div>
+                </template>
             </div>
 
             {{-- Complete Signing --}}
@@ -791,6 +853,10 @@ function externalSign() {
         pageImages: @json($pageImages),
         documentFields: @json($document->fields_json ?? []),
         hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
+        isWebTemplate: {{ !empty($isWebTemplate) ? 'true' : 'false' }},
+        webTemplateHtml: @json($webTemplateHtml ?? ''),
+        editableFields: @json($editableFields ?? []),
+        webFieldsDirty: false,
         currentPage: 1,
         totalPages: {{ $pageCount }},
         signedCount: {{ $signedCount }},
@@ -832,6 +898,88 @@ function externalSign() {
             this.$el.addEventListener('reset-method', () => {
                 this.signingMethod = null;
             });
+
+            // For web templates: convert editable field spans to inputs after render
+            if (this.isWebTemplate && this.editableFields.length > 0) {
+                this.$nextTick(() => this.initWebTemplateFields());
+            }
+        },
+
+        // ── Web template field editing ──
+        initWebTemplateFields() {
+            const container = this.$el.querySelector('[x-html="webTemplateHtml"]');
+            if (!container) return;
+
+            // Small delay to ensure x-html has rendered
+            setTimeout(() => {
+                const fields = container.querySelectorAll('.field[data-field]');
+                fields.forEach(span => {
+                    const fieldName = span.getAttribute('data-field');
+                    if (this.editableFields.includes(fieldName)) {
+                        // Convert to editable input
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.name = fieldName;
+                        input.value = span.textContent.trim();
+                        input.setAttribute('data-field', fieldName);
+                        input.className = span.className + ' field-editable';
+                        input.style.cssText = span.style.cssText +
+                            'background:rgba(251,191,36,0.08);' +
+                            'border:none;border-bottom:2px solid rgba(251,191,36,0.6);' +
+                            'outline:none;font:inherit;color:inherit;' +
+                            'padding:0 2pt;';
+                        input.placeholder = fieldName.replace(/_/g, ' ');
+                        input.addEventListener('input', () => { this.webFieldsDirty = true; });
+                        span.replaceWith(input);
+                    } else {
+                        // Locked field — add locked styling
+                        span.style.opacity = '0.85';
+                    }
+                });
+            }, 100);
+        },
+
+        // Collect web template field values from inputs
+        collectWebFieldValues() {
+            const container = this.$el.querySelector('[x-html="webTemplateHtml"]');
+            if (!container) return {};
+            const values = {};
+            container.querySelectorAll('input.field-editable[data-field]').forEach(input => {
+                values[input.name] = input.value;
+            });
+            return values;
+        },
+
+        // Save web template field values back to server
+        async saveWebFields() {
+            if (!this.webFieldsDirty) return true;
+            const values = this.collectWebFieldValues();
+            try {
+                const resp = await fetch('/sign/' + this.token + '/save-web-fields', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({ fields: values }),
+                });
+                if (!resp.ok) {
+                    if (resp.status === 419) {
+                        this.showNotification('Session expired. Please reload the page and try again.', 'error');
+                    }
+                    return false;
+                }
+                const data = await resp.json();
+                if (data.ok) {
+                    this.webFieldsDirty = false;
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                console.error('Save web fields exception:', e);
+                return false;
+            }
         },
 
         // ── Method choice ──
@@ -865,7 +1013,7 @@ function externalSign() {
 
         fieldsForCurrentPage() {
             const pageIdx = this.currentPage - 1;
-            return (this.documentFields || []).filter(f => f.pageIndex === pageIdx);
+            return (this.documentFields || []).filter(f => f.pageIndex === pageIdx && f.position && f.size);
         },
 
         // Detect overlapping fields and offset non-signer fields
@@ -1254,6 +1402,16 @@ function externalSign() {
             // Save any signer-completed fields before finalizing
             if (this.fieldsDirty) {
                 const saved = await this.saveSignerFields();
+                if (!saved) {
+                    this.showNotification('Could not save your field entries. Please try again.', 'error');
+                    this.completing = false;
+                    return;
+                }
+            }
+
+            // Save web template field values before finalizing
+            if (this.webFieldsDirty) {
+                const saved = await this.saveWebFields();
                 if (!saved) {
                     this.showNotification('Could not save your field entries. Please try again.', 'error');
                     this.completing = false;

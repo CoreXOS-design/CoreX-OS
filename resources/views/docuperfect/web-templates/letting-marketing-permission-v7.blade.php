@@ -158,15 +158,18 @@
 
         /* ---- Field values (inline blanks) ---- */
         .field {
-            display: inline-block;
-            min-width: 200pt;
+            display: inline;
             border-bottom: 1pt solid #1a1a1a;
-            padding: 0 2pt;
-            text-align: left;
+            padding: 0 1pt;
+            min-width: 80pt;
+            font-weight: normal;
             vertical-align: baseline;
             line-height: inherit;
-            overflow: visible;
-            position: relative;
+            white-space: nowrap;
+        }
+
+        .field:not(:empty) {
+            font-weight: bold;
         }
 
         .field:empty::after {
@@ -288,6 +291,12 @@
             color: #999;
         }
 
+        /* ---- Initials Row ---- */
+        .initials-row { display:flex; justify-content:flex-end; gap:20pt; margin-top:10pt; }
+        .initial-block { text-align:center; }
+        .initial-line { border-bottom:1pt solid #000; width:40pt; margin-bottom:2pt; }
+        .initial-label { font-size:7pt; }
+
         /* ---- Page break ---- */
         .page-break {
             margin-top: 0;
@@ -308,18 +317,18 @@
     <div class="doc-title">MARKETING PERMISSION</div>
 
     <div class="clause">
-        <p>I / We <span class="field field-wide">{{ $owner_names ?? '' }}</span>
+        <p>I / We <span class="field field-wide" data-field="owner_names">{{ $owner_names ?? '' }}@if(!empty($lessor_name_2)) &amp; {{ $lessor_name_2 }}@endif</span>
             the undersigned, being the registered owner/s, or duly authorised
             representative/s of the Lessor of the</p>
 
-        <p>Property Erf / Sectional Scheme / Unit no <span class="field field-medium">{{ $erf_unit_no ?? '' }}</span> in the Complex / Estate
-            known as <span class="field">{{ $complex_name ?? '' }}</span></p>
+        <p>Property Erf / Sectional Scheme / Unit no <span class="field field-medium" data-field="erf_unit_no">{{ $erf_unit_no ?? '' }}</span> in the Complex / Estate
+            known as <span class="field" data-field="complex_name">{{ $complex_name ?? '' }}</span></p>
 
-        <p>in <span class="field">{{ $street ?? '' }}</span> (Street)</p>
+        <p>in <span class="field" data-field="street">{{ $street ?? '' }}</span> (Street)</p>
 
-        <p>in <span class="field field-medium">{{ $township ?? '' }}</span> (Township)</p>
+        <p>in <span class="field field-medium" data-field="township">{{ $township ?? '' }}</span> (Township)</p>
 
-        <p><span class="field">{{ $district ?? '' }}</span> (District)</p>
+        <p><span class="field" data-field="district">{{ $district ?? '' }}</span> (District)</p>
 
         <p>together with all fixtures and fittings of a permanent nature pertaining to the
             property, do hereby, irrevocably, grant to Home Finders Coastal the marketing
@@ -331,25 +340,25 @@
 
     <div class="clause">
         <p><strong>Lessor 1:</strong></p>
-        <p>Physical address <span class="field">{{ $lessor1_address ?? '' }}</span></p>
-        <p>Tel: <span class="field field-medium">{{ $lessor1_tel ?? '' }}</span>
-            Email: <span class="field field-medium">{{ $lessor1_email ?? '' }}</span></p>
+        <p>Physical address <span class="field" data-field="lessor1_address">{{ $lessor1_address ?? '' }}</span></p>
+        <p>Tel: <span class="field field-medium" data-field="lessor1_tel">{{ $lessor1_tel ?? '' }}</span>
+            Email: <span class="field field-medium" data-field="lessor1_email">{{ $lessor1_email ?? '' }}</span></p>
     </div>
 
     <div class="clause">
         <p><strong>Lessor 2:</strong></p>
-        <p>Physical address <span class="field">{{ $lessor2_address ?? '' }}</span></p>
-        <p>Tel: <span class="field field-medium">{{ $lessor2_tel ?? '' }}</span>
-            Email: <span class="field field-medium">{{ $lessor2_email ?? '' }}</span></p>
+        <p>Physical address <span class="field" data-field="lessor2_address">{{ $lessor2_address ?? '' }}</span></p>
+        <p>Tel: <span class="field field-medium" data-field="lessor2_tel">{{ $lessor2_tel ?? '' }}</span>
+            Email: <span class="field field-medium" data-field="lessor2_email">{{ $lessor2_email ?? '' }}</span></p>
     </div>
 
     {{-- Rental Amount --}}
     <div class="clause">
         <p>The rental amount required by the owner of the property is</p>
-        <p><span class="field field-medium field-currency">{{ $rental_amount ?? '' }}</span></p>
-        <p>( <span class="field">{{ $rental_in_words ?? '' }}</span> )</p>
-        <p>Which includes Agencies commission of <span class="field field-medium field-currency">{{ $commission_amount ?? '' }}</span>
-            ( <span class="field field-short">{{ $commission_percent ?? '' }}</span> %) plus VAT</p>
+        <p><span class="field field-medium field-currency" data-field="rental_amount">{{ $rental_amount ?? '' }}</span></p>
+        <p>( <span class="field" data-field="rental_in_words">{{ $rental_in_words ?? '' }}</span> )</p>
+        <p>Which includes Agencies commission of <span class="field field-medium field-currency" data-field="commission_amount">{{ $commission_amount ?? '' }}</span>
+            ( <span class="field field-short" data-field="commission_percent">{{ $commission_percent ?? '' }}</span> %) plus VAT</p>
     </div>
 
     {{-- To Let Board Consent --}}
@@ -357,23 +366,31 @@
         <p>The Lessor hereby gives consent to Home Finders Coastal to place a &ldquo;To Let&rdquo;
             board on the Property.</p>
 
-        <p style="margin-top: 6pt;">Other: <span class="field field-wide">{{ $other_notes_1 ?? '' }}</span></p>
-        <p><span class="field field-wide">{{ $other_notes_2 ?? '' }}</span></p>
+        <p style="margin-top: 6pt;">Other: <span class="field field-wide" data-field="other_notes_1">{{ $other_notes_1 ?? '' }}</span></p>
+        <p><span class="field field-wide" data-field="other_notes_2">{{ $other_notes_2 ?? '' }}</span></p>
     </div>
+
+    @php
+        $sigParties = [];
+        $sigNames = [];
+        if (!empty($lessor_signature_name ?? '')) { $sigParties[] = 'Owner'; $sigNames[] = $lessor_signature_name; }
+        if (!empty($lessor_signature_name_2 ?? '')) { $sigParties[] = 'Owner'; $sigNames[] = $lessor_signature_name_2; }
+        if (!empty($agent_signature_name ?? '')) { $sigParties[] = 'Agent'; $sigNames[] = $agent_signature_name; }
+    @endphp
 
     {{-- Closing & Signature --}}
     <div class="clause">
         <p>This Marketing Permission was done and signed by the Lessor at</p>
-        <p><span class="field">{{ $signed_at_location ?? '' }}</span></p>
-        <p>on this <span class="field field-short">{{ $signed_day ?? '' }}</span> day
-            of <span class="field field-medium">{{ $signed_month ?? '' }}</span>
-            20<span class="field field-tiny">{{ $signed_year ?? '' }}</span>
-            at <span class="field field-short">{{ $signed_time ?? '' }}</span> am / pm.</p>
+        <p><span class="field" data-field="signed_at_location">{{ $signed_at_location ?? '' }}</span></p>
+        <p>on this <span class="field field-short" data-field="signed_day">{{ $signed_day ?? '' }}</span> day
+            of <span class="field field-medium" data-field="signed_month">{{ $signed_month ?? '' }}</span>
+            20<span class="field field-tiny" data-field="signed_year">{{ $signed_year ?? '' }}</span>
+            at <span class="field field-short" data-field="signed_time">{{ $signed_time ?? '' }}</span> am / pm.</p>
     </div>
 
     <div class="signature-section">
         <div class="signature-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="signature-col">
+            <div class="signature-col" data-marker-party="owner" data-marker-index="0">
                 <div class="signature-line"></div>
                 <div class="signature-label">Lessor</div>
             </div>
@@ -384,7 +401,7 @@
         </div>
         <p style="margin-top: 4pt; font-size: 9pt; text-align: center;">(Registered Owner/s or Duly Authorised Representatives)</p>
 
-        <p style="margin-top: 12pt;">Marketing Permission Agent: <span class="field">{{ $marketing_agent ?? '' }}</span></p>
+        <p style="margin-top: 12pt;">Marketing Permission Agent: <span class="field" data-field="marketing_agent">{{ $marketing_agent ?? '' }}</span></p>
     </div>
 
     {{-- Footer --}}
@@ -427,30 +444,30 @@
     <table class="financial-table">
         <tr>
             <td>Total Rental Amount</td>
-            <td>{{ $total_rental ?? '' }}</td>
+            <td><span class="field" data-field="total_rental" style="min-width:auto;width:100%;border-bottom:none;">{{ $total_rental ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Less Agent&rsquo;s Service Fee<br>(Including VAT)</td>
-            <td>{{ $service_fee ?? '' }}</td>
+            <td><span class="field" data-field="service_fee" style="min-width:auto;width:100%;border-bottom:none;">{{ $service_fee ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Let&rsquo;s Assist</td>
-            <td>{{ $lets_assist ?? '' }}</td>
+            <td><span class="field" data-field="lets_assist" style="min-width:auto;width:100%;border-bottom:none;">{{ $lets_assist ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Net Amount to Lessor</td>
-            <td>{{ $net_to_lessor ?? '' }}</td>
+            <td><span class="field" data-field="net_to_lessor" style="min-width:auto;width:100%;border-bottom:none;">{{ $net_to_lessor ?? '' }}</span></td>
         </tr>
     </table>
 
     {{-- Signature Block --}}
     <div class="signature-section">
         <div class="signature-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="signature-col">
+            <div class="signature-col" data-marker-party="owner" data-marker-index="0">
                 <div class="signature-line"></div>
                 <div class="signature-label">Lessor</div>
             </div>
-            <div class="signature-col">
+            <div class="signature-col" data-marker-party="agent" data-marker-index="1">
                 <div class="signature-line"></div>
                 <div class="signature-label">Lessee Agent</div>
             </div>
@@ -458,10 +475,10 @@
 
         <div class="signature-grid" style="grid-template-columns: 1fr 1fr; margin-top: 10pt;">
             <div>
-                <p>Date: <span class="field field-medium">{{ $addendum_lessor_date ?? '' }}</span></p>
+                <p>Date: <span class="field field-medium" data-field="addendum_lessor_date">{{ $addendum_lessor_date ?? '' }}</span></p>
             </div>
             <div>
-                <p>Date: <span class="field field-medium">{{ $addendum_agent_date ?? '' }}</span></p>
+                <p>Date: <span class="field field-medium" data-field="addendum_agent_date">{{ $addendum_agent_date ?? '' }}</span></p>
             </div>
         </div>
     </div>

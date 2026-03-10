@@ -282,7 +282,19 @@
         <div class="flex gap-4" style="height:calc(100vh - 240px); min-height:400px;">
             {{-- LEFT: Document pages --}}
             <div class="flex-1 ds-status-card p-4 overflow-hidden flex flex-col">
-                {{-- Page navigation --}}
+
+                @if($isWebTemplate ?? false)
+                {{-- Web template: no page navigation needed (single page) --}}
+                <div class="flex-1 overflow-auto" style="background:#f3f4f6;">
+                    <div class="relative" style="width:210mm; max-width:100%; background:white; padding:20mm; margin:0 auto; box-shadow:0 2px 8px rgba(0,0,0,0.15);"
+                         x-ref="pageContainer"
+                         @dragover.prevent="$event.dataTransfer.dropEffect = 'copy'"
+                         @drop.prevent="handleDrop($event)"
+                         x-init="pageLoaded = true; setupWebTemplateObserver()">
+
+                        {!! $webTemplateHtml !!}
+                @else
+                {{-- PDF template: page navigation + page images --}}
                 <div class="flex items-center justify-between mb-3 flex-shrink-0">
                     <button @click="prevPage()" :disabled="currentPage <= 1"
                             class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
@@ -311,8 +323,10 @@
                              draggable="false"
                              @load="pageLoaded = true"
                              x-ref="pageImage">
+                @endif
 
-                        {{-- Render document field values (read-only overlay) — only when NOT flattened --}}
+                        {{-- Render document field values (read-only overlay) — only when NOT flattened (PDF only) --}}
+                        @if(!($isWebTemplate ?? false))
                         <template x-if="!hasFlattened">
                         <template x-for="field in fieldsForCurrentPage()" :key="field.id">
                             <div class="absolute pointer-events-none overflow-hidden"
@@ -365,6 +379,7 @@
                             </div>
                         </template>
                         </template>
+                        @endif
 
                         {{-- Render markers for current page --}}
                         <template x-for="(marker, idx) in markersForCurrentPage()" :key="marker._id">
@@ -376,6 +391,9 @@
 
                                 {{-- Label --}}
                                 <span class="truncate px-1 pointer-events-none" x-text="markerLabel(marker)"></span>
+                                <template x-if="marker.auto_placed">
+                                    <span class="absolute -top-2 -left-1 px-1 py-0 rounded text-[8px] font-bold bg-indigo-500 text-white pointer-events-none" style="line-height:1.3;">Auto</span>
+                                </template>
 
                                 {{-- Delete button --}}
                                 <button class="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 shadow"
@@ -477,6 +495,7 @@
                                 <div class="flex items-center gap-2 min-w-0">
                                     <span class="w-2 h-2 rounded-full flex-shrink-0" :class="partyDotClass(marker.assigned_party)"></span>
                                     <span x-show="marker.from_template" class="inline-flex items-center px-1 py-0 rounded text-[9px] font-semibold bg-indigo-100 text-indigo-600 flex-shrink-0" title="From template zone">[T]</span>
+                                    <span x-show="marker.auto_placed" class="inline-flex items-center px-1 py-0 rounded text-[9px] font-semibold bg-indigo-100 text-indigo-600 flex-shrink-0" title="Auto-placed from document">Auto</span>
                                     <span class="truncate" x-text="markerLabel(marker)"></span>
                                     <span class="text-slate-400 flex-shrink-0" x-text="'Pg ' + marker.page_number"></span>
                                 </div>
@@ -584,6 +603,7 @@
             pageImages: @json($pageImages),
             documentFields: @json($document->fields_json ?? []),
             hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
+            isWebTemplate: {{ ($isWebTemplate ?? false) ? 'true' : 'false' }},
             currentPage: 1,
             totalPages: {{ $pageCount }},
             selectedType: 'signature',
@@ -601,6 +621,110 @@
                 // Global mouse handlers for drag
                 document.addEventListener('mousemove', (e) => this.onDrag(e));
                 document.addEventListener('mouseup', () => this.endDrag());
+            },
+
+            setupWebTemplateObserver() {
+                if (!this.isWebTemplate) return;
+                // For web templates always re-calculate positions
+                // Old saved markers may have wrong coordinates
+                if (this.markers.length > 0 && !this.isWebTemplate) return;
+                // Clear any existing markers before auto-placing
+                if (this.isWebTemplate) this.markers = [];
+
+                const container = this.$refs.pageContainer;
+                if (!container) return;
+
+                const self = this;
+                const tryPlaceMarkers = () => {
+                    const cols = container.querySelectorAll('[data-marker-party]');
+                    if (cols.length === 0) return false;
+
+                    // Map display party names to signature_request party_roles
+                    const partyRoleMap = {
+                        'owner': 'landlord',
+                        'landlord': 'landlord',
+                        'seller': 'seller',
+                        'tenant': 'tenant',
+                        'buyer': 'buyer',
+                        'agent': 'agent',
+                    };
+
+                    // Known parties from server (for matching names to roles)
+                    const knownParties = @json($parties ?? []);
+
+                    cols.forEach((col, i) => {
+                        const partyLabel = (col.dataset.markerParty || '').toLowerCase();
+                        const name = col.dataset.name || '';
+                        const role = partyRoleMap[partyLabel] || partyLabel;
+
+                        // Use getBoundingClientRect for accurate position relative to container
+                        container.scrollTop = 0;
+                        const containerRect = container.getBoundingClientRect();
+                        const colRect = col.getBoundingClientRect();
+                        const sigLine = col.querySelector('.signature-line') ?? col;
+                        const sigRect = sigLine.getBoundingClientRect();
+
+                        const absoluteTop = (sigRect.top - containerRect.top + container.scrollTop) - 35;
+                        const absoluteLeft = colRect.left - containerRect.left;
+
+                        const yPct = (absoluteTop / container.scrollHeight) * 100;
+                        const xPct = (absoluteLeft / container.scrollWidth) * 100;
+                        const wPct = (col.offsetWidth / container.scrollWidth) * 100;
+                        const xOffset = (50 / container.scrollWidth) * 100;
+
+                        // Determine assigned_party — try to match by name to a known party
+                        let assignedParty = role;
+                        if (name && knownParties.length > 0) {
+                            const match = knownParties.find(p =>
+                                p.role === role && p.name && p.name.toLowerCase() === name.toLowerCase()
+                            );
+                            if (match) {
+                                assignedParty = match.role;
+                            }
+                        }
+
+                        // Check this party role exists in the known parties list
+                        const partyExists = knownParties.some(p => p.role === assignedParty);
+                        if (!partyExists && knownParties.length > 0) return;
+
+                        self.markers.push({
+                            _id: 'auto_' + self._nextId++,
+                            id: null,
+                            page_number: 1,
+                            x_position: Math.round((xPct + xOffset) * 100) / 100,
+                            y_position: Math.round(yPct * 100) / 100,
+                            width: Math.round(Math.min(wPct - 2, 13) * 100) / 100,
+                            height: 4,
+                            type: 'signature',
+                            assigned_party: assignedParty,
+                            label: name ? (assignedParty.charAt(0).toUpperCase() + assignedParty.slice(1) + ' — ' + name) : null,
+                            required: true,
+                            auto_placed: true,
+                        });
+                    });
+
+                    if (self.markers.length > 0) {
+                        self.saved = false;
+                    }
+                    return true;
+                };
+
+                // Try immediately first (DOM may already be ready)
+                if (tryPlaceMarkers()) return;
+
+                // Use MutationObserver to wait for DOM content to render
+                const observer = new MutationObserver(() => {
+                    const cols = container.querySelectorAll('[data-marker-party]');
+                    if (cols.length === 0) return;
+                    observer.disconnect();
+                    // Wait one frame for layout to settle
+                    requestAnimationFrame(() => tryPlaceMarkers());
+                });
+
+                observer.observe(container, { childList: true, subtree: true });
+
+                // Safety timeout — disconnect after 5s
+                setTimeout(() => observer.disconnect(), 5000);
             },
 
             prevPage() { if (this.currentPage > 1) this.currentPage--; },

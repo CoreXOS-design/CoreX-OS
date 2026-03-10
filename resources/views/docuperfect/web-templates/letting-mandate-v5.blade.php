@@ -157,15 +157,18 @@
 
         /* ---- Field values (inline blanks) ---- */
         .field {
-            display: inline-block;
-            min-width: 200pt;
+            display: inline;
             border-bottom: 1pt solid #1a1a1a;
-            padding: 0 2pt;
-            text-align: left;
+            padding: 0 1pt;
+            min-width: 80pt;
+            font-weight: normal;
             vertical-align: baseline;
             line-height: inherit;
-            overflow: visible;
-            position: relative;
+            white-space: nowrap;
+        }
+
+        .field:not(:empty) {
+            font-weight: bold;
         }
 
         .field:empty::after {
@@ -293,6 +296,12 @@
             font-size: 8pt;
             color: #999;
         }
+
+        /* ---- Initials Row ---- */
+        .initials-row { display:flex; justify-content:flex-end; gap:20pt; margin-top:10pt; }
+        .initial-block { text-align:center; }
+        .initial-line { border-bottom:1pt solid #000; width:40pt; margin-bottom:2pt; }
+        .initial-label { font-size:7pt; }
     </style>
 </head>
 <body>
@@ -307,15 +316,15 @@
     {{-- The Parties --}}
     <p class="section-label">The Parties</p>
 
-    <p>The Owner/s: <span class="field">{{ $lessor_name ?? '' }}</span></p>
+    <p>The Owner/s: <span class="field" data-field="lessor_name">{{ $lessor_name ?? '' }}</span>@if(!empty($lessor_name_2)) &amp; <span class="field" data-field="lessor_name_2">{{ $lessor_name_2 }}</span>@endif</p>
 
-    <p style="margin-top: 6pt;">Home Finders Coastal (Agent): <span class="field">{{ $agent_name ?? '' }}</span></p>
+    <p style="margin-top: 6pt;">Home Finders Coastal (Agent): <span class="field" data-field="agent_name">{{ $agent_name ?? '' }}</span></p>
 
     {{-- Clause 1 --}}
     <div class="clause">
         <span class="clause-number">1.</span>
         <span class="clause-text">The owner hereby grants to the Agent a Mandate to offer to let the property known
-            as <span class="field field-wide">{{ $property_address ?? '' }}</span>
+            as <span class="field field-address" data-field="property_address">{{ $property_address ?? '' }}</span>
             subject to the conditions set out in this agreement.</span>
     </div>
 
@@ -323,7 +332,7 @@
     <div class="clause">
         <span class="clause-number">2.</span>
         <span class="clause-text">The rental amount required by the Owner for the property is
-            R<span class="field field-medium">{{ $rental_amount ?? '' }}</span>
+            R<span class="field field-medium" data-field="rental_amount">{{ $rental_amount ?? '' }}</span>
             which includes the commission as stated in clause 4. In the event of the Agency not finding a suitable
             Tenant to rent the property at such rental amount, then, between the Owner and the Agency they will
             agree to an acceptable rental amount prior to allowing any tenant taking occupation of the said
@@ -335,16 +344,16 @@
         <span class="clause-number">3.</span>
         <span class="clause-text">The sole mandate hereby granted shall commence on date of signature hereof and
             shall remain in force until 22h00 on the
-            <span class="field field-short">{{ $mandate_day ?? '' }}</span> day
-            of <span class="field field-medium">{{ $mandate_month ?? '' }}</span>
-            20<span class="field field-tiny">{{ $mandate_year ?? '' }}</span></span>
+            <span class="field field-short" data-field="mandate_day">{{ $mandate_day ?? '' }}</span> day
+            of <span class="field field-medium" data-field="mandate_month">{{ $mandate_month ?? '' }}</span>
+            20<span class="field field-tiny" data-field="mandate_year">{{ $mandate_year ?? '' }}</span></span>
     </div>
 
     {{-- Clause 4 --}}
     <div class="clause">
         <span class="clause-number">4.</span>
         <span class="clause-text">The Owner will pay to the Agent a commission, calculated at a percentage of
-            <span class="field field-short">{{ $commission_percent ?? '' }}</span>% plus VAT
+            <span class="field field-short" data-field="commission_percent">{{ $commission_percent ?? '' }}</span>% plus VAT
             on the letting price of the property.</span>
     </div>
 
@@ -365,27 +374,27 @@
     <table class="bank-details">
         <tr>
             <td>Account Holder&rsquo;s Name:</td>
-            <td>{{ $account_holder ?? '' }}</td>
+            <td><span class="field" data-field="account_holder" style="min-width:auto;width:100%;border-bottom:none;">{{ $account_holder ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Bank Name:</td>
-            <td>{{ $bank_name ?? '' }}</td>
+            <td><span class="field" data-field="bank_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $bank_name ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Account Number:</td>
-            <td>{{ $account_number ?? '' }}</td>
+            <td><span class="field" data-field="account_number" style="min-width:auto;width:100%;border-bottom:none;">{{ $account_number ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Branch Name and Code:</td>
-            <td>{{ $branch_name ?? '' }}</td>
+            <td><span class="field" data-field="branch_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $branch_name ?? '' }}</span></td>
         </tr>
     </table>
 
     <p style="margin-top: 8pt;">Owner&rsquo;s Contact details:
-        <span class="field">{{ $owner_contact ?? '' }}</span></p>
+        <span class="field" data-field="owner_contact">{{ $owner_contact ?? '' }}</span></p>
 
     <p style="margin-top: 4pt;">Owner&rsquo;s Email Address:
-        <span class="field">{{ $owner_email ?? '' }}</span></p>
+        <span class="field" data-field="owner_email">{{ $owner_email ?? '' }}</span></p>
 
     {{-- Clause 7 --}}
     <div class="clause">
@@ -395,8 +404,30 @@
     </div>
 
     {{-- Signature Block --}}
+    @php
+        $signingParties = ['Agent'];
+        $signingNames = [$agent_signature_name ?? $agent_name ?? ''];
+        if (!empty($lessor_signature_name ?? $lessor_name ?? '')) {
+            array_unshift($signingParties, 'Owner');
+            array_unshift($signingNames, $lessor_signature_name ?? $lessor_name);
+        }
+        if (!empty($lessor_signature_name_2 ?? $lessor_name_2 ?? '')) {
+            array_splice($signingParties, 1, 0, ['Owner']);
+            array_splice($signingNames, 1, 0, [$lessor_signature_name_2 ?? $lessor_name_2]);
+        }
+        // Default: at least 2 Owner columns if no names yet
+        if (count($signingParties) < 3) {
+            array_unshift($signingParties, 'Owner');
+            array_unshift($signingNames, '');
+            if (count($signingParties) < 3) {
+                array_splice($signingParties, 1, 0, ['Owner']);
+                array_splice($signingNames, 1, 0, ['']);
+            }
+        }
+    @endphp
     @include('docuperfect.web-templates.components.signature-block', [
-        'parties' => ['Owner', 'Owner', 'Agent'],
+        'parties' => $signingParties,
+        'party_names' => $signingNames,
         'signed_at_location' => $signed_at_location ?? null,
         'signed_day' => $signed_day ?? null,
         'signed_month' => $signed_month ?? null,

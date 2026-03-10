@@ -91,6 +91,9 @@ class SettingsController extends Controller
             'name'       => 'required|string|max:100',
             'sort_order' => 'nullable|integer|min:0',
         ]);
+        if (empty($data['sort_order'])) {
+            $data['sort_order'] = (PropertySettingItem::where('group', $data['group'])->max('sort_order') ?? 0) + 1;
+        }
         PropertySettingItem::create($data);
         return back()->with('success', 'Item added.')->with('tab', 'feature')->with('fsec', 'properties');
     }

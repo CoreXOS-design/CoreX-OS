@@ -160,15 +160,18 @@
 
         /* ---- Field values (inline blanks) ---- */
         .field {
-            display: inline-block;
-            min-width: 200pt;
+            display: inline;
             border-bottom: 1pt solid #1a1a1a;
-            padding: 0 2pt;
-            text-align: left;
+            padding: 0 1pt;
+            min-width: 80pt;
+            font-weight: normal;
             vertical-align: baseline;
             line-height: inherit;
-            overflow: visible;
-            position: relative;
+            white-space: nowrap;
+        }
+
+        .field:not(:empty) {
+            font-weight: bold;
         }
 
         .field:empty::after {
@@ -333,6 +336,12 @@
             margin-top: 0;
             padding-top: 18mm;
         }
+
+        /* ---- Initials ---- */
+        .initials-row { display:flex; justify-content:flex-end; gap:20pt; margin-top:10pt; }
+        .initial-block { text-align:center; }
+        .initial-line { border-bottom:1pt solid #000; width:40pt; margin-bottom:2pt; }
+        .initial-label { font-size:7pt; }
     </style>
 </head>
 <body>
@@ -350,15 +359,15 @@
     <div class="section-heading">1. Parties</div>
 
     <div class="clause">
-        <p>1. <span class="field">{{ $lessor_name ?? '' }}</span> (Lessor / Landlord)<br>
-            Of (address) <span class="field">{{ $lessor_address ?? '' }}</span><br>
-            ID/Passport/Registration No: <span class="field">{{ $lessor_id ?? '' }}</span></p>
+        <p>1. <span class="field" data-field="lessor_name">{{ $lessor_name ?? '' }}</span>@if(!empty($lessor_name_2)) &amp; <span class="field" data-field="lessor_name_2">{{ $lessor_name_2 }}</span>@endif (Lessor / Landlord)<br>
+            Of (address) <span class="field" data-field="lessor_address">{{ $lessor_address ?? '' }}</span><br>
+            ID/Passport/Registration No: <span class="field" data-field="lessor_id">{{ $lessor_id ?? '' }}</span></p>
 
         <p style="text-align: center; margin: 6pt 0; font-weight: bold;">AND</p>
 
-        <p>2. <span class="field">{{ $lessee_name ?? '' }}</span> (Lessee / tenant / Occupant)<br>
-            of (address) <span class="field">{{ $lessee_address ?? '' }}</span><br>
-            ID/Passport/Registration No: <span class="field">{{ $lessee_id ?? '' }}</span></p>
+        <p>2. <span class="field" data-field="lessee_name">{{ $lessee_name ?? '' }}</span>@if(!empty($lessee_name_2)) &amp; <span class="field" data-field="lessee_name_2">{{ $lessee_name_2 }}</span>@endif (Lessee / tenant / Occupant)<br>
+            of (address) <span class="field" data-field="lessee_address">{{ $lessee_address ?? '' }}</span><br>
+            ID/Passport/Registration No: <span class="field" data-field="lessee_id">{{ $lessee_id ?? '' }}</span></p>
 
         <p style="margin-top: 6pt;">It is agreed that, from date of occupation, the DOMICILIUM CITANDI ET
             EXECUTANDI will be the property address.</p>
@@ -393,8 +402,8 @@
 
     <div class="clause">
         <div class="sub-clause">2.1 The premises: being<br>
-            Erf no: <span class="field field-short">{{ $erf_no ?? '' }}</span>, (street address) <span class="field">{{ $street_address ?? '' }}</span><br>
-            Unit no: <span class="field field-short">{{ $unit_no ?? '' }}</span>, Complex: <span class="field">{{ $complex_name ?? '' }}</span></div>
+            Erf no: <span class="field field-short" data-field="erf_no">{{ $erf_no ?? '' }}</span>, (street address) <span class="field" data-field="street_address">{{ $street_address ?? '' }}</span><br>
+            Unit no: <span class="field field-short" data-field="unit_no">{{ $unit_no ?? '' }}</span>, Complex: <span class="field" data-field="complex_name">{{ $complex_name ?? '' }}</span></div>
 
         <div class="sub-clause">2.2 The Rental: being the amount referred to in 4.1 or 5.2.2 as escalated
             in terms of 4.2.</div>
@@ -408,6 +417,15 @@
 
         <div class="sub-clause">2.6 The LANDLORD remains the responsible party for any concerns, disputes
             or claims arising from the LEASE.</div>
+    </div>
+
+    <div class="initials-row">
+        @foreach($initialsParties ?? [] as $party)
+            <div class="initial-block">
+                <div class="initial-line"></div>
+                <div class="initial-label">{{ $party }}</div>
+            </div>
+        @endforeach
     </div>
 
     <div class="doc-footer">Version 8</div>
@@ -428,8 +446,8 @@
         <div class="sub-clause">3.1 The Lessor hereby lets to the Lessee, who hereby hires, the Premises
             subject to the terms and conditions contained in this Agreement.</div>
 
-        <div class="sub-clause">3.2 The Premises shall be personally occupied by <span class="field field-short">{{ $adults ?? '' }}</span> Adults and
-            not more than <span class="field field-short">{{ $other_persons ?? '' }}</span> other persons.</div>
+        <div class="sub-clause">3.2 The Premises shall be personally occupied by <span class="field field-short" data-field="adults">{{ $adults ?? '' }}</span> Adults and
+            not more than <span class="field field-short" data-field="other_persons">{{ $other_persons ?? '' }}</span> other persons.</div>
     </div>
 
     {{-- Section 4: Rental --}}
@@ -437,8 +455,8 @@
     <p style="font-style: italic; font-size: 9pt; margin-bottom: 4pt;">Note: Delete 4.2 if not applicable.</p>
 
     <div class="clause">
-        <div class="sub-clause">4.1 The Rental shall be <span class="field field-medium field-currency">{{ $rental_amount ?? '' }}</span> (in words)
-            (<span class="field">{{ $rental_in_words ?? '' }}</span> Rand) per month,
+        <div class="sub-clause">4.1 The Rental shall be <span class="field field-medium field-currency" data-field="rental_amount">{{ $rental_amount ?? '' }}</span> (in words)
+            (<span class="field" data-field="rental_in_words">{{ $rental_in_words ?? '' }}</span> Rand) per month,
             subject to 4.2 and shall be paid monthly in advance on the 1st day of
             each month, free of any set-off, by means of bank/internet transfer of
             cash deposits into the Agency&rsquo;s banking account. The LESSEE must ensure
@@ -448,9 +466,9 @@
             to FICA. The LESSEE acknowledges that all cash deposit fees charged by
             the bank will be for the account of the LESSEE.</div>
 
-        <div class="sub-clause">4.2 The Rental shall be subject to an escalation of <span class="field field-short">{{ $escalation_percent ?? '' }}</span>%
-            (<span class="field field-medium">{{ $escalation_in_words ?? '' }}</span>) per annum from the 1st day of
-            <span class="field field-medium">{{ $escalation_month ?? '' }}</span> each year, and the amount referred to in
+        <div class="sub-clause">4.2 The Rental shall be subject to an escalation of <span class="field field-short" data-field="escalation_percent">{{ $escalation_percent ?? '' }}</span>%
+            (<span class="field field-medium" data-field="escalation_in_words">{{ $escalation_in_words ?? '' }}</span>) per annum from the 1st day of
+            <span class="field field-medium" data-field="escalation_month">{{ $escalation_month ?? '' }}</span> each year, and the amount referred to in
             4.1, escalated as aforesaid, shall then with effect from the said date
             constitute the Rental.</div>
 
@@ -464,18 +482,18 @@
     <div class="section-heading">5. Lease Period</div>
 
     <div class="clause">
-        <div class="sub-clause">5.1 The lease shall commence on <span class="field field-medium">{{ $lease_start ?? '' }}</span>, and shall
+        <div class="sub-clause">5.1 The lease shall commence on <span class="field field-medium" data-field="lease_start">{{ $lease_start ?? '' }}</span>, and shall
             continue thereafter until terminated by either party giving the other
             not more than 80 (eighty) and not less than 40 (forty) business days&rsquo;
             notice of termination. Provided that such notice of termination &mdash;
             <div class="sub-sub-clause">5.1.1 may not be given by either party to expire prior to the
-                <span class="field field-short">{{ $min_term_day ?? '' }}</span> day of <span class="field field-medium">{{ $min_term_month ?? '' }}</span> in the year <span class="field field-short">{{ $min_term_year ?? '' }}</span>; and</div>
+                <span class="field field-short" data-field="min_term_day">{{ $min_term_day ?? '' }}</span> day of <span class="field field-medium" data-field="min_term_month">{{ $min_term_month ?? '' }}</span> in the year <span class="field field-short" data-field="min_term_year">{{ $min_term_year ?? '' }}</span>; and</div>
             <div class="sub-sub-clause">5.1.2 shall be given only on or before the 1st day of any calendar month.</div>
         </div>
 
-        <div class="sub-clause">5.2 The lease shall expire at midnight on <span class="field field-medium">{{ $lease_end ?? '' }}</span> (the
+        <div class="sub-clause">5.2 The lease shall expire at midnight on <span class="field field-medium" data-field="lease_end">{{ $lease_end ?? '' }}</span> (the
             expiry date). With written consent from the Lessor, the Lessee has the
-            option to renew the lease for a further period of <span class="field field-short">{{ $renewal_months ?? '' }}</span> months (the
+            option to renew the lease for a further period of <span class="field field-short" data-field="renewal_months">{{ $renewal_months ?? '' }}</span> months (the
             renewal period), commencing on the first day after the expiry date, on
             the same terms and conditions contained in this Agreement. Provided that &mdash;
             <div class="sub-sub-clause">5.2.1 The Lessee shall exercise this option by giving written notice to
@@ -491,6 +509,15 @@
             this lease has been signed and agreed to by the Lessee, Lessor and or
             Agency. Please refer to clause 17 on how the termination of a lease
             agreement works.</div>
+    </div>
+
+    <div class="initials-row">
+        @foreach($initialsParties ?? [] as $party)
+            <div class="initial-block">
+                <div class="initial-line"></div>
+                <div class="initial-label">{{ $party }}</div>
+            </div>
+        @endforeach
     </div>
 
     <div class="doc-footer">Version 8</div>
@@ -539,7 +566,7 @@
     <div class="clause">
         <p>Municipality electricity account to remain in the name of the Lessor. The
             monthly statements to be sent to the Lessee by the Lessor for settlement:<br>
-            Direct settlement to the Agency <span class="field field-medium">{{ $electricity_settlement ?? '' }}</span></p>
+            Direct settlement to the Agency <span class="field field-medium" data-field="electricity_settlement">{{ $electricity_settlement ?? '' }}</span></p>
     </div>
 
     {{-- Section 8: Additional Payments --}}
@@ -624,8 +651,8 @@
         <div class="sub-clause">9.9 Should the LANDLORD agree to allow pets, subject to the rules of the
             Bodies mentioned above, the LANDLORD gives permission to only the
             following type and number of pets on the PREMISES:<br>
-            <span class="field field-wide">{{ $pets_1 ?? '' }}</span><br>
-            <span class="field field-wide">{{ $pets_2 ?? '' }}</span></div>
+            <span class="field field-wide" data-field="pets_1">{{ $pets_1 ?? '' }}</span><br>
+            <span class="field field-wide" data-field="pets_2">{{ $pets_2 ?? '' }}</span></div>
 
         <div class="sub-clause">9.10 Keep the electrical system in good working order and condition, fair
             wear and tear excepted.</div>
@@ -641,6 +668,15 @@
         <div class="sub-clause">9.13 The Lessee shall allow the Lessor to inspect the premises at all
             reasonable times after giving 24 (twenty four) hours&rsquo; notice to the
             Lessee.</div>
+    </div>
+
+    <div class="initials-row">
+        @foreach($initialsParties ?? [] as $party)
+            <div class="initial-block">
+                <div class="initial-line"></div>
+                <div class="initial-label">{{ $party }}</div>
+            </div>
+        @endforeach
     </div>
 
     <div class="doc-footer">Version 8</div>
@@ -877,6 +913,15 @@
             damage deposit.</div>
     </div>
 
+    <div class="initials-row">
+        @foreach($initialsParties ?? [] as $party)
+            <div class="initial-block">
+                <div class="initial-line"></div>
+                <div class="initial-label">{{ $party }}</div>
+            </div>
+        @endforeach
+    </div>
+
     <div class="doc-footer">Version 8</div>
 
 </div>
@@ -907,7 +952,7 @@
             Lessee:<br>
             The Lessee shall be held liable to pay the lease cancellation fee of
             R2 000.00 (Two Thousand Rand) for administration costs.<br>
-            Signature <span class="field">{{ $cancellation_signature ?? '' }}</span><br>
+            Signature <span class="field" data-field="cancellation_signature">{{ $cancellation_signature ?? '' }}</span><br>
             The Lessee shall be held responsible for the monthly rental payments
             and advertising costs until such time as a new Lessee has been
             procured.</div>
@@ -1012,18 +1057,27 @@
     <div class="info-line"></div>
     <div class="info-line"></div>
 
+    @php
+        $sigParties = [];
+        $sigNames = [];
+        if (!empty($lessor_signature_name ?? '')) { $sigParties[] = 'Owner'; $sigNames[] = $lessor_signature_name; }
+        if (!empty($lessor_signature_name_2 ?? '')) { $sigParties[] = 'Owner'; $sigNames[] = $lessor_signature_name_2; }
+        if (!empty($lessee_signature_name ?? '')) { $sigParties[] = 'Tenant'; $sigNames[] = $lessee_signature_name; }
+        if (!empty($agent_signature_name ?? '')) { $sigParties[] = 'Agent'; $sigNames[] = $agent_signature_name; }
+    @endphp
+
     {{-- Section 24: Signatures --}}
     <div class="section-heading">24. Signatures</div>
 
     {{-- Lessor Signature --}}
     <div class="signature-section">
         <p><strong>LESSOR</strong></p>
-        <p>Thus done and signed by the Lessor at <span class="field field-medium">{{ $lessor_signed_at ?? '' }}</span> on this
-            <span class="field field-short">{{ $lessor_signed_day ?? '' }}</span> day of <span class="field field-medium">{{ $lessor_signed_month ?? '' }}</span>
-            20<span class="field field-tiny">{{ $lessor_signed_year ?? '' }}</span> at <span class="field field-short">{{ $lessor_signed_time ?? '' }}</span> am / pm.</p>
+        <p>Thus done and signed by the Lessor at <span class="field field-medium" data-field="lessor_signed_at">{{ $lessor_signed_at ?? '' }}</span> on this
+            <span class="field field-short" data-field="lessor_signed_day">{{ $lessor_signed_day ?? '' }}</span> day of <span class="field field-medium" data-field="lessor_signed_month">{{ $lessor_signed_month ?? '' }}</span>
+            20<span class="field field-tiny" data-field="lessor_signed_year">{{ $lessor_signed_year ?? '' }}</span> at <span class="field field-short" data-field="lessor_signed_time">{{ $lessor_signed_time ?? '' }}</span> am / pm.</p>
 
         <div class="signature-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="signature-col">
+            <div class="signature-col" data-marker-party="owner" data-marker-index="0">
                 <div class="signature-line"></div>
                 <div class="signature-label">Lessor</div>
             </div>
@@ -1057,12 +1111,12 @@
     {{-- Lessee Signature --}}
     <div class="signature-section">
         <p><strong>LESSEE</strong></p>
-        <p>Thus done and signed by the Lessee at <span class="field field-medium">{{ $lessee_signed_at ?? '' }}</span> on this
-            <span class="field field-short">{{ $lessee_signed_day ?? '' }}</span> day of <span class="field field-medium">{{ $lessee_signed_month ?? '' }}</span>
-            20<span class="field field-tiny">{{ $lessee_signed_year ?? '' }}</span> at <span class="field field-short">{{ $lessee_signed_time ?? '' }}</span> am / pm.</p>
+        <p>Thus done and signed by the Lessee at <span class="field field-medium" data-field="lessee_signed_at">{{ $lessee_signed_at ?? '' }}</span> on this
+            <span class="field field-short" data-field="lessee_signed_day">{{ $lessee_signed_day ?? '' }}</span> day of <span class="field field-medium" data-field="lessee_signed_month">{{ $lessee_signed_month ?? '' }}</span>
+            20<span class="field field-tiny" data-field="lessee_signed_year">{{ $lessee_signed_year ?? '' }}</span> at <span class="field field-short" data-field="lessee_signed_time">{{ $lessee_signed_time ?? '' }}</span> am / pm.</p>
 
         <div class="signature-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="signature-col">
+            <div class="signature-col" data-marker-party="tenant" data-marker-index="1">
                 <div class="signature-line"></div>
                 <div class="signature-label">Lessee</div>
             </div>
@@ -1096,12 +1150,12 @@
     {{-- Agent Signature --}}
     <div class="signature-section">
         <p><strong>AGENT</strong></p>
-        <p>Thus done and signed by the Agent at <span class="field field-medium">{{ $agent_signed_at ?? '' }}</span> on this
-            <span class="field field-short">{{ $agent_signed_day ?? '' }}</span> day of <span class="field field-medium">{{ $agent_signed_month ?? '' }}</span>
-            20<span class="field field-tiny">{{ $agent_signed_year ?? '' }}</span> at <span class="field field-short">{{ $agent_signed_time ?? '' }}</span> am / pm.</p>
+        <p>Thus done and signed by the Agent at <span class="field field-medium" data-field="agent_signed_at">{{ $agent_signed_at ?? '' }}</span> on this
+            <span class="field field-short" data-field="agent_signed_day">{{ $agent_signed_day ?? '' }}</span> day of <span class="field field-medium" data-field="agent_signed_month">{{ $agent_signed_month ?? '' }}</span>
+            20<span class="field field-tiny" data-field="agent_signed_year">{{ $agent_signed_year ?? '' }}</span> at <span class="field field-short" data-field="agent_signed_time">{{ $agent_signed_time ?? '' }}</span> am / pm.</p>
 
         <div class="signature-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="signature-col">
+            <div class="signature-col" data-marker-party="agent" data-marker-index="2">
                 <div class="signature-line"></div>
                 <div class="signature-label">Agent</div>
             </div>
@@ -1160,19 +1214,19 @@
     <table class="financial-table">
         <tr>
             <td>Total Rental Amount</td>
-            <td>{{ $total_rental ?? '' }}</td>
+            <td><span class="field" data-field="total_rental" style="min-width:auto;width:100%;border-bottom:none;">{{ $total_rental ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Less Agent&rsquo;s Service Fee (Including VAT)</td>
-            <td>{{ $service_fee ?? '' }}</td>
+            <td><span class="field" data-field="service_fee" style="min-width:auto;width:100%;border-bottom:none;">{{ $service_fee ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Let&rsquo;s Assist Fee</td>
-            <td>{{ $lets_assist ?? '' }}</td>
+            <td><span class="field" data-field="lets_assist" style="min-width:auto;width:100%;border-bottom:none;">{{ $lets_assist ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Net Amount to Owner</td>
-            <td>{{ $net_to_owner ?? '' }}</td>
+            <td><span class="field" data-field="net_to_owner" style="min-width:auto;width:100%;border-bottom:none;">{{ $net_to_owner ?? '' }}</span></td>
         </tr>
     </table>
 
@@ -1195,13 +1249,13 @@
 
         <div class="signature-grid" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 8pt;">
             <div>
-                <p>Date: <span class="field field-short">{{ $addendum_lessor_date ?? '' }}</span></p>
+                <p>Date: <span class="field field-short" data-field="addendum_lessor_date">{{ $addendum_lessor_date ?? '' }}</span></p>
             </div>
             <div>
-                <p>Date: <span class="field field-short">{{ $addendum_tenant_date ?? '' }}</span></p>
+                <p>Date: <span class="field field-short" data-field="addendum_tenant_date">{{ $addendum_tenant_date ?? '' }}</span></p>
             </div>
             <div>
-                <p>Date: <span class="field field-short">{{ $addendum_agent_date ?? '' }}</span></p>
+                <p>Date: <span class="field field-short" data-field="addendum_agent_date">{{ $addendum_agent_date ?? '' }}</span></p>
             </div>
         </div>
     </div>

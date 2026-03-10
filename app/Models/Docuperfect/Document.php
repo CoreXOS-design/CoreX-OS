@@ -25,10 +25,12 @@ class Document extends Model
         'property_address',
         'property_id',
         'lease_expiry_date',
+        'web_template_data',
     ];
 
     protected $casts = [
         'fields_json' => 'array',
+        'web_template_data' => 'array',
         'archived_at' => 'datetime',
         'lease_expiry_date' => 'date',
     ];

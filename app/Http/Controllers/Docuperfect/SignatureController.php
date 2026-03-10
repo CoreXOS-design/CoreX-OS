@@ -14,6 +14,7 @@ use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignaturePdfService;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\PermissionService;
+use App\Services\WebTemplateFieldPartyMap;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -238,13 +239,42 @@ class SignatureController extends Controller
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
 
-        for ($n = 0; $n < $pageCount; $n++) {
-            if ($hasFlattened && isset($flattenedPages[$n])) {
-                $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
-            } elseif ($docTemplate) {
-                $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+        // Detect web template rendering
+        $isWebTemplate = $docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view;
+        $webTemplateHtml = '';
+
+        if ($isWebTemplate) {
+            $webTemplateData = $document->web_template_data ?? [];
+
+            if (!empty($webTemplateData['merged_html'])) {
+                // Pack document — use pre-rendered merged HTML
+                $webTemplateHtml = $webTemplateData['merged_html'];
+                $pageCount = count($webTemplateData['template_ids'] ?? [1]);
+            } else {
+                // Single template — render blade view normally
+                $viewData = $webTemplateData;
+                $fullHtml = view($docTemplate->blade_view, $viewData)->render();
+                $bodyHtml = $fullHtml;
+                if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $m)) {
+                    $bodyHtml = trim($m[1]);
+                }
+                $styles = '';
+                if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches)) {
+                    $styles = implode("\n", $styleMatches[0]);
+                }
+                $webTemplateHtml = $styles . $bodyHtml;
+                $pageCount = 1;
+            }
+        } else {
+            $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+
+            for ($n = 0; $n < $pageCount; $n++) {
+                if ($hasFlattened && isset($flattenedPages[$n])) {
+                    $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+                } elseif ($docTemplate) {
+                    $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+                }
             }
         }
 
@@ -269,6 +299,8 @@ class SignatureController extends Controller
             'pageImages' => $pageImages,
             'pageCount' => $pageCount,
             'hasFlattened' => $hasFlattened,
+            'isWebTemplate' => $isWebTemplate,
+            'webTemplateHtml' => $webTemplateHtml,
             'step' => $step,
             'user' => $user,
             'templateType' => $templateType,
@@ -561,6 +593,8 @@ class SignatureController extends Controller
                 ->with('error', 'Place signature markers before signing.');
         }
 
+        $docTemplate = $document->template;
+
         // Get all markers with their signatures
         $allMarkers = $template->markers()
             ->with(['signatures' => fn($q) => $q->select('id', 'signature_marker_id', 'signature_data', 'signature_type', 'signed_at')])
@@ -574,7 +608,6 @@ class SignatureController extends Controller
         $totalAgent = $agentMarkers->count();
 
         // Build page image URLs — use flattened images when available
-        $docTemplate = $document->template;
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
@@ -588,6 +621,42 @@ class SignatureController extends Controller
             }
         }
 
+        // Detect web template rendering
+        $isWebTemplate = false;
+        $webTemplateHtml = '';
+
+        if ($docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view) {
+            $isWebTemplate = true;
+            $pageImages = [];
+            $webTemplateData = $document->web_template_data ?? [];
+
+            if (!empty($webTemplateData['merged_html'])) {
+                // Pack document — use pre-rendered merged HTML
+                $webTemplateHtml = $webTemplateData['merged_html'];
+                $pageCount = count($webTemplateData['template_ids'] ?? [1]);
+            } else {
+                // Single template — render blade view normally
+                $pageCount = 1;
+                try {
+                    $fullHtml = view($docTemplate->blade_view, $webTemplateData)->render();
+                    $styles = '';
+                    preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches);
+                    if (!empty($styleMatches[0])) {
+                        $styles = implode("\n", $styleMatches[0]);
+                    }
+                    $bodyHtml = '';
+                    if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch)) {
+                        $bodyHtml = $bodyMatch[1];
+                    } else {
+                        $bodyHtml = $fullHtml;
+                    }
+                    $webTemplateHtml = trim($styles . "\n" . $bodyHtml);
+                } catch (\Exception $e) {
+                    $webTemplateHtml = '<p>Document preview unavailable.</p>';
+                }
+            }
+        }
+
         return view('docuperfect.signatures.sign', [
             'document' => $document,
             'template' => $template,
@@ -598,6 +667,8 @@ class SignatureController extends Controller
             'pageImages' => $pageImages,
             'pageCount' => $pageCount,
             'hasFlattened' => $hasFlattened,
+            'isWebTemplate' => $isWebTemplate,
+            'webTemplateHtml' => $webTemplateHtml,
             'user' => $user,
         ]);
     }
@@ -710,6 +781,49 @@ class SignatureController extends Controller
 
         $document->fields_json = $currentFields;
         $document->save();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Save agent-editable web template field values during internal signing.
+     */
+    public function saveAgentWebFields(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $incomingFields = $request->input('fields', []);
+        $allowedFields = WebTemplateFieldPartyMap::getEditableFields('agent');
+
+        $existingData = $document->web_template_data ?? [];
+        $updated = false;
+
+        foreach ($incomingFields as $fieldName => $value) {
+            if (!is_string($fieldName) || !in_array($fieldName, $allowedFields, true)) {
+                continue;
+            }
+            $existingData[$fieldName] = $value;
+            $updated = true;
+        }
+
+        if ($updated) {
+            $document->update(['web_template_data' => $existingData]);
+        }
+
+        $template = SignatureTemplate::where('document_id', $document->id)->first();
+        if ($template) {
+            SignatureAuditLog::create([
+                'signature_template_id' => $template->id,
+                'action' => 'web_fields_saved',
+                'actor_type' => SignatureAuditLog::ACTOR_AGENT,
+                'actor_name' => $user->name,
+                'actor_email' => $user->email,
+                'actor_ip_address' => $request->ip(),
+                'actor_user_agent' => $request->userAgent(),
+                'metadata_json' => ['party_role' => 'agent', 'field_count' => count($incomingFields)],
+            ]);
+        }
 
         return response()->json(['ok' => true]);
     }

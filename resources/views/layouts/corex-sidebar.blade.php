@@ -264,12 +264,14 @@
                 <a href="{{ route('docuperfect.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.dashboard') ? 'active' : '' }}">My Documents</a>
                 @permission('access_docuperfect_packs')
                 <a href="{{ route('docuperfect.packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.packs.*') ? 'active' : '' }}">Packs</a>
+                <a href="{{ route('docuperfect.web-packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.web-packs.*') ? 'active' : '' }}">Web Packs</a>
                 @endpermission
                 @permission('access_clause_library')
                 <a href="{{ route('docuperfect.clauses.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.clauses.*') ? 'active' : '' }}">Clause Library</a>
                 @endpermission
                 @permission('manage_templates')
                 <a href="{{ route('docuperfect.templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
+                <a href="{{ route('docuperfect.import.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.import.*') ? 'active' : '' }}">Import Document</a>
                 @endpermission
             </div>
         </div>

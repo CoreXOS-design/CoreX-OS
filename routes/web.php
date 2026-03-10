@@ -890,6 +890,14 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/packs/{id}/launch', [\App\Http\Controllers\Docuperfect\PackController::class, 'executeLaunch'])->name('docuperfect.packs.launch');
     Route::get('/attachments/{id}/download', [\App\Http\Controllers\Docuperfect\PackController::class, 'downloadAttachment'])->name('docuperfect.attachments.download');
 
+    // Web Packs
+    Route::get('/web-packs', [\App\Http\Controllers\Docuperfect\WebPackController::class, 'index'])->name('docuperfect.web-packs.index');
+    Route::get('/web-packs/create', [\App\Http\Controllers\Docuperfect\WebPackController::class, 'create'])->name('docuperfect.web-packs.create');
+    Route::post('/web-packs', [\App\Http\Controllers\Docuperfect\WebPackController::class, 'store'])->name('docuperfect.web-packs.store');
+    Route::get('/web-packs/{id}/edit', [\App\Http\Controllers\Docuperfect\WebPackController::class, 'edit'])->name('docuperfect.web-packs.edit');
+    Route::put('/web-packs/{id}', [\App\Http\Controllers\Docuperfect\WebPackController::class, 'update'])->name('docuperfect.web-packs.update');
+    Route::delete('/web-packs/{id}', [\App\Http\Controllers\Docuperfect\WebPackController::class, 'destroy'])->name('docuperfect.web-packs.destroy');
+
     // Pack Instance Values API
     Route::get('/api/pack-instance-values/{instanceId}', [\App\Http\Controllers\Docuperfect\PackInstanceValueController::class, 'show'])->name('docuperfect.api.packInstanceValues');
     Route::post('/api/pack-instance-values', [\App\Http\Controllers\Docuperfect\PackInstanceValueController::class, 'save'])->name('docuperfect.api.packInstanceValuesSave');
@@ -902,11 +910,17 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/esign/{flow}/step/{step}', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'saveStep'])->name('docuperfect.esign.saveStep');
     Route::post('/esign/{flow}/draft', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'saveDraft'])->name('docuperfect.esign.saveDraft');
     Route::delete('/esign/{flow}', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'destroy'])->name('docuperfect.esign.destroy');
+    Route::post('/esign/{flow}/autosave-fields', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'autosaveFields'])->name('docuperfect.esign.autosaveFields');
     Route::post('/esign/{flow}/prepare-signing', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'prepareSigning'])->name('docuperfect.esign.prepareSigning');
     Route::get('/esign/{flow}/signing-complete', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'signingComplete'])->name('docuperfect.esign.signingComplete');
     Route::get('/esign/api/properties', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchProperties'])->name('docuperfect.esign.api.properties');
     Route::get('/esign/api/contacts', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchContacts'])->name('docuperfect.esign.api.contacts');
     Route::get('/esign/api/template/{templateId}/pages', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'templatePages'])->name('docuperfect.esign.api.templatePages');
+
+    // ===== DOCUMENT IMPORTER =====
+    Route::get('/import', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'index'])->name('docuperfect.import.index');
+    Route::post('/import/parse', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'parse'])->name('docuperfect.import.parse');
+    Route::post('/import/generate', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'generate'])->name('docuperfect.import.generate');
 
     // ===== WEB TEMPLATE PREVIEWS =====
     Route::get('/web-preview/letting-mandate-v5', [\App\Http\Controllers\Docuperfect\WebTemplateController::class, 'lettingMandateV5'])->name('docuperfect.webPreview.lettingMandateV5');
@@ -947,6 +961,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/documents/{document}/sign', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'sign'])->name('docuperfect.signatures.sign');
     Route::post('/documents/{document}/sign/{marker}', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'captureSignature'])->name('docuperfect.signatures.capture');
     Route::post('/documents/{document}/save-agent-fields', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'saveAgentFields'])->name('docuperfect.signatures.saveAgentFields');
+    Route::post('/documents/{document}/save-agent-web-fields', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'saveAgentWebFields'])->name('docuperfect.signatures.saveAgentWebFields');
     Route::post('/documents/{document}/sign-complete', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'signComplete'])->name('docuperfect.signatures.signComplete');
 
     // Send + reminders
@@ -1041,6 +1056,7 @@ Route::prefix('sign')->group(function () {
     Route::post('/{token}/choose-method', [\App\Http\Controllers\Docuperfect\SigningController::class, 'chooseMethod'])->name('signatures.external.chooseMethod');
     Route::post('/{token}/capture/{marker}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'capture'])->name('signatures.external.capture');
     Route::post('/{token}/save-fields', [\App\Http\Controllers\Docuperfect\SigningController::class, 'saveFields'])->name('signatures.external.saveFields');
+    Route::post('/{token}/save-web-fields', [\App\Http\Controllers\Docuperfect\SigningController::class, 'saveWebFields'])->name('signatures.external.saveWebFields');
     Route::post('/{token}/complete', [\App\Http\Controllers\Docuperfect\SigningController::class, 'complete'])->name('signatures.external.complete');
     Route::get('/{token}/completed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completed'])->name('signatures.external.completed');
     Route::post('/{token}/upload', [\App\Http\Controllers\Docuperfect\SigningController::class, 'uploadWetInk'])->name('signatures.external.upload');

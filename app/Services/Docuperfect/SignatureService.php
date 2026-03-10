@@ -478,7 +478,12 @@ class SignatureService
                 // Agent already completed (pre-signed wet ink upload) — skip to next party
                 $this->advanceToNextParty($template, 'agent');
             } elseif ($agentRequest) {
-                $this->sendSigningRequest($agentRequest);
+                // Agent signs in-app — no email needed.
+                // Just mark as pending so the signing view knows they are the active signer.
+                $agentRequest->update([
+                    'status' => SignatureRequest::STATUS_PENDING,
+                    'sent_at' => now(),
+                ]);
             }
         });
     }

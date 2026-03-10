@@ -160,15 +160,18 @@
 
         /* ---- Field values (inline blanks) ---- */
         .field {
-            display: inline-block;
-            min-width: 200pt;
+            display: inline;
             border-bottom: 1pt solid #1a1a1a;
-            padding: 0 2pt;
-            text-align: left;
+            padding: 0 1pt;
+            min-width: 80pt;
+            font-weight: normal;
             vertical-align: baseline;
             line-height: inherit;
-            overflow: visible;
-            position: relative;
+            white-space: nowrap;
+        }
+
+        .field:not(:empty) {
+            font-weight: bold;
         }
 
         .field:empty::after {
@@ -356,6 +359,12 @@
             color: #999;
         }
 
+        /* ---- Initials Row ---- */
+        .initials-row { display:flex; justify-content:flex-end; gap:20pt; margin-top:10pt; }
+        .initial-block { text-align:center; }
+        .initial-line { border-bottom:1pt solid #000; width:40pt; margin-bottom:2pt; }
+        .initial-label { font-size:7pt; }
+
         /* ---- Page break ---- */
         .page-break {
             margin-top: 0;
@@ -415,6 +424,15 @@
         <p style="margin-top: 10pt;">Thank you<br>The Home Finders Coastal Rental Team</p>
     </div>
 
+    <div class="initials-row">
+        @foreach($initialsParties ?? [] as $party)
+            <div class="initial-block">
+                <div class="initial-line"></div>
+                <div class="initial-label">{{ $party }}</div>
+            </div>
+        @endforeach
+    </div>
+
     {{-- Footer --}}
     <div class="doc-footer">Version 8</div>
 
@@ -436,61 +454,61 @@
     <table class="form-fields">
         <tr>
             <td>Address of property:</td>
-            <td>{{ $property_address ?? '' }}</td>
+            <td><span class="field" data-field="property_address" style="min-width:auto;width:100%;border-bottom:none;">{{ $property_address ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Full name and Surname:</td>
-            <td>{{ $full_name ?? '' }}</td>
+            <td><span class="field" data-field="full_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $full_name ?? '' }}</span></td>
         </tr>
     </table>
 
-    <p style="margin-top: 4pt;">I.D Number: <span class="field field-medium">{{ $id_number ?? '' }}</span>
-        Marital Status: <span class="field field-medium">{{ $marital_status ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">I.D Number: <span class="field field-medium" data-field="id_number">{{ $id_number ?? '' }}</span>
+        Marital Status: <span class="field field-medium" data-field="marital_status">{{ $marital_status ?? '' }}</span></p>
 
     <table class="form-fields">
         <tr>
             <td>Spouse Full Name:</td>
-            <td>{{ $spouse_name ?? '' }}</td>
+            <td><span class="field" data-field="spouse_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $spouse_name ?? '' }}</span></td>
         </tr>
     </table>
 
-    <p style="margin-top: 4pt;">Spouse I.D Number: <span class="field field-medium">{{ $spouse_id ?? '' }}</span>
-        Citizenship: <span class="field field-medium">{{ $citizenship ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">Spouse I.D Number: <span class="field field-medium" data-field="spouse_id">{{ $spouse_id ?? '' }}</span>
+        Citizenship: <span class="field field-medium" data-field="citizenship">{{ $citizenship ?? '' }}</span></p>
 
     <table class="form-fields">
         <tr>
             <td>Current Residential Address:</td>
-            <td>{{ $current_address_1 ?? '' }}</td>
+            <td><span class="field" data-field="current_address_1" style="min-width:auto;width:100%;border-bottom:none;">{{ $current_address_1 ?? '' }}</span></td>
         </tr>
         <tr>
             <td></td>
-            <td>{{ $current_address_2 ?? '' }}</td>
+            <td><span class="field" data-field="current_address_2" style="min-width:auto;width:100%;border-bottom:none;">{{ $current_address_2 ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Email Address:</td>
-            <td>{{ $email_address ?? '' }}</td>
+            <td><span class="field" data-field="email_address" style="min-width:auto;width:100%;border-bottom:none;">{{ $email_address ?? '' }}</span></td>
         </tr>
     </table>
 
-    <p style="margin-top: 4pt;">Contact Numbers: (Cell) <span class="field field-medium">{{ $cell_number ?? '' }}</span>
-        (Work) <span class="field field-medium">{{ $work_number ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">Contact Numbers: (Cell) <span class="field field-medium" data-field="cell_number">{{ $cell_number ?? '' }}</span>
+        (Work) <span class="field field-medium" data-field="work_number">{{ $work_number ?? '' }}</span></p>
 
     <p style="margin-top: 8pt; font-weight: 600;">Contact Person not staying with you:</p>
     <table class="form-fields">
         <tr>
             <td>Name:</td>
-            <td>{{ $contact_person_name ?? '' }}</td>
+            <td><span class="field" data-field="contact_person_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $contact_person_name ?? '' }}</span></td>
         </tr>
     </table>
-    <p style="margin-top: 4pt;">Contact Numbers: (Cell) <span class="field field-medium">{{ $contact_person_cell ?? '' }}</span>
-        (Work) <span class="field field-medium">{{ $contact_person_work ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">Contact Numbers: (Cell) <span class="field field-medium" data-field="contact_person_cell">{{ $contact_person_cell ?? '' }}</span>
+        (Work) <span class="field field-medium" data-field="contact_person_work">{{ $contact_person_work ?? '' }}</span></p>
 
     <p style="margin-top: 8pt; font-weight: 600;">Current Landlord / Agent / Owner details where you are currently residing:</p>
-    <p style="margin-top: 4pt;">Name: <span class="field field-medium">{{ $current_landlord_name ?? '' }}</span>
-        Tel No: <span class="field field-medium">{{ $current_landlord_tel ?? '' }}</span></p>
-    <p style="margin-top: 4pt;">Current Rental Amount: <span class="field field-medium field-currency">{{ $current_rental ?? '' }}</span></p>
-    <p style="margin-top: 4pt;">From: <span class="field field-date">{{ $rental_from ?? '' }}</span>
-        To: <span class="field field-date">{{ $rental_to ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">Name: <span class="field field-medium" data-field="current_landlord_name">{{ $current_landlord_name ?? '' }}</span>
+        Tel No: <span class="field field-medium" data-field="current_landlord_tel">{{ $current_landlord_tel ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">Current Rental Amount: <span class="field field-medium field-currency" data-field="current_rental">{{ $current_rental ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">From: <span class="field field-date" data-field="rental_from">{{ $rental_from ?? '' }}</span>
+        To: <span class="field field-date" data-field="rental_to">{{ $rental_to ?? '' }}</span></p>
 
     <div class="instruction-block">
         PLEASE EMAIL THIS APPLICATION FORMS, AS WELL AS ALL SUPPORTING DOCUMENTS TO: letting@hfcoastal.co.za
@@ -502,51 +520,51 @@
     <table class="form-fields">
         <tr>
             <td>Name of Employer:</td>
-            <td>{{ $employer_name ?? '' }}</td>
+            <td><span class="field" data-field="employer_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $employer_name ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Position:</td>
-            <td>{{ $position ?? '' }}</td>
+            <td><span class="field" data-field="position" style="min-width:auto;width:100%;border-bottom:none;">{{ $position ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Employer Address:</td>
-            <td>{{ $employer_address ?? '' }}</td>
+            <td><span class="field" data-field="employer_address" style="min-width:auto;width:100%;border-bottom:none;">{{ $employer_address ?? '' }}</span></td>
         </tr>
     </table>
 
-    <p style="margin-top: 4pt;">Tel No of Employer: <span class="field field-medium">{{ $employer_tel ?? '' }}</span>
-        Monthly Salary: <span class="field field-medium field-currency">{{ $monthly_salary ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">Tel No of Employer: <span class="field field-medium" data-field="employer_tel">{{ $employer_tel ?? '' }}</span>
+        Monthly Salary: <span class="field field-medium field-currency" data-field="monthly_salary">{{ $monthly_salary ?? '' }}</span></p>
 
     {{-- Requirement of Lease --}}
     <p class="section-label">Requirement of Lease</p>
 
-    <p style="margin-top: 4pt;">Effective Date of Occupation: <span class="field field-medium">{{ $occupation_date ?? '' }}</span>
-        Rental Terms Required: <span class="field field-medium">{{ $rental_terms ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">Effective Date of Occupation: <span class="field field-medium" data-field="occupation_date">{{ $occupation_date ?? '' }}</span>
+        Rental Terms Required: <span class="field field-medium" data-field="rental_terms">{{ $rental_terms ?? '' }}</span></p>
 
     <table class="form-fields">
         <tr>
             <td>Special Conditions:</td>
-            <td>{{ $special_conditions_1 ?? '' }}</td>
+            <td><span class="field" data-field="special_conditions_1" style="min-width:auto;width:100%;border-bottom:none;">{{ $special_conditions_1 ?? '' }}</span></td>
         </tr>
         <tr>
             <td></td>
-            <td>{{ $special_conditions_2 ?? '' }}</td>
+            <td><span class="field" data-field="special_conditions_2" style="min-width:auto;width:100%;border-bottom:none;">{{ $special_conditions_2 ?? '' }}</span></td>
         </tr>
         <tr>
             <td></td>
-            <td>{{ $special_conditions_3 ?? '' }}</td>
+            <td><span class="field" data-field="special_conditions_3" style="min-width:auto;width:100%;border-bottom:none;">{{ $special_conditions_3 ?? '' }}</span></td>
         </tr>
     </table>
 
-    <p style="margin-top: 4pt;">Number of Occupants: Adults: <span class="field field-short">{{ $adults ?? '' }}</span>
-        Children: <span class="field field-short">{{ $children ?? '' }}</span></p>
+    <p style="margin-top: 4pt;">Number of Occupants: Adults: <span class="field field-short" data-field="adults">{{ $adults ?? '' }}</span>
+        Children: <span class="field field-short" data-field="children">{{ $children ?? '' }}</span></p>
 
     {{-- First Signature Block --}}
     <div class="signature-section">
         <p style="margin-top: 10pt;"><em>I hereby declare that all the above information given is true and accurate.</em></p>
 
         <div class="signature-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="signature-col">
+            <div class="signature-col" data-marker-party="tenant" data-marker-index="0">
                 <div class="signature-line"></div>
                 <div class="signature-label">Signature</div>
             </div>
@@ -556,7 +574,7 @@
             </div>
         </div>
 
-        <p style="margin-top: 10pt;">Date: <span class="field field-medium">{{ $signature_date_1 ?? '' }}</span></p>
+        <p style="margin-top: 10pt;">Date: <span class="field field-medium" data-field="signature_date_1">{{ $signature_date_1 ?? '' }}</span></p>
     </div>
 
     <div class="instruction-block">
@@ -596,7 +614,7 @@
             </div>
         </div>
 
-        <p style="margin-top: 10pt;">Date: <span class="field field-medium">{{ $signature_date_2 ?? '' }}</span></p>
+        <p style="margin-top: 10pt;">Date: <span class="field field-medium" data-field="signature_date_2">{{ $signature_date_2 ?? '' }}</span></p>
     </div>
 
     {{-- Footer --}}

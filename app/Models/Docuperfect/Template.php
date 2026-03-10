@@ -22,6 +22,8 @@ class Template extends Model
         'is_global',
         'is_esign',
         'wizard_config',
+        'render_type',
+        'blade_view',
         'owner_id',
         'archived_at',
     ];

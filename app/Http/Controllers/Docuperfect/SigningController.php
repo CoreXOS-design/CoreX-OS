@@ -9,6 +9,7 @@ use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignatureService;
+use App\Services\WebTemplateFieldPartyMap;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -103,18 +104,51 @@ class SigningController extends Controller
             ->orderBy('sort_order')
             ->get();
 
-        // Build page image URLs — use flattened images when available
+        // Detect web template rendering
         $docTemplate = $document->template;
+        $isWebTemplate = $docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view;
+        $webTemplateHtml = '';
+        $editableFields = [];
+
+        if ($isWebTemplate) {
+            $webTemplateData = $document->web_template_data ?? [];
+
+            if (!empty($webTemplateData['merged_html'])) {
+                // Pack document — use pre-rendered merged HTML
+                $webTemplateHtml = $webTemplateData['merged_html'];
+            } else {
+                // Single template — render blade view normally
+                $viewData = $webTemplateData;
+                $fullHtml = view($docTemplate->blade_view, $viewData)->render();
+                $styles = '';
+                preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches);
+                if (!empty($styleMatches[0])) {
+                    $styles = implode("\n", $styleMatches[0]);
+                }
+                if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch)) {
+                    $webTemplateHtml = trim($styles . "\n" . $bodyMatch[1]);
+                } else {
+                    $webTemplateHtml = trim($styles . "\n" . $fullHtml);
+                }
+            }
+
+            // Determine which fields this signer can edit
+            $editableFields = WebTemplateFieldPartyMap::getEditableFields($signingRequest->party_role);
+        }
+
+        // Build page image URLs — use flattened images when available (PDF path)
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
         $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
 
-        for ($n = 0; $n < $pageCount; $n++) {
-            if ($hasFlattened && isset($flattenedPages[$n])) {
-                $pageImages[] = route('signatures.external.flattenedPage', ['token' => $token, 'page' => $n]);
-            } elseif ($docTemplate) {
-                $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+        if (!$isWebTemplate) {
+            for ($n = 0; $n < $pageCount; $n++) {
+                if ($hasFlattened && isset($flattenedPages[$n])) {
+                    $pageImages[] = route('signatures.external.flattenedPage', ['token' => $token, 'page' => $n]);
+                } elseif ($docTemplate) {
+                    $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+                }
             }
         }
 
@@ -138,6 +172,9 @@ class SigningController extends Controller
             'wetInkPendingReview' => $wetInkPendingReview,
             'wetInkRejected' => $wetInkRejected,
             'hasFlattened' => $hasFlattened,
+            'isWebTemplate' => $isWebTemplate,
+            'webTemplateHtml' => $webTemplateHtml,
+            'editableFields' => $editableFields,
             'token' => $token,
         ]);
     }
@@ -384,6 +421,62 @@ class SigningController extends Controller
             'actor_user_agent' => $request->userAgent(),
             'signature_request_id' => $signingRequest->id,
             'metadata_json' => ['party_role' => $partyRole],
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Save web template field values back to the document.
+     * Merges with existing web_template_data — only updates fields
+     * assigned to the signer's party role.
+     */
+    public function saveWebFields(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        $document = $signingRequest->template->document;
+        if (!$document) {
+            return response()->json(['ok' => false, 'error' => 'Document not found.'], 404);
+        }
+
+        $incomingFields = $request->input('fields', []);
+        $partyRole = $signingRequest->party_role;
+
+        // Only allow updating fields assigned to this signer's party
+        $allowedFields = WebTemplateFieldPartyMap::getEditableFields($partyRole);
+
+        $existingData = $document->web_template_data ?? [];
+        $updated = false;
+
+        foreach ($incomingFields as $fieldName => $value) {
+            if (!is_string($fieldName) || !in_array($fieldName, $allowedFields, true)) {
+                continue;
+            }
+            $existingData[$fieldName] = $value;
+            $updated = true;
+        }
+
+        if ($updated) {
+            $document->update(['web_template_data' => $existingData]);
+        }
+
+        SignatureAuditLog::create([
+            'signature_template_id' => $signingRequest->template->id,
+            'action' => 'web_fields_saved',
+            'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+            'actor_name' => $signingRequest->signer_name,
+            'actor_email' => $signingRequest->signer_email,
+            'actor_ip_address' => $request->ip(),
+            'actor_user_agent' => $request->userAgent(),
+            'signature_request_id' => $signingRequest->id,
+            'metadata_json' => ['party_role' => $partyRole, 'field_count' => count($incomingFields)],
         ]);
 
         return response()->json(['ok' => true]);

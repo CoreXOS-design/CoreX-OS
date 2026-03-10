@@ -25,7 +25,7 @@
         <div class="flex items-center justify-between mb-3">
             <h2 class="text-xl font-bold text-white leading-tight">
                 E-Sign Document
-                <span x-show="templateName" class="text-white/60 font-normal text-base" x-text="'— ' + templateName"></span>
+                <span x-show="templateName || selectedPackName" class="text-white/60 font-normal text-base" x-text="'— ' + (isPackFlow ? selectedPackName : templateName)"></span>
             </h2>
             <span class="text-sm text-white/60" x-text="'Step ' + currentStep + ' of 6'"></span>
         </div>
@@ -113,7 +113,11 @@
                                         :class="selectedTemplateId === t.id
                                             ? 'border-blue-500 bg-blue-50'
                                             : 'border-gray-200 hover:border-gray-300 bg-white'">
-                                    <div class="font-medium text-gray-900 text-sm" x-text="t.name"></div>
+                                    <div class="font-medium text-gray-900 text-sm flex items-center">
+                                        <span x-text="t.name"></span>
+                                        <span x-show="t.render_type === 'web'" class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 ml-2">Web</span>
+                                        <span x-show="!t.render_type || t.render_type === 'pdf'" class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 ml-2">PDF</span>
+                                    </div>
                                     <div class="text-xs text-gray-500 mt-0.5">
                                         <span x-text="t.page_count + ' page' + (t.page_count !== 1 ? 's' : '')"></span>
                                         &middot; <span x-text="(t.fields_json?.length || 0) + ' fields'"></span>
@@ -124,14 +128,115 @@
                     </div>
                 </template>
 
-                <div x-show="templateGroups.every(g => g.templates.length === 0)" class="text-gray-400 text-sm text-center py-8">
+                <div x-show="templateGroups.every(g => g.templates.length === 0) && allWebPacks.length === 0" class="text-gray-400 text-sm text-center py-8">
                     No templates match your search.
                 </div>
+
+                {{-- Web Packs section --}}
+                <template x-if="allWebPacks.length > 0">
+                    <div class="mt-6">
+                        <div class="px-3 py-2 bg-blue-50 rounded-lg mb-3">
+                            <h4 class="text-sm font-semibold text-blue-700 uppercase tracking-wide">Web Packs</h4>
+                        </div>
+                        <div class="space-y-2">
+                            <template x-for="p in allWebPacks" :key="'pack-' + p.id">
+                                <button @click="selectPack(p)"
+                                        class="w-full text-left p-3 rounded-lg border-2 transition-all duration-150"
+                                        :class="selectedPackId === p.id
+                                            ? 'border-blue-500 bg-blue-50'
+                                            : 'border-gray-200 hover:border-gray-300 bg-white'">
+                                    <div class="font-medium text-gray-900 text-sm flex items-center">
+                                        <span x-text="p.name"></span>
+                                        <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 ml-2">Pack</span>
+                                        <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 ml-1" x-text="p.items.length + ' template' + (p.items.length !== 1 ? 's' : '')"></span>
+                                    </div>
+                                    <div x-show="p.items.length > 0" class="mt-1.5 space-y-0.5">
+                                        <template x-for="item in p.items" :key="'pi-' + item.id">
+                                            <div class="text-xs text-gray-500 flex items-center gap-1">
+                                                <span class="w-1 h-1 rounded-full bg-blue-400 flex-shrink-0"></span>
+                                                <span x-text="item.template?.name || 'Unknown template'"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                </template>
             </div>
 
             {{-- ======== STEP 2: Property ======== --}}
             <div x-show="currentStep === 2" x-cloak>
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Property Details</h3>
+
+                {{-- Property search --}}
+                <div class="relative mb-4" @click.outside="propSearchOpen = false" @keydown.escape.window="propSearchOpen = false">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Search property by address, suburb, or ERF</label>
+                    <div class="relative">
+                        <input type="text"
+                               x-model="propSearchQuery"
+                               @input.debounce.300ms="searchProperties()"
+                               @focus="if (propSearchResults.length) propSearchOpen = true"
+                               @keydown.arrow-down.prevent="propSearchIdx = Math.min(propSearchIdx + 1, propSearchResults.length - 1); $nextTick(() => $el.closest('.relative').querySelector('[data-idx=\'' + propSearchIdx + '\']')?.scrollIntoView({block:'nearest'}))"
+                               @keydown.arrow-up.prevent="propSearchIdx = Math.max(propSearchIdx - 1, 0)"
+                               @keydown.enter.prevent="if (propSearchOpen && propSearchResults[propSearchIdx]) selectProperty(propSearchResults[propSearchIdx])"
+                               class="w-full rounded-lg border px-3 py-2 text-sm pr-8"
+                               :class="property._selected ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 bg-white'"
+                               placeholder="Start typing to search...">
+                        <div class="absolute right-2 top-1/2 -translate-y-1/2">
+                            <svg x-show="propSearching" class="w-4 h-4 animate-spin text-gray-400" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round" class="opacity-75"/></svg>
+                            <svg x-show="!propSearching && !property._selected" class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                            <svg x-show="property._selected" class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        </div>
+                    </div>
+
+                    {{-- Selected property badge --}}
+                    <div x-show="property._selected" class="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm">
+                        <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span class="text-emerald-800 font-medium truncate" x-text="'Selected: ' + property.address"></span>
+                        <button @click="clearPropertySelection()" class="ml-auto text-emerald-600 hover:text-red-500 transition flex-shrink-0">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+
+                    {{-- Search results dropdown --}}
+                    <div x-show="propSearchOpen && propSearchResults.length > 0" x-transition
+                         class="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                        <template x-for="(result, ri) in propSearchResults" :key="result.source + '-' + result.id">
+                            <button @click="selectProperty(result)"
+                                    :data-idx="ri"
+                                    class="w-full text-left px-3 py-2.5 border-b border-gray-100 last:border-0 transition-colors"
+                                    :class="ri === propSearchIdx ? 'bg-blue-50' : 'hover:bg-gray-50'">
+                                <div class="flex items-start justify-between">
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-medium text-gray-900 truncate" x-text="result.display"></div>
+                                        <div class="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
+                                            <span x-show="result.property_type" x-text="result.property_type" class="capitalize"></span>
+                                            <span x-show="result.beds" x-text="result.beds + ' bed'"></span>
+                                            <span x-show="result.rental_amount" x-text="'R ' + Number(result.rental_amount).toLocaleString() + '/mo'"></span>
+                                        </div>
+                                        <div x-show="result.lessor_name" class="text-xs text-blue-600 mt-0.5" x-text="'Landlord: ' + result.lessor_name"></div>
+                                    </div>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex-shrink-0 ml-2"
+                                          x-text="result.source === 'properties' ? 'Property' : 'Rental'"></span>
+                                </div>
+                            </button>
+                        </template>
+                    </div>
+
+                    {{-- No results --}}
+                    <div x-show="propSearchOpen && propSearchResults.length === 0 && !propSearching && propSearchQuery.length >= 2"
+                         class="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-center text-sm text-gray-500">
+                        No properties found for "<span x-text="propSearchQuery"></span>"
+                    </div>
+                </div>
+
+                {{-- Manual entry toggle --}}
+                <div x-show="!property._selected" class="mb-3">
+                    <p class="text-xs text-gray-400 italic">Can't find property? Enter manually below</p>
+                </div>
+
+                {{-- Manual entry fields --}}
                 <div class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
@@ -160,6 +265,8 @@
                                 <option value="unit">Unit</option>
                                 <option value="flat">Flat</option>
                                 <option value="townhouse">Townhouse</option>
+                                <option value="duplex">Duplex</option>
+                                <option value="cottage">Cottage</option>
                                 <option value="commercial">Commercial</option>
                             </select>
                         </div>
@@ -174,13 +281,14 @@
                 <div class="space-y-3">
                     <template x-for="(r, ri) in recipients" :key="ri">
                         <div class="p-4 rounded-xl border transition-colors"
-                             :class="r.readonly ? 'border-blue-200 bg-blue-50/50' : 'border-gray-200 bg-white'">
+                             :class="r.readonly ? 'border-blue-200 bg-blue-50/50' : (r._contact_id ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 bg-white')">
                             <div class="flex items-center justify-between mb-3">
                                 <div class="flex items-center gap-2">
                                     <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
-                                          :class="r.readonly ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'"
+                                          :class="r.readonly ? 'bg-blue-600 text-white' : (r._contact_id ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-600')"
                                           x-text="ri + 1"></span>
                                     <span class="text-sm font-semibold text-gray-700" x-text="r.readonly ? 'Agent (You)' : 'Recipient ' + (ri+1)"></span>
+                                    <span x-show="r._contact_id" class="text-xs text-emerald-600 font-medium">Linked</span>
                                 </div>
                                 <button x-show="!r.readonly" @click="removeRecipient(ri)"
                                         class="w-6 h-6 flex items-center justify-center rounded-full text-red-400 hover:text-red-600 hover:bg-red-50 transition">
@@ -204,6 +312,63 @@
                                         </select>
                                     </template>
                                 </div>
+
+                                {{-- Contact search (only for non-agent recipients) --}}
+                                <template x-if="!r.readonly">
+                                    <div class="relative" @click.outside="r._searchOpen = false" @keydown.escape.window="r._searchOpen = false">
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">Search contact by name, email, or ID</label>
+                                        <div class="relative">
+                                            <input type="text"
+                                                   x-model="r._searchQuery"
+                                                   @input.debounce.300ms="searchContacts(ri)"
+                                                   @focus="if (r._searchResults?.length) r._searchOpen = true"
+                                                   @keydown.arrow-down.prevent="r._searchIdx = Math.min((r._searchIdx || 0) + 1, (r._searchResults || []).length - 1)"
+                                                   @keydown.arrow-up.prevent="r._searchIdx = Math.max((r._searchIdx || 0) - 1, 0)"
+                                                   @keydown.enter.prevent="if (r._searchOpen && r._searchResults?.[r._searchIdx]) selectContact(ri, r._searchResults[r._searchIdx])"
+                                                   class="w-full rounded-lg border px-3 py-2 text-sm pr-8"
+                                                   :class="r._contact_id ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 bg-white'"
+                                                   placeholder="Start typing to search...">
+                                            <div class="absolute right-2 top-1/2 -translate-y-1/2">
+                                                <svg x-show="r._searching" class="w-4 h-4 animate-spin text-gray-400" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round" class="opacity-75"/></svg>
+                                                <svg x-show="!r._searching && r._contact_id" class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                                <svg x-show="!r._searching && !r._contact_id" class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                                            </div>
+                                        </div>
+
+                                        {{-- Selected contact badge --}}
+                                        <div x-show="r._contact_id" class="mt-1.5 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs">
+                                            <svg class="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                            <span class="text-emerald-800 font-medium truncate" x-text="'Selected: ' + r.name"></span>
+                                            <button @click="clearContactSelection(ri)" class="ml-auto text-emerald-600 hover:text-red-500 transition flex-shrink-0">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                            </button>
+                                        </div>
+
+                                        {{-- Search results --}}
+                                        <div x-show="r._searchOpen && (r._searchResults || []).length > 0" x-transition
+                                             class="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                            <template x-for="(contact, ci) in (r._searchResults || [])" :key="contact.id">
+                                                <button @click="selectContact(ri, contact)"
+                                                        class="w-full text-left px-3 py-2 border-b border-gray-100 last:border-0 transition-colors"
+                                                        :class="ci === (r._searchIdx || 0) ? 'bg-blue-50' : 'hover:bg-gray-50'">
+                                                    <div class="text-sm font-medium text-gray-900" x-text="contact.full_name"></div>
+                                                    <div class="text-xs text-gray-500 flex items-center gap-2">
+                                                        <span x-show="contact.email" x-text="contact.email"></span>
+                                                        <span x-show="contact.phone" x-text="contact.phone"></span>
+                                                        <span x-show="contact.contact_type" class="text-blue-500" x-text="contact.contact_type"></span>
+                                                    </div>
+                                                </button>
+                                            </template>
+                                        </div>
+
+                                        {{-- No results --}}
+                                        <div x-show="r._searchOpen && (r._searchResults || []).length === 0 && !r._searching && (r._searchQuery || '').length >= 2"
+                                             class="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-center text-xs text-gray-500">
+                                            No contacts found. Enter manually below.
+                                        </div>
+                                    </div>
+                                </template>
+
                                 <div>
                                     <label class="block text-xs font-medium text-gray-600 mb-1">Full Name</label>
                                     <input type="text" x-model="r.name" :readonly="r.readonly"
@@ -243,6 +408,13 @@
                     </template>
                 </div>
 
+                {{-- Add second owner button (only when a landlord exists but no second landlord yet) --}}
+                <button x-show="hasRoleRecipient('landlord') && !hasSecondRoleRecipient('landlord')"
+                        @click="addSecondOwner()"
+                        class="w-full mt-3 py-2.5 border-2 border-dashed border-emerald-300 rounded-xl text-sm text-emerald-600 hover:border-emerald-500 hover:text-emerald-700 transition">
+                    + Add Second Owner (Co-owner)
+                </button>
+
                 <button @click="addRecipient()" class="w-full mt-3 py-2.5 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition">
                     + Add Recipient
                 </button>
@@ -251,6 +423,13 @@
             {{-- ======== STEP 4: Details ======== --}}
             <div x-show="currentStep === 4" x-cloak>
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Document Details</h3>
+
+                {{-- Auto-fill notice --}}
+                <div x-show="property._selected && (details._autoFilled || false)" class="mb-4 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Some fields were auto-filled from the selected property. You can adjust them below.
+                </div>
+
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -262,20 +441,39 @@
                             <input type="text" x-model="details.deposit" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm" placeholder="e.g. 12000">
                         </div>
                     </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Lease Start Date</label>
-                            <input type="date" x-model="details.lease_start" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Lease End Date</label>
-                            <input type="date" x-model="details.lease_end" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
+
+                    {{-- Lease dates with duration selector --}}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Lease Start Date</label>
+                        <input type="date" x-model="details.lease_start"
+                               @change="calculateLeaseEnd()"
+                               class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Lease Duration</label>
+                        <div class="flex flex-wrap gap-2 mb-3">
+                            <template x-for="opt in [{value: 6, label: '6 months'}, {value: 12, label: '12 months'}, {value: 24, label: '24 months'}, {value: 0, label: 'Custom'}]" :key="opt.value">
+                                <button type="button"
+                                        @click="details._duration = opt.value; calculateLeaseEnd()"
+                                        class="px-3 py-1.5 rounded-lg border text-xs font-medium transition"
+                                        :class="details._duration === opt.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'"
+                                        x-text="opt.label"></button>
+                            </template>
                         </div>
                     </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Lease End Date</label>
+                        <input type="date" x-model="details.lease_end"
+                               :readonly="details._duration !== 0"
+                               class="w-full rounded-lg border px-3 py-2 text-sm"
+                               :class="details._duration !== 0 ? 'border-gray-200 bg-gray-100 text-gray-500' : 'border-slate-300 bg-white text-slate-900'">
+                        <p x-show="details._duration !== 0 && details.lease_end" class="text-xs text-gray-400 mt-1" x-text="'Auto-calculated: ' + details._duration + ' months from start'"></p>
+                    </div>
+
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Commission (%)</label>
-                            <input type="text" x-model="details.commission" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm" placeholder="e.g. 7.5">
+                            <input type="text" x-model="details.commission" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm" placeholder="e.g. 8.5">
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Marketing Fee (R)</label>
@@ -288,108 +486,100 @@
             {{-- ======== STEP 5: Fill & Review ======== --}}
             <div x-show="currentStep === 5" x-cloak>
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Fill & Review</h3>
+                <p class="text-xs text-gray-500 mb-4">Fields are shown in document order. Pre-filled values come from property and recipient data.</p>
 
-                {{-- Creator fields --}}
-                <div x-show="creatorFields.length > 0" class="mb-6">
-                    <h4 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">Your Fields</h4>
-                    <div class="space-y-3">
-                        <template x-for="(f, fi) in creatorFields" :key="f.id">
-                            <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">
+                {{-- All fields in document order (no party grouping) --}}
+                <div class="space-y-3">
+                    <template x-for="(f, fi) in allWizardFields" :key="f.id">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-medium text-gray-600">
                                     <span x-text="fieldLabel(f)"></span>
-                                    <span class="text-gray-400 font-normal" x-text="'(page ' + (f.pageIndex + 1) + ')'"></span>
+                                    <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full"
+                                          :class="isCreatorField(f) ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'"
+                                          x-text="fieldRoleLabel(f)"></span>
                                 </label>
-
-                                {{-- Text / placeholder --}}
-                                <template x-if="fieldInputType(f) === 'text'">
-                                    <input type="text"
-                                           :value="fieldValues[f.id] || ''"
-                                           @input="setFieldValue(f.id, $event.target.value)"
-                                           @focus="highlightField(f.id)"
-                                           class="w-full rounded-lg border px-3 py-2 text-sm"
-                                           :class="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-white'"
-                                           :placeholder="fieldLabel(f)">
-                                </template>
-
-                                {{-- Date --}}
-                                <template x-if="fieldInputType(f) === 'date'">
-                                    <input type="date"
-                                           :value="fieldValues[f.id] || ''"
-                                           @input="setFieldValue(f.id, $event.target.value)"
-                                           @focus="highlightField(f.id)"
-                                           class="w-full rounded-lg border px-3 py-2 text-sm"
-                                           :class="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-white'">
-                                </template>
-
-                                {{-- Selection dropdown --}}
-                                <template x-if="fieldInputType(f) === 'select'">
-                                    <select :value="fieldValues[f.id] || ''"
-                                            @change="setFieldValue(f.id, $event.target.value)"
-                                            @focus="highlightField(f.id)"
-                                            class="w-full rounded-lg border px-3 py-2 text-sm"
-                                            :class="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-white'">
-                                        <option value="">Select...</option>
-                                        <template x-for="opt in (f.options || [])" :key="opt">
-                                            <option :value="opt" x-text="opt" :selected="fieldValues[f.id] === opt"></option>
-                                        </template>
-                                    </select>
-                                </template>
-
-                                {{-- Tick selector --}}
-                                <template x-if="fieldInputType(f) === 'tick'">
-                                    <div class="flex flex-wrap gap-2">
-                                        <template x-for="opt in (f.options || ['Yes', 'No'])" :key="opt">
-                                            <button type="button"
-                                                    @click="setFieldValue(f.id, opt); highlightField(f.id)"
-                                                    class="px-3 py-1.5 rounded border text-xs font-medium transition"
-                                                    :class="fieldValues[f.id] === opt ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'"
-                                                    x-text="opt"></button>
-                                        </template>
-                                    </div>
-                                </template>
-
-                                {{-- Strikethrough toggle --}}
-                                <template x-if="fieldInputType(f) === 'toggle'">
-                                    <label class="flex items-center gap-2 cursor-pointer"
-                                           @click="highlightField(f.id)">
-                                        <input type="checkbox"
-                                               :checked="fieldValues[f.id] === 'strikethrough'"
-                                               @change="setFieldValue(f.id, $event.target.checked ? 'strikethrough' : '')"
-                                               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                                        <span class="text-sm text-gray-700">Apply strikethrough</span>
-                                    </label>
-                                </template>
-
-                                {{-- Condition / clause textarea --}}
-                                <template x-if="fieldInputType(f) === 'textarea'">
-                                    <textarea :value="fieldValues[f.id] || ''"
-                                              @input="setFieldValue(f.id, $event.target.value)"
-                                              @focus="highlightField(f.id)"
-                                              rows="3"
-                                              class="w-full rounded-lg border px-3 py-2 text-sm"
-                                              :class="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-white'"
-                                              :placeholder="fieldLabel(f)"></textarea>
-                                </template>
+                                <select @change="setFieldParty(f.id, $event.target.value)"
+                                        class="text-[10px] rounded border border-gray-200 px-1.5 py-0.5 bg-gray-50 text-gray-500 ml-2">
+                                    <template x-for="opt in partyOptions" :key="opt.value">
+                                        <option :value="opt.value" x-text="opt.label" :selected="getFieldParty(f) === opt.value"></option>
+                                    </template>
+                                </select>
                             </div>
-                        </template>
-                    </div>
-                </div>
 
-                {{-- Signer fields grouped by role --}}
-                <template x-for="roleGroup in signerFieldGroups" :key="roleGroup.role">
-                    <div x-show="roleGroup.fields.length > 0" class="mb-4">
-                        <h4 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2"
-                            x-text="roleGroup.label + ' Fields'"></h4>
-                        <div class="space-y-2">
-                            <template x-for="f in roleGroup.fields" :key="f.id">
-                                <div class="px-3 py-2 rounded-lg bg-gray-100 border border-gray-200">
-                                    <span class="text-xs text-gray-400" x-text="fieldLabel(f)"></span>
-                                    <span class="text-xs text-gray-400 italic ml-1" x-text="'— ' + roleGroup.label + ' will complete'"></span>
+                            {{-- Text / placeholder --}}
+                            <template x-if="fieldInputType(f) === 'text'">
+                                <input type="text"
+                                       :value="fieldValues[f.id] || ''"
+                                       @input="setFieldValue(f.id, $event.target.value)"
+                                       @focus="highlightField(f.id)" @blur="clearFieldHighlight()"
+                                       class="w-full rounded-lg border px-3 py-2 text-sm"
+                                       :class="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-white'"
+                                       :placeholder="fieldLabel(f)">
+                            </template>
+
+                            {{-- Date --}}
+                            <template x-if="fieldInputType(f) === 'date'">
+                                <input type="date"
+                                       :value="fieldValues[f.id] || ''"
+                                       @input="setFieldValue(f.id, $event.target.value)"
+                                       @focus="highlightField(f.id)" @blur="clearFieldHighlight()"
+                                       class="w-full rounded-lg border px-3 py-2 text-sm"
+                                       :class="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-white'">
+                            </template>
+
+                            {{-- Selection dropdown --}}
+                            <template x-if="fieldInputType(f) === 'select'">
+                                <select :value="fieldValues[f.id] || ''"
+                                        @change="setFieldValue(f.id, $event.target.value)"
+                                        @focus="highlightField(f.id)" @blur="clearFieldHighlight()"
+                                        class="w-full rounded-lg border px-3 py-2 text-sm"
+                                        :class="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-white'">
+                                    <option value="">Select...</option>
+                                    <template x-for="opt in (f.options || [])" :key="opt">
+                                        <option :value="opt" x-text="opt" :selected="fieldValues[f.id] === opt"></option>
+                                    </template>
+                                </select>
+                            </template>
+
+                            {{-- Tick selector --}}
+                            <template x-if="fieldInputType(f) === 'tick'">
+                                <div class="flex flex-wrap gap-2">
+                                    <template x-for="opt in (f.options || ['Yes', 'No'])" :key="opt">
+                                        <button type="button"
+                                                @click="setFieldValue(f.id, opt); highlightField(f.id)"
+                                                class="px-3 py-1.5 rounded border text-xs font-medium transition"
+                                                :class="fieldValues[f.id] === opt ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'"
+                                                x-text="opt"></button>
+                                    </template>
                                 </div>
                             </template>
+
+                            {{-- Strikethrough toggle --}}
+                            <template x-if="fieldInputType(f) === 'toggle'">
+                                <label class="flex items-center gap-2 cursor-pointer"
+                                       @click="highlightField(f.id)">
+                                    <input type="checkbox"
+                                           :checked="fieldValues[f.id] === 'strikethrough'"
+                                           @change="setFieldValue(f.id, $event.target.checked ? 'strikethrough' : '')"
+                                           class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-sm text-gray-700">Apply strikethrough</span>
+                                </label>
+                            </template>
+
+                            {{-- Condition / clause textarea --}}
+                            <template x-if="fieldInputType(f) === 'textarea'">
+                                <textarea :value="fieldValues[f.id] || ''"
+                                          @input="setFieldValue(f.id, $event.target.value)"
+                                          @focus="highlightField(f.id)" @blur="clearFieldHighlight()"
+                                          rows="3"
+                                          class="w-full rounded-lg border px-3 py-2 text-sm"
+                                          :class="(fieldValues[f.id] && fieldValues[f.id] !== '') ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-white'"
+                                          :placeholder="fieldLabel(f)"></textarea>
+                            </template>
                         </div>
-                    </div>
-                </template>
+                    </template>
+                </div>
             </div>
 
             {{-- ======== STEP 6: Signing Setup ======== --}}
@@ -399,33 +589,66 @@
                 {{-- Signing order cards --}}
                 <h4 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">Signing Order</h4>
                 <div class="space-y-2 mb-6">
-                    <template x-for="(r, ri) in recipients" :key="ri">
-                        <div class="p-3 rounded-lg border border-gray-200 bg-white">
+                    <template x-for="(r, ri) in recipients" :key="r.role + '_' + (r.name || ri)">
+                        <div class="p-3 rounded-lg border border-gray-200 bg-white transition-all">
                             <div class="flex items-start justify-between">
-                                <div class="min-w-0">
+                                <span class="text-sm font-bold text-gray-500 mr-3 w-6 text-center mt-1" x-text="ri + 1"></span>
+                                <div class="min-w-0 flex-1">
                                     <div class="flex items-center gap-2 mb-1">
-                                        <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-gray-200 text-gray-600" x-text="ri + 1"></span>
                                         <span class="text-sm font-semibold text-gray-800" x-text="signingRoleLabel(r.role) + ': ' + (r.name || '(unknown)')"></span>
                                     </div>
-                                    <div class="text-xs text-gray-500 ml-7">
-                                        <span x-show="r.email" x-text="r.email"></span>
-                                        <span x-show="r.email && r.cell"> | </span>
+                                    <div class="mt-2" x-show="r.role !== 'agent'">
+                                        <label class="block text-xs font-medium text-gray-500 mb-1">Email address</label>
+                                        <input type="email"
+                                               x-model="r.email"
+                                               :disabled="r.skipEmail"
+                                               :class="r.skipEmail ? 'bg-gray-100 text-gray-400' : 'bg-white text-gray-900'"
+                                               class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                                               placeholder="Email address">
+                                        <p class="text-xs text-gray-400 mt-1">Edit if signer uses a different email address</p>
+                                    </div>
+                                    <div x-show="r.role === 'agent'" class="text-xs text-gray-500">
+                                        <span x-text="r.email"></span>
+                                        <span x-show="r.cell"> | </span>
                                         <span x-show="r.cell" x-text="r.cell"></span>
-                                        <span x-show="!r.email && r.role !== 'agent'" class="text-amber-600">No email provided</span>
                                     </div>
                                 </div>
                             </div>
-                            <div class="mt-2 ml-7">
+                            <div class="mt-2 ml-9">
                                 <template x-if="r.role === 'agent'">
-                                    <span class="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 px-2 py-1 rounded">Signs now</span>
+                                    <span class="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">Signs first — locked</span>
                                 </template>
                                 <template x-if="r.role !== 'agent'">
-                                    <select x-model="signingActions[ri]" class="text-xs rounded border border-gray-300 bg-white text-gray-700 px-2 py-1">
-                                        <option value="send_after" x-bind:disabled="!r.email">Send after previous</option>
-                                        <option value="sign_later">Sign later</option>
-                                    </select>
+                                    <div>
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <button type="button"
+                                                    x-show="ri > 0"
+                                                    @click="moveRecipient(ri, 'up')"
+                                                    class="text-xs px-2 py-1 rounded border border-gray-300 hover:bg-gray-100 flex items-center gap-1">
+                                                &uarr; Move Up
+                                            </button>
+                                            <button type="button"
+                                                    x-show="ri < recipients.length - 1"
+                                                    @click="moveRecipient(ri, 'down')"
+                                                    class="text-xs px-2 py-1 rounded border border-gray-300 hover:bg-gray-100 flex items-center gap-1">
+                                                &darr; Move Down
+                                            </button>
+                                        </div>
+                                        <select x-model="signingActions[ri]"
+                                                :disabled="r.skipEmail"
+                                                class="text-xs rounded border border-gray-300 bg-white text-gray-700 px-2 py-1">
+                                            <option value="send_after" x-bind:disabled="!r.email || r.skipEmail">Send after previous</option>
+                                            <option value="sign_later">Sign later</option>
+                                        </select>
+                                        <label class="flex items-center gap-2 mt-2 text-sm">
+                                            <input type="checkbox"
+                                                   x-model="r.skipEmail"
+                                                   @change="if (r.skipEmail) signingActions[ri] = 'sign_later'"
+                                                   class="rounded">
+                                            <span class="text-gray-600 text-xs">Exclude from email — will sign in person or via primary recipient</span>
+                                        </label>
+                                    </div>
                                 </template>
-                                <span x-show="r.role !== 'agent' && !r.email" class="text-xs text-amber-600 ml-2">Add email to send</span>
                             </div>
                         </div>
                     </template>
@@ -462,7 +685,22 @@
 
         {{-- RIGHT PANEL: Document Preview --}}
         <div class="flex-1 overflow-y-auto p-6 bg-gray-100 dark:bg-gray-800 min-w-0">
-            <div x-show="previewPages.length > 0">
+
+            {{-- Web template preview --}}
+            <div x-show="previewRenderType === 'web' && previewHtml"
+                 x-html="previewHtml"
+                 class="web-template-preview">
+            </div>
+            <style>
+                .field-highlighted {
+                    background: rgba(255,200,0,0.3) !important;
+                    outline: 2px solid #f59e0b;
+                    border-radius: 2px;
+                }
+            </style>
+
+            {{-- PDF page-image preview --}}
+            <div x-show="previewRenderType === 'pdf' && previewPages.length > 0">
                 <template x-for="(pageUrl, pi) in previewPages" :key="pi">
                     <div style="margin-bottom:24px;">
                         <div style="font-size:0.75rem; color:#6b7280; margin-bottom:4px;" x-text="'Page ' + (pi+1)"></div>
@@ -487,7 +725,25 @@
                     </div>
                 </template>
             </div>
-            <div x-show="previewPages.length === 0" class="flex items-center justify-center h-full">
+
+            {{-- Pack summary preview --}}
+            <div x-show="isPackFlow && packPreview" class="p-6" x-cloak>
+                <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                    <div class="font-semibold text-blue-700 mb-2 text-base">
+                        <span x-text="selectedPackName"></span>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-3">This pack contains the following documents in order:</p>
+                    <template x-for="(item, i) in (packPreview?.items || [])" :key="i">
+                        <div class="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
+                            <span class="text-xs font-bold text-gray-400 w-5 text-center" x-text="i+1"></span>
+                            <span class="text-sm text-gray-700" x-text="item.template?.name || 'Unknown'"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            {{-- Empty state: no template selected --}}
+            <div x-show="!isPackFlow && previewRenderType === 'pdf' && previewPages.length === 0 && !previewHtml" class="flex items-center justify-center h-full">
                 <div class="text-center text-gray-400">
                     <svg class="w-16 h-16 mx-auto mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -534,14 +790,18 @@ function esignWizard() {
     // Server data
     const serverFlow = @json($flow);
     const serverTemplates = @json($templates);
+    const serverWebPacks = @json($webPacks ?? []);
     const serverTemplate = @json($template ?? null);
     const serverFields = @json($fields ?? []);
     const serverCreatorFields = @json($creatorFields ?? []);
     const serverSignerFields = @json($signerFields ?? []);
+    const serverAllWizardFields = @json($allWizardFields ?? []);
     const serverPageImages = @json($pageImages ?? []);
     const serverRecipients = @json($recipients ?? []);
     const serverStepData = @json($stepData ?? []);
     const serverCurrentStep = {{ $safeStep }};
+    const serverIsWebTemplate = @json($isWebTemplate ?? false);
+    const serverTemplateId = @json($templateId ?? null);
     const csrfToken = '{{ csrf_token() }}';
     const currentUser = @json(auth()->user()->only(['id', 'name', 'email']));
     const storeUrl = '{{ route("docuperfect.esign.store") }}';
@@ -642,10 +902,17 @@ function esignWizard() {
         templateSearch: '',
         selectedTemplateId: serverTemplate?.id || null,
         templateName: serverTemplate?.name || '',
+        allWebPacks: serverWebPacks,
+        selectedPackId: null,
+        selectedPackName: '',
+        isPackFlow: false,
+        packPreview: null,
 
         // Preview
         previewPages: serverPageImages || [],
         previewFields: serverFields || [],
+        previewRenderType: 'pdf',
+        previewHtml: '',
 
         // Step 2: Property
         property: {
@@ -654,27 +921,47 @@ function esignWizard() {
             erf: serverStepData?.property?.erf || '',
             complex_name: serverStepData?.property?.complex_name || '',
             property_type: serverStepData?.property?.property_type || '',
+            _selected: !!(serverStepData?.property?.property_id),
+            _property_id: serverStepData?.property?.property_id || null,
+            _property_source: serverStepData?.property?._property_source || null,
+            _propertyData: null,
         },
+        propSearchQuery: '',
+        propSearchResults: [],
+        propSearchOpen: false,
+        propSearching: false,
+        propSearchIdx: 0,
 
         // Step 3: Recipients
         recipients: serverRecipients.length > 0
             ? serverRecipients.map((r, i) => ({ ...r, readonly: i === 0 && r.role === 'agent' }))
             : [{ order: 1, role: 'agent', name: currentUser.name, id_number: '', email: currentUser.email || '', cell: '', address: '', readonly: true }],
 
-        // Step 4: Details
-        details: {
-            monthly_rental: serverStepData?.details?.monthly_rental || '',
-            deposit: serverStepData?.details?.deposit || '',
-            lease_start: serverStepData?.details?.lease_start || '',
-            lease_end: serverStepData?.details?.lease_end || '',
-            commission: serverStepData?.details?.commission || '',
-            marketing_fee: serverStepData?.details?.marketing_fee || '',
-        },
+        // Step 4: Details — deposit defaults to rental if empty
+        details: (() => {
+            const prop = serverStepData?.property || {};
+            const det = serverStepData?.details || {};
+            const d = {
+                monthly_rental: det.monthly_rental || prop.rental_amount || '',
+                deposit: det.deposit || prop.deposit_amount || '',
+                lease_start: det.lease_start || '',
+                lease_end: det.lease_end || '',
+                commission: det.commission || prop.commission_percent || '10',
+                marketing_fee: det.marketing_fee || prop.marketing_fee || '',
+                _duration: det._duration ?? 12,
+                _autoFilled: false,
+            };
+            // Auto-set deposit = rental when deposit is empty
+            if (!d.deposit && d.monthly_rental) d.deposit = d.monthly_rental;
+            return d;
+        })(),
 
         // Step 5: Fields
         creatorFields: serverCreatorFields || [],
         signerFields: serverSignerFields || [],
+        allWizardFields: serverAllWizardFields || [],
         fieldValues: {},
+        fieldPartyOverrides: {},
         highlightedFieldId: null,
 
         // Step 6: Signing setup
@@ -685,8 +972,10 @@ function esignWizard() {
         _resizing: false,
 
         init() {
-            // Initialize field values from server data
-            const allFields = [...(this.creatorFields || []), ...(this.signerFields || [])];
+            // Initialize field values from server data (unified ordered list)
+            const allFields = this.allWizardFields.length > 0
+                ? this.allWizardFields
+                : [...(this.creatorFields || []), ...(this.signerFields || [])];
             allFields.forEach(f => {
                 if (f.value) this.fieldValues[f.id] = f.value;
             });
@@ -697,12 +986,39 @@ function esignWizard() {
                 if (frValues[k]) this.fieldValues[k] = frValues[k];
             });
 
+            // Restore party overrides from fill_review step data
+            const savedOverrides = serverStepData?.fill_review?.partyOverrides || {};
+            Object.keys(savedOverrides).forEach(k => {
+                if (savedOverrides[k]) this.fieldPartyOverrides[k] = savedOverrides[k];
+            });
+
+            // Initialize contact search state on existing recipients
+            this.recipients.forEach((r, i) => {
+                if (!r.hasOwnProperty('_searchQuery')) r._searchQuery = '';
+                if (!r.hasOwnProperty('_searchResults')) r._searchResults = [];
+                if (!r.hasOwnProperty('_searchOpen')) r._searchOpen = false;
+                if (!r.hasOwnProperty('_searching')) r._searching = false;
+                if (!r.hasOwnProperty('_searchIdx')) r._searchIdx = 0;
+                if (!r.hasOwnProperty('_contact_id')) r._contact_id = null;
+                // Restore skipEmail and overridden email from signing_setup step data
+                const saved = serverStepData?.signing_setup?.[i] || {};
+                if (!r.hasOwnProperty('skipEmail')) r.skipEmail = saved.skipEmail || false;
+                if (saved.email && saved.email !== r.email) r.email = saved.email;
+            });
+
             // Initialize signing actions for each recipient
             this.signingActions = this.recipients.map((r, i) => {
                 if (r.role === 'agent') return 'signs_now';
+                if (r.skipEmail) return 'sign_later';
                 if (!r.email) return 'sign_later';
                 return serverStepData?.signing_setup?.[i]?.action || 'send_after';
             });
+
+            // Load web template preview on steps 2+ (PDF preview loads via serverPageImages)
+            if (serverIsWebTemplate && this.currentStep > 1 && this.flowId && serverTemplateId) {
+                this.previewRenderType = 'web';
+                this.loadTemplatePreview(serverTemplateId);
+            }
 
             // Global mouse events for resize
             document.addEventListener('mousemove', (e) => this._onResize(e));
@@ -718,15 +1034,43 @@ function esignWizard() {
         selectTemplate(t) {
             this.selectedTemplateId = t.id;
             this.templateName = t.name;
+            this.selectedPackId = null;
+            this.selectedPackName = '';
+            this.isPackFlow = false;
+            this.packPreview = null;
             this.loadTemplatePreview(t.id);
+        },
+
+        selectPack(p) {
+            this.selectedPackId = p.id;
+            this.selectedPackName = p.name;
+            this.selectedTemplateId = null;
+            this.templateName = '';
+            this.isPackFlow = true;
+
+            // Show pack summary in right pane
+            this.previewHtml = '';
+            this.previewPages = [];
+            this.previewReady = true;
+            this.packPreview = p;
         },
 
         async loadTemplatePreview(templateId) {
             try {
-                const resp = await fetch('/docuperfect/esign/api/template/' + templateId + '/pages');
+                let url = '/docuperfect/esign/api/template/' + templateId + '/pages';
+                if (this.flowId) url += '?flow_id=' + this.flowId;
+                const resp = await fetch(url);
                 const data = await resp.json();
-                this.previewPages = data.pages || [];
-                this.previewFields = data.fields || [];
+                this.previewRenderType = data.render_type || 'pdf';
+                if (data.render_type === 'web') {
+                    this.previewHtml = data.html || '';
+                    this.previewPages = [];
+                    this.previewFields = [];
+                } else {
+                    this.previewHtml = '';
+                    this.previewPages = data.pages || [];
+                    this.previewFields = data.fields || [];
+                }
             } catch (e) {
                 console.error('Failed to load template preview:', e);
             }
@@ -734,7 +1078,7 @@ function esignWizard() {
 
         // ---- Field helpers ----
         fieldsOnPage(pageIndex) {
-            return (this.previewFields || []).filter(f => f.pageIndex === pageIndex);
+            return (this.previewFields || []).filter(f => f.pageIndex === pageIndex && f.position && f.size);
         },
 
         fieldLabel(f) {
@@ -753,6 +1097,37 @@ function esignWizard() {
 
         setFieldValue(fieldId, value) {
             this.fieldValues = { ...this.fieldValues, [fieldId]: value };
+            this.refreshPreviewDebounced();
+        },
+
+        getFieldParty(f) {
+            return this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'agent';
+        },
+
+        setFieldParty(fieldId, party) {
+            this.fieldPartyOverrides = { ...this.fieldPartyOverrides, [fieldId]: party };
+        },
+
+        get partyOptions() {
+            const opts = [{ value: 'agent', label: 'Agent (You)' }];
+            const seen = { agent: true };
+            (this.recipients || []).forEach(r => {
+                if (r.role === 'agent' || seen[r.role]) return;
+                seen[r.role] = true;
+                const name = r.name || getRoleLabel(r.role);
+                opts.push({ value: r.role, label: name + ' (' + getRoleLabel(r.role) + ')' });
+            });
+            return opts;
+        },
+
+        isCreatorField(f) {
+            const role = this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'creator';
+            return ['creator', 'user', 'agent'].includes(role);
+        },
+
+        fieldRoleLabel(f) {
+            const role = this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'creator';
+            return getRoleLabel(role);
         },
 
         highlightField(fieldId) {
@@ -760,6 +1135,22 @@ function esignWizard() {
             setTimeout(() => {
                 if (this.highlightedFieldId === fieldId) this.highlightedFieldId = null;
             }, 2000);
+
+            // Web template: highlight matching .field span in preview
+            this.clearFieldHighlight();
+            if (this.previewRenderType === 'web') {
+                // Find field_name from allWizardFields
+                const field = (this.allWizardFields || []).find(f => f.id === fieldId);
+                const fieldName = field ? (field.field_name || field.name || '') : '';
+                if (!fieldName) return;
+                const span = document.querySelector('.web-template-preview [data-field="' + fieldName + '"]');
+                if (!span) return;
+                span.classList.add('field-highlighted');
+                span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        },
+        clearFieldHighlight() {
+            document.querySelectorAll('.field-highlighted').forEach(el => el.classList.remove('field-highlighted'));
         },
 
         // ---- Preview overlay styling ----
@@ -796,6 +1187,25 @@ function esignWizard() {
         // ---- Signing setup helpers ----
         signingRoleLabel(role) {
             return getRoleLabel(role);
+        },
+
+        moveRecipient(index, direction) {
+            console.log('moveRecipient called', index, direction, this.recipients.length);
+            const swapWith = direction === 'up' ? index - 1 : index + 1;
+            if (swapWith < 0) return;
+            if (swapWith >= this.recipients.length) return;
+
+            const newRecipients = [...this.recipients];
+            [newRecipients[index], newRecipients[swapWith]] =
+                [newRecipients[swapWith], newRecipients[index]];
+            this.recipients = newRecipients;
+
+            if (this.signingActions && this.signingActions.length === this.recipients.length) {
+                const newActions = [...this.signingActions];
+                [newActions[index], newActions[swapWith]] =
+                    [newActions[swapWith], newActions[index]];
+                this.signingActions = newActions;
+            }
         },
 
         nextButtonLabel() {
@@ -874,7 +1284,7 @@ function esignWizard() {
         },
 
         canGoNext() {
-            if (this.currentStep === 1) return !!this.selectedTemplateId;
+            if (this.currentStep === 1) return !!(this.selectedTemplateId || this.selectedPackId);
             return true;
         },
 
@@ -925,7 +1335,11 @@ function esignWizard() {
                     'X-CSRF-TOKEN': csrfToken,
                     'Accept': 'application/json',
                 },
-                body: JSON.stringify({ template_id: this.selectedTemplateId }),
+                body: JSON.stringify({
+                    template_id: this.selectedTemplateId,
+                    pack_id: this.selectedPackId,
+                    is_pack_flow: this.isPackFlow,
+                }),
             });
             if (!resp.ok) {
                 const text = await resp.text();
@@ -950,6 +1364,12 @@ function esignWizard() {
                     erf: this.property.erf,
                     complex_name: this.property.complex_name,
                     property_type: this.property.property_type,
+                    property_id: this.property._property_id || null,
+                    _property_source: this.property._property_source || null,
+                    rental_amount: this.details.monthly_rental || null,
+                    deposit_amount: this.details.deposit || null,
+                    commission_percent: this.details.commission || null,
+                    marketing_fee: this.details.marketing_fee || null,
                 };
                 case 3: return {
                     recipients: this.recipients.map((r, i) => ({
@@ -960,11 +1380,31 @@ function esignWizard() {
                         email: r.email,
                         cell: r.cell,
                         address: r.address || '',
+                        _contact_id: r._contact_id || null,
+                        bank_name: r.bank_name || '',
+                        bank_account_name: r.bank_account_name || '',
+                        bank_account_number: r.bank_account_number || '',
+                        bank_branch_name: r.bank_branch_name || '',
                     })),
                 };
-                case 4: return { ...this.details };
-                case 5: return { fieldValues: { ...this.fieldValues } };
-                case 6: return this.signingActions.map((action, i) => ({ action }));
+                case 4: return {
+                    monthly_rental: this.details.monthly_rental,
+                    deposit: this.details.deposit,
+                    lease_start: this.details.lease_start,
+                    lease_end: this.details.lease_end,
+                    commission: this.details.commission,
+                    marketing_fee: this.details.marketing_fee,
+                    _duration: this.details._duration,
+                };
+                case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides } };
+                case 6: return this.signingActions.map((action, i) => ({
+                    signing_order: i + 1,
+                    action,
+                    role: this.recipients[i]?.role || '',
+                    name: this.recipients[i]?.name || '',
+                    email: this.recipients[i]?.email || '',
+                    skipEmail: this.recipients[i]?.skipEmail || false,
+                }));
                 default: return {};
             }
         },
@@ -1080,9 +1520,198 @@ function esignWizard() {
             }
         },
 
+        // ---- Property search ----
+        async searchProperties() {
+            const q = (this.propSearchQuery || '').trim();
+            if (q.length < 2) {
+                this.propSearchResults = [];
+                this.propSearchOpen = false;
+                return;
+            }
+            this.propSearching = true;
+            this.propSearchIdx = 0;
+            try {
+                const resp = await fetch('/docuperfect/esign/api/properties?q=' + encodeURIComponent(q));
+                this.propSearchResults = await resp.json();
+                this.propSearchOpen = this.propSearchResults.length > 0 || q.length >= 2;
+            } catch (e) {
+                console.error('Property search error:', e);
+                this.propSearchResults = [];
+            } finally {
+                this.propSearching = false;
+            }
+        },
+
+        selectProperty(result) {
+            this.property.address = result.address || '';
+            this.property.suburb = result.suburb || '';
+            this.property.erf = result.erf_no || '';
+            this.property.complex_name = result.complex_name || '';
+            this.property.property_type = result.property_type || '';
+            this.property._selected = true;
+            this.property._property_id = result.id;
+            this.property._property_source = result.source;
+            this.property._propertyData = result;
+            this.propSearchOpen = false;
+            this.propSearchQuery = result.display || result.address;
+
+            // Pre-fill details from property data
+            if (result.rental_amount && !this.details.monthly_rental) {
+                this.details.monthly_rental = String(result.rental_amount);
+            }
+            if (result.deposit_amount && !this.details.deposit) {
+                this.details.deposit = String(result.deposit_amount);
+            }
+            if (result.commission_percent && !this.details.commission) {
+                this.details.commission = String(result.commission_percent);
+            }
+            if (result.marketing_fee && !this.details.marketing_fee) {
+                this.details.marketing_fee = String(result.marketing_fee);
+            }
+            if (result.lease_start_date && !this.details.lease_start) {
+                this.details.lease_start = result.lease_start_date;
+            }
+            if (result.lease_end_date && !this.details.lease_end) {
+                this.details.lease_end = result.lease_end_date;
+            }
+
+            this.showToast('Property selected — fields auto-filled', 'success');
+        },
+
+        clearPropertySelection() {
+            this.property._selected = false;
+            this.property._property_id = null;
+            this.property._property_source = null;
+            this.property._propertyData = null;
+            this.propSearchQuery = '';
+        },
+
+        // ---- Contact search ----
+        async searchContacts(recipientIndex) {
+            const r = this.recipients[recipientIndex];
+            const q = (r._searchQuery || '').trim();
+            if (q.length < 2) {
+                r._searchResults = [];
+                r._searchOpen = false;
+                return;
+            }
+            r._searching = true;
+            r._searchIdx = 0;
+            try {
+                let url = '/docuperfect/esign/api/contacts?q=' + encodeURIComponent(q);
+                if (r.role && r.role !== 'other') url += '&role=' + encodeURIComponent(r.role);
+                const resp = await fetch(url);
+                r._searchResults = await resp.json();
+                r._searchOpen = r._searchResults.length > 0 || q.length >= 2;
+            } catch (e) {
+                console.error('Contact search error:', e);
+                r._searchResults = [];
+            } finally {
+                r._searching = false;
+            }
+        },
+
+        selectContact(recipientIndex, contact) {
+            const r = this.recipients[recipientIndex];
+            r.name = contact.full_name || (contact.first_name + ' ' + contact.last_name);
+            r.email = contact.email || '';
+            r.cell = contact.phone || '';
+            r.id_number = contact.id_number || '';
+            r.address = contact.address || '';
+            r._contact_id = contact.id;
+            r._searchOpen = false;
+            r._searchQuery = contact.full_name;
+
+            // Store bank details for WebTemplateDataService
+            r.bank_name = contact.bank_name || '';
+            r.bank_account_name = contact.bank_account_name || '';
+            r.bank_account_number = contact.bank_account_number || '';
+            r.bank_branch_name = contact.bank_branch_name || '';
+
+            this.showToast(contact.full_name + ' selected', 'success');
+        },
+
+        clearContactSelection(recipientIndex) {
+            const r = this.recipients[recipientIndex];
+            r._contact_id = null;
+            r._searchQuery = '';
+            r.name = '';
+            r.email = '';
+            r.cell = '';
+            r.id_number = '';
+            r.address = '';
+            r.bank_name = '';
+            r.bank_account_name = '';
+            r.bank_account_number = '';
+            r.bank_branch_name = '';
+        },
+
+        // ---- Lease duration calculator ----
+        calculateLeaseEnd() {
+            const dur = this.details._duration;
+            const start = this.details.lease_start;
+            if (!start || dur === 0) return;
+
+            const startDate = new Date(start);
+            startDate.setMonth(startDate.getMonth() + dur);
+            // End date is day before the anniversary
+            startDate.setDate(startDate.getDate() - 1);
+            this.details.lease_end = startDate.toISOString().split('T')[0];
+        },
+
+        // ---- Live preview refresh (debounced) ----
+        _previewTimer: null,
+        refreshPreviewDebounced() {
+            if (this._previewTimer) clearTimeout(this._previewTimer);
+            this._previewTimer = setTimeout(async () => {
+                if (this.previewRenderType === 'web' && this.flowId && serverTemplateId) {
+                    // Autosave field values first so server re-renders with latest data
+                    if (this.currentStep === 5) {
+                        try {
+                            await fetch('/docuperfect/esign/' + this.flowId + '/autosave-fields', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken },
+                                body: JSON.stringify({ fieldValues: this.fieldValues }),
+                            });
+                        } catch (e) {
+                            console.error('Autosave failed:', e);
+                        }
+                    }
+                    this.loadTemplatePreview(serverTemplateId);
+                }
+            }, 600);
+        },
+
         // ---- Recipients ----
+        hasRoleRecipient(role) {
+            return this.recipients.some(r => r.role === role && !r.readonly);
+        },
+
+        hasSecondRoleRecipient(role) {
+            return this.recipients.filter(r => r.role === role && !r.readonly).length >= 2;
+        },
+
+        addSecondOwner() {
+            // Insert after the first landlord
+            const idx = this.recipients.findIndex(r => r.role === 'landlord' && !r.readonly);
+            const newOwner = {
+                order: 0, role: 'landlord', name: '', id_number: '', email: '', cell: '', address: '', readonly: false,
+                _contact_id: null, _searchQuery: '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
+                _includeEmail: false,
+            };
+            if (idx >= 0) {
+                this.recipients.splice(idx + 1, 0, newOwner);
+            } else {
+                this.recipients.push(newOwner);
+            }
+            this.recipients.forEach((r, i) => r.order = i + 1);
+        },
+
         addRecipient() {
-            this.recipients.push({ order: this.recipients.length + 1, role: 'landlord', name: '', id_number: '', email: '', cell: '', address: '', readonly: false });
+            this.recipients.push({
+                order: this.recipients.length + 1, role: 'landlord', name: '', id_number: '', email: '', cell: '', address: '', readonly: false,
+                _contact_id: null, _searchQuery: '', _searchResults: [], _searchOpen: false, _searching: false, _searchIdx: 0,
+            });
         },
 
         removeRecipient(index) {
