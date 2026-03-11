@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ContactNote extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = ['contact_id', 'user_id', 'body'];
 
     public function contact(): BelongsTo

@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PresentationVersion extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'presentation_id',
         'compiled_by',

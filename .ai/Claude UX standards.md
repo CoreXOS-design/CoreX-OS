@@ -147,7 +147,7 @@ All "delete" actions MUST be soft deletes (archive/trash).
 ## Rule 11: Permissions Are Mandatory
 
 Every new feature MUST include permission entries.
-- Add permission keys to `NexusPermissionSeeder.php` in the correct section.
+- Add permission keys to `CoreXPermissionSeeder.php` in the correct section.
 - For data modules, add 4 keys: `{module}.view`, `{module}.create`,
   `{module}.edit`, `{module}.archive`.
 - For utility modules, add: `access_{module}` and optionally `{module}.manage`.
@@ -164,7 +164,7 @@ Every new feature MUST include permission entries.
 - Roles are dynamic (DB-driven). The system does not care what a role is
   called — only what permissions it has. The `is_owner` flag on one role
   bypasses all checks (like super_admin).
-- Run the seeder after adding: `php artisan db:seed --class=NexusPermissionSeeder`
+- Run the seeder after adding: `php artisan db:seed --class=CoreXPermissionSeeder`
 
 ## Rule 12: Data Scoping via Permissions
 

@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PropertySettingItem extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = ['group', 'name', 'sort_order', 'is_default', 'active'];
 
     protected $casts = [

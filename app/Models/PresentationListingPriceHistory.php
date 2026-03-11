@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PresentationListingPriceHistory extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'presentation_listing_price_history';
 
     protected $fillable = [

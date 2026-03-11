@@ -3,9 +3,12 @@
 namespace App\Models\Docuperfect;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SignatureMarker extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'signature_markers';
 
     protected $fillable = [

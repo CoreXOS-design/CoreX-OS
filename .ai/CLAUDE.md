@@ -89,7 +89,7 @@ Described above. No exceptions.
 New features connect to the pillars. They do not become new islands. If a feature doesn't connect to at least one pillar, the spec is incomplete.
 
 ### 5. Permissions are mandatory.
-Every new feature includes permission keys in `NexusPermissionSeeder.php`, sidebar gating, route middleware, and controller checks. If permissions aren't in, the feature isn't done.
+Every new feature includes permission keys in `CoreXPermissionSeeder.php`, sidebar gating, route middleware, and controller checks. If permissions aren't in, the feature isn't done.
 
 ### 6. Production quality only.
 No demo modes. No "we'll fix it later." No patches over root causes. If it works, it works correctly. If it doesn't, fix the root cause.

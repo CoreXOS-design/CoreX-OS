@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class P24ImportLog extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'p24_import_log';
 
     protected $fillable = [

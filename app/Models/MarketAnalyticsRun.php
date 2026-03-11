@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class MarketAnalyticsRun extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'model_version',
         'inputs_hash',

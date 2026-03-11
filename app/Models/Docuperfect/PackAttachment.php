@@ -5,9 +5,12 @@ namespace App\Models\Docuperfect;
 use App\Models\KnowledgeDocument;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PackAttachment extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'docuperfect_pack_attachments';
 
     protected $fillable = [

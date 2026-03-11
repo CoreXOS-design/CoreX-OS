@@ -4,9 +4,12 @@ namespace App\Models;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Worksheet extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'user_id',
         'period',

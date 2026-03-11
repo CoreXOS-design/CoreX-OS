@@ -134,7 +134,7 @@
                     <div class="flex-1 min-w-0 overflow-y-auto sticky top-4" style="max-height:calc(100vh - 8rem);">
                         @if($permissions->isEmpty())
                             <div class="rounded-md px-5 py-12 text-center text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
-                                No permissions defined. Run: <code class="font-mono px-1 rounded-md" style="background:var(--surface-2);">php artisan db:seed --class=NexusPermissionSeeder</code>
+                                No permissions defined. Run: <code class="font-mono px-1 rounded-md" style="background:var(--surface-2);">php artisan db:seed --class=CoreXPermissionSeeder</code>
                             </div>
                         @endif
 

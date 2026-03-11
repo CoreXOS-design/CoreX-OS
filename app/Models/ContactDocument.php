@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ContactDocument extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'contact_id', 'uploaded_by_user_id',
         'original_name', 'storage_path', 'mime_type', 'size',

@@ -3,11 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 class ContactMatch extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'contact_id',
         'created_by_user_id',

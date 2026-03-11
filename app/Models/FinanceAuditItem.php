@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class FinanceAuditItem extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'audit_run_id',
         'definition_key',

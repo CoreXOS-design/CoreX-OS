@@ -147,7 +147,7 @@ All "delete" actions MUST be soft deletes (archive/trash).
 ## Rule 11: Permissions Are Mandatory
 
 Every new feature MUST include permission entries.
-- Add a permission key to `NexusPermissionSeeder.php` in the correct section.
+- Add a permission key to `CoreXPermissionSeeder.php` in the correct section.
 - Assign to roles following the pattern: super_admin gets everything,
   admin gets most, branch_manager gets operational items, agent gets
   their daily tools, viewer gets read-only.
@@ -156,7 +156,7 @@ Every new feature MUST include permission entries.
 - The Role Manager (`/corex/role-manager`) is the single source of truth
   for who can access what. No hardcoded role checks in routes, controllers,
   or views. Use `auth()->user()->hasPermission('key')` instead.
-- Run the seeder after adding: `php artisan db:seed --class=NexusPermissionSeeder`
+- Run the seeder after adding: `php artisan db:seed --class=CoreXPermissionSeeder`
 
 ## Rule 12: Branch Scoping
 

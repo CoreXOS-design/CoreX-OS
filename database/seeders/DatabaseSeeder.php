@@ -30,7 +30,7 @@ class DatabaseSeeder extends Seeder
 
         // Call all other seeders
         $this->call([
-            NexusPermissionSeeder::class,
+            CoreXPermissionSeeder::class,
             MultiDemoSeeder::class,
             DemoSeeder::class,
             RichDemoSeeder::class,

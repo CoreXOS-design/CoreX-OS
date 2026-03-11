@@ -180,7 +180,7 @@
                 <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Daily Activity Targets</a>
                 <a href="{{ route('admin.targets.activity.definitions') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets.activity.definitions*') ? 'active' : '' }}">Activity Definitions</a>
                 @endpermission
-                @permission('access_tv_messages')
+                @permission('manage_tv_messages')
                 <a href="{{ route('bm.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('bm.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
                 @permission('view_daily_activity')
@@ -220,7 +220,7 @@
                 @permission('edit_worksheet')
                 <a href="{{ route('admin.worksheet-market') }}" class="corex-nav-subitem {{ request()->routeIs('admin.worksheet-market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
-                @permission('access_tv_messages')
+                @permission('manage_tv_messages')
                 <a href="{{ route('admin.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('admin.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
                 @endpermission

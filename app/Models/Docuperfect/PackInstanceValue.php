@@ -3,9 +3,12 @@
 namespace App\Models\Docuperfect;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PackInstanceValue extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'docuperfect_pack_instance_values';
 
     protected $fillable = [

@@ -3,9 +3,12 @@
 namespace App\Models\Rental;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class RentalReminderSetting extends Model
 {
+    use SoftDeletes;
+
     protected $guarded = [];
 
     protected $casts = [

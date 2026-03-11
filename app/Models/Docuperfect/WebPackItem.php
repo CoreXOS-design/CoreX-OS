@@ -3,9 +3,12 @@
 namespace App\Models\Docuperfect;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class WebPackItem extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'web_pack_items';
 
     protected $fillable = [

@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SaleProbabilityRun extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'market_analytics_run_id',
         'market_analytics_model_version',

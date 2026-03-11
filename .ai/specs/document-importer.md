@@ -226,7 +226,7 @@ Modified files:
   (generated methods added dynamically)
 - resources/views/corex/settings.blade.php
   (navigation link to importer)
-- NexusPermissionSeeder.php
+- CoreXPermissionSeeder.php
   (manage_document_templates permission)
 
 ---

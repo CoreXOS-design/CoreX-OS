@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class DealMoneyLine extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'deal_money_lines';
 
     protected $fillable = [

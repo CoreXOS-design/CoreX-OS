@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PortalListing extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'source_site',
         'portal_listing_id',

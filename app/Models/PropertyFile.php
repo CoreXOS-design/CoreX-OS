@@ -3,11 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
 class PropertyFile extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = ['property_id', 'user_id', 'name', 'path', 'size', 'mime_type'];
 
     protected $casts = ['size' => 'integer'];

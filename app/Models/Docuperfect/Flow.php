@@ -6,9 +6,12 @@ use App\Models\Contact;
 use App\Models\Property;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Flow extends Model
 {
+    use SoftDeletes;
+
     protected $table = 'flows';
 
     protected $fillable = [

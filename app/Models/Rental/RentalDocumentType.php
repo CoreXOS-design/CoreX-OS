@@ -3,10 +3,13 @@
 namespace App\Models\Rental;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 class RentalDocumentType extends Model
 {
+    use SoftDeletes;
+
     protected $guarded = [];
 
     protected $casts = [

@@ -34,15 +34,6 @@ Route::middleware('auth')->group(function () {
     Route::put('/profile/theme', [ProfileController::class, 'updateTheme'])->name('profile.theme');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    // TEMP: Grant admin rights to current user
-    Route::get('/make-me-admin', function () {
-        /** @var \App\Models\User $user */
-        $user = auth()->user();
-        $user->role = 'admin';
-        $user->save();
-        return redirect()->route('corex.dashboard')->with('success', 'You are now an Admin.');
-    });
-
     // Ellie (AI Assistant)
     Route::get('/ellie', [\App\Http\Controllers\EllieController::class, 'index'])
         ->middleware('permission:access_ellie')->name('ellie.index');
@@ -68,10 +59,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/calculators/upload-fee-sheet', [\App\Http\Controllers\CalculatorController::class, 'uploadFeeSheet'])->middleware('permission:access_calculators')->name('calculators.uploadFeeSheet');
     Route::post('/calculators/bond-overpayment', [\App\Http\Controllers\CalculatorController::class, 'calculateBondOverpayment'])->middleware('permission:access_calculators')->name('calculators.bondOverpayment');
 
-    Route::get('/worksheet', [WorksheetController::class, 'index'])->name('worksheet.index');
-    Route::post('/worksheet', [WorksheetController::class, 'store'])->name('worksheet.store');
+    Route::get('/worksheet', [WorksheetController::class, 'index'])->middleware('permission:view_worksheet')->name('worksheet.index');
+    Route::post('/worksheet', [WorksheetController::class, 'store'])->middleware('permission:view_worksheet')->name('worksheet.store');
 
-    Route::get('/company-summary', [CompanySummaryController::class, 'index'])->name('company.summary');
+    Route::get('/company-summary', [CompanySummaryController::class, 'index'])->middleware('permission:view_dashboard')->name('company.summary');
 
     Route::get('/admin/dashboard', [AdminDashboardController::class, 'index'])
         ->middleware('permission:export_reports')->name('admin.dashboard');
