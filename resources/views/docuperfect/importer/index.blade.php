@@ -20,6 +20,47 @@
             </div>
         @endif
 
+        {{-- Resume drafts section --}}
+        @if(isset($drafts) && $drafts->count() > 0)
+            <div class="mb-6" x-data="{ csrfToken: '{{ csrf_token() }}' }">
+                <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-3">Drafts in Progress</h2>
+                <div class="space-y-2">
+                    @foreach($drafts as $draft)
+                        <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-4 py-3"
+                             id="draft-row-{{ $draft->id }}">
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ $draft->template_name }}</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">
+                                    {{ $draft->linked_count }} of {{ $draft->tag_count }} linked
+                                    &middot;
+                                    {{ $draft->updated_at->diffForHumans() }}
+                                </p>
+                            </div>
+                            <div class="flex items-center gap-2 ml-4">
+                                <a href="{{ route('docuperfect.import.review', ['draft_id' => $draft->id]) }}"
+                                   class="text-xs font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 whitespace-nowrap">
+                                    Resume &rarr;
+                                </a>
+                                <button type="button"
+                                        class="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 whitespace-nowrap"
+                                        @click="if(confirm('Delete this draft?')) {
+                                            fetch('{{ route('docuperfect.import.draft.destroy', $draft->id) }}', {
+                                                method: 'DELETE',
+                                                headers: { 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' }
+                                            }).then(r => {
+                                                if(r.ok) document.getElementById('draft-row-{{ $draft->id }}').remove();
+                                            });
+                                        }">
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+                <hr class="border-gray-200 dark:border-gray-600 mt-6 mb-2">
+            </div>
+        @endif
+
         <div x-data="{
             fileName: '',
             dragging: false,

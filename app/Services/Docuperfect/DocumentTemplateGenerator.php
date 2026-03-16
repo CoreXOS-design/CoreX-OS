@@ -2,121 +2,592 @@
 
 namespace App\Services\Docuperfect;
 
-use App\Models\Docuperfect\DocumentCustomField;
+use App\Models\Docuperfect\FieldGroup;
+use App\Models\Docuperfect\ImportDraft;
+use App\Models\Docuperfect\NamedField;
 use App\Models\Docuperfect\Template;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class DocumentTemplateGenerator
 {
     /**
-     * Generate a web template from parsed docx data and confirmed field mappings.
+     * Generate a web template from an import draft's tag-based data.
      *
-     * @param array  $parsedData     Output from DocxParserService::parse()
-     * @param array  $fieldMappings  Confirmed field mappings from user review
-     * @param string $templateName   Human-readable template name
-     * @param int    $ownerId        User ID of the creator
+     * The draft's fields_json must contain:
+     *   - tags: array of tag objects [{id, type, number, label}, ...]
+     *   - mappings: object keyed by tag ID with mapping details
+     *   - tagged_html: the document HTML with tag spans inserted
+     *
+     * @param ImportDraft $draft    The import draft with tagged data
+     * @param string      $templateName  Human-readable template name
+     * @param int         $ownerId       User ID of the creator
      * @return Template
      */
-    public function generate(array $parsedData, array $fieldMappings, string $templateName, int $ownerId): Template
+    public function generate(ImportDraft $draft, string $templateName, int $ownerId): Template
     {
-        $html = $parsedData['html'];
-        $bladeHtml = $this->replaceFieldBlanks($html, $fieldMappings);
-        $bladeContent = $this->wrapInBladeTemplate($bladeHtml, $templateName);
+        $fieldsData = json_decode($draft->fields_json, true) ?? [];
+        $tags = $fieldsData['tags'] ?? [];
+        $mappings = $fieldsData['mappings'] ?? [];
+        $taggedHtml = $fieldsData['tagged_html'] ?? '';
 
-        // Save blade file
-        $slug = Str::slug($templateName) . '-' . time();
+        Log::info('Generator: input state', [
+            'tagged_html_length' => strlen($taggedHtml ?? ''),
+            'tag_count' => count($tags ?? []),
+            'mapping_count' => count($mappings ?? []),
+        ]);
+
+        if (empty($taggedHtml)) {
+            throw new \RuntimeException('Draft has no tagged HTML. Complete tagging before generating.');
+        }
+
+        if (empty($tags)) {
+            throw new \RuntimeException('Draft has no tags. Tag fields before generating.');
+        }
+
+        // Index tags by ID for quick lookup
+        $tagsById = collect($tags)->keyBy('id')->all();
+
+        // Pre-load named fields we'll need
+        try {
+            $namedFieldIds = collect($mappings)
+                ->pluck('namedFieldId')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $namedFieldMap = NamedField::whereIn('id', $namedFieldIds)->get()->keyBy('id');
+        } catch (\Exception $e) {
+            Log::error('Generator: named field pre-load failed', ['error' => $e->getMessage()]);
+            throw $e;
+        }
+
+        // Pre-load field groups we'll need
+        try {
+            $fieldGroupIds = collect($mappings)
+                ->pluck('fieldGroupId')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $fieldGroupMap = FieldGroup::whereIn('id', $fieldGroupIds)->get()->keyBy('id');
+        } catch (\Exception $e) {
+            Log::error('Generator: field group pre-load failed', ['error' => $e->getMessage()]);
+            throw $e;
+        }
+
+        // Also load named fields referenced inside field groups
+        $groupFieldIds = [];
+        foreach ($fieldGroupMap as $fg) {
+            foreach (($fg->fields ?? []) as $f) {
+                if (!empty($f['named_field_id'])) {
+                    $groupFieldIds[] = $f['named_field_id'];
+                }
+            }
+        }
+        if (!empty($groupFieldIds)) {
+            $extraFields = NamedField::whereIn('id', $groupFieldIds)
+                ->whereNotIn('id', $namedFieldIds)
+                ->get()
+                ->keyBy('id');
+            $namedFieldMap = $namedFieldMap->union($extraFields);
+        }
+
+        // Strip any existing blade shell from tagged HTML (prevents nesting on re-edit)
+        $taggedHtml = $this->extractBodyOnly($taggedHtml);
+
+        // Step 2: Process tag spans → proper field/sig/ini spans
+        try {
+            $processedHtml = $this->processTagSpans($taggedHtml, $tagsById, $mappings, $namedFieldMap, $fieldGroupMap);
+        } catch (\Exception $e) {
+            Log::error('Generator: processTagSpans failed', ['error' => $e->getMessage()]);
+            throw $e;
+        }
+
+        Log::info('Generator: after processTagSpans', [
+            'processed_html_length' => strlen($processedHtml),
+        ]);
+
+        // Step 3: Collect signing parties from SIG tags
+        try {
+            $signingParties = $this->collectSigningParties($tags, $mappings);
+        } catch (\Exception $e) {
+            Log::error('Generator: collectSigningParties failed', ['error' => $e->getMessage()]);
+            throw $e;
+        }
+
+        // Strip any shell from processed HTML before wrapping (safety guard)
+        $processedHtml = $this->extractBodyOnly($processedHtml);
+
+        // Step 4: Wrap in blade shell
+        try {
+            $bladeContent = $this->wrapInBladeTemplate($processedHtml, $templateName);
+        } catch (\Exception $e) {
+            Log::error('Generator: wrapInBladeTemplate failed', ['error' => $e->getMessage()]);
+            throw $e;
+        }
+
+        // Validate: detect shell nesting (should never happen after extractBodyOnly)
+        $docCount = substr_count($bladeContent, 'DOCTYPE');
+        $headerCount = substr_count($bladeContent, 'company-header');
+        if ($docCount > 1 || $headerCount > 1) {
+            throw new \RuntimeException(
+                "Generated blade has {$docCount} DOCTYPEs and {$headerCount} company-headers — shell nesting detected. Aborting."
+            );
+        }
+
+        Log::info('Generator: after wrap', [
+            'blade_length' => strlen($bladeContent),
+        ]);
+
+        // Step 5: Save blade file — ONE file, slug-based, no timestamp
+        // Clean non-breaking spaces, soft hyphens, and smart quotes from output
+        $bladeContent = str_replace("\xc2\xa0", ' ', $bladeContent);       // UTF-8 NBSP
+        $bladeContent = str_replace("\xc2\xad", '', $bladeContent);        // soft hyphen
+        $bladeContent = str_replace('&nbsp;', ' ', $bladeContent);         // entity NBSP
+        $bladeContent = str_replace(["\xe2\x80\x98", "\xe2\x80\x99"], "'", $bladeContent); // smart single quotes
+        $bladeContent = str_replace(["\xe2\x80\x9c", "\xe2\x80\x9d"], '"', $bladeContent); // smart double quotes
+
+        $slug = Str::slug($templateName);
         $bladeRelPath = "docuperfect.web-templates.imported.{$slug}";
-        $bladeFilePath = resource_path('views/docuperfect/web-templates/imported/' . $slug . '.blade.php');
+        $bladeFilePath = resource_path("views/docuperfect/web-templates/imported/{$slug}.blade.php");
 
-        // Ensure directory exists
         $dir = dirname($bladeFilePath);
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
 
-        file_put_contents($bladeFilePath, $bladeContent);
-
-        // Build fields_json matching existing template format
-        // (id, type, label, pageIndex, assignedTo, field_name, render_type)
-        $fieldsJson = [];
-        foreach ($fieldMappings as $mapping) {
-            $fieldName = str_replace('.', '_', $mapping['key']);
-            $fieldsJson[] = [
-                'id' => 'web_' . $fieldName,
-                'type' => 'placeholder',
-                'label' => $mapping['label'],
-                'pageIndex' => 0,
-                'assignedTo' => $mapping['assigned_to'],
-                'field_name' => $fieldName,
-                'render_type' => 'web',
-                'named_field_id' => null,
-                'named_field_name' => null,
-            ];
+        try {
+            file_put_contents($bladeFilePath, $bladeContent);
+        } catch (\Exception $e) {
+            Log::error('Generator: file_put_contents failed', ['error' => $e->getMessage(), 'path' => $bladeFilePath]);
+            throw $e;
         }
 
-        // Create Template record
-        $template = Template::create([
-            'name' => $templateName,
-            'template_type' => 'imported',
-            'render_type' => 'web',
-            'blade_view' => $bladeRelPath,
-            'page_count' => 1,
-            'fields_json' => $fieldsJson,
-            'is_global' => true,
-            'is_esign' => true,
-            'owner_id' => $ownerId,
+        Log::info('Generator: blade file written', [
+            'path' => $bladeFilePath,
+            'exists' => file_exists($bladeFilePath),
         ]);
 
-        // Create DocumentCustomField records for custom.* fields
-        $sortOrder = 0;
-        foreach ($fieldMappings as $mapping) {
-            if (Str::startsWith($mapping['key'], 'custom.')) {
-                DocumentCustomField::create([
-                    'template_id' => $template->id,
-                    'field_key' => $mapping['key'],
-                    'label' => $mapping['label'],
-                    'assigned_to' => $mapping['assigned_to'] ?? 'agent',
-                    'field_type' => $mapping['field_type'] ?? 'text',
-                    'default_value' => $mapping['default_value'] ?? null,
-                    'sort_order' => $sortOrder++,
+        // Preserve full editor state for lossless round-tripping via editFromTemplate()
+        $editorState = [
+            'tags'        => $tags,
+            'mappings'    => $mappings,
+            'tagged_html' => $taggedHtml,
+        ];
+
+        // Step 6: Build fields_json for template record
+        try {
+            $fieldsJson = $this->buildFieldsJson($tags, $mappings, $namedFieldMap, $fieldGroupMap);
+        } catch (\Exception $e) {
+            Log::error('Generator: buildFieldsJson failed', ['error' => $e->getMessage()]);
+            throw $e;
+        }
+
+        // Step 7: Create or update template record
+        $sourceTemplateId = $fieldsData['source_template_id'] ?? null;
+
+        try {
+            if ($sourceTemplateId) {
+                // Editing an existing template — update it
+                $template = Template::findOrFail($sourceTemplateId);
+                $template->update([
+                    'name' => $templateName,
+                    'blade_view' => $bladeRelPath,
+                    'fields_json' => $fieldsJson,
+                    'signing_parties' => $signingParties,
+                    'editor_state' => $editorState,
+                ]);
+            } else {
+                // Brand new template
+                $template = Template::create([
+                    'name' => $templateName,
+                    'template_type' => 'general',
+                    'render_type' => 'web',
+                    'blade_view' => $bladeRelPath,
+                    'page_count' => 1,
+                    'fields_json' => $fieldsJson,
+                    'signing_parties' => $signingParties,
+                    'editor_state' => $editorState,
+                    'is_global' => false,
+                    'is_esign' => true,
+                    'owner_id' => $ownerId,
                 ]);
             }
+        } catch (\Exception $e) {
+            Log::error('Generator: Template save failed', ['error' => $e->getMessage(), 'source_template_id' => $sourceTemplateId]);
+            throw $e;
         }
+
+        Log::info('Generator: template record saved', [
+            'template_id' => $template->id,
+            'mode' => $sourceTemplateId ? 'updated' : 'created',
+        ]);
 
         return $template;
     }
 
     /**
-     * Replace field-blank spans in HTML with Blade field spans.
+     * Replace tag spans in tagged HTML with proper field/sig/ini elements.
      */
-    protected function replaceFieldBlanks(string $html, array $fieldMappings): string
-    {
-        $index = 0;
-
+    protected function processTagSpans(
+        string $html,
+        array $tagsById,
+        array $mappings,
+        \Illuminate\Support\Collection $namedFieldMap,
+        \Illuminate\Support\Collection $fieldGroupMap
+    ): string {
         return preg_replace_callback(
-            '/<span[^>]*\bclass="[^"]*\bfield-blank\b[^"]*"[^>]*>.*?<\/span>/s',
-            function ($match) use ($fieldMappings, &$index) {
-                if (!isset($fieldMappings[$index])) {
-                    $index++;
-                    return $match[0];
+            '/<span[^>]*\bdata-tag-id="([^"]+)"[^>]*>.*?<\/span>/s',
+            function ($match) use ($tagsById, $mappings, $namedFieldMap, $fieldGroupMap) {
+                $tagId = $match[1];
+                $tag = $tagsById[$tagId] ?? null;
+                $mapping = $mappings[$tagId] ?? null;
+
+                if (!$tag) {
+                    return ''; // orphan tag span — remove
                 }
 
-                $mapping = $fieldMappings[$index];
-                $index++;
+                $tagType = $tag['type'] ?? '';
 
-                // Fields assigned to 'skip' are signature lines — remove them
-                // (the signature-block component handles these)
-                if (($mapping['assigned_to'] ?? '') === 'skip') {
-                    return '';
+                if ($tagType === 'input') {
+                    return $this->renderInputTag($mapping, $namedFieldMap, $fieldGroupMap, (int) ($tag['number'] ?? 0));
                 }
 
-                $key = $mapping['key'];
-                $varName = str_replace('.', '_', $key);
+                if ($tagType === 'signature') {
+                    return $this->renderSigTag($tag, $mapping);
+                }
 
-                return '<span class="field" data-field="' . e($key) . '">{{ $' . $varName . " ?? '' }}</span>";
+                if ($tagType === 'initial') {
+                    return $this->renderIniTag($tag, $mapping);
+                }
+
+                return ''; // unknown type
             },
             $html
         );
+    }
+
+    /**
+     * Render an INPUT tag as a field span based on its mapping.
+     */
+    protected function renderInputTag(
+        ?array $mapping,
+        \Illuminate\Support\Collection $namedFieldMap,
+        \Illuminate\Support\Collection $fieldGroupMap,
+        int $tagNumber = 0
+    ): string {
+        if (!$mapping || empty($mapping['mappingType'])) {
+            $fieldKey = 'field_' . $tagNumber;
+            return '<span class="field field-manual" data-field="manual.' . $fieldKey . '" data-label="Field ' . $tagNumber . '">{{ $manual_' . $fieldKey . ' ?? \'\' }}</span>';
+        }
+
+        $mappingType = $mapping['mappingType'];
+
+        if ($mappingType === 'named_field') {
+            $nfId = $mapping['namedFieldId'] ?? null;
+            $nf = $nfId ? $namedFieldMap->get($nfId) : null;
+
+            if (!$nf) {
+                $fieldKey = 'field_' . $tagNumber;
+                $fallbackLabel = $mapping['label'] ?? 'Field ' . $tagNumber;
+                return '<span class="field field-manual" data-field="manual.' . $fieldKey . '" data-label="' . e($fallbackLabel) . '">{{ $manual_' . $fieldKey . ' ?? \'\' }}</span>';
+            }
+
+            $sourceType = $nf->source_type ?? 'manual';
+            $sourceColumn = $nf->source_column ?? 'unknown';
+            $contactType = $nf->source_contact_type ?? '';
+            $dataField = $sourceType . '.' . $sourceColumn;
+            $varName = $this->columnToBladeVar($sourceColumn);
+            $nfLabel = $nf->name ?? '';
+
+            $contactAttr = $contactType
+                ? ' data-contact-type="' . e($contactType) . '"'
+                : '';
+
+            return '<span class="field" data-field="' . e($dataField) . '"' . $contactAttr . ' data-label="' . e($nfLabel) . '">{{ $' . $varName . ' ?? \'\' }}</span>';
+        }
+
+        if ($mappingType === 'field_group') {
+            $fgId = $mapping['fieldGroupId'] ?? null;
+            $fg = $fgId ? $fieldGroupMap->get($fgId) : null;
+
+            if (!$fg) {
+                $fieldKey = 'field_' . $tagNumber;
+                $fallbackLabel = $mapping['label'] ?? 'Field ' . $tagNumber;
+                return '<span class="field field-manual" data-field="manual.' . $fieldKey . '" data-label="' . e($fallbackLabel) . '">{{ $manual_' . $fieldKey . ' ?? \'\' }}</span>';
+            }
+
+            $layout = $fg->layout ?? 'inline';
+            $groupId = $fg->id;
+            $inner = '';
+
+            foreach (($fg->fields ?? []) as $f) {
+                $nfId = $f['named_field_id'] ?? null;
+                $nf = $nfId ? $namedFieldMap->get($nfId) : null;
+
+                if (!$nf) continue;
+
+                $sourceType = $nf->source_type ?? 'manual';
+                $sourceColumn = $nf->source_column ?? 'unknown';
+                $contactType = $nf->source_contact_type ?? '';
+                $dataField = $sourceType . '.' . $sourceColumn;
+                $varName = $this->columnToBladeVar($sourceColumn);
+                $label = $f['label_override'] ?? $nf->name ?? '';
+
+                $contactAttr = $contactType
+                    ? ' data-contact-type="' . e($contactType) . '"'
+                    : '';
+
+                $inner .= '<span class="field" data-field="' . e($dataField) . '"' . $contactAttr
+                    . ' data-label="' . e($label) . '">{{ $' . $varName . ' ?? \'\' }}</span> ';
+            }
+
+            return '<span class="field-group" data-group-id="' . $groupId . '" data-layout="' . e($layout) . '">'
+                . trim($inner)
+                . '</span>';
+        }
+
+        if ($mappingType === 'manual') {
+            $label = $mapping['manualLabel'] ?? $mapping['label'] ?? 'custom';
+            $slug = Str::slug($label, '_');
+            $varName = 'manual_' . $slug;
+
+            return '<span class="field field-manual" data-field="manual.' . e($slug) . '" data-label="' . e($label) . '">{{ $' . $varName . ' ?? \'\' }}</span>';
+        }
+
+        return '';
+    }
+
+    /**
+     * Render a SIG tag as a signature block with variant and parties.
+     * Actual line counts are resolved at document creation from live contact data.
+     * Template output shows one placeholder line per party type.
+     */
+    protected function renderSigTag(array $tag, ?array $mapping): string
+    {
+        $parties = $mapping['parties'] ?? [];
+        $variant = $mapping['variant'] ?? 'sig_only';
+        $number = $tag['number'] ?? 1;
+
+        if (empty($parties)) {
+            $parties = ['Agent'];
+        }
+
+        // Sort: other parties first, Agent always last
+        $parties = collect($parties)
+            ->sortBy(fn($p) => strtolower($p) === 'agent' ? 1 : 0)
+            ->values()
+            ->toArray();
+
+        $partiesJson = e(json_encode($parties));
+        $html = '<div class="sig-block" data-sig-number="' . $number . '" data-variant="' . e($variant) . '" data-parties="' . $partiesJson . '">';
+
+        // Preamble based on variant
+        if ($variant === 'sig_full') {
+            $html .= '<p class="sig-preamble">'
+                . 'This agreement has been accepted and signed at '
+                . '<span class="field field-tiny">{{ $signedAt ?? \'\' }}</span> '
+                . 'on the <span class="field field-short">{{ $signedDay ?? \'\' }}</span> '
+                . 'day of <span class="field field-medium">{{ $signedMonth ?? \'\' }}</span> '
+                . '<span class="field field-tiny">{{ $signedYear ?? \'\' }}</span>'
+                . '</p>';
+        } elseif ($variant === 'sig_with_location') {
+            $html .= '<p class="sig-preamble">'
+                . 'Signed at <span class="field field-tiny">{{ $signedAt ?? \'\' }}</span> '
+                . 'on <span class="field field-short">{{ $signedDate ?? \'\' }}</span>'
+                . '</p>';
+        }
+
+        // One signature placeholder per party type
+        foreach ($parties as $partyName) {
+            $varName = Str::camel(Str::slug($partyName, '_')) . 'Name';
+            $html .= '<div class="sig-block-party">'
+                . '<div class="sig-line">_________________________________</div>'
+                . '<div class="sig-name">{{ $' . $varName . ' ?? \'' . e($partyName) . '\' }}</div>'
+                . '</div>';
+        }
+
+        $html .= '</div>';
+        return $html;
+    }
+
+    /**
+     * Render an INI tag as initial placeholders for each party.
+     */
+    protected function renderIniTag(array $tag, ?array $mapping): string
+    {
+        $parties = $mapping['parties'] ?? [];
+        $number = $tag['number'] ?? 1;
+
+        if (empty($parties)) {
+            $parties = ['Agent'];
+        }
+
+        $partiesJson = e(json_encode($parties));
+        $html = '<span class="ini-placeholder" data-ini-number="' . $number . '" data-parties="' . $partiesJson . '">';
+
+        $labels = array_map(fn($p) => e($p), $parties);
+        $html .= '[INITIAL: ' . implode(', ', $labels) . ']';
+        $html .= '</span>';
+
+        return $html;
+    }
+
+    /**
+     * Collect unique signing parties from SIG tags, in order.
+     * Other parties appear first in document order, Agent always last.
+     */
+    protected function collectSigningParties(array $tags, array $mappings): array
+    {
+        $parties = [];
+        $seen = [];
+
+        foreach ($tags as $tag) {
+            if (($tag['type'] ?? '') !== 'signature') continue;
+
+            $tagId = $tag['id'] ?? '';
+            $mapping = $mappings[$tagId] ?? null;
+            $tagParties = $mapping['parties'] ?? [];
+
+            // Backwards compat: single 'party' key from old drafts
+            if (empty($tagParties) && !empty($mapping['party'])) {
+                $tagParties = [$mapping['party']];
+            }
+
+            foreach ($tagParties as $party) {
+                if ($party && !isset($seen[$party])) {
+                    $seen[$party] = true;
+                    $parties[] = $party;
+                }
+            }
+        }
+
+        // Sort: all parties in natural order, Agent always last
+        $parties = collect($parties)
+            ->sortBy(fn($p) => strtolower($p) === 'agent' ? 1 : 0)
+            ->values()
+            ->toArray();
+
+        // Default if no SIG tags
+        if (empty($parties)) {
+            $parties = ['Agent'];
+        }
+
+        return $parties;
+    }
+
+    /**
+     * Build fields_json array for the template record.
+     *
+     * Each entry includes 'field_name' matching the Blade variable name
+     * used in the generated template — required by webPreview() to populate
+     * placeholder values.
+     */
+    protected function buildFieldsJson(
+        array $tags,
+        array $mappings,
+        \Illuminate\Support\Collection $namedFieldMap,
+        \Illuminate\Support\Collection $fieldGroupMap
+    ): array {
+        $fields = [];
+
+        foreach ($tags as $tag) {
+            $tagId = $tag['id'] ?? '';
+            $tagType = $tag['type'] ?? '';
+            $tagNumber = $tag['number'] ?? 0;
+            $mapping = $mappings[$tagId] ?? [];
+
+            $mappingType = $mapping['mappingType'] ?? '';
+            $party = $mapping['party'] ?? '';
+            $label = $mapping['label'] ?? '';
+            $fieldName = '';
+
+            // Resolve data_field and field_name (blade variable)
+            $dataField = '';
+            if ($mappingType === 'named_field') {
+                $nfId = $mapping['namedFieldId'] ?? null;
+                $nf = $nfId ? $namedFieldMap->get($nfId) : null;
+                if ($nf) {
+                    $sourceColumn = $nf->source_column ?? 'unknown';
+                    $dataField = ($nf->source_type ?? 'manual') . '.' . $sourceColumn;
+                    $fieldName = $this->columnToBladeVar($sourceColumn);
+                    if (empty($label)) $label = $nf->name ?? '';
+                }
+            } elseif ($mappingType === 'field_group') {
+                $fgId = $mapping['fieldGroupId'] ?? null;
+                $fg = $fgId ? $fieldGroupMap->get($fgId) : null;
+                $groupSlug = $fg ? Str::slug($fg->name, '_') : 'unknown';
+                $dataField = 'group.' . $groupSlug;
+                $fieldName = 'group_' . $groupSlug;
+                if (empty($label)) $label = $fg->name ?? '';
+
+                // Also emit individual fields within the group for preview
+                if ($fg) {
+                    foreach (($fg->fields ?? []) as $f) {
+                        $nfId = $f['named_field_id'] ?? null;
+                        $nf = $nfId ? $namedFieldMap->get($nfId) : null;
+                        if (!$nf) continue;
+
+                        $subColumn = $nf->source_column ?? 'unknown';
+                        $fields[] = [
+                            'id' => 'group_' . $fg->id . '_' . $subColumn,
+                            'tag_id' => $tagId,
+                            'tag_type' => 'input',
+                            'tag_number' => $tagNumber,
+                            'mapping_type' => 'field_group_member',
+                            'mapping_id' => $nf->id,
+                            'named_field_id' => $nf->id,
+                            'data_field' => ($nf->source_type ?? 'manual') . '.' . $subColumn,
+                            'field_name' => $this->columnToBladeVar($subColumn),
+                            'party' => $party,
+                            'label' => $f['label_override'] ?? $nf->name ?? '',
+                        ];
+                    }
+                }
+            } elseif ($mappingType === 'manual') {
+                $manualLabel = $mapping['manualLabel'] ?? $mapping['label'] ?? 'custom';
+                $slug = Str::slug($manualLabel, '_');
+                $dataField = 'manual.' . $slug;
+                $fieldName = 'manual_' . $slug;
+                if (empty($label)) $label = $manualLabel;
+            }
+
+            // Unmapped input tags: assign unique field_name matching renderInputTag output
+            if ($tagType === 'input' && empty($fieldName) && empty($mappingType)) {
+                $fieldName = 'manual_field_' . $tagNumber;
+                $dataField = 'manual.field_' . $tagNumber;
+                if (empty($label)) $label = 'Field ' . $tagNumber;
+            }
+
+            $entry = [
+                'id' => $tagType . '_' . $tagNumber,
+                'tag_id' => $tagId,
+                'tag_type' => $tagType,
+                'tag_number' => $tagNumber,
+                'mapping_type' => $mappingType ?: ($tagType === 'input' ? '' : $tagType),
+                'mapping_id' => $mapping['namedFieldId'] ?? $mapping['fieldGroupId'] ?? null,
+                'named_field_id' => $mappingType === 'named_field' ? ($nfId ?? null) : null,
+                'data_field' => $dataField,
+                'field_name' => $fieldName,
+                'party' => $party,
+                'assignedTo' => $party,
+                'label' => $label,
+            ];
+
+            if ($tagType === 'signature') {
+                $entry['variant'] = $mapping['variant'] ?? 'sig_full';
+                $entry['parties'] = $mapping['parties'] ?? [];
+            }
+
+            if ($tagType === 'initial') {
+                $entry['parties'] = $mapping['parties'] ?? [];
+            }
+
+            $fields[] = $entry;
+        }
+
+        return $fields;
     }
 
     /**
@@ -161,17 +632,14 @@ class DocumentTemplateGenerator
             'date', 'landlord', 'seller', 'buyer', 'witness',
         ];
 
-        $firstSigElement = null; // the topmost signature element found so far
+        $firstSigElement = null;
 
-        // Scan from the bottom up
         for ($i = count($children) - 1; $i >= 0; $i--) {
             $el = $children[$i];
             $text = $el->textContent ?? '';
-            $textLower = mb_strtolower($text);
 
             $isSigElement = false;
 
-            // TEXT PATTERNS
             if (stripos($text, 'signed at') !== false || stripos($text, 'signed by') !== false) {
                 $isSigElement = true;
             } elseif (stripos($text, 'signature of') !== false) {
@@ -182,7 +650,6 @@ class DocumentTemplateGenerator
                 $isSigElement = true;
             }
 
-            // Pure underscore/whitespace lines
             if (!$isSigElement) {
                 $stripped = preg_replace('/[\s_\t]+/', '', $text);
                 if (empty($stripped)) {
@@ -190,8 +657,6 @@ class DocumentTemplateGenerator
                 }
             }
 
-            // Party label lines: text after stripping underscores/whitespace/tabs
-            // consists only of words from the party label set, with at least 2 matches
             if (!$isSigElement) {
                 $cleanForLabels = preg_replace('/[_\s\t]+/', ' ', $text);
                 $cleanForLabels = trim($cleanForLabels);
@@ -213,7 +678,6 @@ class DocumentTemplateGenerator
                 }
             }
 
-            // NUMBER PATTERNS (financial summary before signatures)
             if (!$isSigElement) {
                 if (stripos($text, 'Net Amount to Owner') !== false) {
                     $isSigElement = true;
@@ -226,9 +690,6 @@ class DocumentTemplateGenerator
                 }
             }
 
-            // HEADING PATTERNS — numbered or unnumbered signature headings
-            // Catches: "24. Signatures", "24 Signatures", "Signatures", etc.
-            // Only when text is short (under 40 chars = a heading, not body text)
             if (!$isSigElement) {
                 $trimmedText = trim($text);
                 if (mb_strlen($trimmedText) < 40 && preg_match('/^(\d+\.?\s+)?Signatures?\s*$/i', $trimmedText)) {
@@ -241,7 +702,6 @@ class DocumentTemplateGenerator
                 continue;
             }
 
-            // STOP CHECK — substantive text that is NOT a signature pattern
             $strippedText = preg_replace('/[\s_]+/', '', $text);
             if (mb_strlen($strippedText) > 60) {
                 break;
@@ -252,23 +712,12 @@ class DocumentTemplateGenerator
             return -1;
         }
 
-        // Find the opening tag of the first signature element in the original HTML
         $elHtml = $dom->saveHTML($firstSigElement);
-        // Extract just the opening tag to search for
-        $tagName = $firstSigElement->nodeName;
-        $openingTag = '<' . $tagName;
-
-        // Get the element's text to narrow down the match
-        $elText = $firstSigElement->textContent ?? '';
-
-        // Search for this element's HTML in the original $html
-        // Use the full rendered HTML of the element to find it
         $pos = strpos($html, $elHtml);
         if ($pos !== false) {
             return $pos;
         }
 
-        // Fallback: search for just the opening portion
         $searchSnippet = substr($elHtml, 0, min(80, strlen($elHtml)));
         $pos = strpos($html, $searchSnippet);
         if ($pos !== false) {
@@ -279,16 +728,77 @@ class DocumentTemplateGenerator
     }
 
     /**
+     * Convert a source_column to a Blade variable name.
+     * Compound columns (e.g. "first_name+last_name") use only the first part.
+     */
+    private function columnToBladeVar(string $sourceColumn): string
+    {
+        $column = explode('+', $sourceColumn)[0];
+        return Str::camel($column);
+    }
+
+    /**
+     * Strip any existing blade shell (DOCTYPE, head, style, @includes) from HTML,
+     * returning only the document body content. Prevents shell nesting on re-edit cycles.
+     */
+    private function extractBodyOnly(string $html): string
+    {
+        // No shell present — return as-is
+        if (stripos($html, '<!DOCTYPE') === false) {
+            return $html;
+        }
+
+        $marker = "@include('docuperfect.web-templates.components.company-header')";
+        $lastPos = strrpos($html, $marker);
+
+        if ($lastPos === false) {
+            return $html;
+        }
+
+        $bodyStart = $lastPos + strlen($marker);
+
+        // Try to find end before closing tags
+        $endPatterns = [
+            "</div>\n\n</div>\n</body>",
+            "</div>\n</div>\n</body>",
+            "\n\n</div>\n</body>",
+            "\n</div>\n</body>",
+        ];
+
+        $end = false;
+        foreach ($endPatterns as $pattern) {
+            $end = strrpos($html, $pattern, $bodyStart);
+            if ($end !== false) break;
+        }
+
+        if ($end !== false) {
+            return trim(substr($html, $bodyStart, $end - $bodyStart));
+        }
+
+        // Fallback — strip closing HTML from end
+        $body = trim(substr($html, $bodyStart));
+        $body = preg_replace('/<\/div>\s*<\/body>\s*<\/html>\s*$/i', '', $body);
+        return trim($body);
+    }
+
+    /**
      * Wrap generated HTML body in a full Blade template shell.
      */
     protected function wrapInBladeTemplate(string $bodyHtml, string $templateName): string
     {
-        // Strip signature section — detectSignatureBoundary scans from bottom up
-        $sigOffset = $this->detectSignatureBoundary($bodyHtml);
-        if ($sigOffset > 0) {
-            $bodyHtml = rtrim(substr($bodyHtml, 0, $sigOffset));
-        }
+        // Note: detectSignatureBoundary() is intentionally NOT called here.
+        // The DocxParserService already stripped original sig sections during parse.
+        // The signature-block component is appended below via @include.
         $title = e($templateName);
+
+        // If the processed HTML already contains inline sig blocks from SIG tags,
+        // don't append the signature-block component (would duplicate signatures)
+        $hasInlineSigBlocks = str_contains($bodyHtml, 'class="sig-block"')
+            || str_contains($bodyHtml, 'class="sig-preamble"');
+
+        $sigInclude = $hasInlineSigBlocks
+            ? ''
+            : "\n    @include('docuperfect.web-templates.components.signature-block', ['signing_parties' => \$signing_parties ?? []])";
 
         return <<<BLADE
 <!DOCTYPE html>
@@ -351,16 +861,97 @@ class DocumentTemplateGenerator
             }
         }
 
+        /* ---- Field values (inline blanks) ---- */
         .field {
-            display: inline-block;
-            min-width: 120pt;
-            border-bottom: 1px solid #333;
-            padding: 1pt 4pt;
-            min-height: 14pt;
+            display: inline;
+            border-bottom: 1pt solid #1a1a1a;
+            padding: 0 1pt;
+            min-width: 80pt;
+            font-weight: normal;
+            vertical-align: baseline;
+            line-height: inherit;
+            white-space: nowrap;
+        }
+
+        .field:not(:empty) {
+            font-weight: bold;
+        }
+
+        .field:empty::after {
+            content: '\\00a0';
         }
 
         .field-short {
-            min-width: 40pt;
+            min-width: 80pt;
+        }
+
+        .field-tiny {
+            min-width: 60pt;
+        }
+
+        .field-medium {
+            min-width: 150pt;
+        }
+
+        .field-wide {
+            display: block;
+            width: 100%;
+            min-height: 18pt;
+            margin-bottom: 4pt;
+        }
+
+        .field-address {
+            min-width: 250pt;
+        }
+
+        .field-currency::before {
+            content: 'R';
+            margin-right: 2pt;
+        }
+
+        .field-manual {
+            background: #fef3c7;
+        }
+
+        .field-group {
+            display: inline;
+        }
+
+        .sig-placeholder, .ini-placeholder {
+            display: inline-block;
+            padding: 2pt 6pt;
+            border: 1px dashed #999;
+            color: #666;
+            font-size: 9pt;
+            font-style: italic;
+        }
+
+        .sig-block {
+            margin: 12pt 0;
+            page-break-inside: avoid;
+        }
+
+        .sig-preamble {
+            margin-bottom: 8pt;
+        }
+
+        .sig-block-party {
+            margin-top: 18pt;
+            display: inline-block;
+            min-width: 200pt;
+            vertical-align: top;
+            margin-right: 20pt;
+        }
+
+        .sig-line {
+            font-size: 10pt;
+            line-height: 1;
+            margin-bottom: 2pt;
+        }
+
+        .sig-name {
+            font-size: 9pt;
+            color: #333;
         }
 
         strong { font-weight: bold; }
@@ -372,8 +963,7 @@ class DocumentTemplateGenerator
     @include('docuperfect.web-templates.components.company-header')
 
 {$bodyHtml}
-
-    @include('docuperfect.web-templates.components.signature-block', ['signing_parties' => \$signing_parties ?? []])
+{$sigInclude}
 </div>
 </body>
 </html>

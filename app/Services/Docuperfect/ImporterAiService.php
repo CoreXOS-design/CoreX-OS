@@ -201,7 +201,8 @@ I will give you:
 
 Your job: for each numbered blank, identify what data goes there.
 
-Return ONLY a valid JSON object where keys are blank numbers (as strings) and values are assignments:
+Return ONLY a valid JSON object — no markdown, no code fences, no commentary, no explanation.
+Keys are blank numbers (as strings) and values are assignments:
 {
   "1": {"label": "Lessor Address", "key": "contact.address_residential", "pillar": "contact", "assigned_to": "lessor", "confidence": "high"},
   "2": {"label": "Lessor ID Number", "key": "contact.id_number", "pillar": "contact", "assigned_to": "lessor", "confidence": "high"}
@@ -227,7 +228,7 @@ CRITICAL — FIELD IDENTIFICATION BY CONTEXT:
 Available field keys:
 Contact: contact.full_name, contact.id_number, contact.address_residential, contact.cell, contact.email
 Property: property.address_full, property.erf_number, property.unit_number, property.complex_name
-Deal: deal.rental_amount, deal.rental_in_words, deal.deposit_amount, deal.lease_start, deal.lease_end, deal.commission_percent, deal.escalation_percentage, deal.renewal_months, deal.number_of_occupants, deal.pet_description, deal.signing_location, deal.signing_day, deal.signing_month, deal.signing_year, deal.bank_name, deal.account_holder, deal.account_number, deal.branch_code
+Deal: deal.rental_amount, deal.rental_in_words, deal.deposit_amount, deal.lease_start, deal.lease_end, deal.commission_percent, deal.escalation_percentage, deal.renewal_months, deal.number_of_occupants, deal.pet_description, deal.bank_name, deal.account_holder, deal.account_number, deal.branch_code
 Agent: agent.full_name, agent.ffc_number, agent.cell
 Special: skip (signature/witness lines), manual (unknown fields)
 
@@ -243,6 +244,12 @@ Confidence:
 - "low": cannot confidently determine
 
 South African context: R = ZAR, Lessor = Landlord/Owner, Lessee = Tenant/Occupant.
+
+IMPORTANT — DATE AND SIGNING BLANKS:
+- Blanks for "day of", "month of", "year", signing date, or "signed at" are NOT system fields. Use key "manual" with an appropriate label (e.g. "Signing Day", "Signing Month", "Signing Location").
+- Do NOT invent field keys that are not in the Available field keys list above. If unsure, use "manual".
+
+YOUR RESPONSE MUST BE PURE JSON — no markdown, no ```json fences, no text before or after the JSON object.
 PROMPT;
     }
 }

@@ -349,8 +349,18 @@ class TemplateController extends Controller
         // Build placeholder values from fields_json
         $viewData = [];
         foreach ($template->fields_json ?? [] as $field) {
-            $varName = $field['field_name'] ?? str_replace('.', '_', $field['id'] ?? '');
-            $viewData[$varName] = '[' . ($field['label'] ?? $varName) . ']';
+            $varName = $field['field_name'] ?? '';
+            if (empty($varName)) {
+                $varName = str_replace('.', '_', $field['id'] ?? '');
+            }
+            if (empty($varName)) {
+                continue;
+            }
+            $label = $field['label'] ?? '';
+            if (empty($label)) {
+                $label = $varName;
+            }
+            $viewData[$varName] = '[' . $label . ']';
         }
 
         // Pass signing_parties so the signature-block component renders correct parties

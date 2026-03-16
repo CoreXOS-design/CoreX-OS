@@ -25,6 +25,7 @@ class Template extends Model
         'render_type',
         'blade_view',
         'signing_parties',
+        'editor_state',
         'owner_id',
         'archived_at',
     ];
@@ -33,6 +34,7 @@ class Template extends Model
         'fields_json' => 'array',
         'wizard_config' => 'array',
         'signing_parties' => 'array',
+        'editor_state' => 'array',
         'is_global' => 'boolean',
         'is_esign' => 'boolean',
         'archived_at' => 'datetime',

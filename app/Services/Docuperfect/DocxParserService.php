@@ -101,6 +101,9 @@ class DocxParserService
         // Step 4: Inject field-blank spans into Mammoth HTML
         $html = $this->injectFieldSpans($html, $fields);
 
+        // Step 4b: Strip signature sections and replace with placeholders
+        $html = $this->stripSignatureSections($html);
+
         // Step 5: Apply CoreX document renderer
         try {
             $renderer = new CorexDocumentRenderer();
@@ -254,6 +257,12 @@ class DocxParserService
     {
         try {
             $corrections = FieldCorrection::orderByDesc('created_at')
+                ->where('user_corrected_key', '!=', '')
+                ->whereNotNull('user_corrected_key')
+                ->where('context', '!=', '')
+                ->whereNotNull('context')
+                // Exclude garbage suffixed keys from early testing
+                ->whereRaw("user_corrected_key NOT REGEXP '_[0-9]+(_[0-9]+)*$'")
                 ->limit(200)
                 ->get();
         } catch (\Throwable $e) {
@@ -269,13 +278,16 @@ class DocxParserService
         $lines = [];
         foreach ($regexFields as $i => $field) {
             $blankCtx = mb_strtolower($field['context'] ?? '');
-            if (empty($blankCtx)) continue;
+            if (empty($blankCtx) || mb_strlen($blankCtx) < 10) continue;
 
             foreach ($corrections as $correction) {
                 $corrCtx = mb_strtolower($correction->context);
+                if (mb_strlen($corrCtx) < 10) continue;
+
                 similar_text($blankCtx, $corrCtx, $pct);
 
-                if ($pct > 60 || str_contains($blankCtx, $corrCtx) || str_contains($corrCtx, $blankCtx)) {
+                // Require 75% similarity — 60% was too loose and caused false matches
+                if ($pct > 75 || (mb_strlen($corrCtx) > 20 && str_contains($blankCtx, $corrCtx))) {
                     $n = $i + 1;
                     $line = "- Blank [{$n}] context '{$field['context']}' → correct answer is {$correction->user_corrected_label} ({$correction->user_corrected_key}), NOT {$correction->claude_suggested_label} ({$correction->claude_suggested_key})";
                     if (!empty($correction->correction_reason)) {
@@ -659,5 +671,235 @@ class DocxParserService
         }
 
         return $normalizedHtml;
+    }
+
+    // =========================================================
+    // SIGNATURE SECTION STRIPPING
+    // =========================================================
+
+    /**
+     * Detect and replace signature clusters in the HTML with a placeholder.
+     *
+     * A signature cluster is a group of consecutive paragraphs containing:
+     *   - Lines with ONLY underscores (4+)
+     *   - Party label lines: Owner, Lessor, Lessee, Agent, Witness, Buyer, Seller,
+     *     "Print Name", "Print name", "Printed Name"
+     *   - Preamble lines: "accepted and signed", "thus done and signed",
+     *     "signed at", "on this", "day of", "am / pm", "(am/pm)"
+     *
+     * The entire cluster is replaced with an amber dashed placeholder div.
+     */
+    private function stripSignatureSections(string $html): string
+    {
+        // Split HTML into block-level elements (paragraphs, divs, tables)
+        // We work on <p>...</p> blocks since Mammoth outputs paragraphs
+        $pattern = '/(<p[^>]*>.*?<\/p>)/si';
+        $blocks = preg_split($pattern, $html, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
+
+        if (empty($blocks)) {
+            return $html;
+        }
+
+        // Classify each block
+        $classified = [];
+        foreach ($blocks as $i => $block) {
+            $text = trim(strip_tags($block));
+            $classified[] = [
+                'html'  => $block,
+                'text'  => $text,
+                'type'  => $this->classifySignatureLine($text),
+                'index' => $i,
+            ];
+        }
+
+        // Find clusters: scan for seed lines (underscore or party label)
+        // and expand to include adjacent signature-related lines within 5 positions
+        $inCluster = array_fill(0, count($classified), false);
+        $clusterSeeds = [];
+
+        // First pass: find seed lines (underscore lines or party labels)
+        foreach ($classified as $i => $block) {
+            if (in_array($block['type'], ['underscore', 'party_label'])) {
+                $clusterSeeds[] = $i;
+            }
+        }
+
+        if (empty($clusterSeeds)) {
+            return $html;
+        }
+
+        // Group seeds into clusters (seeds within 5 positions of each other)
+        $clusters = [];
+        $currentCluster = [$clusterSeeds[0]];
+
+        for ($i = 1; $i < count($clusterSeeds); $i++) {
+            if ($clusterSeeds[$i] - end($currentCluster) <= 10) {
+                $currentCluster[] = $clusterSeeds[$i];
+            } else {
+                $clusters[] = $currentCluster;
+                $currentCluster = [$clusterSeeds[$i]];
+            }
+        }
+        $clusters[] = $currentCluster;
+
+        // Validate clusters: must have BOTH underscore AND (party_label OR preamble)
+        $validClusters = [];
+        foreach ($clusters as $seedIndices) {
+            $clusterStart = max(0, min($seedIndices) - 5);
+            $clusterEnd = min(count($classified) - 1, max($seedIndices) + 5);
+
+            $hasUnderscore = false;
+            $hasPartyOrPreamble = false;
+            $clusterLines = [];
+
+            for ($i = $clusterStart; $i <= $clusterEnd; $i++) {
+                $type = $classified[$i]['type'];
+                if ($type === 'underscore') $hasUnderscore = true;
+                if (in_array($type, ['party_label', 'preamble'])) $hasPartyOrPreamble = true;
+                if (in_array($type, ['underscore', 'party_label', 'preamble'])) {
+                    $clusterLines[] = $i;
+                }
+            }
+
+            if ($hasUnderscore && $hasPartyOrPreamble && count($clusterLines) >= 2) {
+                // Expand to include ALL signature-related lines in the range
+                $rangeStart = min($clusterLines);
+                $rangeEnd = max($clusterLines);
+
+                // Also include empty/whitespace-only lines between cluster lines
+                for ($i = $rangeStart; $i <= $rangeEnd; $i++) {
+                    if (in_array($classified[$i]['type'], ['underscore', 'party_label', 'preamble', 'empty'])) {
+                        $inCluster[$i] = true;
+                    }
+                }
+
+                $validClusters[] = ['start' => $rangeStart, 'end' => $rangeEnd];
+            }
+        }
+
+        if (empty($validClusters)) {
+            return $html;
+        }
+
+        $strippedCount = 0;
+
+        // Rebuild HTML, replacing cluster blocks with placeholder
+        $output = '';
+        $placeholderInserted = array_fill(0, count($classified), false);
+
+        foreach ($classified as $i => $block) {
+            if ($inCluster[$i]) {
+                // Check if this is the first line in its cluster — insert placeholder once
+                $isFirstInCluster = true;
+                if ($i > 0 && $inCluster[$i - 1]) {
+                    $isFirstInCluster = false;
+                }
+
+                if ($isFirstInCluster) {
+                    $output .= '<div class="sig-strip-placeholder" '
+                        . 'data-stripped="true" '
+                        . 'style="border: 2px dashed #f59e0b; background: #fffbeb; '
+                        . 'padding: 12px 16px; margin: 16px 0; border-radius: 6px; '
+                        . 'color: #92400e; font-style: italic; cursor: pointer;" '
+                        . 'contenteditable="false">'
+                        . "\xe2\x9a\xa1 Signature section removed &mdash; click the [Signature] button in the "
+                        . 'toolbar to add a configured signature block here'
+                        . '</div>';
+                    $strippedCount++;
+                }
+                // Skip this block (it's part of the stripped cluster)
+            } else {
+                $output .= $block['html'];
+            }
+        }
+
+        Log::info('DocxParser: stripSignatureSections', [
+            'clusters_found' => count($validClusters),
+            'placeholders_inserted' => $strippedCount,
+        ]);
+
+        return $output;
+    }
+
+    /**
+     * Classify a line of text as part of a signature section or not.
+     */
+    private function classifySignatureLine(string $text): string
+    {
+        // Empty or whitespace only
+        if ($text === '' || trim($text) === '') {
+            return 'empty';
+        }
+
+        // Underscore-only line (4+ underscores, possibly with spaces/dots/dashes)
+        if (preg_match('/^[\s_.\-\/]{0,10}_{4,}[\s_.\-\/]*$/', $text)) {
+            return 'underscore';
+        }
+
+        $lower = mb_strtolower($text);
+
+        // Party label line — line containing ONLY a party label word (with optional punctuation)
+        $partyLabels = [
+            'owner', 'lessor', 'lessee', 'agent', 'witness', 'buyer', 'seller',
+            'tenant', 'landlord', 'purchaser', 'vendor',
+            'print name', 'print names', 'printed name', 'full name', 'full names',
+            'name and surname', 'signature', 'date', 'place', 'capacity',
+            'signed', 'initial', 'initials',
+        ];
+
+        $stripped = preg_replace('/[^a-z\s]/', '', $lower);
+        $stripped = trim($stripped);
+
+        foreach ($partyLabels as $label) {
+            if ($stripped === $label) {
+                return 'party_label';
+            }
+        }
+
+        // Also match compound labels like "Lessor / Agent" or "Buyer/Seller"
+        $words = preg_split('/[\s\/,&]+/', $stripped);
+        $allParty = true;
+        $partyCount = 0;
+        foreach ($words as $word) {
+            $word = trim($word);
+            if ($word === '') continue;
+            if (in_array($word, $partyLabels)) {
+                $partyCount++;
+            } else {
+                $allParty = false;
+                break;
+            }
+        }
+        if ($allParty && $partyCount > 0 && mb_strlen($text) < 60) {
+            return 'party_label';
+        }
+
+        // Preamble phrases
+        $preamblePhrases = [
+            'accepted and signed',
+            'thus done and signed',
+            'thus signed',
+            'signed at',
+            'on this',
+            'day of',
+            'am / pm',
+            'am/pm',
+            '(am/pm)',
+            'in the presence of',
+            'as witnesses',
+            'who warrants',
+            'duly authorised',
+            'duly authorized',
+            'hereto set',
+            'hereunto set',
+        ];
+
+        foreach ($preamblePhrases as $phrase) {
+            if (str_contains($lower, $phrase)) {
+                return 'preamble';
+            }
+        }
+
+        return 'text';
     }
 }
