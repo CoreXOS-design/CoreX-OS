@@ -16,6 +16,9 @@ class NamedField extends Model
         'field_type',
         'default_options',
         'sort_order',
+        'source_type',
+        'source_column',
+        'source_contact_type',
     ];
 
     protected $casts = [
