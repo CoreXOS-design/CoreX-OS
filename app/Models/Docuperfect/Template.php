@@ -25,6 +25,7 @@ class Template extends Model
         'render_type',
         'blade_view',
         'signing_parties',
+        'header_display',
         'editor_state',
         'owner_id',
         'archived_at',

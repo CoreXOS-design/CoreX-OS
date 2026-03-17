@@ -144,18 +144,32 @@
                                       placeholder="Physical address">{{ old('address', $agency->address) }}</textarea>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Cell (Elize)</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Cell Number</label>
                             <input type="text" name="phone" value="{{ old('phone', $agency->phone) }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                    placeholder="e.g. 071 351 0291">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Secondary Cell (Johan)</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Primary Cell Label (on header)</label>
+                            <input type="text" name="phone_label" value="{{ old('phone_label', $agency->phone_label) }}"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                                   placeholder="e.g. Elize Reichel Cell:">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Secondary Cell Number</label>
                             <input type="text" name="phone_secondary" value="{{ old('phone_secondary', $agency->phone_secondary) }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                    placeholder="e.g. 079 495 5994">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Secondary Cell Label (on header)</label>
+                            <input type="text" name="phone_secondary_label" value="{{ old('phone_secondary_label', $agency->phone_secondary_label) }}"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                                   placeholder="e.g. Johan Reichel Cell:">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Fax</label>

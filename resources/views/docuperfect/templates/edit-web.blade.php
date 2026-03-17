@@ -156,6 +156,16 @@
                     </select>
                 </div>
 
+                <div>
+                    <label class="text-[10px] font-medium text-slate-500 block mb-1">Company Header</label>
+                    <select x-model="headerDisplay"
+                            class="w-full rounded border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
+                        <option value="first_page">First page only</option>
+                        <option value="all_pages">All pages</option>
+                        <option value="none">None</option>
+                    </select>
+                </div>
+
                 <div class="flex items-center gap-2">
                     <input type="checkbox" x-model="isGlobal" class="rounded border-slate-300">
                     <span class="text-sm text-slate-700">Global (all branches)</span>
@@ -191,6 +201,7 @@ function webTemplateEditor() {
         templateType: @json($template->template_type),
         documentTypeId: @json($template->document_type_id ? (string) $template->document_type_id : ''),
         isGlobal: @json((bool) $template->is_global),
+        headerDisplay: @json($template->header_display ?? 'first_page'),
         allowedBranches: @json($template->branches->pluck('id')->map(fn($id) => (int) $id)),
         saving: false,
 
@@ -292,6 +303,7 @@ function webTemplateEditor() {
                     template_type: this.templateType,
                     document_type_id: this.documentTypeId || null,
                     is_global: this.isGlobal,
+                    header_display: this.headerDisplay,
                     allowed_branches: this.isGlobal ? [] : this.allowedBranches,
                 };
 

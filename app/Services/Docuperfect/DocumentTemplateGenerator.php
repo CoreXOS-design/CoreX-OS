@@ -216,10 +216,13 @@ class DocumentTemplateGenerator
             throw $e;
         }
 
-        // Write blade file
+        // Write blade file — ensure directory exists and is writable
         $dir = dirname($bladeFilePath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, 0775, true);
+        }
+        if (!is_writable($dir)) {
+            chmod($dir, 0775);
         }
 
         try {

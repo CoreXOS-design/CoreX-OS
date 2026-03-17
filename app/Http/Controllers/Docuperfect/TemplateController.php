@@ -192,6 +192,11 @@ class TemplateController extends Controller
         if ($request->has('is_global')) {
             $data['is_global'] = $request->boolean('is_global');
         }
+        if ($request->has('header_display')) {
+            $allowed = ['first_page', 'all_pages', 'none'];
+            $val = $request->input('header_display');
+            $data['header_display'] = in_array($val, $allowed) ? $val : 'first_page';
+        }
 
         if (!empty($data)) {
             $template->update($data);
@@ -367,6 +372,9 @@ class TemplateController extends Controller
         if (!empty($template->signing_parties)) {
             $viewData['signing_parties'] = $template->signing_parties;
         }
+
+        // Pass header_display so company-header component respects template setting
+        $viewData['header_display'] = $template->header_display ?? 'first_page';
 
         $html = view($template->blade_view, $viewData)->render();
 

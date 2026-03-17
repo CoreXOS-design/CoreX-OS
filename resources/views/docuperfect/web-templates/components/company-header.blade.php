@@ -1,4 +1,17 @@
 <?php
+// header_display: 'all_pages' (default), 'first_page', 'none'
+// When 'first_page', only the first @include renders; subsequent calls output nothing.
+static $_companyHeaderRenderCount = 0;
+$_companyHeaderRenderCount++;
+$_headerDisplay = $header_display ?? 'all_pages';
+
+if ($_headerDisplay === 'none') {
+    return;
+}
+if ($_headerDisplay === 'first_page' && $_companyHeaderRenderCount > 1) {
+    return;
+}
+
 $headerAgency = null;
 $headerBranch = null;
 if (isset($branch)) {
@@ -51,7 +64,7 @@ if (isset($logo_url)) $logoPath = $logo_url;
             Reg no: &nbsp;&nbsp; {{ $d('reg_no') }}<br>
             Vat: {{ $d('vat_no') }}<br>
             Email Address: &nbsp;&nbsp; {{ $d('email') }}<br>
-            Elize Reichel Cell: &nbsp;&nbsp; {{ $d('phone') }}
+            {{ $d('phone_label') ?: 'Cell:' }} &nbsp;&nbsp; {{ $d('phone') }}
         </div>
         <div style="text-align:right;">
             Fax No: {{ $d('fax') }}<br>
@@ -59,7 +72,7 @@ if (isset($logo_url)) $logoPath = $logo_url;
             <br>
             FIC {{ $d('fic_no') }}<br>
             @if($d('phone_secondary'))
-                Johan Reichel Cell: {{ $d('phone_secondary') }}
+                {{ $d('phone_secondary_label') ?: 'Cell:' }} {{ $d('phone_secondary') }}
             @endif
         </div>
     </div>
