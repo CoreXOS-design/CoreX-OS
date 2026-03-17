@@ -24,7 +24,9 @@ class SignaturePdfService
             $document = $template->document;
             $docTemplate = $document->template;
 
-            if (!$docTemplate || $docTemplate->page_count < 1) {
+            $webTemplateData = $document->web_template_data ?? [];
+            $hasDocPages = !empty($webTemplateData['flattened_page_count']);
+            if ((!$docTemplate || $docTemplate->page_count < 1) && !$hasDocPages) {
                 Log::error('SignaturePdfService: No document template or zero pages', ['template_id' => $template->id]);
                 return null;
             }
@@ -84,12 +86,23 @@ class SignaturePdfService
         $documentFields = $document->fields_json ?? [];
         $fieldsByPage = $hasFlattened ? [] : $this->groupFieldsByPage($documentFields);
 
+        // Resolve page count — check document-level pages for flattened web templates
+        $webTemplateData = $document->web_template_data ?? [];
+        $hasDocPages = !empty($webTemplateData['flattened_page_count']);
+        $pageCount = ($docTemplate && $docTemplate->page_count > 0)
+            ? $docTemplate->page_count
+            : ($hasDocPages ? (int) $webTemplateData['flattened_page_count'] : 0);
+
         $pages = [];
 
-        for ($pageNum = 0; $pageNum < $docTemplate->page_count; $pageNum++) {
+        for ($pageNum = 0; $pageNum < $pageCount; $pageNum++) {
             // Use flattened page image if available, otherwise original
             if ($hasFlattened && isset($flattenedPages[$pageNum])) {
                 $pageImageBase64 = $this->getStorageImageBase64($flattenedPages[$pageNum]);
+            } elseif ($hasDocPages) {
+                // Document-level page images (flattened web templates)
+                $docPagePath = "docuperfect/documents/{$document->id}/page-{$pageNum}.png";
+                $pageImageBase64 = $this->getStorageImageBase64($docPagePath);
             } else {
                 $pageImageBase64 = $this->getPageImageBase64($docTemplate->id, $pageNum);
             }

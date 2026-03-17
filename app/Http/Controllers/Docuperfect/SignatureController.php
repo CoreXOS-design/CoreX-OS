@@ -241,15 +241,24 @@ class SignatureController extends Controller
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
 
-        // Detect web template rendering
-        $isWebTemplate = $docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view;
+        // Detect web template rendering — but check for flattened document images first
+        $isWebTemplate = false;
         $webTemplateHtml = '';
+        $webTemplateData = $document->web_template_data ?? [];
+        $hasDocumentPages = !empty($webTemplateData['flattened_page_count']);
 
-        if ($isWebTemplate) {
-            $webTemplateData = $document->web_template_data ?? [];
+        if ($hasDocumentPages) {
+            // Web template was flattened to page images — treat as PDF from here
+            $pageCount = (int) $webTemplateData['flattened_page_count'];
+
+            for ($n = 0; $n < $pageCount; $n++) {
+                $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
+            }
+        } elseif ($docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view) {
+            // Fallback: web template without flattening — use iframe (legacy path)
+            $isWebTemplate = true;
 
             if (!empty($webTemplateData['merged_html'])) {
-                // Pack document — use pre-rendered merged HTML
                 $webTemplateHtml = $webTemplateData['merged_html'];
                 $pageCount = count($webTemplateData['template_ids'] ?? [1]);
             } else {
@@ -468,7 +477,9 @@ class SignatureController extends Controller
         ]);
 
         // Create signing requests for active core parties only
+        // Track used request IDs to handle co-owners (multiple parties with same role)
         $activeRoles = collect($parties)->pluck('role')->intersect($coreRoles)->all();
+        $usedRequestIds = [];
 
         foreach ($parties as $party) {
             // Only create requests for core signing roles
@@ -478,6 +489,7 @@ class SignatureController extends Controller
 
             $existing = $template->requests()
                 ->where('party_role', $party['role'])
+                ->whereNotIn('id', $usedRequestIds)
                 ->first();
 
             if ($existing) {
@@ -486,8 +498,9 @@ class SignatureController extends Controller
                     'signer_email' => $party['email'],
                     'signer_id_number' => $party['id_number'] ?? null,
                 ]);
+                $usedRequestIds[] = $existing->id;
             } else {
-                $this->signatureService->createSigningRequest(
+                $req = $this->signatureService->createSigningRequest(
                     $template,
                     $party['role'],
                     $party['name'],
@@ -495,14 +508,16 @@ class SignatureController extends Controller
                     $party['id_number'] ?? null,
                     sentBy: $user,
                 );
+                $usedRequestIds[] = $req->id;
             }
         }
 
         // Remove signing requests for parties that are no longer active
+        // Keep all requests that were just created/updated, remove others for removable roles
         $removableRoles = array_diff($coreRoles, ['agent']);
         $template->requests()
             ->whereIn('party_role', $removableRoles)
-            ->whereNotIn('party_role', $activeRoles)
+            ->whereNotIn('id', $usedRequestIds)
             ->delete();
 
         // Remove markers assigned to parties that are no longer active
@@ -557,6 +572,7 @@ class SignatureController extends Controller
             'markers.*.height' => 'required|numeric|min:0|max:100',
             'markers.*.type' => 'required|string|in:signature,initial,date,text',
             'markers.*.assigned_party' => 'required|string|in:' . $allowedParties,
+            'markers.*.assigned_email' => 'nullable|email|max:255',
             'markers.*.label' => 'nullable|string|max:255',
         ]);
 
@@ -611,42 +627,39 @@ class SignatureController extends Controller
         $signedCount = $agentMarkers->filter(fn($m) => $m->signatures->isNotEmpty())->count();
         $totalAgent = $agentMarkers->count();
 
-        // Build page image URLs — use flattened images when available
+        // Build page image URLs — check for flattened document pages first
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
-
-        for ($n = 0; $n < $pageCount; $n++) {
-            if ($hasFlattened && isset($flattenedPages[$n])) {
-                $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
-            } elseif ($docTemplate) {
-                $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
-            }
-        }
-
-        // Detect web template rendering
+        $webTemplateData = $document->web_template_data ?? [];
+        $hasDocumentPages = !empty($webTemplateData['flattened_page_count']);
         $isWebTemplate = false;
         $webTemplateHtml = '';
 
-        if ($docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view) {
+        if ($hasDocumentPages) {
+            // Flattened web template — treat as PDF (page images + overlay fields)
+            $pageCount = (int) $webTemplateData['flattened_page_count'];
+            for ($n = 0; $n < $pageCount; $n++) {
+                if ($hasFlattened && isset($flattenedPages[$n])) {
+                    $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+                } else {
+                    $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
+                }
+            }
+        } elseif ($docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view) {
+            // Fallback: web template without flattening — use iframe (legacy path)
             $isWebTemplate = true;
-            $pageImages = [];
-            $webTemplateData = $document->web_template_data ?? [];
 
             // Merge filled field values from fields_json into web template data
-            // so blade variables reflect values entered during the wizard fill step
             $webTemplateData = $this->mergeFieldsIntoWebTemplateData(
                 $webTemplateData,
                 $document->fields_json ?? []
             );
 
             if (!empty($webTemplateData['merged_html'])) {
-                // Pack document — use pre-rendered merged HTML
                 $webTemplateHtml = $webTemplateData['merged_html'];
                 $pageCount = count($webTemplateData['template_ids'] ?? [1]);
             } else {
-                // Single template — render blade view normally
                 $pageCount = 1;
                 try {
                     if (!empty($docTemplate->signing_parties)) {
@@ -667,6 +680,15 @@ class SignatureController extends Controller
                     $webTemplateHtml = trim($styles . "\n" . $bodyHtml);
                 } catch (\Exception $e) {
                     $webTemplateHtml = '<p>Document preview unavailable.</p>';
+                }
+            }
+        } else {
+            $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+            for ($n = 0; $n < $pageCount; $n++) {
+                if ($hasFlattened && isset($flattenedPages[$n])) {
+                    $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+                } elseif ($docTemplate) {
+                    $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
                 }
             }
         }
@@ -1421,18 +1443,34 @@ class SignatureController extends Controller
         // Get progress for the completed party
         $progress = $template->partyProgress();
 
-        // Build page image URLs — use flattened images when available
+        // Build page image URLs — use flattened or document-level images
         $docTemplate = $document->template;
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+        $webTemplateDataReview = $document->web_template_data ?? [];
+        $hasDocPages = !empty($webTemplateDataReview['flattened_page_count']);
 
-        for ($n = 0; $n < $pageCount; $n++) {
-            if ($hasFlattened && isset($flattenedPages[$n])) {
-                $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
-            } elseif ($docTemplate) {
-                $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+        if ($hasDocPages && !$hasFlattened) {
+            // Flattened web template, no signature flattening yet — use document pages
+            $pageCount = (int) $webTemplateDataReview['flattened_page_count'];
+            for ($n = 0; $n < $pageCount; $n++) {
+                $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
+            }
+        } else {
+            $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+            // For web templates with flattened pages, check document pages fallback
+            if ($pageCount < 1 && $hasDocPages) {
+                $pageCount = (int) $webTemplateDataReview['flattened_page_count'];
+            }
+            for ($n = 0; $n < $pageCount; $n++) {
+                if ($hasFlattened && isset($flattenedPages[$n])) {
+                    $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+                } elseif ($hasDocPages) {
+                    $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
+                } elseif ($docTemplate) {
+                    $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+                }
             }
         }
 

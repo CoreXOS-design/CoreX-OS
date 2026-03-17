@@ -60,7 +60,7 @@ try {
 
     // Navigate to the local HTML file
     const fileUrl = pathToFileURL(inputPath).href;
-    await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 120000 });
 
     // Emulate print media for @media print styles
     await page.emulateMediaType('print');

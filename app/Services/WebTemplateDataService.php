@@ -81,21 +81,13 @@ class WebTemplateDataService
         $hasSellerId = $this->hasField($templateId, 'seller_id_number');
         $hasBuyerId  = $this->hasField($templateId, 'buyer_id_number');
 
-        // Build smart names (include ID inline if no dedicated ID field)
-        $lessorName  = $this->buildNameWithId($lessor, $hasLessorId);
-        $lessor2Name = $this->buildNameWithId($lessor2, $hasLessorId);
-        $lesseeName  = $this->buildNameWithId($lessee, $hasLesseeId);
-        $lessee2Name = $this->buildNameWithId($lessee2, $hasLesseeId);
-        $sellerName  = $this->buildNameWithId($seller, $hasSellerId);
-        $buyerName   = $this->buildNameWithId($buyer, $hasBuyerId);
-
-        // Clean names for signature blocks (never include ID number)
-        $lessorSigName  = $lessor['name'] ?? '';
-        $lessor2SigName = $lessor2['name'] ?? '';
-        $lesseeSigName  = $lessee['name'] ?? '';
-        $lessee2SigName = $lessee2['name'] ?? '';
-        $sellerSigName  = $seller['name'] ?? '';
-        $buyerSigName   = $buyer['name'] ?? '';
+        // Clean names — never append ID number to name fields
+        $lessorName  = trim(($lessor['first_name'] ?? '') . ' ' . ($lessor['last_name'] ?? '')) ?: ($lessor['name'] ?? '');
+        $lessor2Name = trim(($lessor2['first_name'] ?? '') . ' ' . ($lessor2['last_name'] ?? '')) ?: ($lessor2['name'] ?? '');
+        $lesseeName  = trim(($lessee['first_name'] ?? '') . ' ' . ($lessee['last_name'] ?? '')) ?: ($lessee['name'] ?? '');
+        $lessee2Name = trim(($lessee2['first_name'] ?? '') . ' ' . ($lessee2['last_name'] ?? '')) ?: ($lessee2['name'] ?? '');
+        $sellerName  = trim(($seller['first_name'] ?? '') . ' ' . ($seller['last_name'] ?? '')) ?: ($seller['name'] ?? '');
+        $buyerName   = trim(($buyer['first_name'] ?? '') . ' ' . ($buyer['last_name'] ?? '')) ?: ($buyer['name'] ?? '');
 
         // Property values
         $address    = $property['address'] ?? $property['title'] ?? '';
@@ -137,7 +129,7 @@ class WebTemplateDataService
             'lessor_bank_account_number' => $lessor['bank_account_number'] ?? '',
             'lessor_bank_branch_name'    => $lessor['bank_branch_name'] ?? '',
             // Lessor aliases
-            'owner_names'           => $lessorName,
+            'owner_names'           => $lessor2Name ? ($lessorName . ' & ' . $lessor2Name) : $lessorName,
             'lessor_name_2'         => $lessor2Name,
             'lessor_id'             => $lessor['id_number'] ?? '',
             'lessor1_address'       => $lessor['address'] ?? '',
@@ -146,6 +138,9 @@ class WebTemplateDataService
             'lessor2_address'       => $lessor2['address'] ?? '',
             'lessor2_tel'           => $lessor2['cell'] ?? $lessor2['phone'] ?? '',
             'lessor2_email'         => $lessor2['email'] ?? '',
+            'lessor2_id_number'     => $lessor2['id_number'] ?? '',
+            'lessor2_name'          => $lessor2Name,
+            'lessor_id_number_2'    => $lessor2['id_number'] ?? '',
 
             // Lessee / Tenant
             'lessee_name'           => $lesseeName,
@@ -317,12 +312,12 @@ class WebTemplateDataService
             'agent_cell'            => $agent->cell ?? $agent->phone ?? '',
 
             // Signature block names (clean — no ID number appended)
-            'lessor_signature_name'   => $lessorSigName,
-            'lessor_signature_name_2' => $lessor2SigName,
-            'lessee_signature_name'   => $lesseeSigName,
-            'lessee_signature_name_2' => $lessee2SigName,
-            'seller_signature_name'   => $sellerSigName,
-            'buyer_signature_name'    => $buyerSigName,
+            'lessor_signature_name'   => $lessorName,
+            'lessor_signature_name_2' => $lessor2Name,
+            'lessee_signature_name'   => $lesseeName,
+            'lessee_signature_name_2' => $lessee2Name,
+            'seller_signature_name'   => $sellerName,
+            'buyer_signature_name'    => $buyerName,
             'agent_signature_name'    => $agent->name ?? '',
 
             // Mandate-specific aliases (letting-mandate-v5)

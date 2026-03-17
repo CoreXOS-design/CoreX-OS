@@ -859,6 +859,9 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // Page images (authenticated)
     Route::get('/templates/{id}/page/{page}', [\App\Http\Controllers\Docuperfect\PageImageController::class, 'show'])->name('docuperfect.page.image');
 
+    // Document-level page images (flattened web templates)
+    Route::get('/documents/{id}/page/{page}', [\App\Http\Controllers\Docuperfect\PageImageController::class, 'showDocumentPage'])->name('docuperfect.documents.pageImage');
+
     // Document Types settings (admin)
     Route::get('/settings/types', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'index'])->name('docuperfect.settings.types');
     Route::post('/settings/types', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'store'])->name('docuperfect.settings.types.store');

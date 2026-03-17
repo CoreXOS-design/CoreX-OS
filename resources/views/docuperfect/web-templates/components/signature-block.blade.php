@@ -59,10 +59,13 @@
     <p class="corex-section-heading"><strong>Signatures</strong></p>
 
     @foreach($parties as $i => $party)
-        @php $partyKey = strtolower($party); @endphp
+        @php
+            $partyKey = strtolower($party);
+            $partyName = $party_names[$i] ?? '';
+        @endphp
         <div class="sig-party-block">
             <p class="sig-text">
-                Thus done and signed by the {{ $party }} at
+                Thus done and signed by the {{ $party }}{{ $partyName ? ' (' . $partyName . ')' : '' }} at
                 <span class="sig-field" data-marker-party="{{ $partyKey }}" data-marker-type="location"></span>
                 on this
                 <span class="sig-field sig-field-short" data-marker-party="{{ $partyKey }}" data-marker-type="day"></span>
@@ -77,12 +80,12 @@
             {{-- Signature row: Party, Party, Witness, Witness --}}
             <div class="sig-row-4">
                 <div class="sig-cell">
-                    <div class="sig-cell-line" data-marker-party="{{ $partyKey }}" data-marker-type="signature" data-marker-index="{{ $i }}"></div>
-                    <div class="sig-cell-label">{{ $party }}</div>
+                    <div class="sig-cell-line" data-marker-party="{{ $partyKey }}" data-marker-type="signature" data-marker-index="{{ $i }}" data-name="{{ $partyName }}"></div>
+                    <div class="sig-cell-label">{{ $partyName ?: $party }}</div>
                 </div>
                 <div class="sig-cell">
-                    <div class="sig-cell-line" data-marker-party="{{ $partyKey }}" data-marker-type="signature" data-marker-index="{{ $i }}-2"></div>
-                    <div class="sig-cell-label">{{ $party }}</div>
+                    <div class="sig-cell-line" data-marker-party="{{ $partyKey }}" data-marker-type="signature" data-marker-index="{{ $i }}-2" data-name="{{ $partyName }}"></div>
+                    <div class="sig-cell-label">{{ $partyName ?: $party }}</div>
                 </div>
                 <div class="sig-cell">
                     <div class="sig-cell-line" data-marker-party="{{ $partyKey }}" data-marker-type="witness" data-marker-index="{{ $i }}-w1"></div>

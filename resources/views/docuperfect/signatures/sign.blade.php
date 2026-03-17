@@ -91,7 +91,7 @@
         <div class="flex-1 overflow-auto flex justify-center" style="background:#e2e8f0;">
             @if(!empty($isWebTemplate))
             <div x-ref="pageContainer"
-                 style="position:relative; width:210mm; max-width:100%; background:white; padding:20mm; margin:0 auto; box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+                 style="position:relative; width:210mm; max-width:100%; background:white; margin:0 auto; box-shadow:0 2px 8px rgba(0,0,0,0.15); overflow:hidden;">
                 {!! $webTemplateHtml !!}
             @else
             <div class="relative inline-block" style="max-width:800px; width:100%;" x-ref="pageContainer">

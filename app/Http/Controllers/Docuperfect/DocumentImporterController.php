@@ -150,10 +150,10 @@ class DocumentImporterController extends Controller
                 'warnings' => $result['warnings'] ?? [],
             ]);
 
-            // Auto-cleanup: delete drafts older than 24 hours for this user
+            // Auto-cleanup: hard-delete drafts older than 4 hours for this user
             ImportDraft::where('user_id', $user->id)
-                ->where('created_at', '<', now()->subHours(24))
-                ->delete();
+                ->where('created_at', '<', now()->subHours(4))
+                ->forceDelete();
 
             // Store in database instead of session — survives session expiry
             $claudeOriginals = collect($result['fields'])->map(fn($f, $i) => [
@@ -408,6 +408,11 @@ class DocumentImporterController extends Controller
             return redirect()->route('docuperfect.import.index')
                 ->with('error', 'No import data found. Please upload a document first.');
         }
+
+        // Hard-delete all older drafts for this user (prevents accumulation)
+        ImportDraft::where('user_id', $user->id)
+            ->where('id', '<', $draft->id)
+            ->forceDelete();
 
         $templateName = $validated['template_name'];
 

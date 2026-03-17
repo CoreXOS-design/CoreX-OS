@@ -178,6 +178,67 @@ and authorize in show/edit/delete actions.
 Templates and document packs respect their own visibility setting
 (global vs branch-specific) — don't override with branch scoping.
 
+## Rule 13: Full CRUD Is Non-Negotiable
+
+Every entity that can be created MUST also be editable and recoverable.
+This is not a phase 2 item — it is part of the same feature.
+
+- **Create** → the happy path. Build this first.
+- **Read** → list view + detail view. Always.
+- **Update** → every created record must have an Edit path.
+  No exceptions. A form with no Edit button is not done.
+- **Delete** → soft delete only (see Rule 10).
+- **Restore** → admin must be able to recover any soft-deleted record.
+
+Specific patterns that are ALWAYS required:
+- Generated document/template → must have [Edit Document] button
+  that returns to the creation/tagging screen with existing content loaded
+- Imported record → must be re-importable/re-editable without starting over
+- Wizard completed → must be resumable and editable after completion
+- Any "Generate" or "Create" action → must have a corresponding
+  "Edit" or "Regenerate" path
+
+If you build a Create flow with no Edit path, it is incomplete. Do not
+mark it done. Do not move on.
+
+## Rule 14: Every Action Must Be Reversible
+
+Every mutating action must have a reverse. This is standard programming
+practice — not optional, not phase 2.
+
+- **Input field placed** → Undo removes it
+- **Document generated** → Edit returns to tagging screen
+- **Record created** → Edit updates it, Delete (soft) removes it
+- **Financial entry posted** → Reversal/credit entry available
+- **Signing step completed** → Admin can reset to previous step
+- **Import completed** → Re-import available without data loss
+- **Settings changed** → Previous values recoverable
+
+Implementation rules:
+- Every editor (document, template, form) must have an Undo button
+  visible in the sticky header at all times
+- Undo covers the last 20 actions minimum
+- Ctrl+Z keyboard shortcut always wired for tag/action undo
+- Browser native Ctrl+Z handles text editing undo — do not intercept it
+- Destructive actions (archive, generate, send) show a confirmation
+  dialog with a clear description of what will happen and cannot be undone
+
+The user must never feel trapped by an action they took.
+If they made a mistake, there is always a way back.
+
+## Rule 15: AI Prompts Must Instruct Claude to Return Pure JSON
+
+When any feature uses the AI (Claude or OpenAI) to return structured
+data, the prompt MUST explicitly instruct the model:
+
+- "Return ONLY valid JSON. No preamble, no explanation, no markdown
+  code fences. Your entire response must be parseable by json_decode()."
+- The system prompt must repeat this instruction
+- The response parser must have a fallback for when JSON parsing fails
+- Never inject "learned corrections" or training data that has not been
+  validated as correct — corrupt training data causes the AI to refuse
+  to comply with the JSON instruction
+
 ## Every New Feature Checklist
 
 Before marking ANY feature as done, verify:
@@ -194,6 +255,10 @@ Before marking ANY feature as done, verify:
 - [ ] Loading states are shown for async operations
 - [ ] Delete = soft delete / archive (never hard delete)
 - [ ] All data transformations in controller, not in Blade @json()
+- [ ] Edit path exists for every created entity (Rule 13)
+- [ ] Undo exists for every editor or mutating action (Rule 14)
+- [ ] Restore path exists for every soft-deleted entity (Rule 10)
+- [ ] AI prompts instruct pure JSON response where applicable (Rule 15)
 
 ## Component Reference
 

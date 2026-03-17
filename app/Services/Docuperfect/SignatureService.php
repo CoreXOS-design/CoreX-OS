@@ -392,12 +392,11 @@ class SignatureService
     ): SignatureRequest {
         $token = $this->generateToken();
 
-        $signingOrder = match ($partyRole) {
-            'agent' => 1,
-            'tenant' => 2,
-            'landlord' => 3,
-            default => 99,
-        };
+        // Get the highest existing signing_order for this template, then add 1
+        // This ensures co-owners (two landlords) get sequential order numbers
+        $maxOrder = SignatureRequest::where('signature_template_id', $template->id)
+            ->max('signing_order') ?? 0;
+        $signingOrder = $maxOrder + 1;
 
         $request = SignatureRequest::create([
             'signature_template_id' => $template->id,
@@ -547,24 +546,46 @@ class SignatureService
 
     /**
      * Check if all required markers for a party have been signed.
+     * When $signerEmail is provided, only checks markers assigned to that specific signer
+     * (for co-owner support where multiple signers share the same party role).
      */
-    public function isPartyComplete(SignatureTemplate $template, string $party): bool
+    public function isPartyComplete(SignatureTemplate $template, string $party, ?string $signerEmail = null): bool
     {
-        // If the request for this party is already marked completed
-        // (e.g. wet-ink upload approved on behalf), treat as complete
-        $request = $template->requests()
-            ->where('party_role', $party)
-            ->where('status', SignatureRequest::STATUS_COMPLETED)
-            ->exists();
+        // All requests for this party role must be completed (handles co-owners)
+        $requestQuery = $template->requests()->where('party_role', $party);
+        if ($signerEmail) {
+            $requestQuery = $requestQuery->where('signer_email', $signerEmail);
+        }
+        $totalForRole = $requestQuery->count();
 
-        if ($request) {
+        if ($totalForRole === 0) {
+            return true; // no requests for this role = not required
+        }
+
+        $completedQuery = $template->requests()->where('party_role', $party)
+            ->where('status', SignatureRequest::STATUS_COMPLETED);
+        if ($signerEmail) {
+            $completedQuery = $completedQuery->where('signer_email', $signerEmail);
+        }
+        $completedForRole = $completedQuery->count();
+
+        if ($completedForRole === $totalForRole) {
             return true;
         }
 
-        $requiredMarkers = $template->markers()
+        // Also check marker-based completion for electronic signing in progress
+        $markerQuery = $template->markers()
             ->where('assigned_party', $party)
-            ->where('required', true)
-            ->pluck('id');
+            ->where('required', true);
+        if ($signerEmail) {
+            $markerQuery = $markerQuery->where(fn($q) => $q->where('assigned_email', $signerEmail)->orWhereNull('assigned_email'));
+        }
+        $requiredMarkers = $markerQuery->pluck('id');
+
+        if ($requiredMarkers->isEmpty() && $completedForRole > 0) {
+            // No markers but some requests completed — check if all are done
+            return $completedForRole === $totalForRole;
+        }
 
         if ($requiredMarkers->isEmpty()) {
             return true;
@@ -583,31 +604,36 @@ class SignatureService
      */
     public function isFullyComplete(SignatureTemplate $template): bool
     {
-        $order = $template->signing_order_json ?? ['agent', 'tenant', 'landlord'];
-
-        foreach ($order as $party) {
-            if (!$this->isPartyComplete($template, $party)) {
-                return false;
-            }
-        }
-
-        return true;
+        // Document is fully complete when zero waiting/pending requests remain
+        return !$template->requests()
+            ->whereIn('status', [
+                SignatureRequest::STATUS_WAITING,
+                SignatureRequest::STATUS_PENDING,
+                SignatureRequest::STATUS_VIEWED,
+                SignatureRequest::STATUS_PARTIALLY_SIGNED,
+            ])
+            ->exists();
     }
 
     /**
      * Handle party completion — if a non-agent party finished, require agent approval
      * before advancing. Agent signing auto-advances to the next external party.
      */
-    public function handlePartyCompletion(SignatureTemplate $template, string $completedParty): void
+    public function handlePartyCompletion(SignatureTemplate $template, string $completedParty, ?SignatureRequest $completedRequest = null): void
     {
-        DB::transaction(function () use ($template, $completedParty) {
-            // Mark the request as completed
-            $request = $template->requests()
-                ->where('party_role', $completedParty)
-                ->where('status', '!=', SignatureRequest::STATUS_COMPLETED)
-                ->first();
+        DB::transaction(function () use ($template, $completedParty, $completedRequest) {
+            // Find the specific request that just completed (caller should pass it)
+            $request = $completedRequest;
 
-            if ($request) {
+            if (!$request) {
+                // Fallback: find any non-completed request for this role and mark it
+                $request = $template->requests()
+                    ->where('party_role', $completedParty)
+                    ->where('status', '!=', SignatureRequest::STATUS_COMPLETED)
+                    ->first();
+            }
+
+            if ($request && $request->status !== SignatureRequest::STATUS_COMPLETED) {
                 $request->update([
                     'status' => SignatureRequest::STATUS_COMPLETED,
                     'completed_at' => now(),
@@ -645,24 +671,14 @@ class SignatureService
     public function approveAndAdvance(SignatureTemplate $template): array
     {
         return DB::transaction(function () use ($template) {
-            $order = $template->signing_order_json ?? ['agent', 'tenant', 'landlord'];
+            // Find next waiting request by signing_order (not by role name)
+            // This correctly handles co-owners who share the same party_role
+            $nextRequest = $template->requests()
+                ->where('status', SignatureRequest::STATUS_WAITING)
+                ->orderBy('signing_order', 'asc')
+                ->first();
 
-            // Find completed party roles
-            $completedParties = $template->requests()
-                ->where('status', SignatureRequest::STATUS_COMPLETED)
-                ->pluck('party_role')
-                ->toArray();
-
-            // Find next unsigned external party
-            $nextParty = null;
-            foreach ($order as $party) {
-                if ($party !== 'agent' && !in_array($party, $completedParties)) {
-                    $nextParty = $party;
-                    break;
-                }
-            }
-
-            if ($nextParty) {
+            if ($nextRequest) {
                 // Recalculate hash before sending to next external party
                 $template->update([
                     'document_hash' => $this->generateDocumentHash($template->document),
@@ -675,17 +691,10 @@ class SignatureService
                     'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
                     'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
                 ];
-                $newStatus = $statusMap[$nextParty] ?? SignatureTemplate::STATUS_SIGNING;
+                $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
                 $template->update(['status' => $newStatus]);
 
-                // Send to next party
-                $nextRequest = $template->requests()
-                    ->where('party_role', $nextParty)
-                    ->first();
-
-                if ($nextRequest && $nextRequest->status === SignatureRequest::STATUS_WAITING) {
-                    $this->sendSigningRequest($nextRequest);
-                }
+                $this->sendSigningRequest($nextRequest);
 
                 SignatureAuditLog::log(
                     $template,
@@ -694,10 +703,10 @@ class SignatureService
                     $template->creator?->name ?? 'Agent',
                     $template->creator?->email,
                     $template->created_by,
-                    metadata: ['next_party' => $nextParty],
+                    metadata: ['next_party' => $nextRequest->party_role],
                 );
 
-                return ['action' => 'sent', 'next_party' => $nextParty, 'next_name' => $nextRequest?->signer_name];
+                return ['action' => 'sent', 'next_party' => $nextRequest->party_role, 'next_name' => $nextRequest->signer_name];
             }
 
             // All external parties done — complete the document
@@ -721,32 +730,29 @@ class SignatureService
      */
     private function advanceToNextParty(SignatureTemplate $template, string $completedParty): void
     {
-        $order = $template->signing_order_json ?? ['agent', 'tenant', 'landlord'];
-        $currentIndex = array_search($completedParty, $order);
-        $nextParty = $order[$currentIndex + 1] ?? null;
+        // Find the next WAITING request by signing_order — not by role name
+        // This correctly handles co-owners who share the same party_role string
+        $nextRequest = $template->requests()
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->orderBy('signing_order', 'asc')
+            ->first();
 
-        if ($nextParty && !$this->isPartyComplete($template, $nextParty)) {
-            // Recalculate hash before sending to next external party
+        if ($nextRequest) {
+            $statusMap = [
+                'tenant'   => SignatureTemplate::STATUS_AWAITING_TENANT,
+                'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                'buyer'    => SignatureTemplate::STATUS_AWAITING_BUYER,
+                'seller'   => SignatureTemplate::STATUS_AWAITING_SELLER,
+            ];
+            $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
+
             $template->update([
+                'status'        => $newStatus,
                 'document_hash' => $this->generateDocumentHash($template->document),
             ]);
 
-            $statusMap = [
-                'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
-                'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
-                'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
-                'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
-            ];
-            $newStatus = $statusMap[$nextParty] ?? SignatureTemplate::STATUS_SIGNING;
-            $template->update(['status' => $newStatus]);
+            $this->sendSigningRequest($nextRequest);
 
-            $nextRequest = $template->requests()
-                ->where('party_role', $nextParty)
-                ->first();
-
-            if ($nextRequest && $nextRequest->status === SignatureRequest::STATUS_WAITING) {
-                $this->sendSigningRequest($nextRequest);
-            }
         } elseif ($this->isFullyComplete($template)) {
             $this->completeDocument($template);
         }
@@ -758,44 +764,27 @@ class SignatureService
      */
     private function advanceAfterWetInkApproval(SignatureTemplate $template, string $completedParty): void
     {
-        $order = $template->signing_order_json ?? ['agent', 'tenant', 'landlord'];
+        // Find next waiting request by signing_order (handles co-owners)
+        $nextRequest = $template->requests()
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->orderBy('signing_order', 'asc')
+            ->first();
 
-        // Find completed party roles
-        $completedParties = $template->requests()
-            ->where('status', SignatureRequest::STATUS_COMPLETED)
-            ->pluck('party_role')
-            ->toArray();
-
-        // Find next unsigned party
-        $nextParty = null;
-        foreach ($order as $party) {
-            if ($party !== 'agent' && !in_array($party, $completedParties)) {
-                $nextParty = $party;
-                break;
-            }
-        }
-
-        if ($nextParty) {
+        if ($nextRequest) {
             $template->update([
                 'document_hash' => $this->generateDocumentHash($template->document),
             ]);
 
             $statusMap = [
-                'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
+                'tenant'   => SignatureTemplate::STATUS_AWAITING_TENANT,
                 'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
-                'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
-                'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
+                'buyer'    => SignatureTemplate::STATUS_AWAITING_BUYER,
+                'seller'   => SignatureTemplate::STATUS_AWAITING_SELLER,
             ];
-            $newStatus = $statusMap[$nextParty] ?? SignatureTemplate::STATUS_SIGNING;
+            $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
             $template->update(['status' => $newStatus]);
 
-            $nextRequest = $template->requests()
-                ->where('party_role', $nextParty)
-                ->first();
-
-            if ($nextRequest && $nextRequest->status === SignatureRequest::STATUS_WAITING) {
-                $this->sendSigningRequest($nextRequest);
-            }
+            $this->sendSigningRequest($nextRequest);
 
             SignatureAuditLog::log(
                 $template,
@@ -804,7 +793,7 @@ class SignatureService
                 'System',
                 metadata: [
                     'completed_party' => $completedParty,
-                    'next_party' => $nextParty,
+                    'next_party' => $nextRequest->party_role,
                 ],
             );
         } elseif ($this->isFullyComplete($template)) {

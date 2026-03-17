@@ -24,8 +24,9 @@ class DocumentFlattener
     {
         $document = $template->document;
         $docTemplate = $document->template;
+        $pageCount = $this->resolvePageCount($document, $docTemplate);
 
-        if (!$docTemplate || $docTemplate->page_count < 1) {
+        if ($pageCount < 1) {
             Log::warning('DocumentFlattener::flattenFields — no template or zero pages', ['template_id' => $template->id]);
             return [];
         }
@@ -33,8 +34,8 @@ class DocumentFlattener
         $fields = $document->fields_json ?? [];
         $newPaths = [];
 
-        for ($pageNum = 0; $pageNum < $docTemplate->page_count; $pageNum++) {
-            $imagePath = $this->findOriginalPageImage($docTemplate->id, $pageNum);
+        for ($pageNum = 0; $pageNum < $pageCount; $pageNum++) {
+            $imagePath = $this->findOriginalPageImage($docTemplate ? $docTemplate->id : 0, $pageNum, $document->id);
             if (!$imagePath) {
                 Log::warning("DocumentFlattener: page image not found", ['docTemplate' => $docTemplate->id, 'page' => $pageNum]);
                 continue;
@@ -146,17 +147,18 @@ class DocumentFlattener
     {
         $document = $template->document;
         $docTemplate = $document->template;
+        $pageCount = $this->resolvePageCount($document, $docTemplate);
 
-        if (!$docTemplate || $docTemplate->page_count < 1) {
+        if ($pageCount < 1) {
             return $template->flattened_pages_json ?? [];
         }
 
         $fields = $document->fields_json ?? [];
         $currentPages = $template->flattened_pages_json ?? [];
 
-        for ($pageNum = 0; $pageNum < $docTemplate->page_count; $pageNum++) {
+        for ($pageNum = 0; $pageNum < $pageCount; $pageNum++) {
             // Use flattened page if available, otherwise original
-            $imagePath = $currentPages[$pageNum] ?? $this->findOriginalPageImage($docTemplate->id, $pageNum);
+            $imagePath = $currentPages[$pageNum] ?? $this->findOriginalPageImage($docTemplate ? $docTemplate->id : 0, $pageNum, $document->id);
             if (!$imagePath) continue;
 
             $fullPath = Storage::disk('local')->path($imagePath);
@@ -249,8 +251,9 @@ class DocumentFlattener
         $currentPages = $template->flattened_pages_json ?? [];
 
         // Use flattened page if available, otherwise original
+        $document = $template->document;
         $imagePath = $currentPages[$pageNum] ?? $this->findOriginalPageImage(
-            $template->document->template->id ?? 0, $pageNum
+            $document->template->id ?? 0, $pageNum, $document->id
         );
 
         if (!$imagePath) {
@@ -310,9 +313,10 @@ class DocumentFlattener
     {
         $pageNum = $marker->page_number - 1;
         $currentPages = $template->flattened_pages_json ?? [];
+        $document = $template->document;
 
         $imagePath = $currentPages[$pageNum] ?? $this->findOriginalPageImage(
-            $template->document->template->id ?? 0, $pageNum
+            $document->template->id ?? 0, $pageNum, $document->id
         );
 
         if (!$imagePath) return '';
@@ -517,16 +521,18 @@ class DocumentFlattener
     public function getPageImages(SignatureTemplate $template): array
     {
         $flattenedPages = $template->flattened_pages_json ?? [];
-        $docTemplate = $template->document->template ?? null;
+        $document = $template->document;
+        $docTemplate = $document->template ?? null;
+        $pageCount = $this->resolvePageCount($document, $docTemplate);
 
-        if (!$docTemplate || $docTemplate->page_count < 1) {
+        if ($pageCount < 1) {
             return $flattenedPages;
         }
 
         $pages = [];
-        for ($pageNum = 0; $pageNum < $docTemplate->page_count; $pageNum++) {
+        for ($pageNum = 0; $pageNum < $pageCount; $pageNum++) {
             $pages[$pageNum] = $flattenedPages[$pageNum]
-                ?? $this->findOriginalPageImage($docTemplate->id, $pageNum);
+                ?? $this->findOriginalPageImage($docTemplate ? $docTemplate->id : 0, $pageNum, $document->id);
         }
 
         return $pages;
@@ -734,18 +740,51 @@ class DocumentFlattener
     // ========== HELPER METHODS ==========
 
     /**
-     * Find the original page image storage path for a document template page.
+     * Resolve the page count for a document, handling web template documents
+     * that store their page count in web_template_data instead of the template.
      */
-    private function findOriginalPageImage(int $templateId, int $pageNum): ?string
+    private function resolvePageCount($document, $docTemplate): int
     {
-        $pngPath = "docuperfect/templates/{$templateId}/page-{$pageNum}.png";
-        $jpgPath = "docuperfect/templates/{$templateId}/page-{$pageNum}.jpg";
-
-        if (Storage::disk('local')->exists($pngPath)) {
-            return $pngPath;
+        // Standard PDF template
+        if ($docTemplate && $docTemplate->page_count > 0) {
+            return $docTemplate->page_count;
         }
-        if (Storage::disk('local')->exists($jpgPath)) {
-            return $jpgPath;
+
+        // Flattened web template — page count stored on document
+        $webTemplateData = $document->web_template_data ?? [];
+        if (!empty($webTemplateData['flattened_page_count'])) {
+            return (int) $webTemplateData['flattened_page_count'];
+        }
+
+        return 0;
+    }
+
+    /**
+     * Find the original page image storage path for a document template page.
+     * Checks document-level storage first (for flattened web templates),
+     * then falls back to template-level storage (for PDF templates).
+     */
+    private function findOriginalPageImage(int $templateId, int $pageNum, ?int $documentId = null): ?string
+    {
+        // Check document-level storage first (flattened web templates)
+        if ($documentId) {
+            $docPath = "docuperfect/documents/{$documentId}/page-{$pageNum}.png";
+            if (Storage::disk('local')->exists($docPath)) {
+                return $docPath;
+            }
+        }
+
+        // Fall back to template-level storage (PDF templates)
+        if ($templateId > 0) {
+            $pngPath = "docuperfect/templates/{$templateId}/page-{$pageNum}.png";
+            $jpgPath = "docuperfect/templates/{$templateId}/page-{$pageNum}.jpg";
+
+            if (Storage::disk('local')->exists($pngPath)) {
+                return $pngPath;
+            }
+            if (Storage::disk('local')->exists($jpgPath)) {
+                return $jpgPath;
+            }
         }
 
         return null;

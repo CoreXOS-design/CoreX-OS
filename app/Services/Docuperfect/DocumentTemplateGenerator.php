@@ -148,27 +148,6 @@ class DocumentTemplateGenerator
         $bladeContent = str_replace(["\xe2\x80\x98", "\xe2\x80\x99"], "'", $bladeContent); // smart single quotes
         $bladeContent = str_replace(["\xe2\x80\x9c", "\xe2\x80\x9d"], '"', $bladeContent); // smart double quotes
 
-        $slug = Str::slug($templateName);
-        $bladeRelPath = "docuperfect.web-templates.imported.{$slug}";
-        $bladeFilePath = resource_path("views/docuperfect/web-templates/imported/{$slug}.blade.php");
-
-        $dir = dirname($bladeFilePath);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        try {
-            file_put_contents($bladeFilePath, $bladeContent);
-        } catch (\Exception $e) {
-            Log::error('Generator: file_put_contents failed', ['error' => $e->getMessage(), 'path' => $bladeFilePath]);
-            throw $e;
-        }
-
-        Log::info('Generator: blade file written', [
-            'path' => $bladeFilePath,
-            'exists' => file_exists($bladeFilePath),
-        ]);
-
         // Preserve full editor state for lossless round-tripping via editFromTemplate()
         $editorState = [
             'tags'        => $tags,
@@ -189,8 +168,13 @@ class DocumentTemplateGenerator
 
         try {
             if ($sourceTemplateId) {
-                // Editing an existing template — update it
+                // Editing an existing template — keep its existing blade path
                 $template = Template::findOrFail($sourceTemplateId);
+
+                // Reuse existing slug/path to avoid file proliferation
+                $bladeRelPath = $template->blade_view;
+                $bladeFilePath = resource_path('views/' . str_replace('.', '/', $bladeRelPath) . '.blade.php');
+
                 $template->update([
                     'name' => $templateName,
                     'blade_view' => $bladeRelPath,
@@ -199,12 +183,16 @@ class DocumentTemplateGenerator
                     'editor_state' => $editorState,
                 ]);
             } else {
-                // Brand new template
+                // Brand new template — generate unique slug
+                $slug = Str::slug($templateName);
+                $bladeFilePath = resource_path("views/docuperfect/web-templates/imported/{$slug}.blade.php");
+
+                // Create the template first to get an ID for slug uniqueness
                 $template = Template::create([
                     'name' => $templateName,
                     'template_type' => 'general',
                     'render_type' => 'web',
-                    'blade_view' => $bladeRelPath,
+                    'blade_view' => "docuperfect.web-templates.imported.{$slug}",
                     'page_count' => 1,
                     'fields_json' => $fieldsJson,
                     'signing_parties' => $signingParties,
@@ -213,11 +201,38 @@ class DocumentTemplateGenerator
                     'is_esign' => true,
                     'owner_id' => $ownerId,
                 ]);
+
+                // If blade file already exists (another template uses this slug), make it unique
+                if (file_exists($bladeFilePath)) {
+                    $slug = $slug . '-' . $template->id;
+                    $bladeFilePath = resource_path("views/docuperfect/web-templates/imported/{$slug}.blade.php");
+                    $template->update(['blade_view' => "docuperfect.web-templates.imported.{$slug}"]);
+                }
+
+                $bladeRelPath = $template->blade_view;
             }
         } catch (\Exception $e) {
             Log::error('Generator: Template save failed', ['error' => $e->getMessage(), 'source_template_id' => $sourceTemplateId]);
             throw $e;
         }
+
+        // Write blade file
+        $dir = dirname($bladeFilePath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        try {
+            file_put_contents($bladeFilePath, $bladeContent);
+        } catch (\Exception $e) {
+            Log::error('Generator: file_put_contents failed', ['error' => $e->getMessage(), 'path' => $bladeFilePath]);
+            throw $e;
+        }
+
+        Log::info('Generator: blade file written', [
+            'path' => $bladeFilePath,
+            'exists' => file_exists($bladeFilePath),
+        ]);
 
         Log::info('Generator: template record saved', [
             'template_id' => $template->id,

@@ -86,10 +86,14 @@ class SigningController extends Controller
         $template = $signingRequest->template;
         $document = $template->document;
 
-        // Get this party's markers
+        // Get this party's markers (use assigned_email to distinguish co-owners)
         $myMarkers = $template->markers()
             ->with('signatures')
             ->where('assigned_party', $signingRequest->party_role)
+            ->where(function ($q) use ($signingRequest) {
+                $q->where('assigned_email', $signingRequest->signer_email)
+                  ->orWhereNull('assigned_email');
+            })
             ->orderBy('page_number')
             ->orderBy('sort_order')
             ->get();
@@ -104,20 +108,25 @@ class SigningController extends Controller
             ->orderBy('sort_order')
             ->get();
 
-        // Detect web template rendering
+        // Detect web template rendering — check for flattened document pages first
         $docTemplate = $document->template;
-        $isWebTemplate = $docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view;
+        $webTemplateData = $document->web_template_data ?? [];
+        $hasDocumentPages = !empty($webTemplateData['flattened_page_count']);
+        $isWebTemplate = false;
         $webTemplateHtml = '';
         $editableFields = [];
 
-        if ($isWebTemplate) {
-            $webTemplateData = $document->web_template_data ?? [];
+        if ($hasDocumentPages) {
+            // Web template was flattened to page images — treat as PDF from here
+            // Client fields are already positioned in fields_json for overlay rendering
+            $isWebTemplate = false;
+        } elseif ($docTemplate && $docTemplate->render_type === 'web' && $docTemplate->blade_view) {
+            // Fallback: web template without flattening — use iframe (legacy path)
+            $isWebTemplate = true;
 
             if (!empty($webTemplateData['merged_html'])) {
-                // Pack document — use pre-rendered merged HTML
                 $webTemplateHtml = $webTemplateData['merged_html'];
             } else {
-                // Single template — render blade view normally
                 $viewData = $webTemplateData;
                 if (!empty($docTemplate->signing_parties)) {
                     $viewData['signing_parties'] = $docTemplate->signing_parties;
@@ -143,14 +152,27 @@ class SigningController extends Controller
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
 
-        if (!$isWebTemplate) {
+        if ($hasDocumentPages) {
+            // Flattened web template — use document-level page images
+            $pageCount = (int) $webTemplateData['flattened_page_count'];
             for ($n = 0; $n < $pageCount; $n++) {
                 if ($hasFlattened && isset($flattenedPages[$n])) {
                     $pageImages[] = route('signatures.external.flattenedPage', ['token' => $token, 'page' => $n]);
-                } elseif ($docTemplate) {
-                    $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+                } else {
+                    $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
+                }
+            }
+        } else {
+            $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+
+            if (!$isWebTemplate) {
+                for ($n = 0; $n < $pageCount; $n++) {
+                    if ($hasFlattened && isset($flattenedPages[$n])) {
+                        $pageImages[] = route('signatures.external.flattenedPage', ['token' => $token, 'page' => $n]);
+                    } elseif ($docTemplate) {
+                        $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+                    }
                 }
             }
         }
@@ -284,8 +306,11 @@ class SigningController extends Controller
             return response()->json(['ok' => false, 'error' => 'Identity not verified.'], 403);
         }
 
-        // Verify marker belongs to this party
+        // Verify marker belongs to this party (and specific co-owner if assigned_email is set)
         if ($marker->assigned_party !== $signingRequest->party_role) {
+            return response()->json(['ok' => false, 'error' => 'This marker is not assigned to you.'], 403);
+        }
+        if ($marker->assigned_email && $marker->assigned_email !== $signingRequest->signer_email) {
             return response()->json(['ok' => false, 'error' => 'This marker is not assigned to you.'], 403);
         }
 
@@ -336,13 +361,16 @@ class SigningController extends Controller
             $signingRequest->update(['status' => SignatureRequest::STATUS_PARTIALLY_SIGNED]);
         }
 
-        $allSigned = $this->signatureService->isPartyComplete($template, $signingRequest->party_role);
+        $allSigned = $this->signatureService->isPartyComplete($template, $signingRequest->party_role, $signingRequest->signer_email);
 
+        $signerEmail = $signingRequest->signer_email;
         $signedCount = $template->signatures()
-            ->whereHas('marker', fn($q) => $q->where('assigned_party', $signingRequest->party_role))
+            ->whereHas('marker', fn($q) => $q->where('assigned_party', $signingRequest->party_role)
+                ->where(fn($q2) => $q2->where('assigned_email', $signerEmail)->orWhereNull('assigned_email')))
             ->count();
         $totalRequired = $template->markers()
             ->where('assigned_party', $signingRequest->party_role)
+            ->where(fn($q) => $q->where('assigned_email', $signerEmail)->orWhereNull('assigned_email'))
             ->where('required', true)
             ->count();
 
@@ -542,6 +570,7 @@ class SigningController extends Controller
         }
 
         if ($this->signatureService->isPartyComplete($template, $party)) {
+            // Mark THIS specific request as completed (not just any request for the role)
             $signingRequest->update([
                 'status' => SignatureRequest::STATUS_COMPLETED,
                 'completed_at' => now(),
@@ -553,7 +582,31 @@ class SigningController extends Controller
             $flattener = app(DocumentFlattener::class);
             $flattener->flattenSignerFields($template, $party);
 
-            $this->signatureService->handlePartyCompletion($template, $party);
+            // Check if ALL requests for this role are now complete before advancing
+            $allRoleComplete = $template->requests()
+                ->where('party_role', $party)
+                ->where('status', '!=', SignatureRequest::STATUS_COMPLETED)
+                ->doesntExist();
+
+            if ($allRoleComplete) {
+                // All co-owners for this role have signed — advance
+                $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
+            } else {
+                // More co-owners still need to sign — send to the next one
+                $nextCoOwner = $template->requests()
+                    ->where('party_role', $party)
+                    ->where('status', SignatureRequest::STATUS_WAITING)
+                    ->orderBy('signing_order', 'asc')
+                    ->first();
+
+                if ($nextCoOwner) {
+                    // Set status to pending_agent_approval so agent can review
+                    $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
+
+                    // Notify agent about this co-owner completion
+                    $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
+                }
+            }
 
             $fullyComplete = $this->signatureService->isFullyComplete($template);
 
@@ -717,7 +770,11 @@ class SigningController extends Controller
             . '.page img { width: 100%; height: auto; display: block; }'
             . '</style></head><body>';
 
+        $webDataWetInk = $document->web_template_data ?? [];
         $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+        if ($pageCount < 1 && !empty($webDataWetInk['flattened_page_count'])) {
+            $pageCount = (int) $webDataWetInk['flattened_page_count'];
+        }
         for ($pageNum = 0; $pageNum < $pageCount; $pageNum++) {
             // Use annotated temp image if available, otherwise plain storage image
             if ($usingAnnotated && isset($annotatedPages[$pageNum])) {

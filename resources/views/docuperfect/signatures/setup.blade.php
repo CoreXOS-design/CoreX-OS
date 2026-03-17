@@ -1,3 +1,4 @@
+{{-- CORRECT FILE v2 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -285,14 +286,18 @@
 
                 @if($isWebTemplate ?? false)
                 {{-- Web template: no page navigation needed (single page) --}}
-                <div class="flex-1 overflow-auto" style="background:#f3f4f6;">
-                    <div class="relative" style="width:210mm; max-width:100%; background:white; padding:20mm; margin:0 auto; box-shadow:0 2px 8px rgba(0,0,0,0.15);"
+                <div class="flex-1 overflow-y-auto" style="background:#f3f4f6;">
+                    <div class="relative" style="width:210mm; max-width:100%; background:white; margin:0 auto; box-shadow:0 2px 8px rgba(0,0,0,0.15); overflow:hidden;"
                          x-ref="pageContainer"
                          @dragover.prevent="$event.dataTransfer.dropEffect = 'copy'"
                          @drop.prevent="handleDrop($event)"
                          x-init="pageLoaded = true; setupWebTemplateObserver()">
 
-                        {!! $webTemplateHtml !!}
+                        <iframe id="webDocFrame"
+                                style="width:100%; height:2000px; min-height:800px; border:none; display:block; overflow:hidden;"
+                                scrolling="no"
+                                srcdoc="{!! htmlspecialchars($webTemplateHtml ?? '', ENT_QUOTES, 'UTF-8') !!}">
+                        </iframe>
                 @else
                 {{-- PDF template: page navigation + page images --}}
                 <div class="flex items-center justify-between mb-3 flex-shrink-0">
@@ -685,14 +690,16 @@
                         const wPct = (col.offsetWidth / container.scrollWidth) * 100;
                         const xOffset = (50 / container.scrollWidth) * 100;
 
-                        // Determine assigned_party — try to match by name to a known party
+                        // Determine assigned_party and assigned_email — match by name to a known party
                         let assignedParty = role;
+                        let assignedEmail = null;
                         if (name && knownParties.length > 0) {
                             const match = knownParties.find(p =>
                                 p.role === role && p.name && p.name.toLowerCase() === name.toLowerCase()
                             );
                             if (match) {
                                 assignedParty = match.role;
+                                assignedEmail = match.email || null;
                             }
                         }
 
@@ -710,6 +717,7 @@
                             height: 4,
                             type: 'signature',
                             assigned_party: assignedParty,
+                            assigned_email: assignedEmail,
                             label: name ? (assignedParty.charAt(0).toUpperCase() + assignedParty.slice(1) + ' — ' + name) : null,
                             required: true,
                             auto_placed: true,

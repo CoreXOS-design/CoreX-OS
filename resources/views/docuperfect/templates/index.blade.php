@@ -107,7 +107,14 @@
                     </div>
                     <div class="text-[11px] mb-3" style="color: var(--text-muted);">{{ $tpl->page_count }} page{{ $tpl->page_count !== 1 ? 's' : '' }} &middot; {{ $tpl->owner->name ?? '—' }} &middot; {{ $tpl->created_at?->format('d M Y') ?? '—' }}</div>
 
-                    @if($tpl->page_count > 0)
+                    @if($tpl->render_type === 'web')
+                    <div class="flex-1 flex flex-col items-center justify-center mb-3 rounded-md py-6" style="background: var(--surface-raised, #1e293b); border: 1px dashed var(--border);">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00d4aa">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                        </svg>
+                        <span class="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background: #00d4aa; color: #0f172a;">Web Template</span>
+                    </div>
+                    @elseif($tpl->page_count > 0)
                     <div class="flex-1 flex items-center justify-center mb-3">
                         <img src="{{ route('docuperfect.page.image', ['id' => $tpl->id, 'page' => 0]) }}"
                              alt="{{ $tpl->name }}"
@@ -164,7 +171,13 @@
                             @foreach($templates as $tpl)
                             <tr class="transition-all duration-300">
                                 <td class="px-4 py-2">
-                                    @if($tpl->page_count > 0)
+                                    @if($tpl->render_type === 'web')
+                                    <div class="w-10 h-14 flex items-center justify-center rounded-md" style="background: var(--surface-raised, #1e293b); border: 1px dashed var(--border);">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00d4aa">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                        </svg>
+                                    </div>
+                                    @elseif($tpl->page_count > 0)
                                     <img src="{{ route('docuperfect.page.image', ['id' => $tpl->id, 'page' => 0]) }}"
                                          alt="{{ $tpl->name }}"
                                          class="w-10 h-14 object-cover rounded-md shadow-sm"

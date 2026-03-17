@@ -13,6 +13,7 @@ use App\Models\Docuperfect\Template;
 use App\Models\Property;
 use App\Models\Rental\RentalProperty;
 use App\Services\Docuperfect\SignatureService;
+use App\Services\Docuperfect\WebTemplatePdfService;
 use App\Services\WebTemplateDataService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -199,6 +200,12 @@ class ESignWizardController extends Controller
         // with any values filled during wizard steps merged in
         $fields = $stepData['fields'] ?? ($template->fields_json ?? []);
 
+        // Normalise web template fields so wizard JS sees consistent keys
+        $renderType = $template->render_type ?? 'pdf';
+        if ($renderType === 'web') {
+            $fields = array_map(fn($f) => $this->normalizeFieldForWizard($f, $renderType), $fields);
+        }
+
         // Backfill named_field_name from database for any field missing it
         $namedFieldIds = collect($fields)->pluck('named_field_id')->filter()->unique()->values();
         $namedFieldRecords = [];
@@ -245,49 +252,8 @@ class ESignWizardController extends Controller
         }
         unset($field);
 
-        // Auto-fill fields from wizard step data (property, recipients, details)
-        // Contact fields with multiple contacts of the same role (e.g., 2 lessors)
-        // are concatenated with ' & ' (e.g., "Koos Kombuis & Lienkie Kombuis")
-        $fields = $this->autoFillFields($fields, $stepData);
-
-        // Pre-fill field values from WebTemplateDataService (resolved from step_data)
-        $resolvedValues = [];
-        if ($template && ($template->render_type ?? 'pdf') === 'web') {
-            $resolvedValues = app(WebTemplateDataService::class)
-                ->resolve($template->id, $stepData, $request->user());
-        }
-
-        // Build unified ordered field list for step 5 (document order, no party grouping)
-        // Also separate into creator/signer for backward compat
-        $creatorFields = [];
-        $signerFields = [];
-        $allWizardFields = [];
-        foreach ($fields as $idx => $field) {
-            $role = $field['assignedTo'] ?? $field['assigned_to'] ?? 'creator';
-            $fieldWithIndex = $field;
-            $fieldWithIndex['_index'] = $idx;
-
-            // System fields are auto-filled — skip them from the wizard form
-            if ($role === 'system') {
-                continue;
-            }
-
-            // Pre-fill value from WebTemplateDataService if field_name maps to a resolved key
-            $fieldName = $field['field_name'] ?? null;
-            if ($fieldName && isset($resolvedValues[$fieldName]) && $resolvedValues[$fieldName] !== '') {
-                $fieldWithIndex['value'] = (string) $resolvedValues[$fieldName];
-            }
-
-            $allWizardFields[] = $fieldWithIndex;
-
-            if (in_array($role, ['creator', 'user', 'agent'])) {
-                $creatorFields[] = $fieldWithIndex;
-            } else {
-                $signerFields[] = $fieldWithIndex;
-            }
-        }
-
-        // Enrich details defaults from property record (commission=10, rental & deposit from property)
+        // Enrich details defaults from property record BEFORE autoFillFields
+        // so manual fields (commission, deposit, rental, lease dates) can resolve
         if ($step >= 4 && empty($stepData['details'])) {
             $propertyId = $stepData['property']['property_id'] ?? null;
             $propertySource = $stepData['property']['_property_source'] ?? null;
@@ -334,6 +300,7 @@ class ESignWizardController extends Controller
         }
 
         // Recipients from step data — handle double-nested structure
+        // Must run BEFORE autoFillFields so contact-sourced fields can resolve
         $recipientsData = $stepData['recipients'] ?? [];
         $recipients = isset($recipientsData['recipients']) && is_array($recipientsData['recipients'])
             ? $recipientsData['recipients']
@@ -367,6 +334,70 @@ class ESignWizardController extends Controller
                         ];
                     }
                 }
+            }
+        }
+
+        // Update stepData recipients so autoFillFields can see auto-populated contacts
+        if (!empty($recipients)) {
+            $stepData['recipients'] = ['recipients' => $recipients];
+        }
+
+        // Auto-fill fields from wizard step data (property, recipients, details)
+        // Contact fields with multiple contacts of the same role (e.g., 2 lessors)
+        // are concatenated with ' & ' (e.g., "Koos Kombuis & Lienkie Kombuis")
+        $fields = $this->autoFillFields($fields, $stepData);
+
+        // Pre-fill field values from WebTemplateDataService (resolved from step_data)
+        $resolvedValues = [];
+        if ($template && ($template->render_type ?? 'pdf') === 'web') {
+            $resolvedValues = app(WebTemplateDataService::class)
+                ->resolve($template->id, $stepData, $request->user());
+        }
+
+        // Build unified ordered field list for step 5 (document order, no party grouping)
+        // Also separate into creator/signer for backward compat
+        $creatorFields = [];
+        $signerFields = [];
+        $allWizardFields = [];
+        foreach ($fields as $idx => $field) {
+            $role = $field['assignedTo'] ?? $field['assigned_to'] ?? 'creator';
+            $fieldWithIndex = $field;
+            $fieldWithIndex['_index'] = $idx;
+
+            // System fields are auto-filled — skip them from the wizard form
+            if ($role === 'system') {
+                continue;
+            }
+
+            // Skip non-editable field types from wizard panel
+            $mappingType = $field['mapping_type'] ?? '';
+            $tagType = $field['tag_type'] ?? '';
+            $fieldName = $field['field_name'] ?? '';
+
+            if ($tagType === 'signature') continue;
+            if ($mappingType === 'field_group') continue;
+            if ($mappingType === 'field_group_member' && str_ends_with($fieldName, '_Full')) continue;
+
+            // Pre-fill value from WebTemplateDataService if field_name maps to a resolved key
+            // field_name from buildFieldsJson is camelCase (via columnToBladeVar),
+            // but resolvedValues keys are snake_case — try both forms
+            if (empty($fieldWithIndex['value'])) {
+                $fieldName = $field['field_name'] ?? null;
+                if ($fieldName) {
+                    $snakeFieldName = strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', $fieldName));
+                    $resolved = $resolvedValues[$fieldName] ?? $resolvedValues[$snakeFieldName] ?? null;
+                    if ($resolved !== null && $resolved !== '') {
+                        $fieldWithIndex['value'] = (string) $resolved;
+                    }
+                }
+            }
+
+            $allWizardFields[] = $fieldWithIndex;
+
+            if (in_array($role, ['creator', 'user', 'agent'])) {
+                $creatorFields[] = $fieldWithIndex;
+            } else {
+                $signerFields[] = $fieldWithIndex;
             }
         }
 
@@ -893,6 +924,7 @@ class ESignWizardController extends Controller
      */
     public function prepareSigning(Request $request, $flowId)
     {
+        set_time_limit(300);
         $user = $request->user();
         $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
         $flow->load('template');
@@ -900,6 +932,12 @@ class ESignWizardController extends Controller
         $template = $flow->template;
         $stepData = $flow->step_data ?? [];
         $fields = $stepData['fields'] ?? ($template->fields_json ?? []);
+
+        // Normalise web template fields
+        $renderType = $template->render_type ?? 'pdf';
+        if ($renderType === 'web') {
+            $fields = array_map(fn($f) => $this->normalizeFieldForWizard($f, $renderType), $fields);
+        }
 
         // Auto-fill fields one final time
         $fields = $this->autoFillFields($fields, $stepData);
@@ -979,6 +1017,7 @@ class ESignWizardController extends Controller
                     ? '<div style="page-break-after:always;"></div>'
                     : '';
 
+                $bodyHtml = $this->injectFieldValues($bodyHtml, $tplData);
                 $mergedHtml .= $styles . $bodyHtml . $pageBreak;
                 $packTemplateData[$tplId] = $tplData;
             }
@@ -991,6 +1030,46 @@ class ESignWizardController extends Controller
             ];
         } elseif ($template->render_type === 'web' && $template->blade_view) {
             $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+
+            // Build parties list for initials/signature processing
+            $partiesForSigning = [];
+            $partiesForSigning[] = [
+                'role' => 'agent',
+                'name' => $user->name,
+                'display' => $user->name,
+            ];
+            foreach ($stepData['recipients']['recipients'] ?? [] as $r) {
+                $partiesForSigning[] = [
+                    'role' => $r['role'],
+                    'name' => $r['name'],
+                    'display' => $r['name'],
+                ];
+            }
+
+            // Render full HTML for single web template (same as pack flow)
+            $viewData = $webTemplateData;
+            if (!empty($template->signing_parties)) {
+                $viewData['signing_parties'] = $template->signing_parties;
+            }
+            $fullHtml = view($template->blade_view, $viewData)->render();
+
+            // Extract body HTML (between <body> and </body>)
+            preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
+            $bodyHtml = $bodyMatch[1] ?? $fullHtml;
+
+            // Extract styles
+            $styles = '';
+            if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches)) {
+                $styles = implode("\n", $styleMatches[0]);
+            }
+
+            // Process the HTML: inject initials and resolve signature names
+            $bodyHtml = $this->injectInitialsBlocks($bodyHtml, $partiesForSigning);
+            $bodyHtml = $this->resolveSignatureNames($bodyHtml, $webTemplateData, $partiesForSigning);
+            $bodyHtml = $this->injectFieldValues($bodyHtml, $webTemplateData);
+
+            // Store as merged_html so SignatureController uses it directly
+            $webTemplateData['merged_html'] = $styles . $bodyHtml;
         }
 
         $packInstanceId = $isPackFlow ? (int) round(microtime(true) * 1000) : null;
@@ -1174,6 +1253,29 @@ class ESignWizardController extends Controller
             return $document;
         });
 
+        // Flatten web template to page images so signature setup uses the PDF path
+        $renderType = $template->render_type ?? 'pdf';
+        if ($renderType === 'web') {
+            try {
+                $pdfService = app(WebTemplatePdfService::class);
+                $flattenedPages = $pdfService->flatten($result);
+                if ($flattenedPages > 0) {
+                    \Log::info('prepareSigning: web template flattened to ' . $flattenedPages . ' page images', [
+                        'document_id' => $result->id,
+                    ]);
+                } else {
+                    \Log::warning('prepareSigning: web template flatten returned 0 pages — falling back to iframe', [
+                        'document_id' => $result->id,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                \Log::error('prepareSigning: web template flatten failed — falling back to iframe', [
+                    'document_id' => $result->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         // Store wizard context in session so signComplete redirects back to wizard
         session(['esign_wizard_flow_id' => $flow->id]);
 
@@ -1352,6 +1454,31 @@ class ESignWizardController extends Controller
         }
         unset($field);
 
+        // Resolve manual fields by field_name when named_field_id is null
+        // (e.g., "% num" → manual_num, "% alpha" → manual_alpha from template tagging)
+        $manualFieldNameMap = [
+            'manual_num'   => 'commission',
+            'manual_alpha' => '_commission_words',
+        ];
+        foreach ($fields as &$field) {
+            if (!empty($field['value'])) continue;
+            if (($field['mapping_type'] ?? '') !== 'manual') continue;
+
+            $fn = $field['field_name'] ?? '';
+            $detailKey = $manualFieldNameMap[$fn] ?? null;
+            if (!$detailKey) continue;
+
+            if ($detailKey === '_commission_words') {
+                $commVal = $details['commission'] ?? '';
+                if ($commVal !== '' && is_numeric($commVal)) {
+                    $field['value'] = $this->numberToWords((int) $commVal);
+                }
+            } elseif (isset($details[$detailKey]) && $details[$detailKey] !== '') {
+                $field['value'] = (string) $details[$detailKey];
+            }
+        }
+        unset($field);
+
         return $fields;
     }
 
@@ -1517,6 +1644,354 @@ class ESignWizardController extends Controller
         return ucfirst($convert($number));
     }
 
+    /**
+     * Inject initials blocks at the bottom of every non-last page div.
+     */
+    private function injectInitialsBlocks(string $html, array $parties): string
+    {
+        // Build initials row HTML with inline styles
+        $blocks = '';
+        foreach ($parties as $n => $party) {
+            $role = strtolower($party['role']);
+            $blocks .= '<div class="initial-block" '
+                . 'data-marker-party="' . $role . '" '
+                . 'data-marker-type="initial" '
+                . 'data-marker-index="' . $n . '" '
+                . 'style="display:inline-block;text-align:center;margin:0 6pt;">'
+                . '<div class="initial-line" style="border-bottom:1pt solid #1a1a1a;width:40pt;margin-bottom:2pt;"></div>'
+                . '</div>';
+        }
+
+        $initialsRow = '<div class="initials-row" style="display:flex;justify-content:flex-end;'
+            . 'gap:12pt;margin-top:8pt;padding-top:8pt;border-top:0.5pt solid #ccc;">'
+            . $blocks
+            . '</div>';
+
+        // Split HTML on page div openings to identify pages
+        // Pattern matches <div class="page"> or <div class="page page-break">
+        $parts = preg_split('/(<div\s+class="page[^"]*">)/i', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+        // Count how many page divs we have
+        $pageCount = 0;
+        foreach ($parts as $part) {
+            if (preg_match('/^<div\s+class="page[^"]*">/i', $part)) {
+                $pageCount++;
+            }
+        }
+
+        if ($pageCount <= 1) {
+            // Single page — no initials needed
+            return $html;
+        }
+
+        // Reassemble: for each page except the last, inject initials before its closing </div>
+        $currentPage = 0;
+        $result = '';
+        for ($i = 0; $i < count($parts); $i++) {
+            $part = $parts[$i];
+
+            if (preg_match('/^<div\s+class="page[^"]*">/i', $part)) {
+                $currentPage++;
+                $result .= $part;
+                continue;
+            }
+
+            // This part contains the content of a page div (after the opening tag)
+            if ($currentPage > 0 && $currentPage < $pageCount) {
+                // Find the last </div> in this part (the page's closing div)
+                $lastDivPos = strrpos($part, '</div>');
+                if ($lastDivPos !== false) {
+                    $part = substr($part, 0, $lastDivPos) . $initialsRow . substr($part, $lastDivPos);
+                }
+            }
+
+            $result .= $part;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Resolve signature names and add marker attributes in sig-block HTML.
+     */
+    private function resolveSignatureNames(string $html, array $viewData, array $parties): string
+    {
+        // Role mapping: display name → wizard role for data-marker-party
+        $roleMap = [
+            'lessor' => 'landlord', 'lessee' => 'tenant', 'agent' => 'agent',
+            'buyer' => 'buyer', 'seller' => 'seller',
+        ];
+
+        // Step 1: Replace {{ $varName ?? 'fallback' }} Blade syntax with actual values from $viewData
+        $html = preg_replace_callback(
+            '/\{\{\s*\$(\w+)\s*\?\?\s*[\'"]([^"\']*?)[\'"]\s*\}\}/',
+            function ($m) use ($viewData) {
+                $key = $m[1];
+                // Convert camelCase to snake_case for lookup
+                $snakeKey = strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', $key));
+                return $viewData[$snakeKey] ?? $viewData[$key] ?? $m[2];
+            },
+            $html
+        );
+
+        // Also handle {{ $varName ?? '' }} with empty fallback
+        $html = preg_replace_callback(
+            "/\{\{\s*\\$(\w+)\s*\?\?\s*''\s*\}\}/",
+            function ($m) use ($viewData) {
+                $key = $m[1];
+                $snakeKey = strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', $key));
+                return $viewData[$snakeKey] ?? $viewData[$key] ?? '';
+            },
+            $html
+        );
+
+        // Step 2: Process sig-block divs — add data-marker-party, resolve sig-name, clone for co-owners
+        // Uses manual div-depth counting because regex cannot handle nested <div> structures
+        $sbOffset = 0;
+        while (($sbPos = strpos($html, '<div class="sig-block"', $sbOffset)) !== false) {
+            $sbTagEnd = strpos($html, '>', $sbPos);
+            if ($sbTagEnd === false) break;
+            $openTag = substr($html, $sbPos, $sbTagEnd - $sbPos + 1);
+
+            // Extract data-parties attribute
+            if (!preg_match('/data-parties="([^"]*)"/', $openTag, $dpMatch)) {
+                $sbOffset = $sbTagEnd + 1;
+                continue;
+            }
+            $partiesAttr = html_entity_decode($dpMatch[1]);
+            $partyNames = json_decode($partiesAttr, true) ?? [];
+
+            // Find matching closing </div> by counting nesting depth
+            $innerStart = $sbTagEnd + 1;
+            $depth = 1;
+            $searchPos = $innerStart;
+            $innerEnd = null;
+            while ($depth > 0) {
+                $nextOpen = strpos($html, '<div', $searchPos);
+                $nextClose = strpos($html, '</div>', $searchPos);
+                if ($nextClose === false) break;
+                if ($nextOpen !== false && $nextOpen < $nextClose) {
+                    $depth++;
+                    $searchPos = $nextOpen + 4;
+                } else {
+                    $depth--;
+                    if ($depth === 0) $innerEnd = $nextClose;
+                    $searchPos = $nextClose + 6;
+                }
+            }
+            if ($innerEnd === null) { $sbOffset = $sbTagEnd + 1; continue; }
+
+            $inner = substr($html, $innerStart, $innerEnd - $innerStart);
+            $blockEnd = $innerEnd + 6; // past </div>
+
+            // Process each sig-block-party: add marker attributes + resolve sig-name to actual name
+            $partyIndex = 0;
+            $roleCounts = [];
+            $processedInner = preg_replace_callback(
+                '/<div\s+class="sig-block-party">([\s\S]*?<div\s+class="sig-name">)([\s\S]*?)(<\/div>[\s\S]*?<\/div>)/i',
+                function ($pm) use (&$partyIndex, &$roleCounts, $partyNames, $roleMap, $parties) {
+                    $displayName = $partyNames[$partyIndex] ?? 'unknown';
+                    $role = $roleMap[strtolower($displayName)] ?? strtolower($displayName);
+                    $roleIdx = $roleCounts[$role] ?? 0;
+                    $roleCounts[$role] = $roleIdx + 1;
+
+                    // Find actual name from $parties matching role + role-occurrence index
+                    $actualName = $displayName;
+                    $seen = 0;
+                    foreach ($parties as $p) {
+                        if ($p['role'] === $role) {
+                            if ($seen === $roleIdx) {
+                                $actualName = $p['name'] ?? $p['display'] ?? $displayName;
+                                break;
+                            }
+                            $seen++;
+                        }
+                    }
+
+                    $idx = $partyIndex++;
+                    return '<div class="sig-block-party" data-marker-party="' . e($role)
+                        . '" data-name="' . e($actualName)
+                        . '" data-marker-type="signature" data-marker-index="' . $idx . '">'
+                        . $pm[1] . e($actualName) . $pm[3];
+                },
+                $inner
+            );
+
+            // Clone sig-block-party divs for co-owners (e.g., two landlords but only one template block)
+            foreach ($roleCounts as $role => $existingCount) {
+                $partiesOfRole = [];
+                foreach ($parties as $p) {
+                    if ($p['role'] === $role) $partiesOfRole[] = $p;
+                }
+                if (count($partiesOfRole) <= $existingCount) continue;
+
+                // Find the last sig-block-party for this role and clone it for additional parties
+                $pattern = '/<div\s+class="sig-block-party"\s+data-marker-party="' . preg_quote($role, '/') . '"[^>]*>[\s\S]*?<\/div>[\s\S]*?<\/div>/i';
+                if (preg_match_all($pattern, $processedInner, $blockMatches, PREG_OFFSET_CAPTURE)) {
+                    $lastMatch = end($blockMatches[0]);
+                    $lastBlock = $lastMatch[0];
+                    $insertPos = $lastMatch[1] + strlen($lastBlock);
+
+                    $clones = '';
+                    for ($ci = $existingCount; $ci < count($partiesOfRole); $ci++) {
+                        $cloneName = $partiesOfRole[$ci]['name'] ?? $partiesOfRole[$ci]['display'] ?? $role;
+                        $cloneIdx = $partyIndex++;
+                        $clone = preg_replace('/data-marker-index="\d+"/', 'data-marker-index="' . $cloneIdx . '"', $lastBlock);
+                        $clone = preg_replace('/(<div\s+class="sig-name">)[\s\S]*?(<\/div>)/i', '$1' . e($cloneName) . '$2', $clone);
+                        $clones .= $clone;
+                    }
+                    $processedInner = substr($processedInner, 0, $insertPos) . $clones . substr($processedInner, $insertPos);
+                }
+            }
+
+            // Rebuild sig-block using original opening tag (prevents duplicate class="sig-block")
+            $replacement = $openTag . $processedInner . '</div>';
+            $html = substr($html, 0, $sbPos) . $replacement . substr($html, $blockEnd);
+            $sbOffset = $sbPos + strlen($replacement);
+        }
+
+        // Step 3: Replace signed-at field spans with editable inputs
+        $html = preg_replace(
+            '/<span\s+class="field\s+field-tiny"\s*>(\{\{[^}]*\}\}|)\s*<\/span>/i',
+            '<span class="field field-tiny signing-input" data-field-key="signed_at" contenteditable="true"></span>',
+            $html
+        );
+
+        return $html;
+    }
+
+    /**
+     * Inject field values into data-field spans in merged HTML.
+     * New-format imported templates use <span data-field="..."> instead of Blade variables.
+     */
+    private function injectFieldValues(string $html, array $data): string
+    {
+        $prefixMap = [
+            'Lessor'   => 'lessor',
+            'Lessor 2' => 'lessor2',
+            'Lessee'   => 'lessee',
+            'Lessee 2' => 'lessee2',
+            'Agent'    => 'agent',
+            'Buyer'    => 'buyer',
+            'Seller'   => 'seller',
+        ];
+
+        $suffixMap = [
+            'first_name+last_name' => 'name',
+            'id_number'            => 'id_number',
+            'email'                => 'email',
+            'phone'                => 'cell',
+            'address'              => 'address',
+            'bank_name'            => 'bank_name',
+            'bank_account_name'    => 'bank_account_name',
+            'bank_account_number'  => 'bank_account_number',
+            'bank_branch_name'     => 'bank_branch_name',
+        ];
+
+        return preg_replace_callback(
+            '/<span([^>]*data-field="([^"]+)"[^>]*)><\/span>/i',
+            function ($matches) use ($data, $prefixMap, $suffixMap) {
+                $attrs     = $matches[1];
+                $dataField = $matches[2];
+                $fullTag   = $matches[0];
+
+                // Skip manual fields and signing fields
+                if (str_starts_with($dataField, 'manual.')) return $fullTag;
+                if (preg_match('/data-field-key=/', $attrs)) return $fullTag;
+
+                // Extract data-contact-type if present
+                $contactType = null;
+                if (preg_match('/data-contact-type="([^"]+)"/', $attrs, $cm)) {
+                    $contactType = $cm[1];
+                }
+
+                $value = null;
+
+                if ($contactType && isset($prefixMap[$contactType])) {
+                    $prefix = $prefixMap[$contactType];
+                    $col    = str_replace('contact.', '', $dataField);
+                    $suffix = $suffixMap[$col] ?? str_replace(['+', '.'], '_', $col);
+                    $key    = $prefix . '_' . $suffix;
+                    $value  = $data[$key] ?? null;
+
+                    // For primary Lessor/Lessee: join co-owner name/ID when a _2 variant exists
+                    if ($value && in_array($contactType, ['Lessor', 'Lessee']) && in_array($suffix, ['name', 'id_number'])) {
+                        $coOwnerKey = $prefix . '_' . $suffix . '_2';
+                        $coOwnerVal = $data[$coOwnerKey] ?? null;
+                        if (!empty($coOwnerVal)) {
+                            $value = $value . ' & ' . $coOwnerVal;
+                        }
+                    }
+
+                    if (empty($value) && str_contains($col, 'bank')) {
+                        $altKey = $prefix . '_bank_' . str_replace('bank_', '', $suffix);
+                        $value  = $data[$altKey] ?? null;
+                    }
+                } elseif (str_starts_with($dataField, 'agent.')) {
+                    $col   = str_replace('agent.', '', $dataField);
+                    $value = $data['agent_' . $col] ?? $data[$col] ?? null;
+                } elseif (str_starts_with($dataField, 'property.')) {
+                    $col = str_replace('property.', '', $dataField);
+
+                    if ($col === 'address+suburb') {
+                        $value = $data['property_address']
+                              ?? $data['street_address']
+                              ?? null;
+                    } elseif ($col === 'rental_amount') {
+                        $raw   = $data['rental_amount'] ?? $data['monthly_rental'] ?? null;
+                        $value = $raw ? number_format((float) $raw, 0, '.', ',') : null;
+                    } else {
+                        $snake = str_replace(['+', '.'], '_', $col);
+                        $value = $data[$snake]
+                              ?? $data['property_' . $snake]
+                              ?? null;
+                    }
+                }
+
+                if (!empty($value)) {
+                    return '<span' . $attrs . '>' . htmlspecialchars((string) $value) . '</span>';
+                }
+
+                return $fullTag;
+            },
+            $html
+        );
+    }
+
+    /**
+     * Normalise a web template field so the wizard JS sees the same keys as PDF fields.
+     *
+     * Web template fields (from DocumentTemplateGenerator::buildFieldsJson) use tag_type
+     * instead of type, and may lack assignedTo on field_group_member entries.
+     * The wizard's fieldInputType() JS reads f.type — this method ensures it exists.
+     */
+    private function normalizeFieldForWizard(array $field, string $renderType): array
+    {
+        // Already has a type key — nothing to do
+        if (!empty($field['type'])) {
+            return $field;
+        }
+
+        // Map tag_type → type (matching what fieldInputType() expects)
+        $tagType = $field['tag_type'] ?? '';
+        $field['type'] = match ($tagType) {
+            'input'       => 'placeholder',
+            'date'        => 'date',
+            'signature'   => 'signature',
+            'initial'     => 'initial',
+            'selection'   => 'selection',
+            'tick'        => 'tick',
+            default       => 'placeholder',
+        };
+
+        // Ensure assignedTo exists (field_group_member entries only have party)
+        if (empty($field['assignedTo']) && !empty($field['party'])) {
+            $field['assignedTo'] = $field['party'];
+        }
+
+        return $field;
+    }
+
     private function stepKey(int $step): string
     {
         return match ($step) {
@@ -1529,4 +2004,5 @@ class ESignWizardController extends Controller
             default => "step_{$step}",
         };
     }
+
 }

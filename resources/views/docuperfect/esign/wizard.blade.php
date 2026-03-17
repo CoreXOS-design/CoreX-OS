@@ -1118,12 +1118,13 @@ function esignWizard() {
         },
 
         fieldInputType(f) {
-            const type = (f.type || 'placeholder').toLowerCase();
+            const type = (f.type || f.tag_type || 'placeholder').toLowerCase();
             if (type === 'date') return 'date';
             if (type === 'selection') return 'select';
             if (type === 'tick') return 'tick';
             if (type === 'strikethrough' || type === 'diagonal') return 'toggle';
             if (type === 'condition' || type === 'clause') return 'textarea';
+            if (type === 'input') return 'text';
             return 'text';
         },
 
