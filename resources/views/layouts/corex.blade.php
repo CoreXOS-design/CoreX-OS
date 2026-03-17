@@ -31,25 +31,27 @@
         @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
         <link rel="stylesheet" href="/css/paye-fix.css">
 
-        {{-- Agency brand colours — 4 semantic roles injected into :root --}}
+        @stack('head')
+
+        {{-- Agency brand colours — MUST be last in <head> to override any bundled CSS --}}
         @auth
         @php
             $_agencyId = auth()->user()?->effectiveAgencyId();
             $_agency   = $_agencyId ? \App\Models\Agency::find($_agencyId) : \App\Models\Agency::first();
         @endphp
         @if($_agency)
-        <style>
-            :root {
-                --brand-sidebar: {{ $_agency->sidebar_color ?? '#0ea5e9' }};
-                --brand-icon:    {{ $_agency->icon_color    ?? '#0ea5e9' }};
-                --brand-default: {{ $_agency->default_color ?? '#0b2a4a' }};
-                --brand-button:  {{ $_agency->button_color  ?? '#0ea5e9' }};
+        <style id="agency-brand">
+            :root,
+            :root[data-theme="dark"],
+            :root[data-theme="light"] {
+                --brand-sidebar: {{ $_agency->sidebar_color ?? '#0ea5e9' }} !important;
+                --brand-icon:    {{ $_agency->icon_color    ?? '#0ea5e9' }} !important;
+                --brand-default: {{ $_agency->default_color ?? '#0b2a4a' }} !important;
+                --brand-button:  {{ $_agency->button_color  ?? '#0ea5e9' }} !important;
             }
         </style>
         @endif
         @endauth
-
-        @stack('head')
     </head>
     <body class="font-sans antialiased">
         {{-- Mobile sidebar toggle --}}
