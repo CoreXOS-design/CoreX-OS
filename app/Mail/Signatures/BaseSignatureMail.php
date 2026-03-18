@@ -2,6 +2,7 @@
 
 namespace App\Mail\Signatures;
 
+use App\Models\Agency;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -67,22 +68,52 @@ abstract class BaseSignatureMail extends Mailable
     }
 
     /**
-     * Get agent contact details for the email footer.
+     * Get agent contact details for the email footer/signature.
      */
     protected function getAgentFooter(): array
     {
+        $agency = null;
+        if ($this->sendingAgent) {
+            $agencyId = $this->sendingAgent->effectiveAgencyId();
+            $agency = $agencyId ? Agency::find($agencyId) : Agency::where('slug', 'hfc-coastal')->first();
+        } else {
+            $agency = Agency::where('slug', 'hfc-coastal')->first();
+        }
+
         if (!$this->sendingAgent) {
             return [
-                'name' => 'Home Finders Coastal',
-                'email' => config('mail.from.address'),
-                'phone' => null,
+                'name'             => 'Home Finders Coastal',
+                'email'            => config('mail.from.address'),
+                'phone'            => null,
+                'designation'      => null,
+                'cell'             => null,
+                'fax'              => null,
+                'ffc_number'       => null,
+                'website'          => $agency->email ?? null,
+                'agent_photo_url'  => null,
+                'logo_url'         => $agency && $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
+                'email_disclaimer' => $agency->email_disclaimer ?? null,
+                'popi_url'         => $agency->popi_url ?? null,
+                'agency_name'      => $agency->name ?? 'Home Finders Coastal',
             ];
         }
 
+        $agent = $this->sendingAgent;
+
         return [
-            'name' => $this->sendingAgent->name,
-            'email' => $this->sendingAgent->email,
-            'phone' => $this->sendingAgent->phone ?? $this->sendingAgent->mobile ?? null,
+            'name'             => $agent->name,
+            'email'            => $agent->email,
+            'phone'            => $agent->phone ?? null,
+            'designation'      => $agent->designation ?? null,
+            'cell'             => $agent->cell ?? null,
+            'fax'              => $agent->fax ?? null,
+            'ffc_number'       => $agent->ffc_number ?? null,
+            'website'          => $agent->website ?? ($agency->email ?? null),
+            'agent_photo_url'  => $agent->agent_photo_path ? asset('storage/' . $agent->agent_photo_path) : null,
+            'logo_url'         => $agency && $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
+            'email_disclaimer' => $agency->email_disclaimer ?? null,
+            'popi_url'         => $agency->popi_url ?? null,
+            'agency_name'      => $agency->name ?? 'Home Finders Coastal',
         ];
     }
 }

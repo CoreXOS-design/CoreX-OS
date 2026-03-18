@@ -31,6 +31,8 @@ class Agency extends Model
         'default_color',
         'button_color',
         'logo_path',
+        'email_disclaimer',
+        'popi_url',
         'is_active',
     ];
 

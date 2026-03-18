@@ -321,6 +321,21 @@
                 </div>
             </div>
 
+            {{-- Designation --}}
+            <div style="margin-top:20px; padding-top:20px; border-top:1px solid var(--border);">
+                <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:12px; text-transform:uppercase; letter-spacing:0.06em;">Title / Designation</div>
+                <div style="max-width:320px;">
+                    <input id="designation" name="designation" type="text" value="{{ old('designation', $user->designation) }}" placeholder="e.g. Sales Agent, CEO, Branch Manager"
+                           style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.875rem; box-sizing:border-box; transition:all 300ms;"
+                           onfocus="this.style.borderColor='var(--brand-button, #0ea5e9)'; this.style.boxShadow='0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 20%, transparent)'"
+                           onblur="this.style.borderColor='var(--border)'; this.style.boxShadow='none'">
+                    @error('designation')
+                        <p style="font-size:0.75rem; color:#f87171; margin-top:4px;">{{ $message }}</p>
+                    @enderror
+                    <p style="font-size:0.7rem; color:var(--text-muted); margin-top:4px;">Shown in your email signature on all outgoing emails.</p>
+                </div>
+            </div>
+
             {{-- Contact Details --}}
             <div style="margin-top:20px; padding-top:20px; border-top:1px solid var(--border);">
                 <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:12px; text-transform:uppercase; letter-spacing:0.06em;">Contact Details</div>

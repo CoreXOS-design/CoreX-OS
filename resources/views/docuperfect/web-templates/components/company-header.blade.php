@@ -14,7 +14,11 @@ if ($_headerDisplay === 'first_page' && $_companyHeaderRenderCount > 1) {
 
 $headerAgency = null;
 $headerBranch = null;
-if (isset($branch)) {
+
+// Allow preview mode: pass $previewAgency to bypass DB lookups
+if (isset($previewAgency)) {
+    $headerAgency = $previewAgency;
+} elseif (isset($branch)) {
     $headerBranch = $branch;
     $headerAgency = $branch->agency;
 } elseif (Auth::check()) {

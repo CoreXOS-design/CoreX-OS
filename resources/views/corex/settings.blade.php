@@ -82,7 +82,7 @@
                 <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Company Settings</h3>
                 <form method="POST" action="{{ route('corex.settings.agency.update') }}" enctype="multipart/form-data"
                       class="space-y-5 p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);"
-                      x-data="{ removelogo: false }">
+                      x-data="agencySettingsForm()" x-init="scheduleRefresh()">
                     @csrf
                     @method('PUT')
 
@@ -187,6 +187,25 @@
                         </div>
                     </div>
 
+                    {{-- Email Signature --}}
+                    <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Email Signature</div>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email Disclaimer</label>
+                            <textarea name="email_disclaimer" rows="4"
+                                      class="w-full rounded-md px-3 py-2 text-sm"
+                                      style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                                      placeholder="Email disclaimer text shown at bottom of all outgoing emails">{{ old('email_disclaimer', $agency->email_disclaimer) }}</textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">POPI Policy URL</label>
+                            <input type="text" name="popi_url" value="{{ old('popi_url', $agency->popi_url) }}"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                                   placeholder="e.g. https://hfcoastal.co.za/popi-policy">
+                        </div>
+                    </div>
+
                     {{-- Logo --}}
                     <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Company Logo</div>
                     <div>
@@ -204,6 +223,35 @@
                                    class="block w-full text-sm rounded-md px-3 py-2"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">
                             <p class="text-xs mt-1" style="color:var(--text-muted);">JPG, PNG, or WebP — max 2 MB.</p>
+                        </div>
+                    </div>
+
+                    {{-- Live Previews --}}
+                    <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Live Previews</div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {{-- Document Header Preview --}}
+                        <div>
+                            <div class="text-xs font-semibold mb-2" style="color:var(--text-secondary);">Document Header</div>
+                            <div class="rounded-md overflow-hidden" style="border:1px solid var(--border); background:#fff;">
+                                <iframe x-ref="headerPreview" style="width:100%; height:240px; border:0;" sandbox="allow-same-origin"></iframe>
+                            </div>
+                        </div>
+
+                        {{-- Email Signature Preview --}}
+                        <div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-xs font-semibold" style="color:var(--text-secondary);">Email Signature</span>
+                                <select x-model="sigPreviewUserId" @change="refreshSignaturePreview()"
+                                        class="rounded text-xs px-2 py-1"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    @foreach($agents ?? [] as $a)
+                                        <option value="{{ $a->id }}" {{ $a->id === auth()->id() ? 'selected' : '' }}>{{ $a->name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="rounded-md overflow-hidden" style="border:1px solid var(--border); background:#fff;">
+                                <iframe x-ref="sigPreview" style="width:100%; height:300px; border:0;" sandbox="allow-same-origin"></iframe>
+                            </div>
                         </div>
                     </div>
 
@@ -1501,4 +1549,64 @@
     </div>{{-- /tab container --}}
 
 </div>
+
+<script>
+function agencySettingsForm() {
+    return {
+        removelogo: false,
+        sigPreviewUserId: '{{ auth()->id() }}',
+        _debounce: null,
+
+        scheduleRefresh() {
+            this.refreshHeaderPreview();
+            this.refreshSignaturePreview();
+
+            // Watch all inputs inside the form for changes
+            this.$el.querySelectorAll('input, textarea, select').forEach(el => {
+                el.addEventListener('input', () => this.debouncedRefresh());
+            });
+        },
+
+        debouncedRefresh() {
+            clearTimeout(this._debounce);
+            this._debounce = setTimeout(() => {
+                this.refreshHeaderPreview();
+                this.refreshSignaturePreview();
+            }, 400);
+        },
+
+        refreshHeaderPreview() {
+            const form = this.$el;
+            const params = new URLSearchParams();
+            const fields = [
+                'trading_name', 'tagline', 'address', 'phone', 'phone_label',
+                'phone_secondary', 'phone_secondary_label', 'fax', 'email',
+                'reg_no', 'vat_no', 'ffc_no', 'fic_no',
+            ];
+            fields.forEach(f => {
+                const el = form.querySelector('[name="' + f + '"]');
+                if (el) params.set(f, el.value);
+            });
+            const url = @json(route('corex.settings.preview-header')) + '?' + params.toString();
+            if (this.$refs.headerPreview) {
+                this.$refs.headerPreview.src = url;
+            }
+        },
+
+        refreshSignaturePreview() {
+            const form = this.$el;
+            const params = new URLSearchParams();
+            params.set('user_id', this.sigPreviewUserId);
+            const disc = form.querySelector('[name="email_disclaimer"]');
+            if (disc) params.set('email_disclaimer', disc.value);
+            const popi = form.querySelector('[name="popi_url"]');
+            if (popi) params.set('popi_url', popi.value);
+            const url = @json(route('corex.settings.preview-signature')) + '?' + params.toString();
+            if (this.$refs.sigPreview) {
+                this.$refs.sigPreview.src = url;
+            }
+        },
+    };
+}
+</script>
 @endsection
