@@ -163,27 +163,7 @@
       source:           'p24',
     };
 
-    // Portal ref: from data attribute or URL
-    try {
-      listing.portal_ref = tile.getAttribute('data-listing-id') ||
-                           tile.getAttribute('data-listingid') ||
-                           tile.dataset.listingId || null;
-
-      // Fallback: extract from the listing link URL
-      if (!listing.portal_ref) {
-        const link = tile.querySelector('a[href*="/for-sale/"], a[href*="/to-rent/"], a[href*="/property/"]');
-        if (link) {
-          const hrefMatch = link.href.match(/\/(\d{6,})/);
-          if (hrefMatch) listing.portal_ref = hrefMatch[1];
-        }
-      }
-
-      if (listing.portal_ref) {
-        listing.portal_ref = 'P24-' + listing.portal_ref.replace(/^P24-/, '');
-      }
-    } catch (e) { /* ignore */ }
-
-    // Portal URL
+    // Portal URL — extract first so we can derive ref and address from it
     try {
       const link = tile.querySelector('a[href*="/for-sale/"], a[href*="/to-rent/"], a[href*="/property/"]') ||
                    tile.querySelector('a[href]');
@@ -192,13 +172,76 @@
       }
     } catch (e) { /* ignore */ }
 
-    // Address
+    // Portal ref: data attribute → URL number → any href number
     try {
+      listing.portal_ref = tile.getAttribute('data-listing-id') ||
+                           tile.getAttribute('data-listingid') ||
+                           tile.dataset.listingId || null;
+
+      // Fallback 1: extract from a listing-specific link
+      if (!listing.portal_ref) {
+        const link = tile.querySelector('a[href*="/for-sale/"], a[href*="/to-rent/"], a[href*="/property/"]');
+        if (link) {
+          const hrefMatch = link.href.match(/\/(\d{6,})/);
+          if (hrefMatch) listing.portal_ref = hrefMatch[1];
+        }
+      }
+
+      // Fallback 2: extract from any anchor href on the tile
+      if (!listing.portal_ref) {
+        const anyLink = tile.querySelector('a[href]');
+        if (anyLink) {
+          const hrefMatch = anyLink.href.match(/\/(\d{5,})/);
+          if (hrefMatch) listing.portal_ref = hrefMatch[1];
+        }
+      }
+
+      // Fallback 3: extract from portal_url we already captured
+      if (!listing.portal_ref && listing.portal_url) {
+        const urlMatch = listing.portal_url.match(/\/(\d{5,})/);
+        if (urlMatch) listing.portal_ref = urlMatch[1];
+      }
+
+      if (listing.portal_ref) {
+        listing.portal_ref = 'P24-' + listing.portal_ref.replace(/^P24-/, '');
+      }
+    } catch (e) { /* ignore */ }
+
+    // Address — multiple fallback strategies
+    try {
+      // 1. Main address selectors
       const addrEl = tile.querySelector('.p24_address, [class*="address"], .p24_title, [class*="listing-title"]');
       if (addrEl) {
         listing.address = addrEl.textContent.trim();
       }
-    } catch (e) { /* ignore */ }
+
+      // 2. Fallback: listing heading / title
+      if (!listing.address) {
+        const heading = tile.querySelector('h2, h3, h4, [class*="heading"], [class*="name"]');
+        if (heading) {
+          listing.address = heading.textContent.trim();
+        }
+      }
+
+      // 3. Fallback: extract suburb from the URL path
+      //    e.g. /for-sale/shelly-beach/kwazulu-natal/584/123456
+      if (!listing.address && listing.portal_url) {
+        const urlPath = new URL(listing.portal_url).pathname;
+        const segments = urlPath.split('/').filter(Boolean);
+        // segments: ["for-sale", "shelly-beach", "kwazulu-natal", "584", "123456"]
+        if (segments.length >= 2) {
+          const suburb = segments[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          listing.address = suburb;
+        }
+      }
+
+      // 4. Final fallback
+      if (!listing.address) {
+        listing.address = 'Address not available';
+      }
+    } catch (e) {
+      if (!listing.address) listing.address = 'Address not available';
+    }
 
     // Suburb: try to extract from address or location element
     try {

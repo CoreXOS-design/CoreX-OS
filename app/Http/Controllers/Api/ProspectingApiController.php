@@ -23,7 +23,7 @@ class ProspectingApiController extends Controller
             'search_context.pages_captured'=> 'required|integer',
             'listings'                     => 'required|array|min:1',
             'listings.*.portal_ref'        => 'required|string',
-            'listings.*.address'           => 'required|string',
+            'listings.*.address'           => 'nullable|string',
             'listings.*.price'             => 'required|integer',
             'listings.*.portal_url'        => 'required|string',
             'listings.*.suburb'            => 'nullable|string',
@@ -61,6 +61,11 @@ class ProspectingApiController extends Controller
         $updated = 0;
 
         foreach ($validated['listings'] as $data) {
+            if (empty($data['portal_ref'])) {
+                \Log::debug('Skipped listing with no portal_ref', ['data' => $data]);
+                continue;
+            }
+
             $existing = ProspectingListing::where('agency_id', $agencyId)
                 ->where('portal_source', $portalSource)
                 ->where('portal_ref', $data['portal_ref'])
