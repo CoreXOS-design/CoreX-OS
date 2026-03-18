@@ -4,32 +4,47 @@
  * Injected on privateproperty.co.za pages. Extracts search context
  * and per-listing data from PP search result pages.
  *
- * All selectors wrapped in try/catch for defensive extraction.
+ * KEY INSIGHT: PP uses hashed React classes that change on every build,
+ * so we cannot rely on CSS class selectors for regular cards. Instead,
+ * we extract addresses from listing URLs which contain the address as
+ * path segments:
+ *   /for-sale/.../suburb/address-part/TXXXXXXX
+ *   /for-sale/.../suburb/address-part1/address-part2/TXXXXXXX
+ *
+ * Featured cards have clean classes (featured-listing__*) so we use
+ * those selectors where available.
  */
 
 (function () {
   'use strict';
 
+  // ── Province / region keywords that are NOT address segments ──
+  const AREA_KEYWORDS = [
+    'south-africa', 'kwazulu-natal', 'kzn-south-coast',
+    'western-cape', 'gauteng', 'eastern-cape', 'free-state', 'limpopo',
+    'mpumalanga', 'north-west', 'northern-cape', 'for-sale', 'to-rent',
+  ];
+
   // ── Search page detection ──────────────────────────────────
   function isSearchResultsPage() {
-    // PP search pages have listing result cards
-    const hasResults = !!(
-      document.querySelector('[class*="listing-result"]') ||
-      document.querySelector('[class*="listingResult"]') ||
-      document.querySelector('.listing-card') ||
-      document.querySelector('[data-testid*="listing"]') ||
-      document.querySelector('.result-card') ||
-      document.querySelector('.property-card')
-    );
+    // PP search pages have listing links ending in /TXXXXXXX
+    const listingLinks = document.querySelectorAll('a[href*="/for-sale/"], a[href*="/to-rent/"]');
+    let hasListings = false;
+    listingLinks.forEach(link => {
+      const href = link.getAttribute('href') || '';
+      if (/\/T\d{5,}$/.test(href) || /\/T\d{5,}\/?$/.test(href)) {
+        hasListings = true;
+      }
+    });
 
-    // Detail pages have a single large listing with gallery
+    // Detail pages have gallery carousels
     const isDetailPage = !!(
-      document.querySelector('[class*="listing-detail"]') ||
       document.querySelector('[class*="galleryCarousel"]') ||
+      document.querySelector('[class*="listing-detail"]') ||
       document.querySelector('.property-detail-page')
     );
 
-    return hasResults && !isDetailPage;
+    return hasListings && !isDetailPage;
   }
 
   // ── Extract search context ─────────────────────────────────
@@ -38,71 +53,53 @@
     let totalResults = null;
     let totalPages   = null;
 
-    // Search term from heading or breadcrumb
+    // Search term from h1
     try {
       const h1 = document.querySelector('h1');
-      if (h1) {
-        searchTerm = h1.textContent.trim();
-      }
+      if (h1) searchTerm = h1.textContent.trim();
     } catch (e) { /* ignore */ }
 
     if (!searchTerm) {
       try {
-        const title = document.title || '';
-        searchTerm = title.split('|')[0].split('-')[0].trim();
+        searchTerm = (document.title || '').split('|')[0].split('-')[0].trim();
       } catch (e) { /* ignore */ }
     }
 
-    // Total results count
+    // Total results: "1-20 of 776 results"
     try {
-      const countEl =
-        document.querySelector('[class*="results-count"]') ||
-        document.querySelector('[class*="resultsCount"]') ||
-        document.querySelector('[class*="search-count"]') ||
-        document.querySelector('[class*="totalResults"]');
-
-      if (countEl) {
-        const text = countEl.textContent.trim();
-        const match = text.match(/([\d,\s]+)\s*(?:results?|propert|listing)/i) ||
-                      text.match(/([\d,\s]+)/);
-        if (match) {
-          totalResults = parseInt(match[1].replace(/[\s,]/g, ''), 10);
-        }
+      const bodyText = document.body.innerText;
+      const totalMatch = bodyText.match(/of\s+([\d,]+)\s+results/i);
+      if (totalMatch) {
+        totalResults = parseInt(totalMatch[1].replace(/,/g, ''), 10);
+        totalPages = Math.ceil(totalResults / 20);
       }
     } catch (e) { /* ignore */ }
 
-    // Fallback: count visible tiles
+    // Fallback: count visible listing links
     if (!totalResults) {
       try {
-        const tiles = getListingTiles();
-        if (tiles.length > 0) {
-          totalResults = tiles.length;
-        }
+        const seen = new Set();
+        document.querySelectorAll('a[href*="/for-sale/"], a[href*="/to-rent/"]').forEach(link => {
+          const href = link.getAttribute('href') || '';
+          const m = href.match(/\/(T\d{5,})\/?$/);
+          if (m) seen.add(m[1]);
+        });
+        if (seen.size > 0) totalResults = seen.size;
       } catch (e) { /* ignore */ }
     }
 
-    // Total pages from pagination
+    // Total pages from pagination links
     try {
-      const pageLinks = document.querySelectorAll(
-        '.pagination a, [class*="pagination"] a, [class*="pager"] a, nav[aria-label*="page"] a'
-      );
+      const pageLinks = document.querySelectorAll('a[href*="page="]');
       let maxPage = 1;
       pageLinks.forEach(link => {
-        const num = parseInt(link.textContent.trim(), 10);
-        if (!isNaN(num) && num > maxPage) maxPage = num;
-      });
-
-      // Check for next page link
-      const nextBtn = document.querySelector('[class*="next"], [aria-label="Next"]');
-      if (nextBtn && nextBtn.href) {
-        const urlMatch = nextBtn.href.match(/[?&]page=(\d+)/i);
-        if (urlMatch) {
-          const nextPage = parseInt(urlMatch[1], 10);
-          if (nextPage > maxPage) maxPage = nextPage;
+        const m = (link.getAttribute('href') || '').match(/page=(\d+)/);
+        if (m) {
+          const p = parseInt(m[1], 10);
+          if (p > maxPage) maxPage = p;
         }
-      }
-
-      totalPages = maxPage;
+      });
+      if (maxPage > (totalPages || 1)) totalPages = maxPage;
     } catch (e) { /* ignore */ }
 
     // Calculate total pages from results if needed
@@ -118,216 +115,178 @@
     };
   }
 
-  // ── Get listing tile elements ──────────────────────────────
-  function getListingTiles() {
-    const selectors = [
-      '[class*="listing-result"]',
-      '[class*="listingResult"]',
-      '.listing-card',
-      '.result-card',
-      '.property-card',
-      '[data-testid*="listing"]',
-      '[class*="PropertyCard"]',
-    ];
-
-    for (const sel of selectors) {
-      const tiles = document.querySelectorAll(sel);
-      if (tiles.length > 0) return Array.from(tiles);
-    }
-
-    return [];
+  // ── Title-case a hyphenated path segment ───────────────────
+  function titleCase(segment) {
+    return segment
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
   }
 
-  // ── Extract data from a single listing tile ────────────────
-  function extractListing(tile) {
-    const listing = {
-      portal_ref:       null,
-      portal_url:       null,
-      address:          null,
-      suburb:           null,
-      price:            null,
-      bedrooms:         null,
-      bathrooms:        null,
-      garages:          null,
-      property_size_m2: null,
-      erf_size_m2:      null,
-      property_type:    null,
-      agent_name:       null,
-      agency_name:      null,
-      thumbnail_url:    null,
-      source:           'pp',
-    };
+  // ── Extract address + suburb from a PP listing URL ─────────
+  // URL pattern: /for-sale/province/region/city/suburb/addr1/addr2/TXXXXXXX
+  // Address segments are between the suburb and the TXXXXXXX ref.
+  // Address segments typically contain numbers (street numbers).
+  function extractAddressFromUrl(href) {
+    const pathSegments = href.split('/').filter(Boolean);
+    const refIdx = pathSegments.findIndex(s => /^T\d{5,}$/.test(s));
 
-    // Portal ref from data attribute or URL
-    try {
-      listing.portal_ref = tile.getAttribute('data-listing-id') ||
-                           tile.getAttribute('data-id') ||
-                           tile.dataset.listingId || null;
+    if (refIdx <= 0) return { address: null, suburb: null };
 
-      if (!listing.portal_ref) {
-        const link = tile.querySelector('a[href*="/for-sale/"], a[href*="/to-rent/"], a[href]');
-        if (link) {
-          const hrefMatch = link.href.match(/\/(\d{5,})/);
-          if (hrefMatch) listing.portal_ref = hrefMatch[1];
-        }
+    const addrParts = [];
+    let suburb = null;
+
+    // Walk backwards from ref to find address segments
+    for (let i = refIdx - 1; i >= 0; i--) {
+      const seg = pathSegments[i];
+      if (AREA_KEYWORDS.includes(seg)) break;
+
+      // Address segments typically contain numbers, or prefixes like ss-, bc-
+      if (/\d/.test(seg) || seg.includes('ss-') || seg.includes('bc-')) {
+        addrParts.unshift(seg);
+      } else {
+        // This is likely the suburb
+        suburb = titleCase(seg);
+        break;
       }
+    }
 
-      if (listing.portal_ref) {
-        listing.portal_ref = 'PP-' + listing.portal_ref.replace(/^PP-/, '');
-      }
-    } catch (e) { /* ignore */ }
+    if (addrParts.length === 0) return { address: null, suburb: suburb };
 
-    // Portal URL
-    try {
-      const link = tile.querySelector('a[href*="/for-sale/"], a[href*="/to-rent/"], a[href]');
-      if (link) {
-        listing.portal_url = link.href;
-      }
-    } catch (e) { /* ignore */ }
-
-    // Address
-    try {
-      const addrEl = tile.querySelector(
-        '[class*="address"], [class*="title"], [class*="listing-name"], h2, h3'
-      );
-      if (addrEl) {
-        listing.address = addrEl.textContent.trim();
-      }
-    } catch (e) { /* ignore */ }
-
-    // Suburb
-    try {
-      const locEl = tile.querySelector(
-        '[class*="location"], [class*="suburb"], [class*="area"]'
-      );
-      if (locEl) {
-        listing.suburb = locEl.textContent.trim();
-      } else if (listing.address) {
-        const parts = listing.address.split(',').map(s => s.trim());
-        if (parts.length > 1) listing.suburb = parts[parts.length - 1];
-      }
-    } catch (e) { /* ignore */ }
-
-    // Price
-    try {
-      const priceEl = tile.querySelector('[class*="price"], [class*="Price"]');
-      if (priceEl) {
-        const cleaned = priceEl.textContent.replace(/[^\d]/g, '');
-        if (cleaned) listing.price = parseInt(cleaned, 10);
-      }
-    } catch (e) { /* ignore */ }
-
-    // Features: bedrooms, bathrooms, garages
-    try {
-      const features = tile.querySelectorAll(
-        '[class*="feature"] span, [class*="Feature"] span, [class*="icon-feature"], li[class*="feature"]'
-      );
-
-      features.forEach(feat => {
-        const text  = feat.textContent.trim().toLowerCase();
-        const title = (feat.getAttribute('title') || feat.getAttribute('aria-label') || '').toLowerCase();
-        const cls   = (feat.className || '').toLowerCase();
-        const num   = parseInt(text, 10);
-
-        if (isNaN(num)) return;
-
-        if (title.includes('bed') || cls.includes('bed') || text.includes('bed')) {
-          listing.bedrooms = num;
-        } else if (title.includes('bath') || cls.includes('bath') || text.includes('bath')) {
-          listing.bathrooms = num;
-        } else if (title.includes('garage') || title.includes('parking') ||
-                   cls.includes('garage') || cls.includes('parking') || text.includes('garage')) {
-          listing.garages = num;
-        }
-      });
-
-      // Fallback: look for SVG icon patterns with sibling text
-      if (listing.bedrooms === null || listing.bathrooms === null) {
-        const iconGroups = tile.querySelectorAll('[class*="feature"], [class*="amenity"]');
-        iconGroups.forEach(group => {
-          const svg = group.querySelector('svg, img');
-          const numEl = group.querySelector('span, p');
-          if (!svg || !numEl) return;
-
-          const svgClass = ((svg.className && svg.className.baseVal) || svg.getAttribute('data-icon') || '').toLowerCase();
-          const imgAlt   = (svg.getAttribute('alt') || '').toLowerCase();
-          const hint     = svgClass + ' ' + imgAlt;
-          const n        = parseInt(numEl.textContent.trim(), 10);
-          if (isNaN(n)) return;
-
-          if (hint.includes('bed') && listing.bedrooms === null) listing.bedrooms = n;
-          else if (hint.includes('bath') && listing.bathrooms === null) listing.bathrooms = n;
-          else if ((hint.includes('garage') || hint.includes('parking')) && listing.garages === null) listing.garages = n;
-        });
-      }
-    } catch (e) { /* ignore */ }
-
-    // Property/erf size
-    try {
-      const sizeEls = tile.querySelectorAll('[class*="size"], [class*="Size"], [class*="area"]');
-      sizeEls.forEach(el => {
-        const text = (el.textContent + ' ' + (el.getAttribute('title') || '')).toLowerCase();
-        const numMatch = text.match(/([\d,.]+)\s*m/);
-        if (numMatch) {
-          const val = parseFloat(numMatch[1].replace(/,/g, ''));
-          if (text.includes('erf') || text.includes('land') || text.includes('stand')) {
-            listing.erf_size_m2 = val;
-          } else if (text.includes('floor') || text.includes('size')) {
-            listing.property_size_m2 = val;
-          } else if (!listing.erf_size_m2) {
-            listing.erf_size_m2 = val;
-          }
-        }
-      });
-    } catch (e) { /* ignore */ }
-
-    // Property type
-    try {
-      const typeEl = tile.querySelector(
-        '[class*="property-type"], [class*="propertyType"], [class*="listing-type"], [class*="badge"]'
-      );
-      if (typeEl) listing.property_type = typeEl.textContent.trim();
-    } catch (e) { /* ignore */ }
-
-    // Agent name
-    try {
-      const agentEl = tile.querySelector(
-        '[class*="agent-name"], [class*="agentName"], [class*="consultant"]'
-      );
-      if (agentEl) listing.agent_name = agentEl.textContent.trim();
-    } catch (e) { /* ignore */ }
-
-    // Agency name
-    try {
-      const agencyEl = tile.querySelector(
-        '[class*="agency"], [class*="Agency"], [class*="brand"], [class*="logo"] + span'
-      );
-      if (agencyEl) listing.agency_name = agencyEl.textContent.trim();
-    } catch (e) { /* ignore */ }
-
-    // Thumbnail
-    try {
-      const img = tile.querySelector('img[src], img[data-src]');
-      if (img) {
-        listing.thumbnail_url = img.src || img.dataset.src || img.getAttribute('data-original') || null;
-      }
-    } catch (e) { /* ignore */ }
-
-    return listing;
+    const address = addrParts.map(p => titleCase(p)).join(', ');
+    return { address, suburb };
   }
 
   // ── Extract all listings from current page ─────────────────
   function extractAllListings() {
-    const tiles = getListingTiles();
     const listings = [];
+    const seen = new Set();
 
-    tiles.forEach(tile => {
+    // Find ALL listing links on the page
+    const allLinks = document.querySelectorAll('a[href*="/for-sale/"], a[href*="/to-rent/"]');
+
+    allLinks.forEach(link => {
+      const href = link.getAttribute('href') || '';
+      // Match PP listing URLs ending in /TXXXXXXX
+      const refMatch = href.match(/\/(T\d{5,})\/?$/);
+      if (!refMatch) return;
+
+      const ref = refMatch[1];
+      if (seen.has(ref)) return;
+      seen.add(ref);
+
+      // Find the listing card — walk up to find a substantial container
+      let card = link;
+      for (let i = 0; i < 5; i++) {
+        if (card.parentElement) card = card.parentElement;
+      }
+
+      // Extract address from URL
+      const { address, suburb } = extractAddressFromUrl(href);
+
+      // Skip listings without a real address
+      if (!address) return;
+
+      // Extract price from card text
+      let price = null;
       try {
-        const listing = extractListing(tile);
-        if (listing.portal_ref || listing.address || listing.portal_url) {
-          listings.push(listing);
+        // Try featured-listing price element first
+        const priceEl = card.querySelector('.featured-listing__price, [class*="price"], [class*="Price"]');
+        if (priceEl) {
+          const cleaned = priceEl.textContent.replace(/[^\d]/g, '');
+          if (cleaned && cleaned.length >= 4) price = parseInt(cleaned, 10);
         }
-      } catch (e) { /* skip broken tile */ }
+        if (!price) {
+          const priceMatch = card.textContent.match(/R\s*([\d\s]+)/);
+          if (priceMatch) {
+            price = parseInt(priceMatch[1].replace(/\s/g, ''), 10);
+          }
+        }
+      } catch (e) { /* ignore */ }
+
+      // Extract property type and bedrooms from card text
+      let propertyType = null;
+      let bedrooms = null;
+      try {
+        const typeMatch = card.textContent.match(/(\d+)\s+Bedroom\s+(House|Apartment|Townhouse|Flat|Duplex|Simplex)/i);
+        if (typeMatch) {
+          bedrooms = parseInt(typeMatch[1], 10);
+          propertyType = typeMatch[2];
+        } else {
+          const landMatch = card.textContent.match(/([\d\s]+)\s*m[²2]\s+Land/i);
+          if (landMatch) propertyType = 'Land';
+        }
+      } catch (e) { /* ignore */ }
+
+      // Extract features from featured-listing cards
+      let bathrooms = null;
+      let garages = null;
+      let erfSize = null;
+
+      try {
+        const bedEl = card.querySelector('[title="Bedrooms"]');
+        if (bedEl) {
+          const v = parseInt(bedEl.textContent.trim(), 10);
+          if (!isNaN(v)) bedrooms = v;
+        }
+        const bathEl = card.querySelector('[title="Bathrooms"]');
+        if (bathEl) {
+          const v = parseInt(bathEl.textContent.trim(), 10);
+          if (!isNaN(v)) bathrooms = v;
+        }
+        const parkEl = card.querySelector('[title="Parking spaces"]');
+        if (parkEl) {
+          const v = parseInt(parkEl.textContent.trim(), 10);
+          if (!isNaN(v)) garages = v;
+        }
+        const sizeEl = card.querySelector('[title="Land size"], [title="Floor size"]');
+        if (sizeEl) {
+          const m = sizeEl.textContent.match(/([\d\s,.]+)\s*m/);
+          if (m) erfSize = parseFloat(m[1].replace(/[\s,]/g, ''));
+        }
+      } catch (e) { /* ignore */ }
+
+      // Agency from image alt
+      let agencyName = null;
+      try {
+        const agencyImgs = card.querySelectorAll('img[alt]');
+        agencyImgs.forEach(img => {
+          const alt = img.getAttribute('alt') || '';
+          // Skip listing images (they repeat the type)
+          if (alt && !alt.includes('Bedroom') && !alt.includes('Land') &&
+              alt.length > 3 && alt.length < 60) {
+            agencyName = alt;
+          }
+        });
+      } catch (e) { /* ignore */ }
+
+      // Thumbnail
+      let thumbnail = null;
+      try {
+        const thumbImg = card.querySelector('img[src*="images.prop24"], img[src*="images.pp.co.za"], img[src*="privateproperty"]');
+        if (thumbImg) thumbnail = thumbImg.getAttribute('src') || null;
+        if (!thumbnail) {
+          const anyImg = card.querySelector('img[src]');
+          if (anyImg) thumbnail = anyImg.getAttribute('src') || null;
+        }
+      } catch (e) { /* ignore */ }
+
+      listings.push({
+        portal_ref:       'PP-' + ref,
+        portal_url:       href.startsWith('http') ? href : 'https://www.privateproperty.co.za' + href,
+        address:          address,
+        suburb:           suburb,
+        price:            price,
+        bedrooms:         bedrooms,
+        bathrooms:        bathrooms,
+        garages:          garages,
+        property_size_m2: null,
+        erf_size_m2:      erfSize,
+        property_type:    propertyType,
+        agent_name:       null,
+        agency_name:      agencyName,
+        thumbnail_url:    thumbnail,
+        source:           'pp',
+      });
     });
 
     return listings;
@@ -336,14 +295,12 @@
   // ── Message handler ────────────────────────────────────────
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === 'getPageInfo') {
-      const context = getSearchContext();
-      sendResponse(context);
+      sendResponse(getSearchContext());
       return true;
     }
 
     if (msg.action === 'getListings') {
-      const listings = extractAllListings();
-      sendResponse({ listings: listings });
+      sendResponse({ listings: extractAllListings() });
       return true;
     }
 

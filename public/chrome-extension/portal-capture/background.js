@@ -504,27 +504,18 @@ async function runCaptureLoop(startPage) {
 
       const pageUrl = buildPageUrl(capture.baseUrl, p, capture.portal);
 
-      if (capture.portal === 'p24') {
-        // P24: navigate tab to page, extract from live DOM via content script
-        try {
-          const listings = await getListingsFromTab(capture.tabId, pageUrl);
-          if (listings && listings.length > 0) {
-            capture.pendingListings.push(...listings);
-            capture.capturedListings += listings.length;
-          } else {
-            capture.parseWarnings++;
-          }
-        } catch (e) {
+      // Both P24 and PP: navigate tab to page, extract from live DOM via content script
+      try {
+        const listings = await getListingsFromTab(capture.tabId, pageUrl);
+        if (listings && listings.length > 0) {
+          capture.pendingListings.push(...listings);
+          capture.capturedListings += listings.length;
+        } else {
           capture.parseWarnings++;
-          // Continue to next page on error
         }
-      } else {
-        // PP: fetch via background HTTP
-        const result = await fetchPageWithRetry(pageUrl, capture.portal);
-        if (result.listings && result.listings.length > 0) {
-          capture.pendingListings.push(...result.listings);
-          capture.capturedListings += result.listings.length;
-        }
+      } catch (e) {
+        capture.parseWarnings++;
+        // Continue to next page on error
       }
 
       context.pages_captured = p;
