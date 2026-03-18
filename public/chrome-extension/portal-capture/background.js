@@ -573,19 +573,42 @@ function parseListingsFromHtml(html, portal) {
     // P24 has multiple card types (regularTile, proTile, groupedResultTile, etc.)
     // ALL have data-listing-number. Deduplicate to avoid nested wrappers.
     const allTiles = doc.querySelectorAll('[data-listing-number]');
-    const addrCount = doc.querySelectorAll('.p24_address').length;
-    console.log('[CoreX P24] Found ' + allTiles.length + ' [data-listing-number] elements, ' + addrCount + ' with .p24_address');
-
     const seen = new Set();
+    const cards = [];
 
     allTiles.forEach(tile => {
-      try {
-        const num = tile.getAttribute('data-listing-number');
-        if (!num || seen.has(num)) return;
+      const num = tile.getAttribute('data-listing-number');
+      if (num && !seen.has(num)) {
         seen.add(num);
-        listings.push(extractP24Listing(tile));
+        cards.push(tile);
+      }
+    });
+
+    // Diagnostic logging — what does the parsed HTML actually contain?
+    const addrEls = doc.querySelectorAll('.p24_address');
+    const firstCard = cards[0];
+    console.log('[CoreX P24] Page parse:', {
+      totalTiles: allTiles.length,
+      uniqueTiles: cards.length,
+      withAddress: cards.filter(c => c.querySelector('.p24_address')).length,
+      globalAddressEls: addrEls.length,
+      firstTileClasses: firstCard ? firstCard.className : 'none',
+      firstTileHTML: firstCard ? (firstCard.innerHTML || '').substring(0, 300) : 'empty',
+    });
+
+    cards.forEach(card => {
+      try {
+        listings.push(extractP24Listing(card));
       } catch (e) { /* skip */ }
     });
+
+    // Log extraction results
+    const withAddr = listings.filter(l => l.address && l.address !== 'Address not available');
+    console.log('[CoreX P24] Extracted:', listings.length, 'total,', withAddr.length, 'with address');
+    if (listings.length > 0 && withAddr.length === 0) {
+      // Log first listing for debugging
+      console.log('[CoreX P24] First listing sample:', JSON.stringify(listings[0], null, 2));
+    }
   } else if (portal === 'pp') {
     const tiles = findTiles(doc, [
       '[class*="listing-result"]',
