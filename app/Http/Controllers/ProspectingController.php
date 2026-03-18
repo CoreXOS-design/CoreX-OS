@@ -95,7 +95,6 @@ class ProspectingController extends Controller
         // Cross-reference P24 email imports
         $p24Refs = $allListings->filter(fn($l) => str_starts_with($l->portal_ref ?? '', 'P24-'))
             ->pluck('portal_ref')
-            ->map(fn($ref) => str_replace('P24-', '', $ref))
             ->filter()
             ->unique()
             ->values()
@@ -109,7 +108,7 @@ class ProspectingController extends Controller
 
             foreach ($allListings as $listing) {
                 if (str_starts_with($listing->portal_ref ?? '', 'P24-')) {
-                    $num = str_replace('P24-', '', $listing->portal_ref);
+                    $num = $listing->portal_ref;
                     if (isset($emailData[$num])) {
                         $match = $emailData[$num];
                         $listing->email_first_seen = $match->first_seen_date;
