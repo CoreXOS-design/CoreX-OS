@@ -174,11 +174,8 @@
       if (seen.has(ref)) return;
       seen.add(ref);
 
-      // Find the listing card — walk up to find a substantial container
+      // The <a> tag IS the card — it wraps all listing content (price, type, features, images)
       let card = link;
-      for (let i = 0; i < 5; i++) {
-        if (card.parentElement) card = card.parentElement;
-      }
 
       // Extract address from URL
       const { address, suburb } = extractAddressFromUrl(href);
