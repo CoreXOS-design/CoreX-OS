@@ -390,8 +390,9 @@
     @endif
 
     {{-- Feedback Modal --}}
-    <div x-data="feedbackModal()" x-show="open" x-cloak
+    <div x-data="{ open: false, listingId: null, status: 'contacted' }" x-show="open" x-cloak
          style="position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6);"
+         @open-feedback.window="listingId = $event.detail.id; status = $event.detail.status; open = true"
          @keydown.escape.window="open = false">
         <div @click.outside="open = false"
              style="background:#0b2a4a; border:1px solid #1e3a5f; border-radius:12px; padding:24px; width:100%; max-width:440px;">
@@ -449,26 +450,10 @@
 </div>
 
 <script>
-function feedbackModal() {
-    return {
-        open: false,
-        listingId: null,
-        status: 'contacted',
-        openModal(id, currentStatus) {
-            this.listingId = id;
-            this.status = currentStatus;
-            this.open = true;
-        }
-    };
-}
-
 function openFeedbackModal(listingId, currentStatus) {
-    const modal = document.querySelector('[x-data="feedbackModal()"]');
-    if (modal && modal.__x) {
-        modal.__x.$data.listingId = listingId;
-        modal.__x.$data.status = currentStatus;
-        modal.__x.$data.open = true;
-    }
+    window.dispatchEvent(new CustomEvent('open-feedback', {
+        detail: { id: listingId, status: currentStatus }
+    }));
 }
 </script>
 @endsection
