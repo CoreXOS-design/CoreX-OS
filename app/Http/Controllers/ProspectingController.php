@@ -92,6 +92,35 @@ class ProspectingController extends Controller
         // Get all filtered listings
         $allListings = $query->get();
 
+        // Cross-reference P24 email imports
+        $p24Refs = $allListings->filter(fn($l) => str_starts_with($l->portal_ref ?? '', 'P24-'))
+            ->pluck('portal_ref')
+            ->map(fn($ref) => str_replace('P24-', '', $ref))
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (count($p24Refs) > 0) {
+            $emailData = \App\Models\P24Listing::whereIn('p24_listing_number', $p24Refs)
+                ->select('p24_listing_number', 'first_seen_date', 'original_price', 'times_seen', 'listing_status')
+                ->get()
+                ->keyBy('p24_listing_number');
+
+            foreach ($allListings as $listing) {
+                if (str_starts_with($listing->portal_ref ?? '', 'P24-')) {
+                    $num = str_replace('P24-', '', $listing->portal_ref);
+                    if (isset($emailData[$num])) {
+                        $match = $emailData[$num];
+                        $listing->email_first_seen = $match->first_seen_date;
+                        $listing->email_original_price = $match->original_price;
+                        $listing->email_times_seen = $match->times_seen;
+                        $listing->email_listing_status = $match->listing_status;
+                    }
+                }
+            }
+        }
+
         // Group by property_group_id — one row per property
         $grouped = $allListings->groupBy(function ($item) {
             return $item->property_group_id ?? 'single_' . $item->id;

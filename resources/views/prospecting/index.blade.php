@@ -355,7 +355,19 @@
                         </td>
 
                         {{-- First Seen --}}
-                        <td class="px-3 py-2 text-sm" style="color:var(--text-secondary);">{{ $listing->first_seen_at->format('d M Y') }}</td>
+                        <td class="px-3 py-2 text-sm" style="color:var(--text-secondary);">
+                            {{ $listing->first_seen_at->format('d M Y') }}
+                            @if(!empty($listing->email_first_seen))
+                                <div class="text-xs" style="color:#f59e0b;" title="First seen in P24 email alerts">
+                                    Email: {{ \Carbon\Carbon::parse($listing->email_first_seen)->format('d M Y') }}
+                                </div>
+                            @endif
+                            @if(!empty($listing->email_times_seen) && $listing->email_times_seen > 1)
+                                <div class="text-xs" style="color:var(--text-muted);">
+                                    Seen {{ $listing->email_times_seen }}x
+                                </div>
+                            @endif
+                        </td>
 
                         {{-- Status --}}
                         <td class="px-3 py-2 text-center">
