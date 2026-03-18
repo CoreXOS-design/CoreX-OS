@@ -343,7 +343,10 @@ function extractMeta(tile, listing, portal) {
       ? '.p24_agentName, [class*="agent-name"], [class*="agentName"]'
       : '[class*="agent-name"], [class*="agentName"], [class*="consultant"]';
     const el = tile.querySelector(agentSelectors);
-    if (el) listing.agent_name = el.textContent.trim();
+    if (el) {
+      const name = el.textContent.trim();
+      if (name.length <= 100) listing.agent_name = name;
+    }
   } catch (e) { /* */ }
 
   // Agency name
@@ -352,7 +355,10 @@ function extractMeta(tile, listing, portal) {
       ? '.p24_branchName, [class*="agency"], [class*="branch"]'
       : '[class*="agency"], [class*="Agency"], [class*="brand"]';
     const el = tile.querySelector(agencySelectors);
-    if (el) listing.agency_name = el.textContent.trim();
+    if (el) {
+      const name = el.textContent.trim();
+      if (name.length <= 100) listing.agency_name = name;
+    }
   } catch (e) { /* */ }
 
   // Thumbnail

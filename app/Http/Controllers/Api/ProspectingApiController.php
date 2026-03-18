@@ -66,6 +66,14 @@ class ProspectingApiController extends Controller
                 continue;
             }
 
+            // Truncate strings to column max lengths — defence in depth
+            $data['address']       = substr($data['address'] ?? '', 0, 255);
+            $data['suburb']        = substr($data['suburb'] ?? '', 0, 100);
+            $data['district']      = substr($data['district'] ?? '', 0, 100);
+            $data['property_type'] = substr($data['property_type'] ?? '', 0, 50);
+            $data['agent_name']    = substr($data['agent_name'] ?? '', 0, 100);
+            $data['agency_name']   = substr($data['agency_name'] ?? '', 0, 100);
+
             $existing = ProspectingListing::where('agency_id', $agencyId)
                 ->where('portal_source', $portalSource)
                 ->where('portal_ref', $data['portal_ref'])

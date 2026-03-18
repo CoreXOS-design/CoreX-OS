@@ -559,7 +559,8 @@
         '.p24_agentName, [class*="agent-name"], [class*="agentName"], [class*="consultant"]'
       );
       if (agentEl) {
-        listing.agent_name = agentEl.textContent.trim();
+        const name = agentEl.textContent.trim();
+        if (name.length <= 100) listing.agent_name = name;
       }
 
       // Strategy 2: find an img with alt text like "Agent: John Smith"
@@ -592,7 +593,8 @@
         '.p24_branchName, [class*="agency"], [class*="branch"], [class*="logo-name"]'
       );
       if (agencyEl) {
-        listing.agency_name = agencyEl.textContent.trim();
+        const name = agencyEl.textContent.trim();
+        if (name.length <= 100) listing.agency_name = name;
       }
 
       // Strategy 2: agency logo img alt text
