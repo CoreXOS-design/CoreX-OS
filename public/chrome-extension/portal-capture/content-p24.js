@@ -205,37 +205,30 @@
     return false;
   }
 
-  // ── Street address detection ─────────────────────────────────────────
+  // ── Address classification helpers ─────────────────────────────────────
   const STREET_WORDS = /\b(road|street|avenue|drive|place|close|crescent|lane|way|court|circle|terrace|boulevard|ave|rd|st|dr|blvd|cres|crt)\b/i;
-  const COMPLEX_WORDS = /\b(estate|village|complex|lodge|manor|park|gardens|court|villas|heights|towers|ridge|mews|close|place)\b/i;
   const PRICE_PATTERN = /^R\s*[\d\s,]+/;
   const TYPE_PATTERN = /^\d+\s+bedroom/i;
-  const DESCRIPTION_MIN_LENGTH = 80;
+
+  // Text after suburb starting with these words = description, not address
+  const DESCRIPTION_STARTERS = /^(This|Discover|Welcome|Experience|Make|Situated|Step|If|Nestled|Coastal|Eco|SOLE|\*\*Your|\?\?)/i;
 
   /**
-   * Checks if text looks like a street address or complex name.
-   * Returns 'street' | 'complex' | false
+   * Checks if text qualifies as a street address (the line immediately after suburb).
+   * Must be: under 80 chars, not price/type/badge/description-starter,
+   * not ALL CAPS marketing, and must contain a digit OR street word OR "Ss " (sectional scheme).
    */
-  function classifyAddressText(text) {
+  function isAddressLine(text) {
     if (!text) return false;
     const t = text.trim();
     if (t.length < 3 || t.length > 80) return false;
-    // Reject prices, type lines, badges, descriptions
     if (PRICE_PATTERN.test(t)) return false;
     if (TYPE_PATTERN.test(t)) return false;
     if (isBadgeText(t)) return false;
-    // Reject obvious descriptions (long sentences)
-    if (t.length > 60 && t.includes(' ')) {
-      const words = t.split(/\s+/).length;
-      if (words > 10) return false;
-    }
-    // Check for street indicators
-    if (STREET_WORDS.test(t)) return 'street';
-    // Check for complex/estate names
-    if (COMPLEX_WORDS.test(t)) return 'complex';
-    // Short proper-noun phrase (starts with number or capital, under 50 chars)
-    // e.g. "19 Nicholson Avenue", "Stafford Place", "1a Alan Road"
-    if (t.length < 50 && /^[\dA-Z]/.test(t) && !t.includes('...')) return 'street';
+    if (DESCRIPTION_STARTERS.test(t)) return false;
+    if (t === t.toUpperCase() && t.length > 3) return false; // ALL CAPS marketing
+    // Must contain a number, a street word, or "Ss " (sectional scheme)
+    if (/\d/.test(t) || STREET_WORDS.test(t) || /\bSs\s/.test(t)) return true;
     return false;
   }
 
@@ -315,22 +308,22 @@
       }
     } catch (e) { /* ignore */ }
 
-    // ── Address + Suburb — walk card body to find the street address ──
-    // P24 card structure (top to bottom):
-    //   Price line   → "R 1 200 000"
-    //   Type line    → "3 Bedroom Apartment"
-    //   Suburb line  → "Uvongo" (bold, short)
-    //   ADDRESS line → "Stafford Place, 19 Nicholson Avenue" ← we want this
-    //   Description  → "Step into the home and you are..." (long text)
+    // ── Address + Suburb — single-pass walk through card text elements ──
+    // P24 card structure (top to bottom in DOM order):
+    //   Line 1: "R 1 780 000"              ← price
+    //   Line 2: "3 Bedroom House"           ← type
+    //   Line 3: "Uvongo"                    ← suburb
+    //   Line 4: "1a Alan Road"              ← address (OPTIONAL)
+    //   Line 5: "This charming..."          ← description (long text)
+    //   Line 6: features (beds/baths/etc)
     //
-    // Strategy: collect all short text elements in the tile, classify each,
-    // and find the address line that sits between suburb and description.
+    // When no address: description starts immediately after suburb.
     try {
       let typeLine = null;
       let suburbFromCard = null;
       let streetAddress = null;
 
-      // Collect all leaf text elements with their own text (no child text bleed)
+      // Collect all text elements with their own text (no child text bleed)
       const textElements = [];
       const walker = document.createTreeWalker(tile, NodeFilter.SHOW_ELEMENT);
       let node = walker.currentNode;
@@ -342,19 +335,15 @@
         node = walker.nextNode();
       }
 
-      // Pass 1: identify type line and suburb from the text elements
+      // Pass 1: find type line
       for (let i = 0; i < textElements.length; i++) {
         const { text } = textElements[i];
-
-        // Type line: "[N] Bedroom [Type]" or "[N] Bedroom [Type] for Sale in [Suburb]"
-        if (!typeLine && TYPE_PATTERN.test(text)) {
+        if (TYPE_PATTERN.test(text)) {
           typeLine = text.trim();
-          // Extract bedrooms count
           const bedMatch = typeLine.match(/^(\d+)\s+bedroom/i);
           if (bedMatch && listing.bedrooms === null) {
             listing.bedrooms = parseInt(bedMatch[1], 10);
           }
-          // Extract property type from type line
           const typeLower = typeLine.toLowerCase();
           for (const pt of PROPERTY_TYPES) {
             if (typeLower.includes(pt)) {
@@ -362,82 +351,39 @@
               break;
             }
           }
-          continue;
+          break;
         }
       }
 
-      // Pass 2: find suburb line — short text (< 30 chars), after type line,
-      // not a price, not a badge, not a description. Often bold.
+      // Pass 2: find suburb line — short text (≤25 chars), starts with capital,
+      // not a price/type/badge, not a street word. Must appear after type line.
       let suburbIdx = -1;
       for (let i = 0; i < textElements.length; i++) {
-        const { el, text } = textElements[i];
-        if (text.length > 30) continue;
+        const { text } = textElements[i];
+        if (text.length > 25) continue;
         if (PRICE_PATTERN.test(text)) continue;
         if (TYPE_PATTERN.test(text)) continue;
         if (isBadgeText(text) && text.length < 5) continue;
-        // Suburb: short proper noun, not a number, not a street address
-        // P24 suburbs are bold or styled distinctly
-        const isSuburbLike = text.length <= 25 && /^[A-Z]/.test(text) && !STREET_WORDS.test(text);
-        if (isSuburbLike && typeLine) {
+        if (STREET_WORDS.test(text)) continue;
+        if (/^[A-Z]/.test(text) && typeLine) {
           suburbFromCard = text.trim();
           suburbIdx = i;
           break;
         }
       }
 
-      // Pass 3: find the address line — the text element right after suburb
-      // that looks like a street address or complex name
-      if (suburbIdx >= 0) {
-        for (let i = suburbIdx + 1; i < textElements.length && i <= suburbIdx + 3; i++) {
-          const { text } = textElements[i];
-          if (text.length >= DESCRIPTION_MIN_LENGTH) break; // hit description
-          if (PRICE_PATTERN.test(text)) continue;
-          if (TYPE_PATTERN.test(text)) continue;
-
-          const classification = classifyAddressText(text);
-          if (classification) {
-            streetAddress = text.trim();
-            break;
-          }
+      // Pass 3: check the NEXT text element after suburb — is it an address?
+      // Only the immediate next element is checked. If it doesn't qualify, address = null.
+      if (suburbIdx >= 0 && suburbIdx + 1 < textElements.length) {
+        const nextText = textElements[suburbIdx + 1].text;
+        if (isAddressLine(nextText)) {
+          streetAddress = nextText.trim();
         }
       }
 
-      // Pass 4: also try class-based selectors for address
-      if (!streetAddress) {
-        const addrEl = tile.querySelector('.p24_address, [class*="address"]');
-        if (addrEl) {
-          const addrText = ownText(addrEl).trim() || addrEl.textContent.trim();
-          if (addrText.length > 2 && addrText.length < 80 && !PRICE_PATTERN.test(addrText)) {
-            streetAddress = addrText;
-          }
-        }
-      }
-
-      // Pass 5: scan ALL text elements for anything with a street word
-      if (!streetAddress) {
-        for (const { text } of textElements) {
-          if (text.length >= 3 && text.length <= 80 && STREET_WORDS.test(text) && !PRICE_PATTERN.test(text)) {
-            streetAddress = text.trim();
-            break;
-          }
-        }
-      }
-
-      // Set the address field
-      if (streetAddress) {
-        listing.address = streetAddress;
-      } else if (typeLine && suburbFromCard) {
-        // Fallback: construct from type + suburb
-        listing.address = typeLine.replace(/\s+for\s+sale.*/i, '').trim() + ' in ' + suburbFromCard;
-      } else if (typeLine) {
-        listing.address = typeLine.replace(/\s+for\s+sale.*/i, '').trim();
-      }
-
-      // Set suburb
-      if (suburbFromCard) {
-        listing.suburb = suburbFromCard;
-      }
-
+      // Set fields
+      if (streetAddress) listing.address = streetAddress;
+      if (suburbFromCard) listing.suburb = suburbFromCard;
       if (!listing.address) listing.address = 'Address not available';
     } catch (e) {
       if (!listing.address) listing.address = 'Address not available';

@@ -650,27 +650,30 @@ function isBadgeText(text) {
   return false;
 }
 
-// ── Street address detection (mirrors content-p24.js) ───────
+// ── Address classification helpers (mirrors content-p24.js) ──
 const STREET_WORDS = /\b(road|street|avenue|drive|place|close|crescent|lane|way|court|circle|terrace|boulevard|ave|rd|st|dr|blvd|cres|crt)\b/i;
-const COMPLEX_WORDS = /\b(estate|village|complex|lodge|manor|park|gardens|court|villas|heights|towers|ridge|mews|close|place)\b/i;
 const PRICE_PATTERN = /^R\s*[\d\s,]+/;
 const TYPE_PATTERN = /^\d+\s+bedroom/i;
-const DESCRIPTION_MIN_LENGTH = 80;
 
-function classifyAddressText(text) {
+// Text after suburb starting with these words = description, not address
+const DESCRIPTION_STARTERS = /^(This|Discover|Welcome|Experience|Make|Situated|Step|If|Nestled|Coastal|Eco|SOLE|\*\*Your|\?\?)/i;
+
+/**
+ * Checks if text qualifies as a street address (the line immediately after suburb).
+ * Must be: under 80 chars, not price/type/badge/description-starter,
+ * not ALL CAPS marketing, and must contain a digit OR street word OR "Ss " (sectional scheme).
+ */
+function isAddressLine(text) {
   if (!text) return false;
   const t = text.trim();
   if (t.length < 3 || t.length > 80) return false;
   if (PRICE_PATTERN.test(t)) return false;
   if (TYPE_PATTERN.test(t)) return false;
   if (isBadgeText(t)) return false;
-  if (t.length > 60 && t.includes(' ')) {
-    const words = t.split(/\s+/).length;
-    if (words > 10) return false;
-  }
-  if (STREET_WORDS.test(t)) return 'street';
-  if (COMPLEX_WORDS.test(t)) return 'complex';
-  if (t.length < 50 && /^[\dA-Z]/.test(t) && !t.includes('...')) return 'street';
+  if (DESCRIPTION_STARTERS.test(t)) return false;
+  if (t === t.toUpperCase() && t.length > 3) return false; // ALL CAPS marketing
+  // Must contain a number, a street word, or "Ss " (sectional scheme)
+  if (/\d/.test(t) || STREET_WORDS.test(t) || /\bSs\s/.test(t)) return true;
   return false;
 }
 
@@ -710,13 +713,14 @@ function extractP24Listing(tile) {
     if (listing.portal_ref) listing.portal_ref = 'P24-' + listing.portal_ref.replace(/^P24-/, '');
   } catch (e) { /* */ }
 
-  // Address + Suburb — walk card body to find street address (mirrors content-p24.js)
+  // Address + Suburb — single-pass walk through card text elements (mirrors content-p24.js)
+  // P24 card structure: Price → Type → Suburb → Address (optional) → Description
   try {
     let typeLine = null;
     let suburbFromCard = null;
     let streetAddress = null;
 
-    // Collect all leaf text elements
+    // Collect all text elements
     const textElements = [];
     const allEls = tile.querySelectorAll('*');
     for (const el of allEls) {
@@ -728,7 +732,7 @@ function extractP24Listing(tile) {
 
     // Pass 1: find type line
     for (const { text } of textElements) {
-      if (!typeLine && TYPE_PATTERN.test(text)) {
+      if (TYPE_PATTERN.test(text)) {
         typeLine = text.trim();
         const bedMatch = typeLine.match(/^(\d+)\s+bedroom/i);
         if (bedMatch && listing.bedrooms === null) {
@@ -745,67 +749,34 @@ function extractP24Listing(tile) {
       }
     }
 
-    // Pass 2: find suburb line
+    // Pass 2: find suburb line — short text (≤25 chars), starts with capital,
+    // not a price/type/badge, not a street word. Must appear after type line.
     let suburbIdx = -1;
     for (let i = 0; i < textElements.length; i++) {
       const { text } = textElements[i];
-      if (text.length > 30) continue;
+      if (text.length > 25) continue;
       if (PRICE_PATTERN.test(text)) continue;
       if (TYPE_PATTERN.test(text)) continue;
       if (isBadgeText(text) && text.length < 5) continue;
-      const isSuburbLike = text.length <= 25 && /^[A-Z]/.test(text) && !STREET_WORDS.test(text);
-      if (isSuburbLike && typeLine) {
+      if (STREET_WORDS.test(text)) continue;
+      if (/^[A-Z]/.test(text) && typeLine) {
         suburbFromCard = text.trim();
         suburbIdx = i;
         break;
       }
     }
 
-    // Pass 3: find address line after suburb
-    if (suburbIdx >= 0) {
-      for (let i = suburbIdx + 1; i < textElements.length && i <= suburbIdx + 3; i++) {
-        const { text } = textElements[i];
-        if (text.length >= DESCRIPTION_MIN_LENGTH) break;
-        if (PRICE_PATTERN.test(text)) continue;
-        if (TYPE_PATTERN.test(text)) continue;
-        const classification = classifyAddressText(text);
-        if (classification) {
-          streetAddress = text.trim();
-          break;
-        }
+    // Pass 3: check the NEXT text element after suburb — is it an address?
+    // Only the immediate next element is checked. If it doesn't qualify, address = null.
+    if (suburbIdx >= 0 && suburbIdx + 1 < textElements.length) {
+      const nextText = textElements[suburbIdx + 1].text;
+      if (isAddressLine(nextText)) {
+        streetAddress = nextText.trim();
       }
     }
 
-    // Pass 4: class-based selector
-    if (!streetAddress) {
-      const addrEl = tile.querySelector('.p24_address, [class*="address"]');
-      if (addrEl) {
-        const addrText = ownText(addrEl).trim() || addrEl.textContent.trim();
-        if (addrText.length > 2 && addrText.length < 80 && !PRICE_PATTERN.test(addrText)) {
-          streetAddress = addrText;
-        }
-      }
-    }
-
-    // Pass 5: scan for street words
-    if (!streetAddress) {
-      for (const { text } of textElements) {
-        if (text.length >= 3 && text.length <= 80 && STREET_WORDS.test(text) && !PRICE_PATTERN.test(text)) {
-          streetAddress = text.trim();
-          break;
-        }
-      }
-    }
-
-    // Set address
-    if (streetAddress) {
-      listing.address = streetAddress;
-    } else if (typeLine && suburbFromCard) {
-      listing.address = typeLine.replace(/\s+for\s+sale.*/i, '').trim() + ' in ' + suburbFromCard;
-    } else if (typeLine) {
-      listing.address = typeLine.replace(/\s+for\s+sale.*/i, '').trim();
-    }
-
+    // Set fields
+    if (streetAddress) listing.address = streetAddress;
     if (suburbFromCard) listing.suburb = suburbFromCard;
     if (!listing.address) listing.address = 'Address not available';
   } catch (e) { if (!listing.address) listing.address = 'Address not available'; }
