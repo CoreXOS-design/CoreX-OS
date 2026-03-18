@@ -175,6 +175,7 @@
                         <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Agent</th>
                         <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Agency</th>
                         <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Portal</th>
+                        <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Ref</th>
                         <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">
                             <a href="{{ request()->fullUrlWithQuery(['sort' => 'first_seen_at', 'dir' => request('sort') === 'first_seen_at' && request('dir', 'desc') === 'asc' ? 'desc' : 'asc']) }}"
                                style="color:var(--text-muted); text-decoration:none;">First Seen {{ request('sort') === 'first_seen_at' ? (request('dir') === 'asc' ? '&#9650;' : '&#9660;') : '' }}</a>
@@ -246,6 +247,17 @@
                             <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style="background:#0d9488; color:#fff;">P24</span>
                             @else
                             <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold" style="background:#0b2a4a; color:#fff;">PP</span>
+                            @endif
+                        </td>
+
+                        {{-- Portal Ref --}}
+                        <td class="px-3 py-2">
+                            @if($listing->portal_ref)
+                            <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener"
+                               style="font-family:ui-monospace,SFMono-Regular,monospace; font-size:0.75rem; color:#0d9488; text-decoration:none;"
+                               class="hover:underline">{{ $listing->portal_ref }}</a>
+                            @else
+                            <span style="font-size:0.75rem; color:var(--text-muted);">—</span>
                             @endif
                         </td>
 
