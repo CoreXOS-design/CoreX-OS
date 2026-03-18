@@ -326,9 +326,9 @@
                                         {{ ucfirst(str_replace('_', ' ', $claim->status)) }}
                                     </span>
                                     @if(!$claim->feedback_at)
-                                        @php $hoursLeft = 48 - $claim->claimed_at->diffInHours(now()); @endphp
+                                        @php $hoursLeft = max(0, round(48 - $claim->claimed_at->diffInHours(now()))); @endphp
                                         <span class="text-xs" style="color:var(--text-muted);">
-                                            {{ max(0, $hoursLeft) }}h left
+                                            {{ $hoursLeft < 1 ? '< 1h left' : $hoursLeft . 'h left' }}
                                         </span>
                                     @endif
                                     @if($claim->flagged_at)
