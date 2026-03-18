@@ -131,12 +131,7 @@ function getCaptureStatus() {
   };
 }
 
-// ── Random delay helpers ───────────────────────────────────
-function randomDelay(minMs, maxMs) {
-  const ms = minMs + Math.random() * (maxMs - minMs);
-  return new Promise(resolve => setTimeout(resolve, Math.round(ms)));
-}
-
+// ── Delay helper ───────────────────────────────────────────
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -276,67 +271,66 @@ async function checkDuplicateSearch(apiUrl, apiToken, searchUrl) {
   return { duplicate: false };
 }
 
-// ── Fetch page with retry + rate-limit handling ────────────
-async function fetchPageWithRetry(url, portal, maxRetries) {
-  let consecutive403 = 0;
+// ── Fetch page with single retry on failure ────────────────
+// On success (HTTP 200): return immediately, no delays.
+// On failure: retry ONCE, then skip that page and continue.
+async function fetchPageWithRetry(url, portal) {
+  async function doFetch() {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+    });
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-        },
-      });
-
-      if (response.status === 403 || response.status === 429) {
-        consecutive403++;
-        capture.rateLimitPauses++;
-        if (consecutive403 >= 3) {
-          return { listings: [], rateLimited: true };
-        }
-        // Pause 30 seconds
-        capture.error = 'Rate limit hit — pausing 30s, will resume';
-        await sleep(30000);
-        continue;
-      }
-
-      if (!response.ok) {
-        throw new Error('HTTP ' + response.status);
-      }
-
-      const html = await response.text();
-      const listings = parseListingsFromHtml(html, portal);
-
-      if (listings.length === 0) {
-        capture.parseWarnings++;
-      }
-
-      return { listings: listings, rateLimited: false };
-
-    } catch (err) {
-      if (attempt < maxRetries) {
-        capture.error = 'Network issue — retrying in 5s';
-        await sleep(5000);
-      } else {
-        capture.error = 'Network issue — retrying in 10s';
-        await sleep(10000);
-        // One more attempt after longer wait
-        try {
-          const resp = await fetch(url, {
-            headers: { 'Accept': 'text/html,application/xhtml+xml' },
-          });
-          if (resp.ok) {
-            const html = await resp.text();
-            return { listings: parseListingsFromHtml(html, portal), rateLimited: false };
-          }
-        } catch (e) { /* give up */ }
-        return { listings: [], networkError: true };
-      }
+    if (response.status === 403 || response.status === 429) {
+      return { status: response.status, ok: false, html: null };
     }
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status);
+    }
+
+    const html = await response.text();
+    return { status: 200, ok: true, html: html };
   }
 
-  return { listings: [], networkError: true };
+  // Attempt 1
+  try {
+    const resp = await doFetch();
+    if (resp.ok) {
+      const listings = parseListingsFromHtml(resp.html, portal);
+      if (listings.length === 0) capture.parseWarnings++;
+      return { listings: listings };
+    }
+
+    // Rate limited — wait 10s, retry once
+    capture.rateLimitPauses++;
+    capture.error = 'Rate limit (' + resp.status + ') — retrying in 10s';
+    await sleep(10000);
+
+  } catch (err) {
+    // Network error — wait 3s, retry once
+    capture.error = 'Network error — retrying in 3s';
+    await sleep(3000);
+  }
+
+  // Attempt 2 (single retry)
+  try {
+    const resp = await doFetch();
+    if (resp.ok) {
+      capture.error = null;
+      const listings = parseListingsFromHtml(resp.html, portal);
+      if (listings.length === 0) capture.parseWarnings++;
+      return { listings: listings };
+    }
+    // Still rate limited — skip this page
+    capture.parseWarnings++;
+    return { listings: [] };
+  } catch (e) {
+    // Still failing — skip this page
+    capture.parseWarnings++;
+    return { listings: [] };
+  }
 }
 
 // ── Send batch to API with queue fallback ──────────────────
@@ -442,7 +436,7 @@ async function runCaptureLoop(startPage) {
         }
       } catch (e) {
         // Content script unavailable — fetch page 1 via background
-        const result = await fetchPageWithRetry(capture.baseUrl, capture.portal, 3);
+        const result = await fetchPageWithRetry(capture.baseUrl, capture.portal);
         if (result.listings) {
           capture.pendingListings.push(...result.listings);
           capture.capturedListings += result.listings.length;
@@ -465,14 +459,7 @@ async function runCaptureLoop(startPage) {
       capture.error = null;
 
       const pageUrl = buildPageUrl(capture.baseUrl, p, capture.portal);
-      const result = await fetchPageWithRetry(pageUrl, capture.portal, 3);
-
-      if (result.rateLimited) {
-        // 3 consecutive rate limits — stop and save what we have
-        capture.error = 'Portal blocked further requests. ' +
-          capture.capturedListings + ' listings saved. Try again in 10 minutes.';
-        break;
-      }
+      const result = await fetchPageWithRetry(pageUrl, capture.portal);
 
       if (result.listings && result.listings.length > 0) {
         capture.pendingListings.push(...result.listings);
@@ -481,39 +468,30 @@ async function runCaptureLoop(startPage) {
 
       context.pages_captured = p;
 
-      // Track avg time per page
-      const elapsed = Date.now() - pageStart;
-      pageTimes.push(elapsed);
-      if (pageTimes.length > 10) pageTimes.shift(); // rolling window
-      capture.avgTimePerPage = Math.round(
-        pageTimes.reduce((a, b) => a + b, 0) / pageTimes.length
-      );
-
-      // Batch send every 5 pages (≈100 listings)
-      if (capture.pendingListings.length >= 100 || p === capture.totalPages) {
+      // Batch send every 100 listings (fire-and-forget, don't block loop)
+      if (capture.pendingListings.length >= 100) {
         const batch = capture.pendingListings.splice(0, capture.pendingListings.length);
         if (batch.length > 0) {
-          await sendBatchToApi(batch, context);
+          sendBatchToApi(batch, context); // no await — fire and continue
         }
       }
 
-      // Persist state for resume
+      // Persist state for resume (lightweight, runs fast)
       await persistCaptureState();
 
-      // Rate limiting: random delay between pages
+      // Clear transient error on successful page
+      if (result.listings) capture.error = null;
+
+      // Fixed 1.5s delay between pages — only between pages, not after last
       if (p < capture.totalPages && !capture.cancelled) {
-        // Every 20 pages, take a longer break (5-8s)
-        if (p % 20 === 0) {
-          await randomDelay(5000, 8000);
-        } else {
-          await randomDelay(1500, 4000);
-        }
+        await sleep(1500);
       }
     }
 
-    // Send any remaining pending listings
+    // Send any remaining pending listings (final batch — must await)
     if (capture.pendingListings.length > 0 && !capture.cancelled) {
       const batch = capture.pendingListings.splice(0, capture.pendingListings.length);
+      context.pages_captured = capture.currentPage;
       await sendBatchToApi(batch, context);
     }
 

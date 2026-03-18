@@ -284,13 +284,15 @@
       'Capturing page ' + status.currentPage + ' of ' + status.totalPages +
       '... (' + status.capturedListings.toLocaleString() + ' listings)';
 
-    // Time estimate
-    if (status.avgTimePerPage > 0 && status.currentPage > 1) {
+    // Time estimate — 1.5s per remaining page
+    if (status.currentPage > 0 && status.totalPages > 1) {
       const remainingPages = status.totalPages - status.currentPage;
-      // Add avg delay (~2.75s normal + occasional 6.5s break every 20 pages)
-      const avgDelay = 2750 + (6500 / 20); // ~3075ms avg delay per page
-      const remainingMs = remainingPages * (status.avgTimePerPage + avgDelay);
-      els.progressEta.textContent = 'Estimated time remaining: ' + formatTime(remainingMs);
+      const remainingMs = remainingPages * 1500;
+      if (remainingPages > 0) {
+        els.progressEta.textContent = 'Estimated time remaining: ' + formatTime(remainingMs);
+      } else {
+        els.progressEta.textContent = 'Finishing...';
+      }
     } else {
       els.progressEta.textContent = '';
     }
