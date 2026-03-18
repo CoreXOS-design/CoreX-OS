@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=360">
+  <link rel="stylesheet" href="styles.css">
+  <title>CoreX Portal Capture</title>
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <div class="header">
+      <div>
+        <h1>CoreX Portal Capture</h1>
+        <span class="version">v2.0.0</span>
+      </div>
+      <button class="settings-btn" id="settingsToggle" title="Settings">&#9881;</button>
+    </div>
+
+    <!-- State 1: Not on a portal page -->
+    <div class="state" id="stateNotOnPortal">
+      <div class="not-on-portal">
+        <div class="icon">&#128269;</div>
+        <p>Browse to <strong>Property24</strong> or <strong>Private Property</strong> search results to start capturing.</p>
+      </div>
+    </div>
+
+    <!-- State 2: Settings -->
+    <div class="state" id="stateSettings">
+      <button class="back-link" id="backFromSettings">&larr; Back</button>
+      <div class="settings-form">
+        <div class="form-group">
+          <label>API URL</label>
+          <input type="url" id="apiUrl" placeholder="https://corex.hfcoastal.co.za">
+        </div>
+        <div class="form-group">
+          <label>API Token</label>
+          <input type="password" id="apiToken" placeholder="Paste your CoreX API token">
+        </div>
+        <button class="btn btn-primary" id="saveSettings">Save Settings</button>
+        <div id="settingsMsg"></div>
+      </div>
+    </div>
+
+    <!-- State 3: Ready to capture -->
+    <div class="state" id="stateReady">
+      <div class="portal-detected">
+        <span class="check">&#10003;</span>
+        <span class="portal-name" id="portalName">Property24 detected</span>
+      </div>
+      <div class="search-info">
+        <div class="info-row">
+          <span class="label">Search</span>
+          <span class="value" id="searchTerm">—</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Results</span>
+          <span class="value" id="resultCount">—</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="captureBtn">&#128270; Capture All Listings</button>
+    </div>
+
+    <!-- State 4: Capturing -->
+    <div class="state" id="stateCapturing">
+      <div class="progress-section">
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progressBar"></div>
+        </div>
+        <div class="progress-text" id="progressText">Preparing capture...</div>
+      </div>
+      <button class="btn btn-danger" id="cancelBtn">Cancel</button>
+    </div>
+
+    <!-- State 5: Complete -->
+    <div class="state" id="stateComplete">
+      <div class="complete-icon">&#9989;</div>
+      <div class="complete-stats">
+        <div class="total" id="completeTotal">0 listings captured!</div>
+        <div class="breakdown" id="completeBreakdown">New: 0 | Updated: 0</div>
+      </div>
+      <a class="btn btn-primary" id="viewInCorex" href="#" target="_blank">View in CoreX &rarr;</a>
+      <button class="btn btn-secondary" id="captureAnother">Capture Another Search</button>
+    </div>
+
+    <!-- Error display -->
+    <div class="error-msg" id="errorMsg" style="display:none;"></div>
+
+    <!-- Connection status footer -->
+    <div class="connection-status" id="connectionStatus">
+      <span class="dot" id="connectionDot"></span>
+      <span id="connectionText">Checking connection...</span>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
