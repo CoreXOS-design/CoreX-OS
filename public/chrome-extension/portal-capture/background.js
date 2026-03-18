@@ -571,11 +571,8 @@ function parseListingsFromHtml(html, portal) {
 
   if (portal === 'p24') {
     const tiles = findTiles(doc, [
-      '.js_resultTile',
       '.p24_regularTile',
-      '[class*="listing-result"]',
-      '.js_listingTile',
-      '[data-listing-id]',
+      '[data-listing-number]',
     ]);
 
     tiles.forEach(tile => {
@@ -612,216 +609,159 @@ function findTiles(doc, selectors) {
   return [];
 }
 
-// ── Helper: get only direct/own text of an element ──────────
-function ownText(el) {
-  let text = '';
-  for (const node of el.childNodes) {
-    if (node.nodeType === 3) { // TEXT_NODE
-      text += node.textContent;
-    }
-  }
-  return text.trim();
-}
-
 // ── P24 known property types ────────────────────────────────
 const P24_TYPES = [
   'house', 'apartment', 'townhouse', 'flat', 'duplex', 'simplex',
   'cluster', 'cottage', 'farm', 'smallholding', 'vacant land',
   'land', 'commercial', 'industrial', 'office', 'retail',
-  'penthouse', 'studio',
+  'penthouse', 'studio', 'garden cottage', 'granny flat',
 ];
 
-// ── P24 badge text filter ───────────────────────────────────
-const P24_BADGE_TEXTS = [
-  'reduced', 'no transfer duty', 'new', 'sole mandate', 'auction',
-  'hot', 'under offer', 'sold', 'pending', 'price reduced',
-  'exclusive', 'must sell', 'repossessed', 'bank sale',
-  'new release', 'show day', 'virtual tour', 'new development',
-  'new listing', 'featured',
-];
-
-function isBadgeText(text) {
-  if (!text) return true;
-  const trimmed = text.trim();
-  if (trimmed.length < 3) return true;
-  if (/^\d+$/.test(trimmed)) return true;
-  if (trimmed === trimmed.toUpperCase() && trimmed.length < 30) return true;
-  if (P24_BADGE_TEXTS.includes(trimmed.toLowerCase())) return true;
-  return false;
-}
-
-// ── Address classification helpers (mirrors content-p24.js) ──
-const STREET_WORDS = /\b(road|street|avenue|drive|place|close|crescent|lane|way|court|circle|terrace|boulevard|ave|rd|st|dr|blvd|cres|crt)\b/i;
-const PRICE_PATTERN = /^R\s*[\d\s,]+/;
-const TYPE_PATTERN = /^\d+\s+bedroom/i;
-
-// Text after suburb starting with these words = description, not address
-const DESCRIPTION_STARTERS = /^(This|Discover|Welcome|Experience|Make|Situated|Step|If|Nestled|Coastal|Eco|SOLE|\*\*Your|\?\?)/i;
-
-/**
- * Checks if text qualifies as a street address (the line immediately after suburb).
- * Must be: under 80 chars, not price/type/badge/description-starter,
- * not ALL CAPS marketing, and must contain a digit OR street word OR "Ss " (sectional scheme).
- */
-function isAddressLine(text) {
-  if (!text) return false;
-  const t = text.trim();
-  if (t.length < 3 || t.length > 80) return false;
-  if (PRICE_PATTERN.test(t)) return false;
-  if (TYPE_PATTERN.test(t)) return false;
-  if (isBadgeText(t)) return false;
-  if (DESCRIPTION_STARTERS.test(t)) return false;
-  if (t === t.toUpperCase() && t.length > 3) return false; // ALL CAPS marketing
-  // Must contain a number, a street word, or "Ss " (sectional scheme)
-  if (/\d/.test(t) || STREET_WORDS.test(t) || /\bSs\s/.test(t)) return true;
-  return false;
-}
-
-// ── P24 listing extraction (mirrors content-p24.js) ─────────
-function extractP24Listing(tile) {
+// ── P24 listing extraction — CSS class selectors (mirrors content-p24.js) ──
+function extractP24Listing(card) {
   const listing = baseListing('p24');
 
-  // Portal URL first
+  // Portal ref — data-listing-number attribute
   try {
-    const link = tile.querySelector('a[href*="/for-sale/"], a[href*="/to-rent/"]') ||
-                 tile.querySelector('a[href]');
-    if (link) listing.portal_url = link.href || link.getAttribute('href');
+    const ref = card.getAttribute('data-listing-number');
+    if (ref) listing.portal_ref = 'P24-' + ref;
   } catch (e) { /* */ }
 
-  // Portal ref — from data attributes then URL
+  // Portal URL — from the main content link
   try {
-    listing.portal_ref = tile.getAttribute('data-listing-id') ||
-                         tile.getAttribute('data-listingid') ||
-                         tile.dataset?.listingId || null;
-    if (!listing.portal_ref && listing.portal_url) {
+    const content = card.querySelector('a.p24_content');
+    if (content) {
+      const href = content.getAttribute('href') || '';
+      if (href) {
+        listing.portal_url = href.startsWith('http')
+          ? href
+          : 'https://www.property24.com' + href;
+      }
+    }
+  } catch (e) { /* */ }
+
+  // Fallback portal ref from URL
+  if (!listing.portal_ref && listing.portal_url) {
+    try {
       const segments = listing.portal_url.split('/').filter(Boolean);
       for (let i = segments.length - 1; i >= 0; i--) {
         if (/^\d{6,}$/.test(segments[i])) {
-          listing.portal_ref = segments[i];
+          listing.portal_ref = 'P24-' + segments[i];
+          break;
+        }
+      }
+    } catch (e) { /* */ }
+  }
+
+  // Price — from .p24_price content attribute or text
+  try {
+    const priceEl = card.querySelector('.p24_price');
+    if (priceEl) {
+      const contentAttr = priceEl.getAttribute('content');
+      if (contentAttr) {
+        listing.price = parseInt(contentAttr, 10);
+      } else {
+        const cleaned = priceEl.textContent.replace(/[^\d]/g, '');
+        if (cleaned && cleaned.length >= 4) listing.price = parseInt(cleaned, 10);
+      }
+    }
+  } catch (e) { /* */ }
+
+  // Title — from .p24_title ("8 Bedroom House")
+  try {
+    const titleEl = card.querySelector('.p24_title');
+    if (titleEl) {
+      const titleText = titleEl.textContent.trim();
+      const bedMatch = titleText.match(/^(\d+)\s+Bedroom/i);
+      if (bedMatch) listing.bedrooms = parseInt(bedMatch[1], 10);
+      const titleLower = titleText.toLowerCase();
+      for (const pt of P24_TYPES) {
+        if (titleLower.includes(pt)) {
+          listing.property_type = pt.charAt(0).toUpperCase() + pt.slice(1);
           break;
         }
       }
     }
-    if (!listing.portal_ref) {
-      const links = tile.querySelectorAll('a[href]');
-      for (const link of links) {
-        const href = link.href || link.getAttribute('href') || '';
-        const m = href.match(/\/(\d{6,})(?:[/?#]|$)/);
-        if (m) { listing.portal_ref = m[1]; break; }
-      }
-    }
-    if (listing.portal_ref) listing.portal_ref = 'P24-' + listing.portal_ref.replace(/^P24-/, '');
   } catch (e) { /* */ }
 
-  // Address + Suburb — single-pass walk through card text elements (mirrors content-p24.js)
-  // P24 card structure: Price → Type → Suburb → Address (optional) → Description
+  // Suburb — from .p24_location
   try {
-    let typeLine = null;
-    let suburbFromCard = null;
-    let streetAddress = null;
+    const locEl = card.querySelector('.p24_location');
+    if (locEl) listing.suburb = locEl.textContent.trim();
+  } catch (e) { /* */ }
 
-    // Collect all text elements
-    const textElements = [];
-    const allEls = tile.querySelectorAll('*');
-    for (const el of allEls) {
-      const t = ownText(el);
-      if (t && t.length >= 2 && t.length < 200) {
-        textElements.push({ el: el, text: t });
-      }
-    }
-
-    // Pass 1: find type line
-    for (const { text } of textElements) {
-      if (TYPE_PATTERN.test(text)) {
-        typeLine = text.trim();
-        const bedMatch = typeLine.match(/^(\d+)\s+bedroom/i);
-        if (bedMatch && listing.bedrooms === null) {
-          listing.bedrooms = parseInt(bedMatch[1], 10);
-        }
-        const typeLower = typeLine.toLowerCase();
-        for (const pt of P24_TYPES) {
-          if (typeLower.includes(pt)) {
-            listing.property_type = pt.charAt(0).toUpperCase() + pt.slice(1);
-            break;
-          }
-        }
-        break;
-      }
-    }
-
-    // Pass 2: find suburb line — short text (≤25 chars), starts with capital,
-    // not a price/type/badge, not a street word. Must appear after type line.
-    let suburbIdx = -1;
-    for (let i = 0; i < textElements.length; i++) {
-      const { text } = textElements[i];
-      if (text.length > 25) continue;
-      if (PRICE_PATTERN.test(text)) continue;
-      if (TYPE_PATTERN.test(text)) continue;
-      if (isBadgeText(text) && text.length < 5) continue;
-      if (STREET_WORDS.test(text)) continue;
-      if (/^[A-Z]/.test(text) && typeLine) {
-        suburbFromCard = text.trim();
-        suburbIdx = i;
-        break;
-      }
-    }
-
-    // Pass 3: check the NEXT text element after suburb — is it an address?
-    // Only the immediate next element is checked. If it doesn't qualify, address = null.
-    if (suburbIdx >= 0 && suburbIdx + 1 < textElements.length) {
-      const nextText = textElements[suburbIdx + 1].text;
-      if (isAddressLine(nextText)) {
-        streetAddress = nextText.trim();
-      }
-    }
-
-    // Set fields
-    if (streetAddress) listing.address = streetAddress;
-    if (suburbFromCard) listing.suburb = suburbFromCard;
-    if (!listing.address) listing.address = 'Address not available';
-  } catch (e) { if (!listing.address) listing.address = 'Address not available'; }
-
-  // Suburb fallbacks
+  // Address — from .p24_address (optional)
   try {
-    if (!listing.suburb && listing.portal_url) {
-      const segs = listing.portal_url.split('/').filter(Boolean);
-      if (segs.length >= 2) {
-        const seg = segs[1];
-        const inMatch = seg.match(/in-(.+)$/);
-        if (inMatch) listing.suburb = inMatch[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        else if (!/^\d+$/.test(seg)) listing.suburb = seg.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const addrEl = card.querySelector('.p24_address');
+    if (addrEl) {
+      const addr = addrEl.textContent.trim();
+      if (addr) listing.address = addr;
+    }
+  } catch (e) { /* */ }
+  if (!listing.address) listing.address = 'Address not available';
+
+  // Suburb fallback from URL
+  if (!listing.suburb && listing.portal_url) {
+    try {
+      const segments = listing.portal_url.split('/').filter(Boolean);
+      if (segments.length >= 2 && !/^\d+$/.test(segments[1])) {
+        listing.suburb = segments[1].replace(/-/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase());
       }
+    } catch (e) { /* */ }
+  }
+
+  // Features — from .p24_featureDetails with title attributes
+  try {
+    const bedEl = card.querySelector('.p24_featureDetails[title="Bedrooms"] span');
+    if (bedEl) {
+      const val = parseInt(bedEl.textContent.trim(), 10);
+      if (!isNaN(val)) listing.bedrooms = val;
+    }
+    const bathEl = card.querySelector('.p24_featureDetails[title="Bathrooms"] span');
+    if (bathEl) {
+      const val = parseInt(bathEl.textContent.trim(), 10);
+      if (!isNaN(val)) listing.bathrooms = val;
+    }
+    const parkEl = card.querySelector('.p24_featureDetails[title="Parking Spaces"] span');
+    if (parkEl) {
+      const val = parseInt(parkEl.textContent.trim(), 10);
+      if (!isNaN(val)) listing.garages = val;
     }
   } catch (e) { /* */ }
 
-  // Price
+  // Size — from .p24_size span
   try {
-    const allEls = tile.querySelectorAll('*');
-    for (const el of allEls) {
-      const t = ownText(el);
-      const match = t.match(/R\s*([\d\s,]+)/);
-      if (match) {
-        const cleaned = match[1].replace(/[\s,]/g, '');
-        const num = parseInt(cleaned, 10);
-        if (num >= 10000) { listing.price = num; break; }
-      }
+    const sizeEl = card.querySelector('.p24_size span');
+    if (sizeEl) {
+      const sizeText = sizeEl.textContent.trim();
+      const m = sizeText.match(/([\d\s,.]+)\s*m[²2]/i);
+      if (m) listing.erf_size_m2 = parseFloat(m[1].replace(/[\s,]/g, ''));
     }
   } catch (e) { /* */ }
 
-  // Property type from title/URL
+  // Agency — from .p24_branding img alt
   try {
-    const src = (listing.address + ' ' + (listing.portal_url || '')).toLowerCase();
-    for (const type of P24_TYPES) {
-      if (src.includes(type)) {
-        listing.property_type = type.charAt(0).toUpperCase() + type.slice(1);
-        break;
-      }
+    const agencyImg = card.querySelector('.p24_branding img[alt]');
+    if (agencyImg) {
+      const alt = agencyImg.getAttribute('alt').trim();
+      if (alt) listing.agency_name = alt;
     }
   } catch (e) { /* */ }
 
-  extractFeatures(tile, listing, 'p24');
-  extractSizes(tile, listing);
-  extractMeta(tile, listing, 'p24');
+  // Thumbnail — from listing image
+  try {
+    const thumb = card.querySelector('img.js_P24_listingImage');
+    if (thumb) {
+      listing.thumbnail_url = thumb.getAttribute('src') ||
+        thumb.getAttribute('data-original') ||
+        thumb.getAttribute('lazy-src') || null;
+    }
+    if (!listing.thumbnail_url) {
+      const imgEl = card.querySelector('.p24_image img[src]');
+      if (imgEl) listing.thumbnail_url = imgEl.getAttribute('src');
+    }
+  } catch (e) { /* */ }
 
   return listing;
 }
