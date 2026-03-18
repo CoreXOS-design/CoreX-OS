@@ -48,21 +48,15 @@
       } catch (e) { /* ignore */ }
     }
 
-    // Total results — "Showing X - Y of Z results" or "X results"
+    // Total results — from .p24_topPager: "Showing : 1 - 20 of 35"
+    // The total is inside the SECOND span.p24_bold
     try {
-      const countEl =
-        document.querySelector('.p24_results .p24_size') ||
-        document.querySelector('.p24_content .p24_headliner');
-      if (countEl) {
-        const text = countEl.textContent.trim();
-        const ofMatch = text.match(/of\s+([\d,\s]+)/i);
-        if (ofMatch) {
-          totalResults = parseInt(ofMatch[1].replace(/[\s,]/g, ''), 10);
-        } else {
-          const numMatch = text.match(/([\d,\s]+)\s*results?/i) ||
-                           text.match(/([\d,\s]+)\s*propert/i) ||
-                           text.match(/([\d,\s]+)/);
-          if (numMatch) totalResults = parseInt(numMatch[1].replace(/[\s,]/g, ''), 10);
+      const pager = document.querySelector('.p24_topPager');
+      if (pager) {
+        const bolds = pager.querySelectorAll('.p24_bold');
+        // bolds[0] = "1 - 20", bolds[1] = "35"
+        if (bolds.length >= 2) {
+          totalResults = parseInt(bolds[1].textContent.replace(/\s/g, ''), 10);
         }
       }
     } catch (e) { /* ignore */ }

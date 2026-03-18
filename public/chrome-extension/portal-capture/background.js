@@ -573,6 +573,9 @@ function parseListingsFromHtml(html, portal) {
     // P24 has multiple card types (regularTile, proTile, groupedResultTile, etc.)
     // ALL have data-listing-number. Deduplicate to avoid nested wrappers.
     const allTiles = doc.querySelectorAll('[data-listing-number]');
+    const addrCount = doc.querySelectorAll('.p24_address').length;
+    console.log('[CoreX P24] Found ' + allTiles.length + ' [data-listing-number] elements, ' + addrCount + ' with .p24_address');
+
     const seen = new Set();
 
     allTiles.forEach(tile => {
