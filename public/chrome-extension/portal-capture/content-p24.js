@@ -196,12 +196,46 @@
   function isBadgeText(text) {
     if (!text) return true;
     const trimmed = text.trim();
-    if (trimmed.length < 10) return true;
+    if (trimmed.length < 3) return true;
     if (/^\d+$/.test(trimmed)) return true;
     // ALL CAPS and under 30 chars → badge pattern (e.g. "NO TRANSFER DUTY")
     if (trimmed === trimmed.toUpperCase() && trimmed.length < 30) return true;
     // Check against known badge words (exact match, case-insensitive)
     if (BADGE_TEXTS.includes(trimmed.toLowerCase())) return true;
+    return false;
+  }
+
+  // ── Street address detection ─────────────────────────────────────────
+  const STREET_WORDS = /\b(road|street|avenue|drive|place|close|crescent|lane|way|court|circle|terrace|boulevard|ave|rd|st|dr|blvd|cres|crt)\b/i;
+  const COMPLEX_WORDS = /\b(estate|village|complex|lodge|manor|park|gardens|court|villas|heights|towers|ridge|mews|close|place)\b/i;
+  const PRICE_PATTERN = /^R\s*[\d\s,]+/;
+  const TYPE_PATTERN = /^\d+\s+bedroom/i;
+  const DESCRIPTION_MIN_LENGTH = 80;
+
+  /**
+   * Checks if text looks like a street address or complex name.
+   * Returns 'street' | 'complex' | false
+   */
+  function classifyAddressText(text) {
+    if (!text) return false;
+    const t = text.trim();
+    if (t.length < 3 || t.length > 80) return false;
+    // Reject prices, type lines, badges, descriptions
+    if (PRICE_PATTERN.test(t)) return false;
+    if (TYPE_PATTERN.test(t)) return false;
+    if (isBadgeText(t)) return false;
+    // Reject obvious descriptions (long sentences)
+    if (t.length > 60 && t.includes(' ')) {
+      const words = t.split(/\s+/).length;
+      if (words > 10) return false;
+    }
+    // Check for street indicators
+    if (STREET_WORDS.test(t)) return 'street';
+    // Check for complex/estate names
+    if (COMPLEX_WORDS.test(t)) return 'complex';
+    // Short proper-noun phrase (starts with number or capital, under 50 chars)
+    // e.g. "19 Nicholson Avenue", "Stafford Place", "1a Alan Road"
+    if (t.length < 50 && /^[\dA-Z]/.test(t) && !t.includes('...')) return 'street';
     return false;
   }
 
@@ -281,71 +315,127 @@
       }
     } catch (e) { /* ignore */ }
 
-    // ── Address — from the main listing link text ────────────────────
-    // P24 listing titles follow: "[N] Bedroom [Type] (for Sale) in [Suburb]"
-    // CRITICAL: Filter out badge overlays like "Reduced", "NO TRANSFER DUTY", etc.
+    // ── Address + Suburb — walk card body to find the street address ──
+    // P24 card structure (top to bottom):
+    //   Price line   → "R 1 200 000"
+    //   Type line    → "3 Bedroom Apartment"
+    //   Suburb line  → "Uvongo" (bold, short)
+    //   ADDRESS line → "Stafford Place, 19 Nicholson Avenue" ← we want this
+    //   Description  → "Step into the home and you are..." (long text)
+    //
+    // Strategy: collect all short text elements in the tile, classify each,
+    // and find the address line that sits between suburb and description.
     try {
-      // Strategy 1: find ALL <a> links pointing to listing detail pages
-      // and pick the first one whose text is a real title (not a badge)
-      const detailLinks = tile.querySelectorAll('a[href*="/for-sale/"], a[href*="/to-rent/"]');
-      for (const link of detailLinks) {
-        const linkText = link.textContent.trim();
-        if (!isBadgeText(linkText)) {
-          listing.address = linkText;
+      let typeLine = null;
+      let suburbFromCard = null;
+      let streetAddress = null;
+
+      // Collect all leaf text elements with their own text (no child text bleed)
+      const textElements = [];
+      const walker = document.createTreeWalker(tile, NodeFilter.SHOW_ELEMENT);
+      let node = walker.currentNode;
+      while (node) {
+        const t = ownText(node);
+        if (t && t.length >= 2 && t.length < 200) {
+          textElements.push({ el: node, text: t });
+        }
+        node = walker.nextNode();
+      }
+
+      // Pass 1: identify type line and suburb from the text elements
+      for (let i = 0; i < textElements.length; i++) {
+        const { text } = textElements[i];
+
+        // Type line: "[N] Bedroom [Type]" or "[N] Bedroom [Type] for Sale in [Suburb]"
+        if (!typeLine && TYPE_PATTERN.test(text)) {
+          typeLine = text.trim();
+          // Extract bedrooms count
+          const bedMatch = typeLine.match(/^(\d+)\s+bedroom/i);
+          if (bedMatch && listing.bedrooms === null) {
+            listing.bedrooms = parseInt(bedMatch[1], 10);
+          }
+          // Extract property type from type line
+          const typeLower = typeLine.toLowerCase();
+          for (const pt of PROPERTY_TYPES) {
+            if (typeLower.includes(pt)) {
+              listing.property_type = pt.charAt(0).toUpperCase() + pt.slice(1);
+              break;
+            }
+          }
+          continue;
+        }
+      }
+
+      // Pass 2: find suburb line — short text (< 30 chars), after type line,
+      // not a price, not a badge, not a description. Often bold.
+      let suburbIdx = -1;
+      for (let i = 0; i < textElements.length; i++) {
+        const { el, text } = textElements[i];
+        if (text.length > 30) continue;
+        if (PRICE_PATTERN.test(text)) continue;
+        if (TYPE_PATTERN.test(text)) continue;
+        if (isBadgeText(text) && text.length < 5) continue;
+        // Suburb: short proper noun, not a number, not a street address
+        // P24 suburbs are bold or styled distinctly
+        const isSuburbLike = text.length <= 25 && /^[A-Z]/.test(text) && !STREET_WORDS.test(text);
+        if (isSuburbLike && typeLine) {
+          suburbFromCard = text.trim();
+          suburbIdx = i;
           break;
         }
       }
 
-      // Strategy 2: h2/h3 heading inside the tile (filter badges)
-      if (!listing.address) {
-        const headings = tile.querySelectorAll('h2, h3, h4');
-        for (const heading of headings) {
-          const headText = heading.textContent.trim();
-          if (!isBadgeText(headText)) {
-            listing.address = headText;
+      // Pass 3: find the address line — the text element right after suburb
+      // that looks like a street address or complex name
+      if (suburbIdx >= 0) {
+        for (let i = suburbIdx + 1; i < textElements.length && i <= suburbIdx + 3; i++) {
+          const { text } = textElements[i];
+          if (text.length >= DESCRIPTION_MIN_LENGTH) break; // hit description
+          if (PRICE_PATTERN.test(text)) continue;
+          if (TYPE_PATTERN.test(text)) continue;
+
+          const classification = classifyAddressText(text);
+          if (classification) {
+            streetAddress = text.trim();
             break;
           }
         }
       }
 
-      // Strategy 3: look for elements with "address" or "title" in class
-      if (!listing.address) {
-        const addrEl = tile.querySelector('.p24_address, [class*="address"], .p24_title');
+      // Pass 4: also try class-based selectors for address
+      if (!streetAddress) {
+        const addrEl = tile.querySelector('.p24_address, [class*="address"]');
         if (addrEl) {
-          const addrText = addrEl.textContent.trim();
-          if (!isBadgeText(addrText)) listing.address = addrText;
+          const addrText = ownText(addrEl).trim() || addrEl.textContent.trim();
+          if (addrText.length > 2 && addrText.length < 80 && !PRICE_PATTERN.test(addrText)) {
+            streetAddress = addrText;
+          }
         }
       }
 
-      // Strategy 4: construct from URL path
-      // /for-sale/house-in-uvongo/kwazulu-natal/607/116950342
-      if (!listing.address && listing.portal_url) {
-        try {
-          const urlPath = new URL(listing.portal_url).pathname;
-          const segments = urlPath.split('/').filter(Boolean);
-          if (segments.length >= 2) {
-            const desc = segments[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-            if (!isBadgeText(desc)) listing.address = desc;
+      // Pass 5: scan ALL text elements for anything with a street word
+      if (!streetAddress) {
+        for (const { text } of textElements) {
+          if (text.length >= 3 && text.length <= 80 && STREET_WORDS.test(text) && !PRICE_PATTERN.test(text)) {
+            streetAddress = text.trim();
+            break;
           }
-        } catch (e) { /* ignore */ }
+        }
       }
 
-      // Strategy 5: build a descriptive title from bedrooms + type + suburb
-      if (!listing.address && listing.portal_url) {
-        try {
-          const urlPath = new URL(listing.portal_url).pathname.toLowerCase();
-          let beds = null, type = null, suburb = null;
-          const bedMatch = urlPath.match(/(\d+)-bedroom/);
-          if (bedMatch) beds = bedMatch[1];
-          for (const t of PROPERTY_TYPES) {
-            if (urlPath.includes(t.replace(/\s+/g, '-'))) { type = t.charAt(0).toUpperCase() + t.slice(1); break; }
-          }
-          const inMatch = urlPath.match(/in-([a-z-]+)/);
-          if (inMatch) suburb = inMatch[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          if (beds && type && suburb) listing.address = beds + ' Bedroom ' + type + ' in ' + suburb;
-          else if (type && suburb) listing.address = type + ' in ' + suburb;
-          else if (suburb) listing.address = suburb;
-        } catch (e) { /* ignore */ }
+      // Set the address field
+      if (streetAddress) {
+        listing.address = streetAddress;
+      } else if (typeLine && suburbFromCard) {
+        // Fallback: construct from type + suburb
+        listing.address = typeLine.replace(/\s+for\s+sale.*/i, '').trim() + ' in ' + suburbFromCard;
+      } else if (typeLine) {
+        listing.address = typeLine.replace(/\s+for\s+sale.*/i, '').trim();
+      }
+
+      // Set suburb
+      if (suburbFromCard) {
+        listing.suburb = suburbFromCard;
       }
 
       if (!listing.address) listing.address = 'Address not available';
@@ -353,16 +443,15 @@
       if (!listing.address) listing.address = 'Address not available';
     }
 
-    // ── Suburb — from URL path or address text ───────────────────────
+    // ── Suburb fallbacks (if card body didn't yield one) ───────────────
     try {
-      // Best source: URL path contains suburb info
-      // /for-sale/house-in-uvongo/... or /for-sale/uvongo/...
-      if (listing.portal_url) {
+      // From URL path
+      if (!listing.suburb && listing.portal_url) {
         try {
           const urlPath = new URL(listing.portal_url).pathname;
           const segments = urlPath.split('/').filter(Boolean);
           if (segments.length >= 2) {
-            const seg = segments[1]; // e.g. "house-in-uvongo" or "uvongo"
+            const seg = segments[1];
             const inMatch = seg.match(/in-(.+)$/);
             if (inMatch) {
               listing.suburb = inMatch[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -373,39 +462,11 @@
         } catch (e) { /* ignore */ }
       }
 
-      // Fallback: from the address text ("... in Uvongo" or "..., Uvongo")
-      if (!listing.suburb && listing.address) {
-        const inMatch = listing.address.match(/\bin\s+([A-Z][a-zA-Z\s]+?)(?:\s*$|\s*,)/);
-        if (inMatch) {
-          listing.suburb = inMatch[1].trim();
-        } else {
-          const parts = listing.address.split(',').map(s => s.trim());
-          if (parts.length > 1) listing.suburb = parts[parts.length - 1];
-        }
-      }
-
-      // Complex/estate name extraction for sectional title listings
-      // "2 Bedroom Apartment in Sea Breeze Estate" → address = "Sea Breeze Estate, Uvongo"
-      // Pattern: title contains "[Type] in [Complex Name]" where complex has estate/village/etc.
-      if (listing.address && listing.suburb) {
-        const complexMatch = listing.address.match(
-          /\bin\s+(.+?\b(?:estate|village|complex|lodge|manor|park|place|gardens|court|villas|heights|towers|ridge|mews|close)\b[^,]*)/i
-        );
-        if (complexMatch) {
-          const complexName = complexMatch[1].trim();
-          // Only use if the complex name is different from just the suburb
-          if (complexName.toLowerCase() !== listing.suburb.toLowerCase()) {
-            listing.address = complexName + ', ' + listing.suburb;
-          }
-        }
-      }
-
-      // Fallback: search page URL (the area being browsed)
+      // From search page URL
       if (!listing.suburb) {
         try {
           const pageUrl = window.location.pathname;
           const segs = pageUrl.split('/').filter(Boolean);
-          // /for-sale/uvongo/kwazulu-natal/607
           if (segs.length >= 2 && !/^\d+$/.test(segs[1])) {
             listing.suburb = segs[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
           }

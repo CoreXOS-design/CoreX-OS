@@ -643,10 +643,34 @@ const P24_BADGE_TEXTS = [
 function isBadgeText(text) {
   if (!text) return true;
   const trimmed = text.trim();
-  if (trimmed.length < 10) return true;
+  if (trimmed.length < 3) return true;
   if (/^\d+$/.test(trimmed)) return true;
   if (trimmed === trimmed.toUpperCase() && trimmed.length < 30) return true;
   if (P24_BADGE_TEXTS.includes(trimmed.toLowerCase())) return true;
+  return false;
+}
+
+// ── Street address detection (mirrors content-p24.js) ───────
+const STREET_WORDS = /\b(road|street|avenue|drive|place|close|crescent|lane|way|court|circle|terrace|boulevard|ave|rd|st|dr|blvd|cres|crt)\b/i;
+const COMPLEX_WORDS = /\b(estate|village|complex|lodge|manor|park|gardens|court|villas|heights|towers|ridge|mews|close|place)\b/i;
+const PRICE_PATTERN = /^R\s*[\d\s,]+/;
+const TYPE_PATTERN = /^\d+\s+bedroom/i;
+const DESCRIPTION_MIN_LENGTH = 80;
+
+function classifyAddressText(text) {
+  if (!text) return false;
+  const t = text.trim();
+  if (t.length < 3 || t.length > 80) return false;
+  if (PRICE_PATTERN.test(t)) return false;
+  if (TYPE_PATTERN.test(t)) return false;
+  if (isBadgeText(t)) return false;
+  if (t.length > 60 && t.includes(' ')) {
+    const words = t.split(/\s+/).length;
+    if (words > 10) return false;
+  }
+  if (STREET_WORDS.test(t)) return 'street';
+  if (COMPLEX_WORDS.test(t)) return 'complex';
+  if (t.length < 50 && /^[\dA-Z]/.test(t) && !t.includes('...')) return 'street';
   return false;
 }
 
@@ -686,82 +710,115 @@ function extractP24Listing(tile) {
     if (listing.portal_ref) listing.portal_ref = 'P24-' + listing.portal_ref.replace(/^P24-/, '');
   } catch (e) { /* */ }
 
-  // Address — filter badges
+  // Address + Suburb — walk card body to find street address (mirrors content-p24.js)
   try {
-    const detailLinks = tile.querySelectorAll('a[href*="/for-sale/"], a[href*="/to-rent/"]');
-    for (const link of detailLinks) {
-      const linkText = link.textContent.trim();
-      if (!isBadgeText(linkText)) {
-        listing.address = linkText;
+    let typeLine = null;
+    let suburbFromCard = null;
+    let streetAddress = null;
+
+    // Collect all leaf text elements
+    const textElements = [];
+    const allEls = tile.querySelectorAll('*');
+    for (const el of allEls) {
+      const t = ownText(el);
+      if (t && t.length >= 2 && t.length < 200) {
+        textElements.push({ el: el, text: t });
+      }
+    }
+
+    // Pass 1: find type line
+    for (const { text } of textElements) {
+      if (!typeLine && TYPE_PATTERN.test(text)) {
+        typeLine = text.trim();
+        const bedMatch = typeLine.match(/^(\d+)\s+bedroom/i);
+        if (bedMatch && listing.bedrooms === null) {
+          listing.bedrooms = parseInt(bedMatch[1], 10);
+        }
+        const typeLower = typeLine.toLowerCase();
+        for (const pt of P24_TYPES) {
+          if (typeLower.includes(pt)) {
+            listing.property_type = pt.charAt(0).toUpperCase() + pt.slice(1);
+            break;
+          }
+        }
         break;
       }
     }
 
-    if (!listing.address) {
-      const headings = tile.querySelectorAll('h2, h3, h4');
-      for (const heading of headings) {
-        const ht = heading.textContent.trim();
-        if (!isBadgeText(ht)) {
-          listing.address = ht;
+    // Pass 2: find suburb line
+    let suburbIdx = -1;
+    for (let i = 0; i < textElements.length; i++) {
+      const { text } = textElements[i];
+      if (text.length > 30) continue;
+      if (PRICE_PATTERN.test(text)) continue;
+      if (TYPE_PATTERN.test(text)) continue;
+      if (isBadgeText(text) && text.length < 5) continue;
+      const isSuburbLike = text.length <= 25 && /^[A-Z]/.test(text) && !STREET_WORDS.test(text);
+      if (isSuburbLike && typeLine) {
+        suburbFromCard = text.trim();
+        suburbIdx = i;
+        break;
+      }
+    }
+
+    // Pass 3: find address line after suburb
+    if (suburbIdx >= 0) {
+      for (let i = suburbIdx + 1; i < textElements.length && i <= suburbIdx + 3; i++) {
+        const { text } = textElements[i];
+        if (text.length >= DESCRIPTION_MIN_LENGTH) break;
+        if (PRICE_PATTERN.test(text)) continue;
+        if (TYPE_PATTERN.test(text)) continue;
+        const classification = classifyAddressText(text);
+        if (classification) {
+          streetAddress = text.trim();
           break;
         }
       }
     }
 
-    if (!listing.address && listing.portal_url) {
-      const segs = listing.portal_url.split('/').filter(Boolean);
-      if (segs.length >= 2) {
-        const desc = segs[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        if (!isBadgeText(desc)) listing.address = desc;
+    // Pass 4: class-based selector
+    if (!streetAddress) {
+      const addrEl = tile.querySelector('.p24_address, [class*="address"]');
+      if (addrEl) {
+        const addrText = ownText(addrEl).trim() || addrEl.textContent.trim();
+        if (addrText.length > 2 && addrText.length < 80 && !PRICE_PATTERN.test(addrText)) {
+          streetAddress = addrText;
+        }
       }
     }
 
-    if (!listing.address && listing.portal_url) {
-      try {
-        const urlPath = listing.portal_url.toLowerCase();
-        let beds = null, type = null, suburb = null;
-        const bedMatch = urlPath.match(/(\d+)-bedroom/);
-        if (bedMatch) beds = bedMatch[1];
-        for (const t of P24_TYPES) {
-          if (urlPath.includes(t.replace(/\s+/g, '-'))) { type = t.charAt(0).toUpperCase() + t.slice(1); break; }
+    // Pass 5: scan for street words
+    if (!streetAddress) {
+      for (const { text } of textElements) {
+        if (text.length >= 3 && text.length <= 80 && STREET_WORDS.test(text) && !PRICE_PATTERN.test(text)) {
+          streetAddress = text.trim();
+          break;
         }
-        const inMatch = urlPath.match(/in-([a-z-]+)/);
-        if (inMatch) suburb = inMatch[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        if (beds && type && suburb) listing.address = beds + ' Bedroom ' + type + ' in ' + suburb;
-        else if (type && suburb) listing.address = type + ' in ' + suburb;
-        else if (suburb) listing.address = suburb;
-      } catch (e) { /* ignore */ }
+      }
     }
 
+    // Set address
+    if (streetAddress) {
+      listing.address = streetAddress;
+    } else if (typeLine && suburbFromCard) {
+      listing.address = typeLine.replace(/\s+for\s+sale.*/i, '').trim() + ' in ' + suburbFromCard;
+    } else if (typeLine) {
+      listing.address = typeLine.replace(/\s+for\s+sale.*/i, '').trim();
+    }
+
+    if (suburbFromCard) listing.suburb = suburbFromCard;
     if (!listing.address) listing.address = 'Address not available';
   } catch (e) { if (!listing.address) listing.address = 'Address not available'; }
 
-  // Suburb from URL path
+  // Suburb fallbacks
   try {
-    if (listing.portal_url) {
+    if (!listing.suburb && listing.portal_url) {
       const segs = listing.portal_url.split('/').filter(Boolean);
       if (segs.length >= 2) {
         const seg = segs[1];
         const inMatch = seg.match(/in-(.+)$/);
         if (inMatch) listing.suburb = inMatch[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         else if (!/^\d+$/.test(seg)) listing.suburb = seg.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      }
-    }
-    if (!listing.suburb && listing.address) {
-      const inMatch = listing.address.match(/\bin\s+([A-Z][a-zA-Z\s]+?)(?:\s*$|\s*,)/);
-      if (inMatch) listing.suburb = inMatch[1].trim();
-    }
-
-    // Complex/estate name extraction
-    if (listing.address && listing.suburb) {
-      const complexMatch = listing.address.match(
-        /\bin\s+(.+?\b(?:estate|village|complex|lodge|manor|park|place|gardens|court|villas|heights|towers|ridge|mews|close)\b[^,]*)/i
-      );
-      if (complexMatch) {
-        const complexName = complexMatch[1].trim();
-        if (complexName.toLowerCase() !== listing.suburb.toLowerCase()) {
-          listing.address = complexName + ', ' + listing.suburb;
-        }
       }
     }
   } catch (e) { /* */ }
