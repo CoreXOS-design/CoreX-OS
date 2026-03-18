@@ -390,12 +390,13 @@
     @endif
 
     {{-- Feedback Modal --}}
+    <style>[x-cloak] { display: none !important; }</style>
     <div x-data="{ open: false, listingId: null, status: 'contacted' }" x-show="open" x-cloak
-         style="position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6);"
+         style="position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.5);"
          @open-feedback.window="listingId = $event.detail.id; status = $event.detail.status; open = true"
          @keydown.escape.window="open = false">
         <div @click.outside="open = false"
-             style="background:#0b2a4a; border:1px solid #1e3a5f; border-radius:12px; padding:24px; width:100%; max-width:440px;">
+             style="background:#0b2a4a; border:1px solid #1e3a5f; border-radius:12px; padding:20px; width:100%; max-width:380px;">
             <h3 class="text-lg font-bold mb-4" style="color:#fff;">Update Claim Status</h3>
 
             <form :action="'/prospecting/' + listingId + '/feedback'" method="POST">
