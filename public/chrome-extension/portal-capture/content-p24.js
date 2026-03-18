@@ -21,7 +21,7 @@
 
   // ── Search page detection ──────────────────────────────────
   function isSearchResultsPage() {
-    const hasResultsGrid = !!document.querySelector('.p24_regularTile');
+    const hasResultsGrid = !!document.querySelector('[data-listing-number]');
     const isDetailPage = !!(
       document.querySelector('.p24_listingDetail') ||
       document.querySelector('.js_galleryImage')
@@ -67,9 +67,9 @@
       }
     } catch (e) { /* ignore */ }
 
-    // Fallback: count tiles
+    // Fallback: count unique listing tiles
     if (!totalResults) {
-      const tiles = document.querySelectorAll('.p24_regularTile');
+      const tiles = document.querySelectorAll('[data-listing-number]');
       if (tiles.length > 0) totalResults = tiles.length;
     }
 
@@ -296,12 +296,20 @@
   }
 
   // ── Extract all listings from current page ─────────────────
+  // P24 has multiple card types (regularTile, proTile, groupedResultTile, etc.)
+  // ALL have data-listing-number. Some are nested (tileContainer wraps regularTile)
+  // so we deduplicate by listing number.
   function extractAllListings() {
-    const cards = document.querySelectorAll('.p24_regularTile');
+    const allCards = document.querySelectorAll('[data-listing-number]');
+    const seen = new Set();
     const listings = [];
 
-    cards.forEach(card => {
+    allCards.forEach(card => {
       try {
+        const num = card.getAttribute('data-listing-number');
+        if (!num || seen.has(num)) return;
+        seen.add(num);
+
         const listing = extractListing(card);
         if (listing.portal_ref || listing.portal_url) {
           listings.push(listing);

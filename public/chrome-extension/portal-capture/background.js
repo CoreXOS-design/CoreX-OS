@@ -570,13 +570,16 @@ function parseListingsFromHtml(html, portal) {
   const listings = [];
 
   if (portal === 'p24') {
-    const tiles = findTiles(doc, [
-      '.p24_regularTile',
-      '[data-listing-number]',
-    ]);
+    // P24 has multiple card types (regularTile, proTile, groupedResultTile, etc.)
+    // ALL have data-listing-number. Deduplicate to avoid nested wrappers.
+    const allTiles = doc.querySelectorAll('[data-listing-number]');
+    const seen = new Set();
 
-    tiles.forEach(tile => {
+    allTiles.forEach(tile => {
       try {
+        const num = tile.getAttribute('data-listing-number');
+        if (!num || seen.has(num)) return;
+        seen.add(num);
         listings.push(extractP24Listing(tile));
       } catch (e) { /* skip */ }
     });
