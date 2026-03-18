@@ -113,6 +113,25 @@ const P24_TYPES = [
   'penthouse', 'studio',
 ];
 
+// ── P24 badge text filter ───────────────────────────────────
+const P24_BADGE_TEXTS = [
+  'reduced', 'no transfer duty', 'new', 'sole mandate', 'auction',
+  'hot', 'under offer', 'sold', 'pending', 'price reduced',
+  'exclusive', 'must sell', 'repossessed', 'bank sale',
+  'new release', 'show day', 'virtual tour', 'new development',
+  'new listing', 'featured',
+];
+
+function isBadgeText(text) {
+  if (!text) return true;
+  const trimmed = text.trim();
+  if (trimmed.length < 10) return true;
+  if (/^\d+$/.test(trimmed)) return true;
+  if (trimmed === trimmed.toUpperCase() && trimmed.length < 30) return true;
+  if (P24_BADGE_TEXTS.includes(trimmed.toLowerCase())) return true;
+  return false;
+}
+
 // ── P24 listing extraction (mirrors content-p24.js) ─────────
 // NOTE: P24 is React-rendered. Background fetch gets raw HTML which
 // may not contain rendered listing tiles. This extraction works as
@@ -153,25 +172,57 @@ function extractP24Listing(tile) {
   } catch (e) { /* */ }
 
   // Address — from listing link text, then heading, then URL
+  // CRITICAL: Filter out badge overlays like "Reduced", "NO TRANSFER DUTY", etc.
   try {
-    const link = tile.querySelector('a[href*="/for-sale/"], a[href*="/to-rent/"]');
-    if (link) {
+    // Strategy 1: find all detail page links — pick first non-badge text
+    const detailLinks = tile.querySelectorAll('a[href*="/for-sale/"], a[href*="/to-rent/"]');
+    for (const link of detailLinks) {
       const linkText = link.textContent.trim();
-      if (linkText.length > 5 && !/^\d+$/.test(linkText)) listing.address = linkText;
-    }
-    if (!listing.address) {
-      const heading = tile.querySelector('h2, h3, h4');
-      if (heading) {
-        const ht = heading.textContent.trim();
-        if (ht.length > 5) listing.address = ht;
+      if (!isBadgeText(linkText)) {
+        listing.address = linkText;
+        break;
       }
     }
+
+    // Strategy 2: headings (filter badges)
+    if (!listing.address) {
+      const headings = tile.querySelectorAll('h2, h3, h4');
+      for (const heading of headings) {
+        const ht = heading.textContent.trim();
+        if (!isBadgeText(ht)) {
+          listing.address = ht;
+          break;
+        }
+      }
+    }
+
+    // Strategy 3: construct from URL path
     if (!listing.address && listing.portal_url) {
       const segs = listing.portal_url.split('/').filter(Boolean);
       if (segs.length >= 2) {
-        listing.address = segs[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const desc = segs[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        if (!isBadgeText(desc)) listing.address = desc;
       }
     }
+
+    // Strategy 4: build descriptive title from URL parts
+    if (!listing.address && listing.portal_url) {
+      try {
+        const urlPath = listing.portal_url.toLowerCase();
+        let beds = null, type = null, suburb = null;
+        const bedMatch = urlPath.match(/(\d+)-bedroom/);
+        if (bedMatch) beds = bedMatch[1];
+        for (const t of P24_TYPES) {
+          if (urlPath.includes(t.replace(/\s+/g, '-'))) { type = t.charAt(0).toUpperCase() + t.slice(1); break; }
+        }
+        const inMatch = urlPath.match(/in-([a-z-]+)/);
+        if (inMatch) suburb = inMatch[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        if (beds && type && suburb) listing.address = beds + ' Bedroom ' + type + ' in ' + suburb;
+        else if (type && suburb) listing.address = type + ' in ' + suburb;
+        else if (suburb) listing.address = suburb;
+      } catch (e) { /* ignore */ }
+    }
+
     if (!listing.address) listing.address = 'Address not available';
   } catch (e) { if (!listing.address) listing.address = 'Address not available'; }
 
@@ -189,6 +240,19 @@ function extractP24Listing(tile) {
     if (!listing.suburb && listing.address) {
       const inMatch = listing.address.match(/\bin\s+([A-Z][a-zA-Z\s]+?)(?:\s*$|\s*,)/);
       if (inMatch) listing.suburb = inMatch[1].trim();
+    }
+
+    // Complex/estate name extraction for sectional title listings
+    if (listing.address && listing.suburb) {
+      const complexMatch = listing.address.match(
+        /\bin\s+(.+?\b(?:estate|village|complex|lodge|manor|park|place|gardens|court|villas|heights|towers|ridge|mews|close)\b[^,]*)/i
+      );
+      if (complexMatch) {
+        const complexName = complexMatch[1].trim();
+        if (complexName.toLowerCase() !== listing.suburb.toLowerCase()) {
+          listing.address = complexName + ', ' + listing.suburb;
+        }
+      }
     }
   } catch (e) { /* */ }
 

@@ -179,6 +179,32 @@
     return results;
   }
 
+  // ── P24 badge text filter ──────────────────────────────────────────
+  // These overlay texts appear on listing cards and must NOT be used as addresses.
+  const BADGE_TEXTS = [
+    'reduced', 'no transfer duty', 'new', 'sole mandate', 'auction',
+    'hot', 'under offer', 'sold', 'pending', 'price reduced',
+    'exclusive', 'must sell', 'repossessed', 'bank sale',
+    'new release', 'show day', 'virtual tour', 'new development',
+    'new listing', 'featured',
+  ];
+
+  /**
+   * Returns true if text looks like a badge/label rather than a listing title.
+   * Checks: known badge words, too short, ALL CAPS under 30 chars, pure number.
+   */
+  function isBadgeText(text) {
+    if (!text) return true;
+    const trimmed = text.trim();
+    if (trimmed.length < 10) return true;
+    if (/^\d+$/.test(trimmed)) return true;
+    // ALL CAPS and under 30 chars → badge pattern (e.g. "NO TRANSFER DUTY")
+    if (trimmed === trimmed.toUpperCase() && trimmed.length < 30) return true;
+    // Check against known badge words (exact match, case-insensitive)
+    if (BADGE_TEXTS.includes(trimmed.toLowerCase())) return true;
+    return false;
+  }
+
   // ── P24 known property types ───────────────────────────────────────
   const PROPERTY_TYPES = [
     'house', 'apartment', 'townhouse', 'flat', 'duplex', 'simplex',
@@ -256,44 +282,69 @@
     } catch (e) { /* ignore */ }
 
     // ── Address — from the main listing link text ────────────────────
-    // P24 listing titles are like "4 Bedroom House for Sale in Uvongo"
-    // or sometimes the street address "14 Marine Drive, Uvongo"
+    // P24 listing titles follow: "[N] Bedroom [Type] (for Sale) in [Suburb]"
+    // CRITICAL: Filter out badge overlays like "Reduced", "NO TRANSFER DUTY", etc.
     try {
-      // Strategy 1: the main <a> link text to the listing detail page
-      if (listingLink) {
-        const linkText = listingLink.textContent.trim();
-        // Only use if it looks like a real title (>5 chars, not just a number)
-        if (linkText.length > 5 && !/^\d+$/.test(linkText)) {
+      // Strategy 1: find ALL <a> links pointing to listing detail pages
+      // and pick the first one whose text is a real title (not a badge)
+      const detailLinks = tile.querySelectorAll('a[href*="/for-sale/"], a[href*="/to-rent/"]');
+      for (const link of detailLinks) {
+        const linkText = link.textContent.trim();
+        if (!isBadgeText(linkText)) {
           listing.address = linkText;
+          break;
         }
       }
 
-      // Strategy 2: h2/h3 heading inside the tile
+      // Strategy 2: h2/h3 heading inside the tile (filter badges)
       if (!listing.address) {
-        const heading = tile.querySelector('h2, h3, h4');
-        if (heading) {
+        const headings = tile.querySelectorAll('h2, h3, h4');
+        for (const heading of headings) {
           const headText = heading.textContent.trim();
-          if (headText.length > 5) listing.address = headText;
+          if (!isBadgeText(headText)) {
+            listing.address = headText;
+            break;
+          }
         }
       }
 
-      // Strategy 3: look for elements with "address" in class
+      // Strategy 3: look for elements with "address" or "title" in class
       if (!listing.address) {
         const addrEl = tile.querySelector('.p24_address, [class*="address"], .p24_title');
-        if (addrEl) listing.address = addrEl.textContent.trim();
+        if (addrEl) {
+          const addrText = addrEl.textContent.trim();
+          if (!isBadgeText(addrText)) listing.address = addrText;
+        }
       }
 
-      // Strategy 4: extract suburb from URL path
+      // Strategy 4: construct from URL path
+      // /for-sale/house-in-uvongo/kwazulu-natal/607/116950342
       if (!listing.address && listing.portal_url) {
         try {
           const urlPath = new URL(listing.portal_url).pathname;
           const segments = urlPath.split('/').filter(Boolean);
-          // /for-sale/house-in-uvongo/kwazulu-natal/607/116950342
           if (segments.length >= 2) {
-            // The second segment often contains the description
             const desc = segments[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-            listing.address = desc;
+            if (!isBadgeText(desc)) listing.address = desc;
           }
+        } catch (e) { /* ignore */ }
+      }
+
+      // Strategy 5: build a descriptive title from bedrooms + type + suburb
+      if (!listing.address && listing.portal_url) {
+        try {
+          const urlPath = new URL(listing.portal_url).pathname.toLowerCase();
+          let beds = null, type = null, suburb = null;
+          const bedMatch = urlPath.match(/(\d+)-bedroom/);
+          if (bedMatch) beds = bedMatch[1];
+          for (const t of PROPERTY_TYPES) {
+            if (urlPath.includes(t.replace(/\s+/g, '-'))) { type = t.charAt(0).toUpperCase() + t.slice(1); break; }
+          }
+          const inMatch = urlPath.match(/in-([a-z-]+)/);
+          if (inMatch) suburb = inMatch[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          if (beds && type && suburb) listing.address = beds + ' Bedroom ' + type + ' in ' + suburb;
+          else if (type && suburb) listing.address = type + ' in ' + suburb;
+          else if (suburb) listing.address = suburb;
         } catch (e) { /* ignore */ }
       }
 
@@ -330,6 +381,22 @@
         } else {
           const parts = listing.address.split(',').map(s => s.trim());
           if (parts.length > 1) listing.suburb = parts[parts.length - 1];
+        }
+      }
+
+      // Complex/estate name extraction for sectional title listings
+      // "2 Bedroom Apartment in Sea Breeze Estate" → address = "Sea Breeze Estate, Uvongo"
+      // Pattern: title contains "[Type] in [Complex Name]" where complex has estate/village/etc.
+      if (listing.address && listing.suburb) {
+        const complexMatch = listing.address.match(
+          /\bin\s+(.+?\b(?:estate|village|complex|lodge|manor|park|place|gardens|court|villas|heights|towers|ridge|mews|close)\b[^,]*)/i
+        );
+        if (complexMatch) {
+          const complexName = complexMatch[1].trim();
+          // Only use if the complex name is different from just the suburb
+          if (complexName.toLowerCase() !== listing.suburb.toLowerCase()) {
+            listing.address = complexName + ', ' + listing.suburb;
+          }
         }
       }
 
