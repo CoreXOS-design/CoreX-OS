@@ -3,6 +3,7 @@
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use App\Http\Controllers\Api\ProspectingApiController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 
@@ -52,4 +53,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
         return response()->json(['message' => 'Logged out']);
     });
+
+    Route::post('/prospecting/import', [ProspectingApiController::class, 'import']);
 });
