@@ -33,6 +33,9 @@ composer install --no-dev --no-interaction --optimize-autoloader 2>&1
 echo "--- Running migrations..."
 php artisan migrate --force
 
+echo "--- Syncing permissions..."
+php artisan corex:sync-permissions
+
 echo "--- Clearing caches..."
 php artisan config:clear
 php artisan cache:clear

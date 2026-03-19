@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
@@ -28,9 +29,11 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
+        // Sync permissions from config/corex-permissions.php (with defaults for fresh install)
+        Artisan::call('corex:sync-permissions', ['--seed-defaults' => true]);
+
         // Call all other seeders
         $this->call([
-            CoreXPermissionSeeder::class,
             MultiDemoSeeder::class,
             DemoSeeder::class,
             RichDemoSeeder::class,
