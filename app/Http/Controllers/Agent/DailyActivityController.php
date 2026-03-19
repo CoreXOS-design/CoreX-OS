@@ -24,8 +24,8 @@ class DailyActivityController extends Controller
             ? \Carbon\Carbon::parse($selected, $tz)->startOfDay()
             : $today->copy();
 
-        // Rolling window: today + previous 7 days (8 total). Clamp selection into this window.
-        $windowStart = $today->copy()->subDays(7);
+        // Rolling window: today + previous 4 days (5 total). Clamp selection into this window.
+        $windowStart = $today->copy()->subDays(4);
 
         $selectedDate = $requested->greaterThan($today)
             ? $today->copy()
@@ -35,9 +35,9 @@ class DailyActivityController extends Controller
             $selectedDate = $windowStart->copy();
         }
 
-        // Build the rolling strip from oldest -> newest (7 days back .. today)
+        // Build the rolling strip from oldest -> newest (4 days back .. today)
         $days = [];
-        for ($i = 7; $i >= 0; $i--) {
+        for ($i = 4; $i >= 0; $i--) {
             $d = $today->copy()->subDays($i);
             $days[] = [
                 'date' => $d->toDateString(),
