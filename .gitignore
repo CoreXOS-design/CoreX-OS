@@ -29,6 +29,8 @@ NUL
 storage/framework/views/
 database/database.sqlite
 database/*.sqlite
+database/*.sqlite.*
+storage/backups/*.sqlite*
 check.php
 check_dedup.php
 docuperfect.db
