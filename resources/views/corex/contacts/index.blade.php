@@ -56,8 +56,89 @@
     {{-- Add Contact Form (collapsible) --}}
     <div x-show="showAdd" x-cloak
          x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+         x-data="{
+            dupChecking: false,
+            dupFound: false,
+            dupData: {},
+            async checkDuplicate() {
+                const phone = this.$refs.phoneInput.value.trim();
+                const email = this.$refs.emailInput.value.trim();
+                if (!phone && !email) { this.dupFound = false; return; }
+                this.dupChecking = true;
+                try {
+                    const res = await fetch('{{ route('corex.contacts.check-duplicate') }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Accept': 'application/json',
+                        },
+                        body: JSON.stringify({ phone, email }),
+                    });
+                    const data = await res.json();
+                    if (data.found) {
+                        this.dupData = data;
+                        this.dupFound = true;
+                    } else {
+                        this.dupFound = false;
+                    }
+                } catch (e) {
+                    this.dupFound = false;
+                } finally {
+                    this.dupChecking = false;
+                }
+            }
+         }"
          class="rounded-md" style="background:var(--surface); border:1px solid var(--border); padding:24px;">
         <div class="text-sm font-bold mb-4" style="color:var(--text-primary);">New Contact</div>
+
+        {{-- Duplicate found popup --}}
+        <div x-show="dupFound" x-cloak
+             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+             class="rounded-md mb-4 p-4" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.3);">
+            <div class="flex items-start gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0 mt-0.5" style="color:#eab308;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+                </svg>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-bold" style="color:#eab308;">Possible Duplicate Found</div>
+                    <p class="text-xs mt-1" style="color:var(--text-secondary);">A contact with this phone number or email already exists.</p>
+                    <div class="mt-3 rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);">
+                        <div class="flex items-center gap-3 mb-2">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                                 style="background:var(--brand-icon,#0ea5e9);"
+                                 x-text="dupData.name ? dupData.name.charAt(0).toUpperCase() : ''"></div>
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="dupData.name"></div>
+                                <div class="text-xs" style="color:var(--text-muted);" x-text="dupData.type"></div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs mt-2">
+                            <div>
+                                <span class="font-semibold" style="color:var(--text-muted);">Phone:</span>
+                                <span style="color:var(--text-secondary);" x-text="dupData.phone"></span>
+                            </div>
+                            <div>
+                                <span class="font-semibold" style="color:var(--text-muted);">Email:</span>
+                                <span style="color:var(--text-secondary);" x-text="dupData.email"></span>
+                            </div>
+                            <div>
+                                <span class="font-semibold" style="color:var(--text-muted);">Agent:</span>
+                                <span style="color:var(--text-secondary);" x-text="dupData.agent"></span>
+                            </div>
+                        </div>
+                        <div class="text-xs mt-2">
+                            <span class="font-semibold" style="color:var(--text-muted);">Last Contacted:</span>
+                            <span style="color:var(--text-secondary);" x-text="dupData.last_contacted"></span>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <a :href="dupData.url" class="text-xs font-semibold no-underline transition-all duration-300" style="color:var(--brand-icon,#0ea5e9);">View Existing Contact</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <form method="POST" action="{{ route('corex.contacts.store') }}" class="space-y-4">
             @csrf
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -79,6 +160,8 @@
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone Number <span class="text-red-500">*</span></label>
                     <input type="text" name="phone" value="{{ old('phone') }}" required
                            placeholder="e.g. 082 123 4567"
+                           x-ref="phoneInput"
+                           @blur="checkDuplicate()"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                 </div>
@@ -86,6 +169,8 @@
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                     <input type="email" name="email" value="{{ old('email') }}"
                            placeholder="e.g. john@example.com"
+                           x-ref="emailInput"
+                           @blur="checkDuplicate()"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
                 </div>
@@ -105,15 +190,10 @@
                         <p class="text-xs mt-1" style="color:var(--text-muted);">No types yet — add them in <a href="{{ route('corex.settings', ['tab'=>'feature','fsec'=>'contacts']) }}" class="underline" style="color:var(--brand-icon,#0ea5e9);">Settings → Feature Settings → Contacts</a>.</p>
                     @endif
                 </div>
-                <div class="sm:col-span-2 lg:col-span-1">
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notes <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                    <textarea name="notes" rows="2" placeholder="Any additional notes..."
-                              class="w-full rounded-md px-3 py-2 text-sm resize-none transition-all duration-300"
-                              style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">{{ old('notes') }}</textarea>
-                </div>
             </div>
             <div class="flex items-center gap-3 pt-2">
-                <button type="submit" class="corex-btn-primary text-sm">Save Contact</button>
+                <button type="submit" class="corex-btn-primary text-sm" :disabled="dupFound"
+                        :style="dupFound ? 'opacity:0.4; cursor:not-allowed;' : ''">Save Contact</button>
                 <button type="button" @click="showAdd = false" class="text-sm transition-all duration-300" style="color:var(--text-muted);">Cancel</button>
             </div>
         </form>

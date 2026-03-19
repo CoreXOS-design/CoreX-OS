@@ -91,6 +91,49 @@ class ContactController extends Controller
         return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes'));
     }
 
+    public function checkDuplicate(Request $request)
+    {
+        $request->validate([
+            'phone' => 'nullable|string|max:30',
+            'email' => 'nullable|email|max:150',
+        ]);
+
+        $phone = $request->input('phone');
+        $email = $request->input('email');
+
+        if (!$phone && !$email) {
+            return response()->json(['found' => false]);
+        }
+
+        $duplicate = Contact::with('createdBy')
+            ->where(function ($q) use ($phone, $email) {
+                if ($phone) {
+                    $q->where('phone', $phone);
+                }
+                if ($email) {
+                    $q->orWhere('email', $email);
+                }
+            })
+            ->first();
+
+        if (!$duplicate) {
+            return response()->json(['found' => false]);
+        }
+
+        return response()->json([
+            'found'          => true,
+            'name'           => $duplicate->full_name,
+            'phone'          => $duplicate->phone,
+            'email'          => $duplicate->email ?? '—',
+            'type'           => optional($duplicate->type)->name ?? '—',
+            'agent'          => optional($duplicate->createdBy)->name ?? 'Unknown',
+            'last_contacted' => $duplicate->last_contacted_at
+                ? \Carbon\Carbon::parse($duplicate->last_contacted_at)->format('d M Y')
+                : 'Never',
+            'url'            => route('corex.contacts.show', $duplicate),
+        ]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
