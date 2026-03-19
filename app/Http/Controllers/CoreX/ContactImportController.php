@@ -109,6 +109,8 @@ class ContactImportController extends Controller
 
     public function import(Request $request)
     {
+        set_time_limit(300); // Allow up to 5 minutes for large imports
+
         $request->validate([
             'file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:25600'],
         ]);
