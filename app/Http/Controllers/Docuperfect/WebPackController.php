@@ -50,8 +50,11 @@ class WebPackController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
-            'template_ids' => 'required|array|min:1',
-            'template_ids.*' => 'exists:docuperfect_templates,id',
+            'items' => 'required|array|min:1',
+            'items.*.template_id' => 'required|exists:docuperfect_templates,id',
+            'items.*.slot_type' => 'nullable|in:required,selectable,optional',
+            'items.*.slot_group' => 'nullable|integer|min:1|max:99',
+            'items.*.slot_label' => 'nullable|string|max:255',
         ]);
 
         $webPack = WebPack::create([
@@ -61,11 +64,14 @@ class WebPackController extends Controller
             'created_by' => $user->id,
         ]);
 
-        foreach ($request->input('template_ids') as $i => $templateId) {
+        foreach ($request->input('items') as $i => $itemData) {
             WebPackItem::create([
                 'web_pack_id' => $webPack->id,
-                'template_id' => $templateId,
+                'template_id' => $itemData['template_id'],
                 'sort_order' => $i * 10,
+                'slot_type' => $itemData['slot_type'] ?? 'required',
+                'slot_group' => $itemData['slot_group'] ?? null,
+                'slot_label' => $itemData['slot_label'] ?? null,
             ]);
         }
 
@@ -102,8 +108,11 @@ class WebPackController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:1000',
-            'template_ids' => 'required|array|min:1',
-            'template_ids.*' => 'exists:docuperfect_templates,id',
+            'items' => 'required|array|min:1',
+            'items.*.template_id' => 'required|exists:docuperfect_templates,id',
+            'items.*.slot_type' => 'nullable|in:required,selectable,optional',
+            'items.*.slot_group' => 'nullable|integer|min:1|max:99',
+            'items.*.slot_label' => 'nullable|string|max:255',
         ]);
 
         $webPack->update([
@@ -114,11 +123,14 @@ class WebPackController extends Controller
         // Delete old items and recreate
         $webPack->items()->delete();
 
-        foreach ($request->input('template_ids') as $i => $templateId) {
+        foreach ($request->input('items') as $i => $itemData) {
             WebPackItem::create([
                 'web_pack_id' => $webPack->id,
-                'template_id' => $templateId,
+                'template_id' => $itemData['template_id'],
                 'sort_order' => $i * 10,
+                'slot_type' => $itemData['slot_type'] ?? 'required',
+                'slot_group' => $itemData['slot_group'] ?? null,
+                'slot_label' => $itemData['slot_label'] ?? null,
             ]);
         }
 

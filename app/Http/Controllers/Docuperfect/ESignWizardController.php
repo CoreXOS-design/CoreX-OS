@@ -121,9 +121,18 @@ class ESignWizardController extends Controller
             $pack = \App\Models\Docuperfect\WebPack::with('items.template')
                 ->findOrFail($packId);
 
-            $templates = $pack->items->sortBy('sort_order')
-                ->map(fn($item) => $item->template)
-                ->filter(); // remove any null templates
+            // Use resolved template IDs if provided (slot selection)
+            $resolvedIds = $request->input('resolved_template_ids');
+            if (!empty($resolvedIds) && is_array($resolvedIds)) {
+                // Filter and order items by the resolved selection
+                $templates = collect($resolvedIds)
+                    ->map(fn($id) => Template::find($id))
+                    ->filter();
+            } else {
+                $templates = $pack->items->sortBy('sort_order')
+                    ->map(fn($item) => $item->template)
+                    ->filter(); // remove any null templates
+            }
 
             if ($templates->isEmpty()) {
                 return response()->json(['error' => 'This web pack has no templates.'], 422);

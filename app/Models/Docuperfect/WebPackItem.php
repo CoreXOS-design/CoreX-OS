@@ -15,6 +15,9 @@ class WebPackItem extends Model
         'web_pack_id',
         'template_id',
         'sort_order',
+        'slot_type',
+        'slot_group',
+        'slot_label',
     ];
 
     public function webPack()

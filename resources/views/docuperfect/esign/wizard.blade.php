@@ -844,17 +844,81 @@
                 </template>
             </div>
 
-            {{-- Pack summary preview --}}
+            {{-- Pack summary / slot selection --}}
             <div x-show="isPackFlow && packPreview" class="p-6" x-cloak>
                 <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                     <div class="font-semibold text-blue-700 mb-2 text-base">
                         <span x-text="selectedPackName"></span>
                     </div>
-                    <p class="text-xs text-gray-500 mb-3">This pack contains the following documents in order:</p>
-                    <template x-for="(item, i) in (packPreview?.items || [])" :key="i">
-                        <div class="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
-                            <span class="text-xs font-bold text-gray-400 w-5 text-center" x-text="i+1"></span>
-                            <span class="text-sm text-gray-700" x-text="item.template?.name || 'Unknown'"></span>
+
+                    {{-- Simple pack (no slots) — just list the templates --}}
+                    <template x-if="!packHasSlots">
+                        <div>
+                            <p class="text-xs text-gray-500 mb-3">This pack contains the following documents in order:</p>
+                            <template x-for="(item, i) in (packPreview?.items || [])" :key="i">
+                                <div class="flex items-center gap-2 py-2 border-b border-slate-100 last:border-0">
+                                    <span class="text-xs font-bold text-gray-400 w-5 text-center" x-text="i+1"></span>
+                                    <span class="text-sm text-gray-700" x-text="item.template?.name || 'Unknown'"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    {{-- Pack with slots — show slot selection UI --}}
+                    <template x-if="packHasSlots">
+                        <div>
+                            <p class="text-xs text-gray-500 mb-3">Configure which documents to include:</p>
+                            <div class="space-y-3">
+                                <template x-for="slot in packSlots" :key="slot.key">
+                                    <div class="border rounded-lg p-3">
+                                        {{-- Required slot --}}
+                                        <template x-if="slot.type === 'required'">
+                                            <div class="flex items-center gap-2">
+                                                <span class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                                                <span class="text-sm text-gray-700" x-text="slot.templates[0].name"></span>
+                                                <span class="text-[10px] text-gray-400">Required</span>
+                                            </div>
+                                        </template>
+
+                                        {{-- Selectable slot — radio buttons --}}
+                                        <template x-if="slot.type === 'selectable'">
+                                            <div>
+                                                <span class="text-xs font-semibold text-gray-500 uppercase"
+                                                      x-text="slot.label || 'Select one'"></span>
+                                                <div class="mt-2 space-y-1">
+                                                    <template x-for="tmpl in slot.templates" :key="tmpl.id">
+                                                        <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer p-2 rounded hover:bg-gray-50">
+                                                            <input type="radio"
+                                                                   :name="'slot-' + slot.group"
+                                                                   :value="tmpl.id"
+                                                                   x-model.number="slotSelections[slot.group]"
+                                                                   class="w-3.5 h-3.5 text-teal-600">
+                                                            <span x-text="tmpl.name"></span>
+                                                        </label>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+
+                                        {{-- Optional slot — checkbox --}}
+                                        <template x-if="slot.type === 'optional'">
+                                            <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                                <input type="checkbox"
+                                                       :value="slot.templates[0].id"
+                                                       x-model.number="optionalSelections"
+                                                       class="w-3.5 h-3.5 text-teal-600 rounded">
+                                                <span x-text="slot.templates[0].name"></span>
+                                                <span class="text-[10px] text-gray-400">Optional</span>
+                                            </label>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+
+                            {{-- Resolved template count --}}
+                            <div class="mt-3 text-xs text-gray-500">
+                                <span x-text="resolvedPackTemplateIds.length"></span> document(s) will be included
+                            </div>
                         </div>
                     </template>
                 </div>
@@ -1063,6 +1127,9 @@ function esignWizard() {
         selectedPdfPackId: null,
         isPackFlow: false,
         packPreview: null,
+        packSlots: [],
+        slotSelections: {},
+        optionalSelections: [],
 
         // Preview
         previewPages: serverPageImages || [],
@@ -1267,6 +1334,98 @@ function esignWizard() {
             this.previewPages = [];
             this.previewReady = true;
             this.packPreview = p;
+
+            // Build slot structure from pack items
+            this._buildPackSlots(p);
+        },
+
+        _buildPackSlots(p) {
+            const items = p.items || [];
+            const slots = [];
+            const selectableGroups = {};
+
+            // Group selectable items by slot_group
+            items.forEach(item => {
+                const slotType = item.slot_type || 'required';
+                const tmpl = {
+                    id: item.template?.id || item.template_id,
+                    name: item.template?.name || 'Unknown',
+                };
+
+                if (slotType === 'selectable') {
+                    const group = item.slot_group || 1;
+                    if (!selectableGroups[group]) {
+                        selectableGroups[group] = {
+                            key: 'sel-' + group,
+                            type: 'selectable',
+                            group: group,
+                            label: item.slot_label || '',
+                            templates: [],
+                        };
+                    }
+                    selectableGroups[group].templates.push(tmpl);
+                    if (item.slot_label) selectableGroups[group].label = item.slot_label;
+                } else if (slotType === 'optional') {
+                    slots.push({
+                        key: 'opt-' + tmpl.id,
+                        type: 'optional',
+                        templates: [tmpl],
+                    });
+                } else {
+                    slots.push({
+                        key: 'req-' + tmpl.id,
+                        type: 'required',
+                        templates: [tmpl],
+                    });
+                }
+            });
+
+            // Insert selectable groups in sort order
+            Object.values(selectableGroups).forEach(g => slots.push(g));
+
+            this.packSlots = slots;
+
+            // Reset selections
+            this.slotSelections = {};
+            this.optionalSelections = [];
+
+            // Pre-select first option in each selectable group
+            Object.values(selectableGroups).forEach(g => {
+                if (g.templates.length > 0) {
+                    this.slotSelections[g.group] = g.templates[0].id;
+                }
+            });
+        },
+
+        get packHasSlots() {
+            if (!this.packPreview) return false;
+            const items = this.packPreview.items || [];
+            return items.some(i => (i.slot_type || 'required') !== 'required');
+        },
+
+        get resolvedPackTemplateIds() {
+            if (!this.packPreview) return [];
+
+            // If no slots, return all item template IDs
+            if (!this.packHasSlots) {
+                return (this.packPreview.items || []).map(i => i.template?.id || i.template_id).filter(Boolean);
+            }
+
+            const ids = [];
+            for (const slot of this.packSlots) {
+                if (slot.type === 'required') {
+                    ids.push(slot.templates[0].id);
+                } else if (slot.type === 'selectable') {
+                    const selected = this.slotSelections[slot.group];
+                    if (selected) ids.push(selected);
+                } else if (slot.type === 'optional') {
+                    const tmplId = slot.templates[0].id;
+                    if (this.optionalSelections.includes(tmplId)) {
+                        ids.push(tmplId);
+                    }
+                }
+            }
+            return ids;
         },
 
         selectPdfPack(p) {
@@ -1525,7 +1684,17 @@ function esignWizard() {
         },
 
         canGoNext() {
-            if (this.currentStep === 1) return !!(this.selectedTemplateId || this.selectedPackId || this.selectedPdfPackId);
+            if (this.currentStep === 1) {
+                if (this.selectedPackId && this.packHasSlots) {
+                    // All selectable groups must have a selection
+                    for (const slot of this.packSlots.filter(s => s.type === 'selectable')) {
+                        if (!this.slotSelections[slot.group]) return false;
+                    }
+                    // Must have at least one resolved template
+                    return this.resolvedPackTemplateIds.length > 0;
+                }
+                return !!(this.selectedTemplateId || this.selectedPackId || this.selectedPdfPackId);
+            }
             return true;
         },
 
@@ -1581,6 +1750,7 @@ function esignWizard() {
                     pack_id: this.selectedPackId,
                     is_pack_flow: this.isPackFlow,
                     pdf_pack_id: this.selectedPdfPackId,
+                    resolved_template_ids: this.packHasSlots ? this.resolvedPackTemplateIds : null,
                 }),
             });
             if (!resp.ok) {
