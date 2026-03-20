@@ -429,12 +429,44 @@ class WebTemplateDataService
             $data[$varName] = $value;
         }
 
+        // Apply smart defaults based on property type
+        $this->applySmartDefaults($data, (object) $property);
+
         // Also include the full standard data set for maximum blade compatibility
         // (signature blocks, initials, etc. reference standard variable names)
         $baseData = $this->resolveBase($stepData, $agent);
 
         // CDS-specific fields override base where they exist
         return array_merge($baseData, $data);
+    }
+
+    /**
+     * Apply smart defaults based on the property type.
+     * Freehold properties get N/A for complex name; sectional title uses unit number for erf.
+     */
+    private function applySmartDefaults(array &$data, ?object $property): void
+    {
+        if (!$property) return;
+
+        $type = strtolower($property->property_type ?? '');
+
+        // Sectional title properties have complex names — leave as-is
+        if (!in_array($type, ['sectional title', 'apartment', 'flat', 'townhouse'])) {
+            // Freehold — no complex
+            if (empty($data['property_complex_name'] ?? '')) {
+                $data['property_complex_name'] = 'N/A';
+            }
+            if (empty($data['complex_name'] ?? '')) {
+                $data['complex_name'] = 'N/A';
+            }
+        }
+
+        // Erf number: sectional title uses unit number
+        if (in_array($type, ['sectional title', 'apartment', 'flat'])) {
+            if (empty($data['property_erf_number'] ?? '') && !empty($property->unit_number ?? '')) {
+                $data['property_erf_number'] = $property->unit_number;
+            }
+        }
     }
 
     /**

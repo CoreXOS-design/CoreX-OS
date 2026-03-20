@@ -183,6 +183,7 @@ class CdsParserService
         $sections = $this->detectCapsHeadings($sections);
         $sections = $this->detectBoldHeadings($sections);
         $sections = $this->detectCompanyHeader($sections);
+        $sections = $this->detectDisclosureTables($sections);
 
         // Legacy: replaced by marker-based detection
         // $sections = $this->detectFieldPlaceholders($sections);
@@ -644,6 +645,84 @@ class CdsParserService
     /**
      * Marker-based field detection.
      * Users place @@@@ (input), %%%% (signature), #### (initial) markers
+     * Post-process: detect YES/NO/N/A disclosure tables.
+     * Documents like the Mandatory Disclosure (V7) have tables with
+     * YES/NO/N/A checkboxes per row. This converts them to structured
+     * disclosure_checklist sections.
+     */
+    private function detectDisclosureTables(array $sections): array
+    {
+        foreach ($sections as &$section) {
+            if (($section['type'] ?? '') !== 'table') continue;
+
+            $rows = $section['rows'] ?? [];
+            if (count($rows) < 3) continue;
+
+            // Check if header row has YES/NO/N/A pattern
+            $header = array_map('strtoupper', array_map('trim', $rows[0]));
+
+            $hasYes = in_array('YES', $header);
+            $hasNo = in_array('NO', $header);
+            $hasNa = in_array('N/A', $header) || in_array('NA', $header);
+
+            if (!$hasYes || !$hasNo) continue;
+
+            // This is a disclosure table
+            $section['type'] = 'disclosure_checklist';
+            $section['header'] = $header;
+            $section['has_na'] = $hasNa;
+            $cols = count($header);
+
+            // Parse each data row into structured items
+            $items = [];
+            for ($i = 1; $i < count($rows); $i++) {
+                $row = $rows[$i];
+                $statement = trim($row[0] ?? '');
+
+                if (empty($statement)) continue;
+
+                // Check for sub-headers (rows with text only in first cell, typically uppercase)
+                $otherCells = array_slice($row, 1);
+                $otherContent = implode('', array_map('trim', $otherCells));
+                $isSubHeader = !empty($statement)
+                    && empty($otherContent)
+                    && strlen($statement) < 80
+                    && strtoupper($statement) === $statement;
+
+                if ($isSubHeader) {
+                    $items[] = [
+                        'type' => 'sub_header',
+                        'text' => $statement,
+                    ];
+                    continue;
+                }
+
+                // Check for conditional date fields
+                $hasConditionalDate = (bool) preg_match(
+                    '/if\s*yes.*when|when.*issued|date.*issued/i',
+                    $statement
+                );
+
+                $items[] = [
+                    'type' => 'checklist_item',
+                    'statement' => $statement,
+                    'has_conditional_date' => $hasConditionalDate,
+                    'value' => null,
+                    'date_value' => null,
+                ];
+            }
+
+            $section['items'] = $items;
+
+            // Remove the raw rows — replaced by structured items
+            unset($section['rows']);
+        }
+
+        return $sections;
+    }
+
+    /**
+     * Post-process: detect marker characters that users place
      * in their Word documents before importing. These are split out of
      * text runs into typed placeholder items.
      */

@@ -1208,6 +1208,22 @@ class ESignWizardController extends Controller
             $bodyHtml = $this->resolveSignatureNames($bodyHtml, $webTemplateData, $partiesForSigning);
             $bodyHtml = $this->injectFieldValues($bodyHtml, $webTemplateData);
 
+            // Inject additional clauses from wizard step 5
+            $selectedClauses = $stepData['fill_review']['clauses'] ?? [];
+            if (!empty($selectedClauses)) {
+                $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
+                $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
+                foreach ($selectedClauses as $idx => $clause) {
+                    $num = $idx + 1;
+                    $clauseHtml .= '<div style="margin:6pt 0;">';
+                    $clauseHtml .= '<p><strong>' . $num . '.</strong> '
+                        . e($clause['text'] ?? $clause['content'] ?? '') . '</p>';
+                    $clauseHtml .= '</div>';
+                }
+                $clauseHtml .= '</div>';
+                $bodyHtml .= $clauseHtml;
+            }
+
             // Store as merged_html so SignatureController uses it directly
             $webTemplateData['merged_html'] = $styles . $bodyHtml;
         }

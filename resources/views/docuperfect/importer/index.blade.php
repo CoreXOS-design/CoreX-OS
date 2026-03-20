@@ -240,6 +240,33 @@
                         <span x-text="cdsSubmitting ? 'Importing...' : 'Import CDS'"></span>
                     </button>
                 </div>
+
+                {{-- Marker guide --}}
+                <div class="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <h4 class="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
+                        Preparing your document
+                    </h4>
+                    <p class="text-xs text-slate-500 mb-2">
+                        Before uploading, replace fill-in areas in your Word document with these markers:
+                    </p>
+                    <div class="space-y-1.5">
+                        <div class="flex items-center gap-2 text-xs">
+                            <code class="bg-red-50 text-red-700 px-2 py-0.5 rounded font-mono font-bold">@@@@</code>
+                            <span class="text-slate-600">Input field &mdash; where data needs to be filled in</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs">
+                            <code class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-mono font-bold">%%%%</code>
+                            <span class="text-slate-600">Signature block &mdash; where parties sign</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs">
+                            <code class="bg-green-50 text-green-700 px-2 py-0.5 rounded font-mono font-bold">####</code>
+                            <span class="text-slate-600">Initial block &mdash; where parties initial</span>
+                        </div>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2">
+                        The system auto-detects fields from surrounding text. You can also tag fields manually after import.
+                    </p>
+                </div>
             </form>
         </div>
     </div>

@@ -31,6 +31,7 @@ class CdsRendererService
             'inline_signature' => $this->renderInlineSignature($section),
             'page_initials' => $this->renderPageInitials($section),
             'label_value_group' => $this->renderLabelValueGroup($section),
+            'disclosure_checklist' => $this->renderDisclosureChecklist($section),
             default => '',
         };
     }
@@ -275,6 +276,77 @@ class CdsRendererService
         }
 
         $html .= '</span></div>';
+
+        return $html;
+    }
+
+    private function renderDisclosureChecklist(array $section): string
+    {
+        $hasNa = $section['has_na'] ?? false;
+        $items = $section['items'] ?? [];
+        $cols = $hasNa ? 4 : 3;
+
+        $html = '<div class="corex-disclosure-checklist" '
+            . 'data-section-type="disclosure_checklist">';
+
+        $html .= '<table class="corex-disclosure-table">';
+        $html .= '<thead><tr>';
+        $html .= '<th class="corex-disclosure-statement">Statement</th>';
+        $html .= '<th class="corex-disclosure-option">YES</th>';
+        $html .= '<th class="corex-disclosure-option">NO</th>';
+        if ($hasNa) {
+            $html .= '<th class="corex-disclosure-option">N/A</th>';
+        }
+        $html .= '</tr></thead>';
+
+        $html .= '<tbody>';
+        foreach ($items as $idx => $item) {
+            if ($item['type'] === 'sub_header') {
+                $html .= '<tr class="corex-disclosure-subheader">';
+                $html .= '<td colspan="' . $cols . '">'
+                    . '<strong>' . e($item['text']) . '</strong></td>';
+                $html .= '</tr>';
+                continue;
+            }
+
+            $html .= '<tr class="corex-disclosure-row" '
+                . 'data-item-index="' . $idx . '">';
+
+            // Statement cell
+            $html .= '<td class="corex-disclosure-statement">'
+                . e($item['statement']);
+
+            // Conditional date field
+            if ($item['has_conditional_date'] ?? false) {
+                $html .= '<br><span class="corex-disclosure-date-field" '
+                    . 'data-conditional="yes">'
+                    . '<span class="text-xs text-gray-400">'
+                    . 'Date: ________________</span></span>';
+            }
+
+            $html .= '</td>';
+
+            // YES/NO/N/A cells
+            $html .= '<td class="corex-disclosure-option">'
+                . '<span class="corex-radio-placeholder" '
+                . 'data-item="' . $idx . '" data-value="yes">'
+                . '&#9675;</span></td>';
+
+            $html .= '<td class="corex-disclosure-option">'
+                . '<span class="corex-radio-placeholder" '
+                . 'data-item="' . $idx . '" data-value="no">'
+                . '&#9675;</span></td>';
+
+            if ($hasNa) {
+                $html .= '<td class="corex-disclosure-option">'
+                    . '<span class="corex-radio-placeholder" '
+                    . 'data-item="' . $idx . '" data-value="na">'
+                    . '&#9675;</span></td>';
+            }
+
+            $html .= '</tr>';
+        }
+        $html .= '</tbody></table></div>';
 
         return $html;
     }

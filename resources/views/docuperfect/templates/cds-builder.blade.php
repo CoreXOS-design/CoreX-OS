@@ -404,6 +404,34 @@
                                         </div>
                                     </template>
 
+                                    {{-- Who completes --}}
+                                    <div class="mb-1.5">
+                                        <label class="text-[10px] font-semibold text-gray-500 uppercase">Who completes</label>
+                                        <div class="mt-1 space-y-1">
+                                            <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                                                <input type="checkbox"
+                                                       :checked="getMapping(tag.id).filled_by_agent"
+                                                       @change="toggleFilledBy(tag.id, 'agent', $event.target.checked)"
+                                                       class="w-3 h-3 text-teal-600 rounded">
+                                                Agent (at creation)
+                                            </label>
+                                            <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                                                <input type="checkbox"
+                                                       :checked="getMapping(tag.id).filled_by_recipient"
+                                                       @change="toggleFilledBy(tag.id, 'recipient', $event.target.checked)"
+                                                       class="w-3 h-3 text-teal-600 rounded">
+                                                Recipient (at signing)
+                                            </label>
+                                            <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                                                <input type="checkbox"
+                                                       :checked="getMapping(tag.id).filled_by_auto"
+                                                       @change="toggleFilledBy(tag.id, 'auto', $event.target.checked)"
+                                                       class="w-3 h-3 text-teal-600 rounded">
+                                                Auto-fill from database
+                                            </label>
+                                        </div>
+                                    </div>
+
                                     {{-- Party dropdown --}}
                                     <select class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white"
                                             :value="getMapping(tag.id).party"
@@ -646,6 +674,8 @@
     .doc-tag-input-linked { background: #0d9488; color: #fff; }
     /* INPUT: linked manual = orange */
     .doc-tag-input-manual { background: #ea580c; color: #fff; }
+    /* INPUT: shared (agent + recipient) = purple */
+    .doc-tag-input-shared { background: #7c3aed; color: #fff; }
 
     /* SIG: no party = yellow */
     .doc-tag-signature { background: #f59e0b; color: #1a1a1a; }
@@ -1147,6 +1177,21 @@ function cdsEditor() {
                     };
                 });
 
+                // Convert disclosure checklists to non-editable blocks
+                const disclosures = document.querySelectorAll(
+                    '#docContainer .corex-disclosure-checklist'
+                );
+                disclosures.forEach((el, idx) => {
+                    el.setAttribute('data-disclosure-index', idx);
+                    el.setAttribute('contenteditable', 'false');
+
+                    const label = document.createElement('div');
+                    label.className = 'text-[10px] font-semibold text-purple-600 uppercase tracking-wider mb-1 mt-3';
+                    label.textContent = 'Disclosure Checklist \u2014 completed by recipient at signing';
+                    label.setAttribute('contenteditable', 'false');
+                    el.parentNode.insertBefore(label, el);
+                });
+
                 this._updateCounts();
                 this._syncAllTagColors();
                 this._syncAllTagLabels();
@@ -1217,14 +1262,18 @@ function cdsEditor() {
             const mapping = this.mappings[tagId] || {};
 
             el.classList.remove(
-                'doc-tag-input', 'doc-tag-input-linked', 'doc-tag-input-manual',
+                'doc-tag-input', 'doc-tag-input-linked', 'doc-tag-input-manual', 'doc-tag-input-shared',
                 'doc-tag-signature', 'doc-tag-signature-assigned',
                 'doc-tag-initial', 'doc-tag-initial-assigned'
             );
 
             if (tag.type === 'input') {
                 const mt = mapping.mappingType || '';
-                if (mt === 'manual' && mapping.manualLabel) {
+                // Check for shared responsibility (agent + recipient both checked)
+                const isShared = mapping.filled_by_agent && mapping.filled_by_recipient;
+                if (isShared) {
+                    el.classList.add('doc-tag-input-shared');
+                } else if (mt === 'manual' && mapping.manualLabel) {
                     el.classList.add('doc-tag-input-manual');
                 } else if ((mt === 'named_field' && mapping.namedFieldId) || (mt === 'field_group' && mapping.fieldGroupId)) {
                     el.classList.add('doc-tag-input-linked');
@@ -1323,6 +1372,9 @@ function cdsEditor() {
                 sigType: 'electronic',
                 sourceType: '',
                 sourceContactType: '',
+                filled_by_agent: false,
+                filled_by_recipient: false,
+                filled_by_auto: true,
             };
         },
 
@@ -1404,6 +1456,14 @@ function cdsEditor() {
             this.mappings[tagId] = m;
             this._syncTagColor(tagId);
             this._syncTagLabel(tagId);
+            this._persistMappings();
+        },
+
+        toggleFilledBy(tagId, role, checked) {
+            const m = this.getMapping(tagId);
+            m['filled_by_' + role] = checked;
+            this.mappings[tagId] = m;
+            this._syncTagColor(tagId);
             this._persistMappings();
         },
 

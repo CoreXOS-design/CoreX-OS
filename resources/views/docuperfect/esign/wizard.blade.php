@@ -147,14 +147,22 @@
                                             : 'border-gray-200 hover:border-gray-300 bg-white'">
                                     <div class="font-medium text-gray-900 text-sm flex items-center">
                                         <span x-text="p.name"></span>
-                                        <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 ml-2">Pack</span>
+                                        <template x-if="p.items.some(i => i.template?.template_type === 'cds')">
+                                            <span class="text-[10px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 font-semibold ml-2">CDS</span>
+                                        </template>
+                                        <template x-if="!p.items.some(i => i.template?.template_type === 'cds')">
+                                            <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 ml-2">Web</span>
+                                        </template>
                                         <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 ml-1" x-text="p.items.length + ' template' + (p.items.length !== 1 ? 's' : '')"></span>
                                     </div>
                                     <div x-show="p.items.length > 0" class="mt-1.5 space-y-0.5">
                                         <template x-for="item in p.items" :key="'pi-' + item.id">
                                             <div class="text-xs text-gray-500 flex items-center gap-1">
-                                                <span class="w-1 h-1 rounded-full bg-blue-400 flex-shrink-0"></span>
+                                                <span class="w-1 h-1 rounded-full flex-shrink-0"
+                                                      :class="item.template?.template_type === 'cds' ? 'bg-teal-500' : 'bg-blue-400'"></span>
                                                 <span x-text="item.template?.name || 'Unknown template'"></span>
+                                                <span x-show="item.template?.template_type === 'cds'"
+                                                      class="text-[9px] px-1 py-0 rounded bg-teal-50 text-teal-600">CDS</span>
                                             </div>
                                         </template>
                                     </div>
@@ -652,6 +660,44 @@
                         </div>
                     </template>
                 </div>
+
+                {{-- Additional Clauses --}}
+                <div class="mt-6 mb-4 p-3 border border-dashed border-blue-300 rounded-lg bg-blue-50/50">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-sm font-semibold text-blue-700">Additional Clauses</span>
+                            <p class="text-xs text-blue-500 mt-0.5">
+                                Add standard clauses from the clause library
+                            </p>
+                        </div>
+                        <button type="button" @click="showClauseLibrary = true"
+                                class="text-sm px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+                            + Insert Clause
+                        </button>
+                    </div>
+
+                    {{-- Selected clauses list --}}
+                    <template x-if="selectedClauses.length > 0">
+                        <div class="mt-3 space-y-2">
+                            <template x-for="(clause, idx) in selectedClauses" :key="clause.id">
+                                <div class="flex items-start gap-2 bg-white p-2 rounded border border-blue-200">
+                                    <span class="text-xs font-semibold text-blue-600 mt-0.5"
+                                          x-text="(idx + 1) + '.'"></span>
+                                    <div class="flex-1">
+                                        <span class="text-xs font-semibold text-gray-700"
+                                              x-text="clause.name"></span>
+                                        <p class="text-xs text-gray-500 mt-0.5 line-clamp-2"
+                                           x-text="clause.text"></p>
+                                    </div>
+                                    <button @click="removeClause(idx)"
+                                            class="text-gray-400 hover:text-red-500 text-xs">
+                                        &times;
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
             </div>
 
             {{-- ======== STEP 6: Signing Setup ======== --}}
@@ -855,6 +901,40 @@
             </button>
         </div>
     </div>
+
+    {{-- Clause Library Modal --}}
+    <template x-if="showClauseLibrary">
+        <div class="fixed inset-0 z-50 flex items-center justify-center"
+             style="background:rgba(0,0,0,0.4);" @click.self="showClauseLibrary = false">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+                <div class="p-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-800">Clause Library</h3>
+                    <button @click="showClauseLibrary = false" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+                </div>
+
+                <div class="p-4 border-b border-gray-200">
+                    <input type="text" x-model="clauseSearch" placeholder="Search clauses..."
+                           class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2">
+                </div>
+
+                <div class="flex-1 overflow-y-auto p-4 space-y-2">
+                    <template x-for="clause in filteredClauses" :key="clause.id">
+                        <div class="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                             @click="insertClause(clause)">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-semibold text-gray-700" x-text="clause.name"></span>
+                                <span class="text-[10px] text-gray-400" x-text="clause.is_global ? 'Global' : 'Personal'"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1 line-clamp-3" x-text="clause.text"></p>
+                        </div>
+                    </template>
+                    <template x-if="filteredClauses.length === 0">
+                        <p class="text-xs text-gray-400 text-center py-8">No clauses found</p>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </template>
 </div>
 
 <script>
@@ -1048,6 +1128,12 @@ function esignWizard() {
         fieldPartyOverrides: {},
         highlightedFieldId: null,
 
+        // Clause library
+        showClauseLibrary: false,
+        clauseSearch: '',
+        allClauses: [],
+        selectedClauses: [],
+
         // Step 6: Signing setup
         signingActions: [],
 
@@ -1103,6 +1189,13 @@ function esignWizard() {
                 return serverStepData?.signing_setup?.[i]?.action || 'send_after';
             });
 
+            // Load clause library
+            this.loadClauses();
+
+            // Restore selected clauses from step data
+            const savedClauses = serverStepData?.fill_review?.clauses || [];
+            if (savedClauses.length > 0) this.selectedClauses = savedClauses;
+
             // Load web template preview on steps 2+ (PDF preview loads via serverPageImages)
             if (serverIsWebTemplate && this.currentStep > 1 && this.flowId && serverTemplateId) {
                 this.previewRenderType = 'web';
@@ -1117,6 +1210,36 @@ function esignWizard() {
         // ---- Template grouping ----
         get templateGroups() {
             return buildTemplateGroups(this.allTemplates || [], this.templateSearch);
+        },
+
+        get filteredClauses() {
+            const search = this.clauseSearch.toLowerCase().trim();
+            if (!search) return this.allClauses;
+            return this.allClauses.filter(c =>
+                c.name.toLowerCase().includes(search) ||
+                c.text.toLowerCase().includes(search)
+            );
+        },
+
+        async loadClauses() {
+            try {
+                const response = await fetch('{{ route("docuperfect.clauses.json") }}');
+                if (response.ok) {
+                    this.allClauses = await response.json();
+                }
+            } catch (e) {
+                console.error('Failed to load clauses:', e);
+            }
+        },
+
+        insertClause(clause) {
+            if (this.selectedClauses.find(c => c.id === clause.id)) return;
+            this.selectedClauses.push({...clause});
+            this.showClauseLibrary = false;
+        },
+
+        removeClause(idx) {
+            this.selectedClauses.splice(idx, 1);
         },
 
         // ---- Template selection (Step 1) ----
@@ -1523,7 +1646,7 @@ function esignWizard() {
                     });
                     return detailsData;
                 }
-                case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides } };
+                case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses };
                 case 6: return this.signingActions.map((action, i) => ({
                     signing_order: i + 1,
                     action,

@@ -43,7 +43,20 @@
                     @foreach($webPacks as $webPack)
                     <tr class="hover:bg-slate-50">
                         <td class="py-3 px-4">
-                            <div class="font-semibold text-slate-900">{{ $webPack->name }}</div>
+                            <div class="font-semibold text-slate-900 flex items-center gap-2">
+                                {{ $webPack->name }}
+                                @php
+                                    $hasCds = $webPack->items->contains(fn($item) => $item->template && $item->template->template_type === 'cds');
+                                    $hasWeb = $webPack->items->contains(fn($item) => $item->template && $item->template->template_type !== 'cds');
+                                @endphp
+                                @if($hasCds && $hasWeb)
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 font-semibold">Web + CDS</span>
+                                @elseif($hasCds)
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 font-semibold">CDS</span>
+                                @else
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 font-semibold">Web</span>
+                                @endif
+                            </div>
                             @if($webPack->description)
                             <div class="text-xs text-slate-400 mt-0.5">{{ Str::limit($webPack->description, 60) }}</div>
                             @endif

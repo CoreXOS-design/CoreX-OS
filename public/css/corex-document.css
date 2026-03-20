@@ -524,6 +524,71 @@
     text-align: right;
 }
 
+/* === DISCLOSURE CHECKLIST === */
+.corex-disclosure-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 9pt;
+}
+
+.corex-disclosure-table thead th {
+    background: #f8fafc;
+    border: 0.5px solid #e2e8f0;
+    padding: 6px 8px;
+    font-weight: 600;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #475569;
+    text-align: center;
+}
+
+.corex-disclosure-table th.corex-disclosure-statement {
+    text-align: left;
+    width: 70%;
+}
+
+.corex-disclosure-table th.corex-disclosure-option {
+    width: 10%;
+    min-width: 40px;
+}
+
+.corex-disclosure-table td {
+    border: 0.5px solid #e2e8f0;
+    padding: 6px 8px;
+    vertical-align: top;
+}
+
+.corex-disclosure-table td.corex-disclosure-option {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.corex-disclosure-subheader td {
+    background: #f1f5f9;
+    font-weight: 600;
+    font-size: 8.5pt;
+    color: #334155;
+    padding: 8px;
+}
+
+.corex-disclosure-row:hover {
+    background: #f8fafc;
+}
+
+.corex-radio-placeholder {
+    display: inline-block;
+    font-size: 14pt;
+    color: #94a3b8;
+    cursor: default;
+    line-height: 1;
+}
+
+.corex-disclosure-date-field {
+    display: none; /* shown conditionally at signing */
+}
+
 /* === UTILITY === */
 .corex-text-bold { font-weight: 600; }
 .corex-text-italic { font-style: italic; }
