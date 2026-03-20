@@ -45,7 +45,6 @@
             @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))
             <a href="{{ route('admin.p24-suburbs.index') }}" class="corex-btn-outline text-xs">P24 Suburbs</a>
             @endif
-            <a href="/downloads/portal-capture-extension.zip" download class="corex-btn-outline text-xs">Capture Tool</a>
             <a href="{{ route('presentations.create') }}" class="corex-btn-primary text-sm">+ New Presentation</a>
         </x-slot:actions>
     </x-list-header>

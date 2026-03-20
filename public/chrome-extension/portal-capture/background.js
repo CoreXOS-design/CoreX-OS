@@ -1,5 +1,5 @@
 /**
- * CoreX Portal Capture — Background Service Worker
+ * CoreX — Background Service Worker
  *
  * Handles:
  * 1. Capture orchestration — runs the page-by-page scrape loop
@@ -8,6 +8,7 @@
  * 4. State persistence for resume after popup close / Chrome restart
  * 5. Chrome notifications on capture complete
  * 6. Error handling: rate limits, network issues, API failures, local queue
+ * 7. Pull Property — send scraped listing detail to CoreX API to create a Property
  */
 
 // ── Capture state (in-memory, persisted to chrome.storage) ───
@@ -103,6 +104,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     checkDuplicateSearch(msg.apiUrl, msg.apiToken, msg.searchUrl)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ duplicate: false }));
+    return true;
+  }
+
+  if (msg.action === 'pullProperty') {
+    handlePullProperty(msg.apiUrl, msg.apiToken, msg.property)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
     return true;
   }
 
@@ -773,7 +781,7 @@ function extractMeta(tile, listing) {
   } catch (e) { /* */ }
 }
 
-// ── Send data to CoreX API ─────────────────────────────────
+// ── Send data to CoreX API (prospecting) ────────────────────
 async function handleSendToCorex(apiUrl, apiToken, payload) {
   const url = apiUrl.replace(/\/+$/, '') + '/api/prospecting/import';
 
@@ -796,4 +804,52 @@ async function handleSendToCorex(apiUrl, apiToken, payload) {
   }
 
   return await response.json();
+}
+
+// ── Pull Property — send to CoreX to create a Property ──────
+async function handlePullProperty(apiUrl, apiToken, property) {
+  const url = apiUrl.replace(/\/+$/, '') + '/api/properties/pull-from-portal';
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Accept':        'application/json',
+      'Authorization': 'Bearer ' + apiToken,
+    },
+    body: JSON.stringify(property),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401) {
+      throw new Error('Invalid API token. Check your settings.');
+    }
+    if (response.status === 422) {
+      try {
+        const errors = JSON.parse(text);
+        const firstError = Object.values(errors.errors || {})[0];
+        throw new Error(firstError ? firstError[0] : 'Validation failed');
+      } catch (e) {
+        if (e.message.includes('Validation')) throw e;
+        throw new Error('Validation failed: ' + text);
+      }
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  const result = await response.json();
+
+  // Chrome notification
+  try {
+    chrome.notifications.create('pull-complete', {
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title: 'CoreX: Property Pulled',
+      message: (property.title || 'Property') + ' has been added to CoreX',
+      priority: 2,
+    });
+  } catch (e) { /* ignore */ }
+
+  return result;
 }

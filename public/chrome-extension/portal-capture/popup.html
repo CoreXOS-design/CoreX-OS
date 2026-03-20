@@ -4,28 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=360">
   <link rel="stylesheet" href="styles.css">
-  <title>CoreX Portal Capture</title>
+  <title>CoreX</title>
 </head>
 <body>
   <div class="popup-container">
     <!-- Header -->
     <div class="header">
       <div>
-        <h1>CoreX Portal Capture</h1>
-        <span class="version">v2.0.0</span>
+        <h1>CoreX</h1>
+        <span class="version">v3.0.0</span>
       </div>
-      <button class="settings-btn" id="settingsToggle" title="Settings">&#9881;</button>
+      <button class="settings-btn" id="settingsToggle" title="Settings">Settings</button>
     </div>
 
-    <!-- State 1: Not on a portal page -->
+    <!-- State: Not on a portal page -->
     <div class="state" id="stateNotOnPortal">
       <div class="not-on-portal">
-        <div class="icon">&#128269;</div>
-        <p>Browse to <strong>Property24</strong> or <strong>Private Property</strong> search results to start capturing.</p>
+        <p>Browse to <strong>Property24</strong> or <strong>Private Property</strong> to get started.</p>
       </div>
     </div>
 
-    <!-- State 2: Settings -->
+    <!-- State: Settings -->
     <div class="state" id="stateSettings">
       <button class="back-link" id="backFromSettings">&larr; Back</button>
       <div class="settings-form">
@@ -42,26 +41,52 @@
       </div>
     </div>
 
-    <!-- State 3: Ready to capture -->
-    <div class="state" id="stateReady">
+    <!-- State: Choose action -->
+    <div class="state" id="stateChoose">
       <div class="portal-detected">
-        <span class="check">&#10003;</span>
+        <span class="check">&check;</span>
+        <span class="portal-name" id="choosePortalName">Property24 detected</span>
+      </div>
+      <div class="action-cards">
+        <button class="action-card" id="actionPullProperty">
+          <div class="action-icon">P</div>
+          <div>
+            <div class="action-label">Pull Property</div>
+            <div class="action-desc">Import this listing into CoreX as a property</div>
+          </div>
+        </button>
+        <button class="action-card" id="actionCaptureListings">
+          <div class="action-icon">C</div>
+          <div>
+            <div class="action-label">Capture Listings</div>
+            <div class="action-desc">Capture search results for prospecting</div>
+          </div>
+        </button>
+      </div>
+      <div class="action-hint" id="actionHint"></div>
+    </div>
+
+    <!-- State: Ready to capture -->
+    <div class="state" id="stateReady">
+      <button class="back-link" id="backFromReady">&larr; Back</button>
+      <div class="portal-detected">
+        <span class="check">&check;</span>
         <span class="portal-name" id="portalName">Property24 detected</span>
       </div>
       <div class="search-info">
         <div class="info-row">
           <span class="label">Search</span>
-          <span class="value" id="searchTerm">—</span>
+          <span class="value" id="searchTerm">&mdash;</span>
         </div>
         <div class="info-row">
           <span class="label">Results</span>
-          <span class="value" id="resultCount">—</span>
+          <span class="value" id="resultCount">&mdash;</span>
         </div>
       </div>
-      <button class="btn btn-primary" id="captureBtn">&#128270; Capture All Listings</button>
+      <button class="btn btn-primary" id="captureBtn">Capture All Listings</button>
     </div>
 
-    <!-- State 4: Capturing -->
+    <!-- State: Capturing -->
     <div class="state" id="stateCapturing">
       <div class="progress-section">
         <div class="progress-bar-track">
@@ -74,25 +99,69 @@
       <button class="btn btn-danger" id="cancelBtn">Cancel</button>
     </div>
 
-    <!-- State 6: Resume previous capture -->
+    <!-- State: Resume previous capture -->
     <div class="state" id="stateResume">
       <div class="resume-info">
-        <div class="resume-icon">&#9888;</div>
         <div class="resume-text" id="resumeText">Previous capture incomplete</div>
       </div>
       <button class="btn btn-primary" id="resumeBtn">Resume Capture</button>
       <button class="btn btn-secondary" id="startFreshBtn">Start Fresh</button>
     </div>
 
-    <!-- State 5: Complete -->
+    <!-- State: Capture complete -->
     <div class="state" id="stateComplete">
-      <div class="complete-icon">&#9989;</div>
+      <div class="complete-icon">Complete</div>
       <div class="complete-stats">
-        <div class="total" id="completeTotal">0 listings captured!</div>
+        <div class="total" id="completeTotal">0 listings captured</div>
         <div class="breakdown" id="completeBreakdown">New: 0 | Updated: 0</div>
       </div>
-      <a class="btn btn-primary" id="viewInCorex" href="#" target="_blank">View in CoreX &rarr;</a>
+      <a class="btn btn-primary" id="viewInCorex" href="#" target="_blank">View in CoreX</a>
       <button class="btn btn-secondary" id="captureAnother">Capture Another Search</button>
+    </div>
+
+    <!-- State: Pull Property preview -->
+    <div class="state" id="statePullPreview">
+      <button class="back-link" id="backFromPull">&larr; Back</button>
+      <div class="pull-preview">
+        <div class="pull-thumb" id="pullThumb"></div>
+        <div class="pull-details">
+          <div class="pull-title" id="pullTitle">Loading...</div>
+          <div class="pull-price" id="pullPrice"></div>
+          <div class="pull-address" id="pullAddress"></div>
+          <div class="pull-features" id="pullFeatures"></div>
+          <div class="pull-images-count" id="pullImagesCount"></div>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="pullBtn">Pull into CoreX</button>
+    </div>
+
+    <!-- State: Pulling property -->
+    <div class="state" id="statePulling">
+      <div class="pull-status-section">
+        <div class="pull-step" id="pullStepCreate">
+          <span class="pull-step-icon" id="pullStepCreateIcon">&bull;</span>
+          <span class="pull-step-text">Creating property...</span>
+        </div>
+        <div class="pull-step" id="pullStepImages">
+          <span class="pull-step-icon" id="pullStepImagesIcon">&bull;</span>
+          <span class="pull-step-text" id="pullStepImagesText">Waiting to download images...</span>
+        </div>
+        <div class="progress-bar-track" id="pullImagesTrack" style="display:none;">
+          <div class="progress-bar-fill" id="pullImagesBar" style="width:0%"></div>
+        </div>
+        <div class="pull-images-detail" id="pullImagesDetail"></div>
+      </div>
+    </div>
+
+    <!-- State: Pull complete -->
+    <div class="state" id="statePullComplete">
+      <div class="complete-icon">Complete</div>
+      <div class="complete-stats">
+        <div class="total" id="pullCompleteTitle">Property ready</div>
+        <div class="breakdown" id="pullCompleteDetail"></div>
+      </div>
+      <a class="btn btn-primary" id="viewProperty" href="#" target="_blank">Open in CoreX</a>
+      <button class="btn btn-secondary" id="pullAnother">Pull Another</button>
     </div>
 
     <!-- Duplicate capture warning -->

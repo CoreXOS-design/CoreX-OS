@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "CoreX Portal Capture",
-  "version": "2.0.0",
-  "description": "Capture P24 and Private Property listings for CoreX OS",
+  "name": "CoreX",
+  "version": "3.0.0",
+  "description": "Pull properties and capture listings from portals into CoreX OS",
   "permissions": ["activeTab", "storage", "notifications"],
   "host_permissions": [
     "https://www.property24.com/*",
@@ -19,7 +19,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.property24.com/*"],
-      "js": ["content-p24.js"],
+      "js": ["content-p24-detail.js"],
       "run_at": "document_idle"
     },
     {

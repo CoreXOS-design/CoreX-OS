@@ -107,7 +107,7 @@
         <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); border-left:3px solid var(--brand-icon, #0ea5e9); padding-left:12px; margin:0 0 20px;">API Token</h3>
 
         <p style="font-size:0.8rem; color:var(--text-secondary); margin:0 0 16px; line-height:1.5;">
-            Used by the Portal Capture Chrome extension to authenticate with CoreX. Paste this token into the extension settings.
+            Used by the CoreX Chrome extension to authenticate with CoreX. Generate a token here, then paste it into the extension settings.
         </p>
 
         {{-- Token just generated — show plaintext --}}
@@ -162,6 +162,58 @@
                 </template>
             </div>
         </template>
+    </div>
+
+    {{-- CoreX Chrome Extension --}}
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;"
+         x-data="{ showInstructions: false }">
+        <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); border-left:3px solid var(--brand-icon, #0ea5e9); padding-left:12px; margin:0 0 6px;">CoreX Chrome Extension</h3>
+        <p style="font-size:0.8rem; color:var(--text-secondary); margin:0 0 16px; line-height:1.5;">
+            Pull properties and capture listings from Property24 directly into CoreX. Requires an API token (above).
+        </p>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+            <a href="{{ route('corex.extension.download') }}"
+               style="display:inline-flex; align-items:center; gap:8px; padding:10px 20px; border-radius:6px; border:none; background:var(--brand-button, #0ea5e9); color:#fff; font-size:0.85rem; font-weight:600; text-decoration:none; transition:all 300ms; box-shadow:0 4px 12px color-mix(in srgb, var(--brand-button, #0ea5e9) 20%, transparent);">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                Download Extension
+            </a>
+            <button @click="showInstructions = !showInstructions"
+                    style="display:inline-flex; align-items:center; gap:6px; padding:10px 16px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); font-size:0.8rem; font-weight:500; cursor:pointer; transition:all 300ms;">
+                <span x-text="showInstructions ? 'Hide Instructions' : 'How to Install'"></span>
+            </button>
+        </div>
+
+        <div x-show="showInstructions" x-cloak x-transition
+             style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:16px 20px; margin-bottom:16px;">
+            <div style="font-size:0.85rem; font-weight:700; color:var(--text-primary); margin-bottom:12px;">Installation Steps</div>
+            <ol style="font-size:0.8rem; color:var(--text-secondary); line-height:1.8; padding-left:20px; margin:0;">
+                <li>Click <strong style="color:var(--text-primary);">Download Extension</strong> above to get the zip file</li>
+                <li>Extract the zip to a folder on your computer (e.g. <code style="background:var(--surface); padding:2px 6px; border-radius:3px; font-size:0.75rem;">C:\CoreX-Extension</code>)</li>
+                <li>Open Chrome and go to <strong style="color:var(--text-primary);">chrome://extensions</strong></li>
+                <li>Enable <strong style="color:var(--text-primary);">Developer mode</strong> (toggle in top-right corner)</li>
+                <li>Click <strong style="color:var(--text-primary);">Load unpacked</strong> and select the extracted folder</li>
+                <li>Click the CoreX icon in your toolbar, open Settings, and paste your <strong style="color:var(--text-primary);">API token</strong></li>
+            </ol>
+
+            @if(app()->environment('local'))
+            <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+                <div style="font-size:0.8rem; font-weight:700; color:#f59e0b; margin-bottom:6px;">Local Development Shortcut</div>
+                <p style="font-size:0.78rem; color:var(--text-secondary); line-height:1.6; margin:0;">
+                    Skip the zip — load unpacked directly from your project:<br>
+                    <code style="background:var(--surface); padding:3px 8px; border-radius:3px; font-size:0.72rem; display:inline-block; margin-top:4px; word-break:break-all;">{{ base_path('public/chrome-extension/portal-capture') }}</code>
+                </p>
+            </div>
+            @endif
+        </div>
+
+        <div style="display:flex; gap:16px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e;"></span>
+                <span style="font-size:0.75rem; color:var(--text-muted);">v3.0.0</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted);">Supports Property24 &amp; Private Property</div>
+        </div>
     </div>
 
     {{-- Social Media Accounts --}}

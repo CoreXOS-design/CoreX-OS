@@ -4,6 +4,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Http\Controllers\Api\ProspectingApiController;
+use App\Http\Controllers\Api\PropertyPullController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 
@@ -56,4 +57,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/prospecting/import', [ProspectingApiController::class, 'import']);
     Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch']);
+
+    Route::post('/properties/pull-from-portal', [PropertyPullController::class, 'pullFromPortal']);
+    Route::get('/properties/{propertyId}/pull-status', [PropertyPullController::class, 'pullStatus']);
 });

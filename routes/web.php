@@ -37,6 +37,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::put('/profile/theme', [ProfileController::class, 'updateTheme'])->name('profile.theme');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::get('/corex/extension/download', [ProfileController::class, 'downloadExtension'])->name('corex.extension.download');
 
     // Ellie (AI Assistant)
     Route::get('/ellie', [\App\Http\Controllers\EllieController::class, 'index'])
