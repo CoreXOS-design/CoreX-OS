@@ -404,45 +404,59 @@
                                         </div>
                                     </template>
 
-                                    {{-- Who completes --}}
+                                    {{-- Editable at signing by --}}
                                     <div class="mb-1.5">
-                                        <label class="text-[10px] font-semibold text-gray-500 uppercase">Who completes</label>
+                                        <label class="text-[10px] font-semibold text-gray-500 uppercase">Editable at signing by</label>
+                                        <p class="text-[10px] text-gray-400 mb-1">If none selected, field is locked after agent fills it</p>
                                         <div class="mt-1 space-y-1">
                                             <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
                                                 <input type="checkbox"
-                                                       :checked="getMapping(tag.id).filled_by_agent"
-                                                       @change="toggleFilledBy(tag.id, 'agent', $event.target.checked)"
+                                                       :checked="(getMapping(tag.id).editable_by || []).includes('owner_party')"
+                                                       @change="toggleEditableBy(tag.id, 'owner_party', $event.target.checked)"
                                                        class="w-3 h-3 text-teal-600 rounded">
-                                                Agent (at creation)
+                                                Lessor / Seller
                                             </label>
                                             <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
                                                 <input type="checkbox"
-                                                       :checked="getMapping(tag.id).filled_by_recipient"
-                                                       @change="toggleFilledBy(tag.id, 'recipient', $event.target.checked)"
+                                                       :checked="(getMapping(tag.id).editable_by || []).includes('acquiring_party')"
+                                                       @change="toggleEditableBy(tag.id, 'acquiring_party', $event.target.checked)"
                                                        class="w-3 h-3 text-teal-600 rounded">
-                                                Recipient (at signing)
+                                                Lessee / Buyer
                                             </label>
                                             <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
                                                 <input type="checkbox"
-                                                       :checked="getMapping(tag.id).filled_by_auto"
-                                                       @change="toggleFilledBy(tag.id, 'auto', $event.target.checked)"
+                                                       :checked="(getMapping(tag.id).editable_by || []).includes('agent')"
+                                                       @change="toggleEditableBy(tag.id, 'agent', $event.target.checked)"
                                                        class="w-3 h-3 text-teal-600 rounded">
-                                                Auto-fill from database
+                                                Agent
+                                            </label>
+                                            <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                                                <input type="checkbox"
+                                                       :checked="(getMapping(tag.id).editable_by || []).includes('witness')"
+                                                       @change="toggleEditableBy(tag.id, 'witness', $event.target.checked)"
+                                                       class="w-3 h-3 text-teal-600 rounded">
+                                                Witness
+                                            </label>
+                                            <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer border-t border-gray-100 pt-1 mt-1">
+                                                <input type="checkbox"
+                                                       :checked="(getMapping(tag.id).editable_by || []).includes('all')"
+                                                       @change="toggleEditableByAll(tag.id, $event.target.checked)"
+                                                       class="w-3 h-3 text-teal-600 rounded">
+                                                <span class="font-semibold">All parties</span>
                                             </label>
                                         </div>
                                     </div>
 
                                     {{-- Party dropdown --}}
-                                    <select class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white"
+                                    <select class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mb-1.5 bg-white"
                                             :value="getMapping(tag.id).party"
                                             :disabled="getMapping(tag.id).partyLocked"
                                             @change="setParty(tag.id, $event.target.value)">
-                                        <option value="auto">Auto-fill</option>
+                                        <option value="auto">Auto-detect</option>
+                                        <option value="owner_party">Lessor / Seller</option>
+                                        <option value="acquiring_party">Lessee / Buyer</option>
                                         <option value="agent">Agent</option>
-                                        <option value="lessor">Lessor</option>
-                                        <option value="lessee">Lessee</option>
-                                        <option value="buyer">Buyer</option>
-                                        <option value="seller">Seller</option>
+                                        <option value="witness">Witness</option>
                                     </select>
                                 </div>
                             </template>
@@ -674,8 +688,6 @@
     .doc-tag-input-linked { background: #0d9488; color: #fff; }
     /* INPUT: linked manual = orange */
     .doc-tag-input-manual { background: #ea580c; color: #fff; }
-    /* INPUT: shared (agent + recipient) = purple */
-    .doc-tag-input-shared { background: #7c3aed; color: #fff; }
 
     /* SIG: no party = yellow */
     .doc-tag-signature { background: #f59e0b; color: #1a1a1a; }
@@ -1087,6 +1099,7 @@ function cdsEditor() {
                                 party: this._autoPartyForType(typeKey),
                                 partyLocked: typeKey === 'sf:agent',
                                 confidence: confidence,
+                                editable_by: this._autoEditableBy(match.source_type, match.source_contact_type, typeKey),
                             });
                             return;
                         }
@@ -1110,6 +1123,7 @@ function cdsEditor() {
                                 party: this._autoPartyForType(typeKey),
                                 partyLocked: typeKey === 'sf:agent',
                                 confidence: 'medium',
+                                editable_by: this._autoEditableBy(match.source_type, match.source_contact_type, typeKey),
                             });
                             return;
                         }
@@ -1117,6 +1131,7 @@ function cdsEditor() {
 
                     // No DB match — use parser suggestion if available
                     this.mappings[tag.id] = this._emptyInputMapping(confidence);
+                    this.mappings[tag.id].editable_by = ['agent'];
                     if (fieldLabel && fieldLabel !== 'Input' && fieldLabel !== 'FIELD') {
                         this.mappings[tag.id].manualLabel = fieldLabel;
                         this.mappings[tag.id].mappingType = 'manual';
@@ -1262,23 +1277,29 @@ function cdsEditor() {
             const mapping = this.mappings[tagId] || {};
 
             el.classList.remove(
-                'doc-tag-input', 'doc-tag-input-linked', 'doc-tag-input-manual', 'doc-tag-input-shared',
+                'doc-tag-input', 'doc-tag-input-linked', 'doc-tag-input-manual',
                 'doc-tag-signature', 'doc-tag-signature-assigned',
                 'doc-tag-initial', 'doc-tag-initial-assigned'
             );
 
             if (tag.type === 'input') {
                 const mt = mapping.mappingType || '';
-                // Check for shared responsibility (agent + recipient both checked)
-                const isShared = mapping.filled_by_agent && mapping.filled_by_recipient;
-                if (isShared) {
-                    el.classList.add('doc-tag-input-shared');
-                } else if (mt === 'manual' && mapping.manualLabel) {
+                if (mt === 'manual' && mapping.manualLabel) {
                     el.classList.add('doc-tag-input-manual');
                 } else if ((mt === 'named_field' && mapping.namedFieldId) || (mt === 'field_group' && mapping.fieldGroupId)) {
                     el.classList.add('doc-tag-input-linked');
                 } else {
                     el.classList.add('doc-tag-input');
+                }
+
+                // Purple bottom border for editable fields
+                const eb = (mapping.editable_by || []);
+                if (eb.length > 0) {
+                    el.style.borderBottom = '2px solid #a855f7';
+                    el.title = 'Editable by: ' + eb.join(', ');
+                } else {
+                    el.style.borderBottom = '';
+                    el.title = 'Locked after agent fills';
                 }
             } else if (tag.type === 'signature') {
                 if ((mapping.parties || []).length > 0) {
@@ -1372,9 +1393,7 @@ function cdsEditor() {
                 sigType: 'electronic',
                 sourceType: '',
                 sourceContactType: '',
-                filled_by_agent: false,
-                filled_by_recipient: false,
-                filled_by_auto: true,
+                editable_by: [],
             };
         },
 
@@ -1459,9 +1478,31 @@ function cdsEditor() {
             this._persistMappings();
         },
 
-        toggleFilledBy(tagId, role, checked) {
+        toggleEditableBy(tagId, role, checked) {
             const m = this.getMapping(tagId);
-            m['filled_by_' + role] = checked;
+            if (!m.editable_by) m.editable_by = [];
+
+            // Remove 'all' if individual is toggled
+            m.editable_by = m.editable_by.filter(r => r !== 'all');
+
+            if (checked && !m.editable_by.includes(role)) {
+                m.editable_by.push(role);
+            } else if (!checked) {
+                m.editable_by = m.editable_by.filter(r => r !== role);
+            }
+
+            this.mappings[tagId] = m;
+            this._syncTagColor(tagId);
+            this._persistMappings();
+        },
+
+        toggleEditableByAll(tagId, checked) {
+            const m = this.getMapping(tagId);
+            if (checked) {
+                m.editable_by = ['all'];
+            } else {
+                m.editable_by = [];
+            }
             this.mappings[tagId] = m;
             this._syncTagColor(tagId);
             this._persistMappings();
@@ -1639,11 +1680,24 @@ function cdsEditor() {
 
         _autoPartyForType(typeKey) {
             if (typeKey === 'sf:agent') return 'agent';
-            if (typeKey === 'sf:contact_lessor') return 'lessor';
-            if (typeKey === 'sf:contact_lessee') return 'lessee';
-            if (typeKey === 'sf:contact_seller') return 'seller';
-            if (typeKey === 'sf:contact_buyer') return 'buyer';
+            if (typeKey === 'sf:contact_lessor' || typeKey === 'sf:contact_seller') return 'owner_party';
+            if (typeKey === 'sf:contact_lessee' || typeKey === 'sf:contact_buyer') return 'acquiring_party';
             return 'auto';
+        },
+
+        _autoEditableBy(sourceType, sourceContactType, typeKey) {
+            // Contact fields → editable by the contact's party
+            if (sourceType === 'contact' && sourceContactType) {
+                const ct = sourceContactType.toLowerCase();
+                if (ct === 'lessor' || ct === 'seller') return ['owner_party'];
+                if (ct === 'lessee' || ct === 'buyer') return ['acquiring_party'];
+            }
+            // Property and deal fields → locked (auto-filled from DB)
+            if (sourceType === 'property' || sourceType === 'deal') return [];
+            // Agent fields → locked
+            if (typeKey === 'sf:agent') return [];
+            // Manual/unknown → agent editable
+            return ['agent'];
         },
 
         _autoPartyForFieldGroup(fg) {
@@ -1654,7 +1708,10 @@ function cdsEditor() {
             if (contactTypes.length > 0) {
                 const counts = {};
                 contactTypes.forEach(t => { counts[t] = (counts[t] || 0) + 1; });
-                return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+                const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+                if (dominant === 'lessor' || dominant === 'seller') return 'owner_party';
+                if (dominant === 'lessee' || dominant === 'buyer') return 'acquiring_party';
+                return dominant;
             }
             const agentFields = fg.fields.filter(f => f.source_type === 'agent');
             if (agentFields.length > 0) return 'agent';
