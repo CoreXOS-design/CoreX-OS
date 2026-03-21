@@ -6,11 +6,19 @@
     ])
 --}}
 @php
-    // signing_parties from template DB (lowercase keys like ['lessor','agent'])
-    // parties from explicit @include parameter (display names like ['Lessor','Agent'])
+    // signing_parties from template DB — generic keys like ['owner_party','agent']
+    // parties from explicit @include parameter — display names like ['Seller','Agent']
     // Fall back to all three if neither provided
     if (isset($signing_parties) && is_array($signing_parties)) {
-        $parties = array_values(array_unique(array_map('ucfirst', $signing_parties)));
+        // Map generic keys to display names based on document context
+        $isSales = isset($document_context) && $document_context === 'sales';
+        $keyMap = $isSales
+            ? ['owner_party' => 'Seller', 'acquiring_party' => 'Buyer', 'agent' => 'Agent']
+            : ['owner_party' => 'Lessor', 'acquiring_party' => 'Lessee', 'agent' => 'Agent'];
+        $parties = array_values(array_map(
+            fn($k) => $keyMap[$k] ?? ucfirst(str_replace('_', ' ', $k)),
+            $signing_parties
+        ));
     }
     $parties = $parties ?? ['Lessor', 'Lessee', 'Agent'];
 @endphp

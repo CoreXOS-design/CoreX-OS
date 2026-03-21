@@ -74,6 +74,7 @@
                             <input type="hidden" name="party_mode" :value="partyMode">
                             <input type="hidden" name="allowed_delivery_modes" :value="deliveryModes.join(',')">
                             <input type="hidden" name="security_tier" :value="securityTier">
+                            <input type="hidden" name="signing_parties" :value="JSON.stringify(templateSigningParties)">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -94,6 +95,7 @@
                             <input type="hidden" name="party_mode" :value="partyMode">
                             <input type="hidden" name="allowed_delivery_modes" :value="deliveryModes.join(',')">
                             <input type="hidden" name="security_tier" :value="securityTier">
+                            <input type="hidden" name="signing_parties" :value="JSON.stringify(templateSigningParties)">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -284,6 +286,34 @@
                             <input type="checkbox" x-model="isEsign"
                                    class="w-3 h-3 rounded border-gray-300 text-teal-600 focus:ring-teal-400">
                             <span class="text-xs text-gray-700">Eligible for E-Signature</span>
+                        </div>
+
+                        {{-- Signing Parties --}}
+                        <div>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Signing Parties</label>
+                            <p class="text-[10px] text-gray-400 mb-2">Select which parties must sign this document</p>
+                            <div class="space-y-1.5">
+                                <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                                    <input type="checkbox" value="owner_party"
+                                           x-model="templateSigningParties"
+                                           class="w-3 h-3 rounded border-gray-300 text-teal-600 focus:ring-teal-400">
+                                    <span x-text="isSalesContext ? 'Seller / Owner' : 'Lessor / Landlord'"></span>
+                                    <span class="text-gray-400">(owner party)</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                                    <input type="checkbox" value="acquiring_party"
+                                           x-model="templateSigningParties"
+                                           class="w-3 h-3 rounded border-gray-300 text-teal-600 focus:ring-teal-400">
+                                    <span x-text="isSalesContext ? 'Buyer / Purchaser' : 'Lessee / Tenant'"></span>
+                                    <span class="text-gray-400">(acquiring party)</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                                    <input type="checkbox" value="agent"
+                                           x-model="templateSigningParties"
+                                           class="w-3 h-3 rounded border-gray-300 text-teal-600 focus:ring-teal-400">
+                                    Agent
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -828,7 +858,15 @@ function cdsEditor() {
         partyMode: 'shared',
         deliveryModes: ['esign', 'wet_ink', 'download'],
         securityTier: 'enhanced',
+        templateSigningParties: ['owner_party', 'agent'],
         settingsExpanded: false,
+
+        get isSalesContext() {
+            const name = (this.templateName || '').toLowerCase();
+            return name.includes('sell') || name.includes('sale')
+                || name.includes('authority') || name.includes('otp')
+                || name.includes('purchase');
+        },
 
         // Draft save state
         draftSaving: false,
@@ -945,6 +983,7 @@ function cdsEditor() {
                             party_mode: this.partyMode,
                             allowed_delivery_modes: this.deliveryModes.join(','),
                             security_tier: this.securityTier,
+                            signing_parties: this.templateSigningParties,
                         },
                     }),
                 });
@@ -1025,6 +1064,9 @@ function cdsEditor() {
                             this.deliveryModes = this.savedSettings.allowed_delivery_modes.split(',');
                         }
                         if (this.savedSettings.security_tier) this.securityTier = this.savedSettings.security_tier;
+                        if (this.savedSettings.signing_parties && Array.isArray(this.savedSettings.signing_parties)) {
+                            this.templateSigningParties = this.savedSettings.signing_parties;
+                        }
                     }
 
                     this._startAutoSave();

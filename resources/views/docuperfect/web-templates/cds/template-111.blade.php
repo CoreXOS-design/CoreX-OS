@@ -74,7 +74,7 @@
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">The Seller/s hereby give their consent to the Estate Agency/ies involved in the Exclusive Authority To Sell to process their personal information for all purposes related to the Exclusive Authority To Sell, in accordance with the provisions of the Protection of Personal Information Act.</span></div>
 <div class="corex-signature-section"><div class="corex-signature-section-title">THUS DONE AND SIGNED</div><div class="corex-clause"><span class="corex-clause-text">This Exclusive Authority To Sell was done and signed by the Seller at on this  day of  20 at  am / pm.</span></div><div class="corex-signature-grid"><div class="corex-signature-block"><div class="corex-signature-role">AGENT</div><div class="corex-signature-name">&nbsp;</div><div class="corex-signature-line"><span class="corex-signature-prompt">Sign here</span></div><div class="corex-signature-date">Date: _______________</div></div></div></div>
 
-@include("docuperfect.web-templates.components.signature-block", ["parties" => ["Seller", "Buyer", "Agent"]])
+@include("docuperfect.web-templates.components.signature-block", ["parties" => ["Seller", "Agent"]])
 
 </div>
 </div>

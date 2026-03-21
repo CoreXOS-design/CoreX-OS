@@ -524,6 +524,7 @@ class TemplateController extends Controller
             'party_mode' => $request->input('party_mode', 'shared'),
             'allowed_delivery_modes' => $request->input('allowed_delivery_modes', 'esign,wet_ink,download'),
             'security_tier' => $request->input('security_tier', 'enhanced'),
+            'signing_parties' => $request->input('signing_parties') ? json_decode($request->input('signing_parties'), true) : null,
             'is_global' => true,
             'owner_id' => $user->id,
             'editor_state' => [
@@ -545,7 +546,8 @@ class TemplateController extends Controller
             $draft->cds_json,
             $draft->mappings ?? [],
             $template->id,
-            $template->name
+            $template->name,
+            $template->signing_parties
         );
         $template->update(['blade_view' => $bladeView]);
 
@@ -646,7 +648,7 @@ class TemplateController extends Controller
      * Renders CDS JSON through CdsRendererService, replaces field placeholders
      * with Blade variables, wraps in the CoreX document layout.
      */
-    private function generateCdsBladeView(array $cds, array $fieldMappings, int $templateId, string $templateName): string
+    private function generateCdsBladeView(array $cds, array $fieldMappings, int $templateId, string $templateName, ?array $signingParties = null): string
     {
         // Filter out company_header and title sections — these are handled separately
         $filteredCds = $cds;
@@ -716,16 +718,25 @@ BLADE;
         $blade .= $processedHtml . "\n\n";
 
         // Signature block — must be INSIDE corex-page
-        // Detect document context from template name to pass correct party labels
+        // Use configured signing parties, or fall back to context-based defaults
         $nameLower = strtolower($templateName);
         $isSalesDoc = str_contains($nameLower, 'sell') || str_contains($nameLower, 'sale')
             || str_contains($nameLower, 'authority') || str_contains($nameLower, 'otp')
             || str_contains($nameLower, 'purchase');
-        if ($isSalesDoc) {
-            $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ["Seller", "Buyer", "Agent"]])' . "\n\n";
+
+        if (!empty($signingParties)) {
+            // Map generic keys to display names
+            $displayParties = Template::mapSigningPartyKeys($signingParties, $isSalesDoc);
+        } elseif ($isSalesDoc) {
+            // Default for sales authority docs: Seller + Agent (no Buyer)
+            $isAuthorityDoc = str_contains($nameLower, 'authority') || str_contains($nameLower, 'mandate');
+            $displayParties = $isAuthorityDoc ? ['Seller', 'Agent'] : ['Seller', 'Buyer', 'Agent'];
         } else {
-            $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ["Lessor", "Lessee", "Agent"]])' . "\n\n";
+            $displayParties = ['Lessor', 'Lessee', 'Agent'];
         }
+
+        $partiesPhp = '["' . implode('", "', $displayParties) . '"]';
+        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . '])' . "\n\n";
 
         $blade .= "</div>\n</div>\n\n";
         $blade .= "</body>\n</html>\n";
@@ -784,6 +795,7 @@ BLADE;
         // Pass signing_parties so the signature-block component renders correct parties
         if (!empty($template->signing_parties)) {
             $viewData['signing_parties'] = $template->signing_parties;
+            $viewData['document_context'] = $template->isSalesDocument() ? 'sales' : 'rental';
         }
 
         // Pass header_display so company-header component respects template setting

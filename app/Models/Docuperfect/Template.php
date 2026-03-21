@@ -111,6 +111,29 @@ class Template extends Model
         return $this->party_mode === 'per_party';
     }
 
+    public function isSalesDocument(): bool
+    {
+        $name = strtolower($this->name ?? '');
+        return str_contains($name, 'sell') || str_contains($name, 'sale')
+            || str_contains($name, 'authority') || str_contains($name, 'otp')
+            || str_contains($name, 'purchase');
+    }
+
+    /**
+     * Map generic signing party keys to display names based on document context.
+     */
+    public static function mapSigningPartyKeys(array $keys, bool $isSales): array
+    {
+        $map = $isSales
+            ? ['owner_party' => 'Seller', 'acquiring_party' => 'Buyer', 'agent' => 'Agent']
+            : ['owner_party' => 'Lessor', 'acquiring_party' => 'Lessee', 'agent' => 'Agent'];
+
+        return array_values(array_map(
+            fn($k) => $map[$k] ?? ucfirst(str_replace('_', ' ', $k)),
+            $keys
+        ));
+    }
+
     public function getPageImagesAttribute(): array
     {
         $urls = [];
