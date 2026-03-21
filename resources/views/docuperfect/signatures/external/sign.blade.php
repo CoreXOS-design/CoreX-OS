@@ -8,7 +8,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
+    @if(!empty($isWebTemplate))
+    <link href="/css/corex-document.css" rel="stylesheet">
+    @endif
     <style>
         [x-cloak] { display: none !important; }
         @keyframes pulseHighlight {
@@ -18,6 +21,57 @@
         .pulse-highlight {
             animation: pulseHighlight 1s ease-in-out 3;
             border-color: #ef4444 !important;
+        }
+
+        /* Web signing view styles */
+        .corex-signing-view .field[data-editable="true"] {
+            background: #f0fdfa;
+            border: 1px solid #0d9488;
+            border-radius: 2px;
+            padding: 2px 6px;
+            min-width: 80px;
+            display: inline-block;
+        }
+        .corex-signing-view .field[data-editable="true"]:hover {
+            background: #ccfbf1;
+            border-color: #0f766e;
+        }
+        .corex-signing-view .field[data-locked="true"] {
+            background: #f8fafc;
+            color: #475569;
+            padding: 2px 6px;
+            display: inline-block;
+        }
+        .corex-signing-view .sig-block-party[data-signer="true"] {
+            background: #fffbeb;
+            border: 2px dashed #d97706;
+            border-radius: 4px;
+            padding: 12px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .corex-signing-view .sig-block-party[data-signer="true"]:hover {
+            background: #fef3c7;
+            border-color: #b45309;
+        }
+        .corex-signing-view .sig-block-party[data-signer="true"][data-signed="true"] {
+            background: #ecfdf5;
+            border: 2px solid #10b981;
+            cursor: default;
+        }
+        .corex-signing-view .sig-block-party[data-signer="false"] {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .corex-signing-view .corex-disclosure-row[data-editable="true"] .corex-radio-placeholder {
+            cursor: pointer;
+            color: #0d9488;
+            font-size: 16pt;
+        }
+        .corex-signing-view .corex-disclosure-row[data-editable="true"] .corex-radio-placeholder:hover {
+            color: #0f766e;
+            transform: scale(1.2);
         }
     </style>
 </head>
@@ -476,8 +530,46 @@
                 </template>
             </div>
 
-            {{-- Complete Signing --}}
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center justify-between">
+            {{-- Web Template Consent + Submit (only for live HTML signing) --}}
+            <template x-if="isWebTemplate">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" x-model="webConsented"
+                               class="mt-0.5 w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500">
+                        <span class="text-sm text-slate-700 leading-relaxed">
+                            I confirm that I have read and understood this document.
+                            I consent to signing this document electronically.
+                            I understand that my electronic signature has the same legal effect
+                            as a handwritten signature under South African law (ECTA Section 13).
+                        </span>
+                    </label>
+
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">
+                            <span x-text="Object.keys(webSignatures).length"></span> of
+                            <span x-text="webTotalSigBlocks"></span> signature<span x-show="webTotalSigBlocks !== 1">s</span> completed
+                        </span>
+                        <div class="flex items-center gap-3">
+                            <button @click="signingMethod = null"
+                                    class="text-sm text-slate-500 hover:text-slate-700 font-medium">
+                                &larr; Back
+                            </button>
+                            <button @click="completeWebSigning()"
+                                    :disabled="!canSubmitWeb || completing"
+                                    :class="canSubmitWeb && !completing
+                                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
+                                    class="rounded-lg px-6 py-2.5 text-sm font-medium transition-colors">
+                                <span x-show="!completing">Submit Signed Document</span>
+                                <span x-show="completing" x-cloak>Submitting...</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            {{-- Complete Signing (standard marker-based flow — hidden for web templates) --}}
+            <div x-show="!isWebTemplate" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center justify-between">
                 <div class="text-sm text-slate-600">
                     <template x-if="signedCount < totalRequired">
                         <span>Sign all <span x-text="totalRequired - signedCount"></span> remaining marker<span x-show="(totalRequired - signedCount) !== 1">s</span> to continue.</span>
@@ -814,6 +906,68 @@
         </div>
     </div>
 
+    {{-- Web signature capture modal --}}
+    <div x-show="showWebSigCapture" x-cloak x-transition.opacity
+         class="fixed inset-0 z-50 flex items-center justify-center"
+         style="background:rgba(0,0,0,0.6);"
+         @keydown.escape.window="showWebSigCapture = false">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
+            <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
+                <h3 class="text-white font-semibold text-lg">Sign Here</h3>
+            </div>
+            <div class="p-6 space-y-4">
+                {{-- Mode tabs --}}
+                <div class="flex gap-2">
+                    <button @click="webSigMode = 'draw'; $nextTick(() => initWebSigCanvas())"
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                            :class="webSigMode === 'draw' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
+                        Draw
+                    </button>
+                    <button @click="webSigMode = 'type'"
+                            class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                            :class="webSigMode === 'type' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
+                        Type
+                    </button>
+                </div>
+
+                {{-- Draw mode --}}
+                <div x-show="webSigMode === 'draw'">
+                    <canvas x-ref="webSigCanvas"
+                            width="400" height="150"
+                            class="border border-slate-300 rounded bg-white w-full cursor-crosshair"
+                            @mousedown="webStartDrawing($event)"
+                            @mousemove="webDraw($event)"
+                            @mouseup="webStopDrawing()"
+                            @mouseleave="webStopDrawing()"
+                            @touchstart.prevent="webStartDrawing($event)"
+                            @touchmove.prevent="webDraw($event)"
+                            @touchend="webStopDrawing()">
+                    </canvas>
+                </div>
+
+                {{-- Type mode --}}
+                <div x-show="webSigMode === 'type'">
+                    <input type="text" x-model="webTypedSignature"
+                           placeholder="Type your full name"
+                           class="w-full text-2xl border border-slate-300 rounded px-3 py-2"
+                           style="font-family: 'Dancing Script', cursive;">
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button @click="clearWebSignature()"
+                            class="text-xs text-slate-500 hover:text-slate-700">Clear</button>
+                    <div class="flex-1"></div>
+                    <button @click="showWebSigCapture = false"
+                            class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                    <button @click="applyWebSignature()"
+                            class="rounded-lg px-6 py-2 text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700">
+                        Apply Signature
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     {{-- Footer --}}
     <div class="text-center text-xs text-slate-400 pb-6">
         Home Finders Coastal &mdash; Secure Document Signing
@@ -891,6 +1045,20 @@ function externalSign() {
         declineReason: '',
         declining: false,
 
+        // Web signing (CDS/web template interactive mode)
+        signerRole: @json($signerRole ?? ''),
+        fieldMappings: @json($fieldMappings ?? []),
+        webFieldValues: {},
+        webSignatures: {},
+        webDisclosureAnswers: {},
+        webConsented: false,
+        showWebSigCapture: false,
+        currentWebSigBlockId: null,
+        webSigMode: 'draw',
+        webTypedSignature: '',
+        webIsDrawing: false,
+        webSigCtx: null,
+
         init() {
             this.firstSignatureDone = this.markers.some(m => m.is_mine && m.signed);
 
@@ -899,9 +1067,15 @@ function externalSign() {
                 this.signingMethod = null;
             });
 
-            // For web templates: convert editable field spans to inputs after render
-            if (this.isWebTemplate && this.editableFields.length > 0) {
-                this.$nextTick(() => this.initWebTemplateFields());
+            // For web templates: convert editable field spans to inputs, process sig blocks + disclosures
+            if (this.isWebTemplate) {
+                this.$nextTick(() => {
+                    if (this.editableFields.length > 0) {
+                        this.initWebTemplateFields();
+                    }
+                    this.processWebSignatureBlocks();
+                    this.processWebDisclosureChecklists();
+                });
             }
         },
 
@@ -1476,6 +1650,265 @@ function externalSign() {
             this._notificationTimeout = setTimeout(() => {
                 this.showNotificationBar = false;
             }, 5000);
+        },
+
+        // ── Web template signing helpers ──
+
+        get webTotalSigBlocks() {
+            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            if (!container) return 0;
+            return container.querySelectorAll('.sig-block-party[data-signer="true"]').length;
+        },
+
+        get canSubmitWeb() {
+            const totalSigs = this.webTotalSigBlocks;
+            const signedSigs = Object.keys(this.webSignatures).length;
+            return this.webConsented && (totalSigs === 0 || signedSigs >= totalSigs);
+        },
+
+        processWebSignatureBlocks() {
+            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            if (!container) return;
+
+            setTimeout(() => {
+                const sigBlocks = container.querySelectorAll('.sig-block-party');
+                const self = this;
+
+                sigBlocks.forEach((block, idx) => {
+                    const partyRole = block.dataset.markerParty || block.dataset.party || '';
+                    const isSigner = this.isMyWebSigBlock(partyRole);
+                    block.setAttribute('data-signer', isSigner ? 'true' : 'false');
+                    block.setAttribute('data-signed', 'false');
+                    block.setAttribute('data-sig-id', 'sig-' + idx);
+
+                    if (isSigner) {
+                        const sigLine = block.querySelector('.corex-signature-line, .sig-line');
+                        const promptDiv = document.createElement('div');
+                        promptDiv.className = 'text-center py-3';
+                        promptDiv.innerHTML = '<span style="font-size:13px;font-weight:600;color:#b45309;">Click to sign here</span>';
+
+                        if (sigLine) {
+                            sigLine.innerHTML = '';
+                            sigLine.appendChild(promptDiv);
+                        } else {
+                            block.appendChild(promptDiv);
+                        }
+
+                        block.addEventListener('click', () => {
+                            if (block.getAttribute('data-signed') === 'true') return;
+                            self.currentWebSigBlockId = 'sig-' + idx;
+                            self.showWebSigCapture = true;
+                            self.$nextTick(() => self.initWebSigCanvas());
+                        });
+                    }
+                });
+
+                // Add the corex-signing-view class for CSS
+                const pageContainer = container.closest('.relative') || container.parentElement;
+                if (pageContainer) pageContainer.classList.add('corex-signing-view');
+            }, 150);
+        },
+
+        isMyWebSigBlock(partyRole) {
+            const role = (partyRole || '').toLowerCase();
+            const myRole = (this.signerRole || '').toLowerCase();
+            if (role === myRole) return true;
+            const ownerTerms = ['owner_party', 'lessor', 'seller', 'landlord', 'owner'];
+            const acquiringTerms = ['acquiring_party', 'lessee', 'buyer', 'tenant', 'purchaser'];
+            const agentTerms = ['agent', 'property_practitioner'];
+            if (ownerTerms.includes(myRole) && ownerTerms.includes(role)) return true;
+            if (acquiringTerms.includes(myRole) && acquiringTerms.includes(role)) return true;
+            if (agentTerms.includes(myRole) && agentTerms.includes(role)) return true;
+            return false;
+        },
+
+        processWebDisclosureChecklists() {
+            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            if (!container) return;
+
+            setTimeout(() => {
+                const checklists = container.querySelectorAll('.corex-disclosure-checklist');
+                const self = this;
+
+                checklists.forEach(checklist => {
+                    const rows = checklist.querySelectorAll('.corex-disclosure-row');
+                    rows.forEach((row, rowIdx) => {
+                        const isEditable = this.isMyWebSigBlock('owner_party');
+                        row.setAttribute('data-editable', isEditable ? 'true' : 'false');
+
+                        if (isEditable) {
+                            const radios = row.querySelectorAll('.corex-radio-placeholder');
+                            radios.forEach(radio => {
+                                radio.setAttribute('data-selected', 'false');
+                                radio.style.cursor = 'pointer';
+                                radio.style.fontSize = '16pt';
+                                radio.textContent = '\u25CB';
+
+                                radio.addEventListener('click', () => {
+                                    radios.forEach(r => {
+                                        r.setAttribute('data-selected', 'false');
+                                        r.textContent = '\u25CB';
+                                    });
+                                    radio.setAttribute('data-selected', 'true');
+                                    radio.textContent = '\u25CF';
+                                    self.webDisclosureAnswers['row-' + rowIdx] = radio.dataset.value || '';
+                                });
+                            });
+                        }
+                    });
+                });
+            }, 150);
+        },
+
+        // Signature canvas methods for web signing
+        initWebSigCanvas() {
+            const canvas = this.$refs.webSigCanvas;
+            if (!canvas) return;
+            this.webSigCtx = canvas.getContext('2d');
+            this.webSigCtx.strokeStyle = '#1e293b';
+            this.webSigCtx.lineWidth = 2;
+            this.webSigCtx.lineCap = 'round';
+            this.webSigCtx.lineJoin = 'round';
+            this.clearWebSignature();
+        },
+
+        webStartDrawing(e) {
+            this.webIsDrawing = true;
+            const pos = this.getWebCanvasPos(e);
+            this.webSigCtx.beginPath();
+            this.webSigCtx.moveTo(pos.x, pos.y);
+        },
+
+        webDraw(e) {
+            if (!this.webIsDrawing) return;
+            const pos = this.getWebCanvasPos(e);
+            this.webSigCtx.lineTo(pos.x, pos.y);
+            this.webSigCtx.stroke();
+        },
+
+        webStopDrawing() {
+            this.webIsDrawing = false;
+        },
+
+        getWebCanvasPos(e) {
+            const canvas = this.$refs.webSigCanvas;
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: (clientX - rect.left) * (canvas.width / rect.width),
+                y: (clientY - rect.top) * (canvas.height / rect.height),
+            };
+        },
+
+        clearWebSignature() {
+            if (this.webSigCtx) {
+                const canvas = this.$refs.webSigCanvas;
+                this.webSigCtx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            this.webTypedSignature = '';
+        },
+
+        applyWebSignature() {
+            const canvas = this.$refs.webSigCanvas;
+            let sigData;
+
+            if (this.webSigMode === 'draw') {
+                sigData = canvas.toDataURL('image/png');
+                // Check if canvas is effectively blank
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const hasContent = imageData.data.some((val, idx) => idx % 4 === 3 && val > 0);
+                if (!hasContent) {
+                    this.showNotification('Please draw your signature first.', 'warning');
+                    return;
+                }
+            } else {
+                if (!this.webTypedSignature.trim()) {
+                    this.showNotification('Please type your name.', 'warning');
+                    return;
+                }
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.font = '32px "Dancing Script", cursive';
+                ctx.fillStyle = '#1e293b';
+                ctx.fillText(this.webTypedSignature, 20, 90);
+                sigData = canvas.toDataURL('image/png');
+            }
+
+            this.webSignatures[this.currentWebSigBlockId] = sigData;
+
+            // Update the signature block in the document
+            const container = this.$el.querySelector('[x-html="webTemplateHtml"]');
+            if (container) {
+                const block = container.querySelector('[data-sig-id="' + this.currentWebSigBlockId + '"]');
+                if (block) {
+                    block.setAttribute('data-signed', 'true');
+                    const sigLine = block.querySelector('.corex-signature-line, .sig-line, .text-center');
+                    if (sigLine) {
+                        sigLine.innerHTML = '<img src="' + sigData + '" style="max-height:60px;margin:0 auto;display:block;">';
+                    }
+                }
+            }
+
+            this.showWebSigCapture = false;
+            this.showNotification('Signature applied.', 'info');
+        },
+
+        // Collect web field values from inline inputs
+        collectWebFieldValuesAll() {
+            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            if (!container) return {};
+            const values = {};
+            container.querySelectorAll('input.field-editable[data-field]').forEach(input => {
+                values[input.name || input.getAttribute('data-field')] = input.value;
+            });
+            return values;
+        },
+
+        async completeWebSigning() {
+            if (!this.canSubmitWeb) {
+                if (!this.webConsented) {
+                    this.showNotification('Please accept the consent checkbox to continue.', 'warning');
+                    return;
+                }
+                this.showNotification('Please complete all required signatures.', 'warning');
+                return;
+            }
+
+            if (this.completing) return;
+            this.completing = true;
+
+            // Collect field values
+            const fieldValues = this.collectWebFieldValuesAll();
+
+            try {
+                const resp = await fetch('/sign/' + this.token + '/complete-web', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        field_values: fieldValues,
+                        signatures: this.webSignatures,
+                        disclosure_answers: this.webDisclosureAnswers,
+                        consented: this.webConsented,
+                        consent_timestamp: new Date().toISOString(),
+                    }),
+                });
+                const data = await resp.json();
+                if (data.ok && data.redirect) {
+                    window.location.href = data.redirect;
+                } else {
+                    this.showNotification(data.message || data.error || 'Could not complete signing. Please try again.', 'error');
+                }
+            } catch (err) {
+                this.showNotification('Network error. Please check your connection and try again.', 'error');
+                console.error('Web signing complete failed:', err);
+            }
+            this.completing = false;
         },
 
         // ── Decline ──

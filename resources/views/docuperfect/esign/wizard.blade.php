@@ -796,10 +796,14 @@
         {{-- RIGHT PANEL: Document Preview --}}
         <div class="flex-1 overflow-y-auto p-6 bg-gray-100 dark:bg-gray-800 min-w-0">
 
-            {{-- Web template preview --}}
-            <div x-show="previewRenderType === 'web' && previewHtml"
-                 x-html="previewHtml"
-                 class="web-template-preview">
+            {{-- Web template preview (wrapped in CoreX document CSS) --}}
+            <div x-show="previewRenderType === 'web' && previewHtml" class="overflow-y-auto" style="max-height: calc(100vh - 200px);">
+                <link href="/css/corex-document.css" rel="stylesheet">
+                <div style="transform-origin: top left; transform: scale(0.7); width: 142%;">
+                    <div class="corex-document-wrapper">
+                        <div class="corex-page web-template-preview" x-html="previewHtml"></div>
+                    </div>
+                </div>
             </div>
             <style>
                 .field-highlighted {

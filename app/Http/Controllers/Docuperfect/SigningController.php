@@ -145,7 +145,16 @@ class SigningController extends Controller
             }
 
             // Determine which fields this signer can edit
-            $editableFields = WebTemplateFieldPartyMap::getEditableFields($signingRequest->party_role);
+            // Prefer field_mappings with editable_by (CDS templates) over static party map
+            $fieldMappingsFromData = $webTemplateData['field_mappings'] ?? [];
+            if (!empty($fieldMappingsFromData)) {
+                $editableFields = $this->getEditableFieldsFromMappings(
+                    $fieldMappingsFromData,
+                    $signingRequest->party_role
+                );
+            } else {
+                $editableFields = WebTemplateFieldPartyMap::getEditableFields($signingRequest->party_role);
+            }
         }
 
         // Build page image URLs — use flattened images when available (PDF path)
@@ -200,6 +209,8 @@ class SigningController extends Controller
             'isWebTemplate' => $isWebTemplate,
             'webTemplateHtml' => $webTemplateHtml,
             'editableFields' => $editableFields,
+            'signerRole' => $signingRequest->party_role,
+            'fieldMappings' => $webTemplateData['field_mappings'] ?? [],
             'token' => $token,
         ]);
     }
@@ -511,6 +522,165 @@ class SigningController extends Controller
         ]);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Complete web template signing (CDS/web documents with live HTML).
+     * Handles field values, signatures, disclosure answers, and consent logging.
+     */
+    public function completeWeb(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template.document')
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        // Validate consent
+        if (!$request->input('consented')) {
+            return response()->json(['message' => 'Consent is required to sign electronically.'], 422);
+        }
+
+        $template = $signingRequest->template;
+        $document = $template->document;
+
+        if (!$document) {
+            return response()->json(['message' => 'Document not found.'], 404);
+        }
+
+        // Log consent to audit log
+        SignatureAuditLog::create([
+            'signature_template_id' => $template->id,
+            'action' => 'electronic_consent_given',
+            'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+            'actor_name' => $signingRequest->signer_name,
+            'actor_email' => $signingRequest->signer_email,
+            'actor_ip_address' => $request->ip(),
+            'actor_user_agent' => $request->userAgent(),
+            'signature_request_id' => $signingRequest->id,
+            'metadata_json' => [
+                'consent_text' => 'Electronic signature consent per ECTA Section 13',
+                'consent_timestamp' => $request->input('consent_timestamp', now()->toIso8601String()),
+            ],
+        ]);
+
+        // Save field values into the document's web_template_data
+        $webData = $document->web_template_data ?? [];
+        $newFieldValues = $request->input('field_values', []);
+        if (!empty($newFieldValues)) {
+            $existingFieldValues = $webData['field_values'] ?? [];
+            $webData['field_values'] = array_merge($existingFieldValues, $newFieldValues);
+        }
+
+        // Save disclosure answers
+        $disclosureAnswers = $request->input('disclosure_answers', []);
+        if (!empty($disclosureAnswers)) {
+            $webData['disclosure_answers'] = array_merge(
+                $webData['disclosure_answers'] ?? [],
+                $disclosureAnswers
+            );
+        }
+
+        // Save signatures (base64 data URIs keyed by block ID)
+        $signatures = $request->input('signatures', []);
+        if (!empty($signatures)) {
+            $existingSigs = $webData['signatures'] ?? [];
+            $webData['signatures'] = array_merge($existingSigs, $signatures);
+        }
+
+        $document->update(['web_template_data' => $webData]);
+
+        // Mark signing request as completed
+        $signingRequest->update([
+            'status' => SignatureRequest::STATUS_COMPLETED,
+            'completed_at' => now(),
+            'signing_method' => 'electronic',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
+
+        SignatureAuditLog::create([
+            'signature_template_id' => $template->id,
+            'action' => 'web_signing_completed',
+            'actor_type' => SignatureAuditLog::ACTOR_SIGNER,
+            'actor_name' => $signingRequest->signer_name,
+            'actor_email' => $signingRequest->signer_email,
+            'actor_ip_address' => $request->ip(),
+            'actor_user_agent' => $request->userAgent(),
+            'signature_request_id' => $signingRequest->id,
+            'metadata_json' => [
+                'party_role' => $signingRequest->party_role,
+                'field_count' => count($newFieldValues),
+                'signature_count' => count($signatures),
+                'disclosure_count' => count($disclosureAnswers),
+            ],
+        ]);
+
+        // Check if ALL requests for this role are now complete
+        $party = $signingRequest->party_role;
+        $allRoleComplete = $template->requests()
+            ->where('party_role', $party)
+            ->where('status', '!=', SignatureRequest::STATUS_COMPLETED)
+            ->doesntExist();
+
+        if ($allRoleComplete) {
+            $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
+        }
+
+        $fullyComplete = $this->signatureService->isFullyComplete($template);
+
+        return response()->json([
+            'ok' => true,
+            'completed' => true,
+            'fully_complete' => $fullyComplete,
+            'redirect' => route('signatures.external.completed', $token),
+        ]);
+    }
+
+    /**
+     * Get editable field names from CDS field_mappings based on signer's party role.
+     * Maps party roles to the editable_by values used in CDS templates.
+     */
+    private function getEditableFieldsFromMappings(array $fieldMappings, string $partyRole): array
+    {
+        // Map signing party roles to editable_by role names used in CDS builder
+        $roleToEditableBy = [
+            'landlord' => 'owner_party',
+            'lessor' => 'owner_party',
+            'seller' => 'owner_party',
+            'tenant' => 'acquiring_party',
+            'lessee' => 'acquiring_party',
+            'buyer' => 'acquiring_party',
+            'agent' => 'agent',
+            'witness' => 'witness',
+        ];
+
+        $editableByRole = $roleToEditableBy[$partyRole] ?? $partyRole;
+        $editableFields = [];
+
+        foreach ($fieldMappings as $field) {
+            $editableBy = $field['editable_by'] ?? [];
+            $fieldName = $field['field_name'] ?? $field['label'] ?? '';
+
+            if (empty($fieldName)) {
+                continue;
+            }
+
+            // Normalize field name to match blade variable format
+            $varName = str_replace('.', '_', $fieldName);
+            $varName = preg_replace('/[^a-zA-Z0-9_]/', '_', $varName);
+
+            $canEdit = in_array('all', $editableBy)
+                || in_array($editableByRole, $editableBy);
+
+            if ($canEdit) {
+                $editableFields[] = $varName;
+            }
+        }
+
+        return $editableFields;
     }
 
     /**

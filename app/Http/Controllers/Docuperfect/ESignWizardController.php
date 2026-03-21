@@ -1235,6 +1235,13 @@ class ESignWizardController extends Controller
 
             // Store as merged_html so SignatureController uses it directly
             $webTemplateData['merged_html'] = $styles . $bodyHtml;
+
+            // Store field_mappings with editable_by so the signing view knows
+            // which fields each party role can edit (CDS templates only)
+            if (!empty($template->field_mappings)) {
+                $webTemplateData['field_mappings'] = $template->field_mappings;
+                $webTemplateData['template_type'] = $template->template_type;
+            }
         }
 
         $packInstanceId = ($isPackFlow || $isPdfPack) ? (int) round(microtime(true) * 1000) : null;
