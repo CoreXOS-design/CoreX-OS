@@ -69,16 +69,23 @@
             padding: 24px;
         }
 
-        /* Document content: white A4-like container */
+        /*
+         * .document-content is a PLAIN container — no padding/shadow.
+         * paginateDocument() creates .corex-a4-page children with their own padding.
+         * If pagination doesn't run (single page), the content still needs width constraint.
+         */
         .document-content {
             max-width: 210mm;
             margin: 0 auto;
+            box-sizing: border-box;
+            line-height: 1.5;
+        }
+        /* Before pagination: give the raw content a white background */
+        .document-content:not(:has(.corex-a4-page)) {
             background: white;
             padding: 20mm 18mm 25mm 18mm;
             box-shadow: 0 2px 12px rgba(0,0,0,0.12);
             border-radius: 4px;
-            box-sizing: border-box;
-            line-height: 1.5;
         }
 
         /* Ensure document body text inherits proper styling */
@@ -121,7 +128,7 @@
             line-height: 1;
         }
 
-        /* Hide input borders in print — show values only */
+        /* Hide input borders — show values only */
         .field-editable,
         input[data-ceremony-field="true"] {
             border: none !important;
@@ -132,10 +139,7 @@
             color: inherit !important;
         }
 
-        /* Page break markers: show as visual dividers on screen, actual breaks in print */
-        .corex-page-break {
-            margin: 16px 0;
-        }
+        /* Page initials styling */
         .corex-page-initials-row {
             display: flex;
             justify-content: flex-end;
@@ -158,7 +162,7 @@
         .clause-flag-icon { display: none !important; }
         .clause-flag-comment { display: none !important; }
 
-        /* Print styles */
+        /* ── Print styles ── */
         @media print {
             body {
                 background: white;
@@ -171,36 +175,53 @@
                 padding: 0;
             }
             .document-content {
-                max-width: none;
-                padding: 15mm 18mm 20mm 18mm;
+                max-width: 100%;
+                padding: 0;
                 box-shadow: none;
                 margin: 0;
                 border-radius: 0;
+                background: transparent;
             }
-            .corex-document-wrapper {
-                padding: 0;
-                background: white;
-            }
-            .corex-page {
+
+            /* Each A4 page becomes a print page */
+            .corex-a4-page {
+                page-break-after: always;
                 box-shadow: none;
                 margin: 0;
-                padding: 0;
+                padding: 20mm 18mm;
+                width: 100%;
+                max-width: 100%;
+                min-height: auto;
+                border-radius: 0;
+            }
+            .corex-a4-page:last-child {
+                page-break-after: avoid;
+            }
+            .corex-page-gap {
+                display: none;
+            }
+            .corex-page-initials-row {
+                margin-bottom: 0;
             }
             .corex-page-initials {
                 border: 1px solid #000;
             }
 
-            /* Ensure signatures print */
-            .web-sig-signed-img {
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
+            /* Kill inner wrappers */
+            .corex-document-wrapper,
+            .corex-page {
+                padding: 0 !important;
+                margin: 0 !important;
+                box-shadow: none !important;
+                background: white !important;
             }
+
+            /* Ensure signatures/images print in colour */
+            .web-sig-signed-img,
             img {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
-
-            /* Tables: ensure borders print */
             table, td, th {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
@@ -228,16 +249,21 @@
     </div>
 
     <script>
-        // Split into A4 pages, then clean up interactive elements
         document.addEventListener('DOMContentLoaded', function() {
-            paginateDocument(document.querySelector('.document-content'), @json($signingParties ?? []));
+            var container = document.querySelector('.document-content');
+
+            // Paginate into A4 pages (same as signing view)
+            paginateDocument(container, @json($signingParties ?? []));
+
+            // Restore previously signed initials
+            restoreStoredInitials(container, @json($storedInitials ?? []));
 
             // Remove "Click to sign" prompts
             document.querySelectorAll('.web-sig-prompt, .init-prompt').forEach(function(el) {
                 el.remove();
             });
 
-            // Remove dashed borders on unsigned elements — show as clean signature lines
+            // Clean up unsigned signature elements — show as clean lines
             document.querySelectorAll('.web-sig-interactive').forEach(function(el) {
                 if (!el.querySelector('img')) {
                     el.style.borderStyle = 'solid';

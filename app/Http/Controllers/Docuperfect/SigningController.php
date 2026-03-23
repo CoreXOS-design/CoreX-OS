@@ -1634,6 +1634,7 @@ class SigningController extends Controller
             'signerName' => $signingRequest->signer_name,
             'token' => $token,
             'signingParties' => $signingParties,
+            'storedInitials' => $webTemplateData['signed_initials'] ?? [],
         ]);
     }
 
