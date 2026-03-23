@@ -985,6 +985,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/esign/{flow}/next-pack-doc', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'nextPackDocument'])->name('docuperfect.esign.nextPackDoc');
     Route::get('/esign/{flow}/pack-status', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'packStatus'])->name('docuperfect.esign.packStatus');
     Route::post('/esign/{flow}/duplicate-fica', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'duplicateFicaPerParty'])->name('docuperfect.esign.duplicateFica');
+    Route::post('/esign/documents/{signatureTemplate}/cancel', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'cancelDocument'])->name('docuperfect.esign.cancelDocument');
 
     // ===== DOCUMENT IMPORTER =====
     Route::get('/import', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'index'])->name('docuperfect.import.index');

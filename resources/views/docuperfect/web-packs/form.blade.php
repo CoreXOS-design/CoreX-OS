@@ -182,19 +182,23 @@
     </form>
 </div>
 
+@php
+$existingItems = isset($webPack)
+    ? $webPack->items->map(function($item) {
+        return [
+            'id' => $item->template_id,
+            'name' => $item->template->name ?? 'Unknown',
+            'slot_type' => $item->slot_type ?? 'required',
+            'slot_group' => $item->slot_group ?? 1,
+            'slot_label' => $item->slot_label ?? '',
+        ];
+    })->toArray()
+    : [];
+@endphp
+
 <script>
 function webPackForm() {
-    const existing = @json(
-        isset($webPack)
-            ? $webPack->items->map(fn($item) => [
-                'id' => $item->template_id,
-                'name' => $item->template->name ?? 'Unknown',
-                'slot_type' => $item->slot_type ?? 'required',
-                'slot_group' => $item->slot_group ?? 1,
-                'slot_label' => $item->slot_label ?? '',
-            ])
-            : []
-    );
+    const existing = @json($existingItems);
 
     return {
         selectedItems: existing,

@@ -9,7 +9,9 @@ use App\Models\Docuperfect\DocumentType;
 use App\Models\Docuperfect\Flow;
 use App\Models\Docuperfect\NamedField;
 use App\Models\Docuperfect\Pack;
+use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
+use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Docuperfect\Template;
 use App\Models\Property;
@@ -1861,12 +1863,18 @@ class ESignWizardController extends Controller
         $flow->status = 'completed';
         $flow->save();
 
+        // Get signing requests for dev testing links
+        $signingRequests = $sigTemplate
+            ? $sigTemplate->requests()->orderBy('signing_order')->get()
+            : collect();
+
         return view('docuperfect.esign.signing-complete', [
-            'flow'          => $flow,
-            'document'      => $document,
-            'sigTemplate'   => $sigTemplate,
-            'nextRecipient' => $nextRecipient,
-            'template'      => $flow->template,
+            'flow'            => $flow,
+            'document'        => $document,
+            'sigTemplate'     => $sigTemplate,
+            'nextRecipient'   => $nextRecipient,
+            'template'        => $flow->template,
+            'signingRequests' => $signingRequests,
         ]);
     }
 
@@ -3553,25 +3561,99 @@ class ESignWizardController extends Controller
     }
 
     /**
-     * My E-Sign Documents — list all signature templates created by the current agent.
+     * My E-Sign Documents — dashboard with grouped status sections (mirrors rental signatures page).
      */
     public function myDocuments(Request $request)
     {
         $user = $request->user();
 
-        $templates = SignatureTemplate::with(['document', 'requests'])
+        $allTemplates = SignatureTemplate::with(['document.template', 'requests', 'creator'])
             ->where('created_by', $user->id)
             ->orderByDesc('created_at')
-            ->paginate(25);
+            ->get();
 
-        // Pending approval count for dashboard badge
-        $pendingApprovalCount = SignatureTemplate::where('created_by', $user->id)
-            ->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)
-            ->count();
+        // Awaiting statuses (external parties signing)
+        $awaitingStatuses = [
+            SignatureTemplate::STATUS_SIGNING,
+            SignatureTemplate::STATUS_AWAITING_TENANT,
+            SignatureTemplate::STATUS_AWAITING_LANDLORD,
+            SignatureTemplate::STATUS_AWAITING_BUYER,
+            SignatureTemplate::STATUS_AWAITING_SELLER,
+            SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
+            SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+            SignatureTemplate::STATUS_AWAITING_DEFERRED,
+        ];
+
+        // Group templates by status category
+        $groups = [
+            'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
+            'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
+            'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
+            'awaiting'         => $allTemplates->whereIn('status', $awaitingStatuses)->values(),
+            'completed'        => $allTemplates->where('status', SignatureTemplate::STATUS_COMPLETED)->values(),
+            'cancelled'        => $allTemplates->where('status', SignatureTemplate::STATUS_CANCELLED)->values(),
+        ];
+
+        $counts = [
+            'pending_approval'    => $groups['pending_approval']->count(),
+            'draft'               => $groups['draft']->count(),
+            'ready_to_sign'       => $groups['ready_to_sign']->count(),
+            'awaiting_signatures' => $groups['awaiting']->count(),
+            'completed'           => $groups['completed']->count(),
+            'cancelled'           => $groups['cancelled']->count(),
+        ];
 
         return view('docuperfect.esign.my-documents', [
-            'templates' => $templates,
-            'pendingApprovalCount' => $pendingApprovalCount,
+            'groups' => $groups,
+            'counts' => $counts,
+            'user'   => $user,
         ]);
+    }
+
+    /**
+     * Cancel / void an e-sign document — sets template + all pending requests to cancelled.
+     */
+    public function cancelDocument(Request $request, SignatureTemplate $signatureTemplate)
+    {
+        $user = $request->user();
+
+        // Only the creator can cancel
+        if ((int) $signatureTemplate->created_by !== (int) $user->id) {
+            return back()->withErrors(['You do not have permission to cancel this document.']);
+        }
+
+        // Cannot cancel already completed or already cancelled docs
+        if (in_array($signatureTemplate->status, [
+            SignatureTemplate::STATUS_COMPLETED,
+            SignatureTemplate::STATUS_CANCELLED,
+        ])) {
+            return back()->withErrors(['This document cannot be cancelled — it is already ' . $signatureTemplate->status . '.']);
+        }
+
+        DB::transaction(function () use ($signatureTemplate, $user, $request) {
+            // Cancel all pending/waiting signature requests
+            $signatureTemplate->requests()
+                ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
+                ->update(['status' => 'cancelled']);
+
+            // Set template status to cancelled
+            $signatureTemplate->update(['status' => SignatureTemplate::STATUS_CANCELLED]);
+
+            // Audit log
+            SignatureAuditLog::log(
+                $signatureTemplate,
+                SignatureAuditLog::ACTION_CANCELLED,
+                SignatureAuditLog::ACTOR_USER,
+                $user->name,
+                $user->email,
+                $user->id,
+                null,
+                $request->ip(),
+                $request->userAgent(),
+                ['reason' => 'Agent cancelled document from My E-Sign Documents page']
+            );
+        });
+
+        return back()->with('status', 'Document "' . ($signatureTemplate->document->name ?? 'Untitled') . '" has been cancelled.');
     }
 }

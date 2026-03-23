@@ -63,6 +63,7 @@ class SignatureTemplate extends Model
     const STATUS_PARTIAL = 'partial';
     const STATUS_AWAITING_DEFERRED = 'awaiting_deferred';
     const STATUS_AMENDMENT_REVIEW = 'amendment_review';
+    const STATUS_CANCELLED = 'cancelled';
 
     // --- Relationships ---
 

@@ -58,6 +58,18 @@
     margin: 2px auto;
     object-fit: contain;
 }
+/* Ceremony field highlight when incomplete */
+@keyframes ceremonyPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.6); }
+    50% { box-shadow: 0 0 0 6px rgba(59,130,246,0); }
+}
+.ceremony-pulse {
+    animation: ceremonyPulse 1s ease-in-out 3;
+}
+.ceremony-incomplete {
+    border-bottom-color: #ef4444 !important;
+    background: rgba(239,68,68,0.06) !important;
+}
 </style>
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-4"
@@ -80,11 +92,12 @@
         <x-slot name="right">
             <a href="{{ route('docuperfect.rental') }}" class="text-sm text-gray-500 hover:text-gray-700 mr-2">Dashboard</a>
             <button @click="handleComplete()"
-                    :disabled="completingForm || signedCount < totalAgent || totalAgent === 0"
+                    :disabled="completingForm || incompleteCount > 0"
                     class="px-4 py-2 text-sm font-semibold rounded-sm transition-colors"
-                    :class="signedCount >= totalAgent && totalAgent > 0 && !completingForm
+                    :class="incompleteCount === 0 && !completingForm
                         ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'">
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                    :title="incompleteCount > 0 ? 'Please complete all fields: ' + incompleteCount + ' remaining' : ''">
                 <span x-show="!completingForm">Complete & Send</span>
                 <span x-show="completingForm" x-cloak>Completing...</span>
             </button>
@@ -388,40 +401,43 @@
     {{-- Complete Signing button --}}
     <div class="bg-white border border-gray-200 rounded-md p-4 flex items-center justify-between">
         <div class="text-sm text-slate-600">
-            <template x-if="signedCount < totalAgent">
-                <span>Sign all <span x-text="totalAgent - signedCount"></span> remaining marker<span x-show="(totalAgent - signedCount) !== 1">s</span> to continue.</span>
+            <template x-if="incompleteCount > 0">
+                <span>
+                    <span x-text="incompleteCount"></span> field<span x-show="incompleteCount !== 1">s</span> remaining —
+                    <button @click="scrollToNextIncomplete()" class="text-blue-600 hover:text-blue-800 underline font-medium">go to next</button>
+                </span>
             </template>
-            <template x-if="signedCount >= totalAgent && totalAgent > 0">
-                <span class="font-medium" style="color:var(--brand-button, #0ea5e9);">All markers signed. Ready to send.</span>
+            <template x-if="incompleteCount === 0">
+                <span class="font-medium" style="color:var(--brand-button, #0ea5e9);">All fields complete. Ready to send.</span>
             </template>
         </div>
         <button @click="handleComplete()"
-                :disabled="completingForm"
+                :disabled="completingForm || incompleteCount > 0"
                 class="rounded-md px-6 py-2.5 text-sm font-semibold transition-colors"
-                :class="signedCount >= totalAgent && totalAgent > 0 && !completingForm
+                :class="incompleteCount === 0 && !completingForm
                     ? 'text-white hover:brightness-110'
                     : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
-                :style="signedCount >= totalAgent && totalAgent > 0 && !completingForm ? 'background:var(--brand-button, #0ea5e9);' : ''">
+                :style="incompleteCount === 0 && !completingForm ? 'background:var(--brand-button, #0ea5e9);' : ''"
+                :title="incompleteCount > 0 ? 'Please complete all fields (' + incompleteCount + ' remaining)' : ''">
             <span x-show="!completingForm">Complete Signing & Send</span>
             <span x-show="completingForm" x-cloak>Completing...</span>
         </button>
     </div>
 
-    {{-- Floating progress bar for unsigned markers --}}
-    <div x-show="signedCount < totalAgent && totalAgent > 0" x-cloak x-transition
+    {{-- Floating progress bar — shows incomplete count (sigs + ceremony fields) --}}
+    <div x-show="incompleteCount > 0" x-cloak x-transition
          class="fixed bottom-4 left-1/2 transform -translate-x-1/2 shadow-lg rounded-md px-6 py-3 flex items-center gap-3 z-40 border border-gray-700"
          style="background:var(--corex-navy, #0b2a4a);">
         <div class="flex items-center gap-2">
-            <span class="text-sm font-medium text-white" x-text="`${signedCount} of ${totalAgent} completed`"></span>
-            <div class="w-24 h-2 bg-white/20 rounded overflow-hidden">
-                <div class="h-full rounded transition-all duration-500"
-                     style="background:var(--brand-button, #0ea5e9);"
-                     :style="`width: ${totalAgent > 0 ? (signedCount / totalAgent) * 100 : 0}%;background:var(--brand-button, #0ea5e9);`"></div>
-            </div>
+            <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+            </svg>
+            <span class="text-sm font-medium text-white" x-text="incompleteCount + ' field' + (incompleteCount !== 1 ? 's' : '') + ' remaining'"></span>
         </div>
-        <button @click="goToNextUnsigned()"
-                class="text-sm font-medium text-white/80 hover:text-white transition-colors">
-            Next
+        <button @click="scrollToNextIncomplete()"
+                class="text-sm font-semibold px-3 py-1 rounded transition-colors"
+                style="background:var(--brand-button, #0ea5e9);color:white;">
+            Go to next
         </button>
     </div>
 
@@ -530,6 +546,7 @@ function signDocument() {
         webSigTotal: 0,
         webSigSigned: 0,
         webCeremonyValues: {},     // { 'agent_location': 'Shelly Beach', 'agent_day': '23', ... }
+        incompleteCount: 0,        // Total unfilled required items (sigs + ceremony fields)
 
         // Section-by-section signing state
         hasSections: {{ !empty($sections) ? 'true' : 'false' }},
@@ -555,7 +572,14 @@ function signDocument() {
 
             // For web templates: make document signature elements interactive
             if (this.isWebTemplate) {
-                this.$nextTick(() => this._makeWebElementsInteractive());
+                this.$nextTick(() => {
+                    this._makeWebElementsInteractive();
+                    // Delay to let DOM settle after ceremony fields are created
+                    setTimeout(() => this._updateIncompleteCount(), 500);
+                });
+            } else {
+                // PDF template: incomplete count = unsigned agent markers
+                this._updateIncompleteCount();
             }
         },
 
@@ -711,10 +735,13 @@ function signDocument() {
                         'padding:1pt 4pt;box-sizing:border-box;' +
                         'min-height:14pt;';
 
-                    // Track changes
+                    // Track changes + auto-fill matching ceremony fields
                     input.addEventListener('input', () => {
                         if (!self.webCeremonyValues) self.webCeremonyValues = {};
                         self.webCeremonyValues[rawParty + '_' + fieldType] = input.value;
+                        // Issue 1: Propagate to all matching agent ceremony fields of same type
+                        self._propagateCeremonyField(fieldType, input.value, input);
+                        self._updateIncompleteCount();
                     });
 
                     // Store prefilled value
@@ -752,6 +779,7 @@ function signDocument() {
                             amPmBtn.textContent = amPmBtn.textContent === 'am' ? 'pm' : 'am';
                             if (!self.webCeremonyValues) self.webCeremonyValues = {};
                             self.webCeremonyValues[rawParty + '_am_pm'] = amPmBtn.textContent;
+                            self._updateIncompleteCount();
                         });
                         // Replace "am / pm" text with the button
                         const remaining = node.textContent.replace(/am\s*\/\s*pm/i, '').trim();
@@ -768,6 +796,92 @@ function signDocument() {
                     node = node.nextSibling;
                 }
             });
+        },
+
+        /**
+         * Issue 1: Auto-fill all matching ceremony fields of the same type for the agent.
+         * When agent fills "Shelly Beach" for location, ALL agent location fields update.
+         */
+        _propagateCeremonyField(fieldType, value, sourceInput) {
+            const container = this.$refs.webDocContent;
+            if (!container) return;
+            const allMatching = container.querySelectorAll('input[data-ceremony-field="true"][data-marker-type="' + fieldType + '"]');
+            allMatching.forEach(inp => {
+                if (inp === sourceInput) return;
+                inp.value = value;
+                // Also update the tracked values
+                const party = (inp.dataset.markerParty || '').toLowerCase();
+                if (!this.webCeremonyValues) this.webCeremonyValues = {};
+                this.webCeremonyValues[party + '_' + fieldType] = value;
+            });
+        },
+
+        /**
+         * Issue 2 & 3: Compute all incomplete required items (unsigned sigs + empty ceremony fields).
+         * Returns array of {el, label} for each incomplete item.
+         */
+        _computeIncompleteItems() {
+            const items = [];
+            // Unsigned agent signature elements
+            if (this.isWebTemplate) {
+                this.webSigElements.forEach(entry => {
+                    if (entry.isMine && !entry.signed) {
+                        items.push({ el: entry.el, label: 'Signature' });
+                    }
+                });
+            } else {
+                this.markers.forEach(m => {
+                    if (m.assigned_party === 'agent' && !m.signed) {
+                        const el = document.getElementById('marker-' + m.id);
+                        items.push({ el, label: m.label || m.type });
+                    }
+                });
+            }
+            // Empty ceremony fields (location is required; date/time are pre-filled)
+            const container = this.$refs.webDocContent;
+            if (container) {
+                container.querySelectorAll('input[data-ceremony-field="true"]').forEach(inp => {
+                    if (!inp.value || !inp.value.trim()) {
+                        const type = inp.dataset.markerType || 'field';
+                        const label = type.charAt(0).toUpperCase() + type.slice(1).replace('_', '/');
+                        items.push({ el: inp, label });
+                    }
+                });
+                // Also check am_pm buttons that are ceremony fields
+                container.querySelectorAll('button[data-ceremony-field="true"]').forEach(btn => {
+                    if (!btn.textContent || !btn.textContent.trim()) {
+                        items.push({ el: btn, label: 'AM/PM' });
+                    }
+                });
+            }
+            return items;
+        },
+
+        /**
+         * Update the incompleteCount reactive property.
+         */
+        _updateIncompleteCount() {
+            this.incompleteCount = this._computeIncompleteItems().length;
+        },
+
+        /**
+         * Issue 3: Scroll to the next incomplete field and highlight it.
+         */
+        scrollToNextIncomplete() {
+            const items = this._computeIncompleteItems();
+            if (items.length === 0) return;
+            const item = items[0];
+            if (item.el) {
+                item.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                item.el.classList.add('ceremony-pulse', 'pulse-highlight');
+                setTimeout(() => {
+                    item.el.classList.remove('ceremony-pulse', 'pulse-highlight');
+                }, 3000);
+                // Focus if it's an input
+                if (item.el.tagName === 'INPUT') {
+                    setTimeout(() => item.el.focus(), 400);
+                }
+            }
         },
 
         /**
@@ -1149,6 +1263,7 @@ function signDocument() {
 
                 this.firstSignatureDone = true;
                 this.applying = false;
+                this._updateIncompleteCount();
                 return;
             }
 
@@ -1206,6 +1321,7 @@ function signDocument() {
 
                     // Update counts
                     this.signedCount = data.signed_count;
+                    this._updateIncompleteCount();
                     return true;
                 } else {
                     alert(data.error || 'Failed to capture signature.');
@@ -1223,16 +1339,36 @@ function signDocument() {
 
             if (this.isWebTemplate) {
                 // Web template: apply to all remaining agent sig elements
+                const sigData = this.lastSignatureData;
+                if (!sigData) {
+                    console.error('APPLY_ALL: No signature data available');
+                    this.applyingAll = false;
+                    this.showApplyAll = false;
+                    return;
+                }
+
                 const remaining = this.webSigElements.filter(e => e.isMine && !e.signed);
+                console.log('APPLY_ALL: Applying signature to', remaining.length, 'remaining elements');
+
                 for (const entry of remaining) {
-                    entry.signed = true;
-                    entry.sigData = this.lastSignatureData;
-                    this.webSignatures[entry.sigKey] = this.lastSignatureData;
-                    entry.el.classList.add('web-sig-signed');
-                    entry.el.innerHTML = '<img src="' + this.lastSignatureData + '" class="web-sig-signed-img" alt="Signature">';
-                    this.webSigSigned++;
+                    try {
+                        entry.signed = true;
+                        entry.sigData = sigData;
+                        this.webSignatures[entry.sigKey] = sigData;
+
+                        // Direct DOM update — use the raw element (unwrap Alpine proxy if needed)
+                        const el = entry.el;
+                        if (el && el.classList) {
+                            el.classList.add('web-sig-signed');
+                            el.innerHTML = '<img src="' + sigData + '" class="web-sig-signed-img" alt="Signature">';
+                        }
+                        this.webSigSigned++;
+                    } catch (err) {
+                        console.error('APPLY_ALL: Failed to apply signature to', entry.sigKey, err);
+                    }
                 }
                 this.signedCount = this.webSigSigned;
+                console.log('APPLY_ALL: Done.', this.webSigSigned, '/', this.webSigTotal, 'signed');
             } else {
                 const remainingSignatures = this.markers.filter(m =>
                     m.assigned_party === 'agent' &&
@@ -1249,6 +1385,7 @@ function signDocument() {
             this.showApplyAll = false;
             this.lastSignatureData = null;
             this.applyingAll = false;
+            this._updateIncompleteCount();
         },
 
         get remainingSignatureCount() {
@@ -1265,12 +1402,14 @@ function signDocument() {
 
         // ── Complete signing (with guided navigation if unsigned markers remain) ──
         async handleComplete() {
-            // Web template flow: check web sig elements instead of markers
+            // Web template flow: check all incomplete items (sigs + ceremony fields)
             if (this.isWebTemplate) {
-                const unsigned = this.webSigElements.filter(e => e.isMine && !e.signed);
-                if (unsigned.length > 0) {
-                    alert(`Please sign ${unsigned.length} remaining signature area${unsigned.length > 1 ? 's' : ''}.`);
-                    unsigned[0].el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                this._updateIncompleteCount();
+                const incomplete = this._computeIncompleteItems();
+                if (incomplete.length > 0) {
+                    const labels = [...new Set(incomplete.map(i => i.label))];
+                    alert(`Please complete all fields: ${labels.join(', ')} (${incomplete.length} remaining)`);
+                    this.scrollToNextIncomplete();
                     return;
                 }
 
@@ -1290,6 +1429,7 @@ function signDocument() {
                     signatures: this.webSignatures,
                     party_role: 'agent',
                     ceremony_values: this.webCeremonyValues || {},
+                    esign_flow_id: @json($esignFlowId ?? null),
                 };
                 try {
                     const resp = await fetch(url, {
@@ -1368,11 +1508,7 @@ function signDocument() {
         // ── Navigate to next unsigned agent marker ──
         goToNextUnsigned() {
             if (this.isWebTemplate) {
-                const unsigned = this.webSigElements.filter(e => e.isMine && !e.signed);
-                if (unsigned.length === 0) return;
-                unsigned[0].el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                unsigned[0].el.classList.add('pulse-highlight');
-                setTimeout(() => unsigned[0].el.classList.remove('pulse-highlight'), 3000);
+                this.scrollToNextIncomplete();
                 return;
             }
             const unsigned = this.markers.filter(m => m.assigned_party === 'agent' && !m.signed);

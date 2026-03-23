@@ -938,6 +938,9 @@ class SignatureController extends Controller
             }
         }
 
+        // Pass wizard flow ID so the sign page can include it in the webSignComplete request
+        $esignFlowId = session('esign_wizard_flow_id');
+
         return view('docuperfect.signatures.sign', [
             'document' => $document,
             'template' => $template,
@@ -954,6 +957,7 @@ class SignatureController extends Controller
             'sections' => $sections,
             'sectionAcceptances' => $sectionAcceptances,
             'isSalesTemplate' => $docTemplate ? $docTemplate->isSalesDocument() : false,
+            'esignFlowId' => $esignFlowId,
         ]);
     }
 
@@ -1353,9 +1357,13 @@ class SignatureController extends Controller
             // supervisor routing, approval gates, and all status transitions.
             $this->signatureService->handlePartyCompletion($template, $partyRole, $agentRequest);
 
-            // If signing was initiated from the e-sign wizard, redirect to completion page
-            $wizardFlowId = session()->pull('esign_wizard_flow_id');
+            // If signing was initiated from the e-sign wizard, redirect to completion page.
+            // Accept flow ID from request body (reliable) or session (fallback).
+            $wizardFlowId = $request->input('esign_flow_id') ?: session()->pull('esign_wizard_flow_id');
             if ($wizardFlowId) {
+                // Clear session key if it wasn't already pulled
+                session()->forget('esign_wizard_flow_id');
+
                 return response()->json([
                     'ok' => true,
                     'redirect' => route('docuperfect.esign.signingComplete', ['flow' => $wizardFlowId]),
@@ -1614,12 +1622,19 @@ class SignatureController extends Controller
             ]);
         }
 
-        // Validate every non-agent party has at least one signature marker
-        $markerValidation = $this->validatePartyMarkers($template);
-        if (!$markerValidation['valid']) {
-            return redirect()->back()->withErrors([
-                'markers' => $markerValidation['message'],
-            ]);
+        // Validate every non-agent party has at least one signature marker.
+        // Skip for web templates — they use embedded HTML elements, not DB markers.
+        $docTemplate = $document->template;
+        $isWebRenderType = $docTemplate && ($docTemplate->render_type ?? 'pdf') === 'web';
+        $hasWebMergedHtml = !empty($document->web_template_data['merged_html'] ?? null);
+
+        if (!$isWebRenderType && !$hasWebMergedHtml) {
+            $markerValidation = $this->validatePartyMarkers($template);
+            if (!$markerValidation['valid']) {
+                return redirect()->back()->withErrors([
+                    'markers' => $markerValidation['message'],
+                ]);
+            }
         }
 
         try {
