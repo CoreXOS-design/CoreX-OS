@@ -1139,83 +1139,210 @@
                     </div>
                 </div>
 
-                {{-- Address --}}
-                <div>
-                    <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Address</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div class="sm:col-span-2">
-                            <div class="flex items-center justify-between mb-1">
-                                <label class="block text-xs font-semibold" style="color:var(--text-secondary);">Full Address</label>
-                                <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color:var(--text-muted);">
-                                    <input type="checkbox" name="pp_hide_street_name" value="1" {{ old('pp_hide_street_name', $property->pp_hide_street_name ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
-                                    Hide street on PP
-                                </label>
+                {{-- Property Address --}}
+                <div x-data="{
+                    addressTab: 'internal',
+                    streetNumber: '{{ old('street_number', $property->street_number ?? '') }}',
+                    streetName: '{{ old('street_name', $property->street_name ?? '') }}',
+                    suburb: '{{ old('suburb', $property->suburb ?? '') }}',
+                    city: '{{ old('city', $property->city ?? '') }}',
+                    province: '{{ old('province', $property->province ?? 'KwaZulu-Natal') }}',
+                    get internalAddress() {
+                        return [this.streetNumber, this.streetName].filter(Boolean).join('-') + (this.streetName ? ', ' : '') + [this.suburb, this.city, this.province].filter(Boolean).join(', ');
+                    },
+                    get publicAddress() {
+                        let parts = [];
+                        if (!{{ $property->pp_hide_street_name ? 'true' : 'false' }}) {
+                            let street = [this.streetNumber, this.streetName].filter(Boolean).join(' ');
+                            if (street) parts.push(street);
+                        }
+                        parts.push(...[this.suburb, this.city, this.province].filter(Boolean));
+                        return parts.join(', ') || 'No public address';
+                    }
+                }">
+                    <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Property Address</h3>
+
+                    {{-- Internal / Public display --}}
+                    <div class="rounded-md mb-5 overflow-hidden" style="border:1px solid var(--border);">
+                        <div class="grid grid-cols-[100px_1fr] text-xs" style="border-bottom:1px solid var(--border);">
+                            <div class="px-3 py-2 font-semibold" style="color:#c97a2e;">Internal</div>
+                            <div class="px-3 py-2 text-right" style="color:var(--text-primary);" x-text="internalAddress"></div>
+                        </div>
+                        <div class="grid grid-cols-[100px_1fr] text-xs">
+                            <div class="px-3 py-2 font-semibold" style="color:#c93434;">Public</div>
+                            <div class="px-3 py-2 text-right" style="color:var(--text-primary);" x-text="publicAddress"></div>
+                        </div>
+                    </div>
+
+                    {{-- Complex or Estate --}}
+                    <div class="mb-5">
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default,#0b2a4a); color:#fff;">Complex or Estate</div>
+                        <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Unit Number</label>
+                                    <div class="flex items-center gap-2">
+                                        <input type="text" name="unit_number" value="{{ old('unit_number', $property->unit_number) }}"
+                                               class="flex-1 rounded-md px-3 py-1.5 text-sm"
+                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        <label class="flex items-center gap-1 text-[9px] flex-shrink-0 cursor-pointer" style="color:var(--text-muted);" title="Hide unit number on PP feed">
+                                            <input type="checkbox" name="pp_hide_unit_number" value="1" {{ old('pp_hide_unit_number', $property->pp_hide_unit_number ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                            Hide
+                                        </label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Floor Number</label>
+                                    <input type="text" name="floor_number" value="{{ old('floor_number', $property->floor_number) }}"
+                                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                </div>
                             </div>
-                            <input type="text" name="address" value="{{ old('address', $property->address) }}"
-                                   placeholder="e.g. 21 Dee Road"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <label class="block text-xs font-semibold" style="color:var(--text-secondary);">Complex Name</label>
-                                <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color:var(--text-muted);">
-                                    <input type="checkbox" name="pp_hide_complex_name" value="1" {{ old('pp_hide_complex_name', $property->pp_hide_complex_name ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
-                                    Hide on PP
-                                </label>
+                            <div>
+                                <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Name of Unit, Section or Block</label>
+                                <input type="text" name="unit_section_block" value="{{ old('unit_section_block', $property->unit_section_block) }}"
+                                       class="w-full rounded-md px-3 py-1.5 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
-                            <input type="text" name="complex_name" value="{{ old('complex_name', $property->complex_name) }}"
-                                   placeholder="e.g. Ocean View"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <label class="block text-xs font-semibold" style="color:var(--text-secondary);">Unit Number</label>
-                                <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color:var(--text-muted);">
-                                    <input type="checkbox" name="pp_hide_unit_number" value="1" {{ old('pp_hide_unit_number', $property->pp_hide_unit_number ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
-                                    Hide on PP
-                                </label>
+                            <div>
+                                <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Name of Complex or Estate</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="text" name="complex_name" value="{{ old('complex_name', $property->complex_name) }}"
+                                           class="flex-1 rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <label class="flex items-center gap-1 text-[9px] flex-shrink-0 cursor-pointer" style="color:var(--text-muted);" title="Hide complex name on PP feed">
+                                        <input type="checkbox" name="pp_hide_complex_name" value="1" {{ old('pp_hide_complex_name', $property->pp_hide_complex_name ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                        Hide
+                                    </label>
+                                </div>
                             </div>
-                            <input type="text" name="unit_number" value="{{ old('unit_number', $property->unit_number) }}"
-                                   placeholder="e.g. 14"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property / Erf Number</label>
-                            <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}"
-                                   placeholder="e.g. Erf 789"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+
+                    {{-- Street --}}
+                    <div class="mb-5">
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default,#0b2a4a); color:#fff;">Street</div>
+                        <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                            <div>
+                                <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Street Number</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="text" name="street_number" x-model="streetNumber" value="{{ old('street_number', $property->street_number) }}"
+                                           placeholder="e.g. 1046-2"
+                                           class="w-40 rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <label class="flex items-center gap-1 text-[9px] flex-shrink-0 cursor-pointer" style="color:var(--text-muted);" title="Hide street number on PP feed">
+                                        <input type="checkbox" name="pp_hide_street_number" value="1" {{ old('pp_hide_street_number', $property->pp_hide_street_number ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                        Hide
+                                    </label>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Street Name</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="text" name="street_name" x-model="streetName" value="{{ old('street_name', $property->street_name) }}"
+                                           placeholder="e.g. Clarendon Road"
+                                           class="flex-1 rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <label class="flex items-center gap-1 text-[9px] flex-shrink-0 cursor-pointer" style="color:var(--text-muted);" title="Hide street name on PP feed">
+                                        <input type="checkbox" name="pp_hide_street_name" value="1" {{ old('pp_hide_street_name', $property->pp_hide_street_name ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                        Hide
+                                    </label>
+                                </div>
+                            </div>
+                            {{-- Keep the combined address field as a hidden fallback for existing data --}}
+                            <input type="hidden" name="address" value="{{ old('address', $property->address) }}">
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Suburb <span class="text-red-400">*</span></label>
-                            <input type="text" name="suburb" value="{{ old('suburb', $property->suburb) }}" required
-                                   placeholder="e.g. Uvongo"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+
+                    {{-- City or Suburb --}}
+                    <div class="mb-5">
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default,#0b2a4a); color:#fff;">City or Suburb</div>
+                        <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Suburb <span class="text-red-400">*</span></label>
+                                    <input type="text" name="suburb" x-model="suburb" value="{{ old('suburb', $property->suburb) }}" required
+                                           placeholder="e.g. Uvongo Beach"
+                                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">City / Town</label>
+                                    <input type="text" name="city" x-model="city" value="{{ old('city', $property->city) }}"
+                                           placeholder="e.g. Margate"
+                                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Province</label>
+                                    <select name="province" x-model="province" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        <option value="KwaZulu-Natal" {{ old('province', $property->province ?? 'KwaZulu-Natal') === 'KwaZulu-Natal' ? 'selected' : '' }}>KwaZulu-Natal</option>
+                                        <option value="Gauteng" {{ old('province', $property->province) === 'Gauteng' ? 'selected' : '' }}>Gauteng</option>
+                                        <option value="Western Cape" {{ old('province', $property->province) === 'Western Cape' ? 'selected' : '' }}>Western Cape</option>
+                                        <option value="Eastern Cape" {{ old('province', $property->province) === 'Eastern Cape' ? 'selected' : '' }}>Eastern Cape</option>
+                                        <option value="Free State" {{ old('province', $property->province) === 'Free State' ? 'selected' : '' }}>Free State</option>
+                                        <option value="Limpopo" {{ old('province', $property->province) === 'Limpopo' ? 'selected' : '' }}>Limpopo</option>
+                                        <option value="Mpumalanga" {{ old('province', $property->province) === 'Mpumalanga' ? 'selected' : '' }}>Mpumalanga</option>
+                                        <option value="North West" {{ old('province', $property->province) === 'North West' ? 'selected' : '' }}>North West</option>
+                                        <option value="Northern Cape" {{ old('province', $property->province) === 'Northern Cape' ? 'selected' : '' }}>Northern Cape</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">City / Town</label>
-                            <input type="text" name="city" value="{{ old('city', $property->city) }}"
-                                   placeholder="e.g. Margate"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
-                            <input type="text" name="district" value="{{ old('district', $property->district) }}"
-                                   placeholder="e.g. Ray Nkonyeni"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
-                            <input type="text" name="region" value="{{ old('region', $property->region) }}"
-                                   placeholder="KZN South Coast"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+
+                    {{-- More Info --}}
+                    <div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default,#0b2a4a); color:#fff;">More Info</div>
+                        <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Property / Erf Number</label>
+                                    <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}"
+                                           placeholder="e.g. Erf 789"
+                                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Stand Number</label>
+                                    <input type="text" name="stand_number" value="{{ old('stand_number', $property->stand_number) }}"
+                                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Zone Type</label>
+                                    <select name="zone_type" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        <option value="">— None —</option>
+                                        <option value="Residential" {{ old('zone_type', $property->zone_type) === 'Residential' ? 'selected' : '' }}>Residential</option>
+                                        <option value="Commercial" {{ old('zone_type', $property->zone_type) === 'Commercial' ? 'selected' : '' }}>Commercial</option>
+                                        <option value="Industrial" {{ old('zone_type', $property->zone_type) === 'Industrial' ? 'selected' : '' }}>Industrial</option>
+                                        <option value="Agricultural" {{ old('zone_type', $property->zone_type) === 'Agricultural' ? 'selected' : '' }}>Agricultural</option>
+                                        <option value="Mixed Use" {{ old('zone_type', $property->zone_type) === 'Mixed Use' ? 'selected' : '' }}>Mixed Use</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
+                                    <input type="text" name="district" value="{{ old('district', $property->district) }}"
+                                           placeholder="e.g. Ray Nkonyeni"
+                                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
+                                    <input type="text" name="region" value="{{ old('region', $property->region) }}"
+                                           placeholder="KZN South Coast"
+                                           class="w-full rounded-md px-3 py-1.5 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-semibold mb-1" style="color:var(--text-secondary);">Internal Note</label>
+                                <textarea name="address_internal_note" rows="2"
+                                          class="w-full rounded-md px-3 py-1.5 text-sm"
+                                          style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('address_internal_note', $property->address_internal_note) }}</textarea>
+                            </div>
                         </div>
                     </div>
                 </div>

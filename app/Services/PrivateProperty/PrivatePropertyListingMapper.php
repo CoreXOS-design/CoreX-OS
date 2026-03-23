@@ -40,6 +40,7 @@ class PrivatePropertyListingMapper
             'MandateType'             => $mandateType,
             'StreetName'              => $property->street_name ?: $this->parseStreetName($property->address),
             'StreetNumber'            => $property->street_number ?: $this->parseStreetNumber($property->address),
+            'FloorNumber'             => $property->floor_number ?? '',
             'ComplexName'             => $property->complex_name ?? '',
             'UnitNumber'              => $property->unit_number ?? '',
             // PP106: use EITHER SuburbId OR (Suburb + Town + Province) — never both
