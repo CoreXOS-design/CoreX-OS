@@ -10,18 +10,16 @@
 @endphp
 
 <style>
-/* Read-only document container — no interactive elements */
-.review-doc-container {
+/* Read-only document container — interactive elements made inert */
+.review-doc-container .web-sig-interactive,
+.review-doc-container .corex-page-initials,
+.review-doc-container [data-marker-type] {
     pointer-events: none;
-    user-select: text;
+    cursor: default;
 }
 .review-doc-container .web-sig-interactive {
-    cursor: default;
     border: 2px solid #10b981 !important;
     background: rgba(16,185,129,0.04) !important;
-}
-.review-doc-container .corex-page-initials {
-    cursor: default;
 }
 /* Clause flag highlight */
 .clause-flag-card {
@@ -302,7 +300,7 @@
             {{-- Web template: render merged_html inline (read-only) --}}
             <link href="/css/corex-document.css" rel="stylesheet">
             <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-            <div class="review-doc-container border border-slate-200 rounded-lg overflow-auto bg-white" style="max-height:80vh;">
+            <div class="review-doc-container border border-slate-200 rounded-lg bg-white">
                 {!! $webTemplateHtml !!}
             </div>
         @else
