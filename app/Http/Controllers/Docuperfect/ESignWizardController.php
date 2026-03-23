@@ -2279,108 +2279,124 @@ class ESignWizardController extends Controller
      */
     private function injectPageBreaksForContinuousHtml(string $html, array $parties): string
     {
-        // Strip tags to measure visible text length
-        $visibleText = strip_tags($html);
-        $visibleText = preg_replace('/\s+/', ' ', $visibleText);
-        $totalTextLength = mb_strlen(trim($visibleText));
-
-        // ~3500 chars of visible text per A4 page (conservative estimate)
         $charsPerPage = 3500;
-        $estimatedPages = (int) ceil($totalTextLength / $charsPerPage);
-
-        if ($estimatedPages <= 1) {
-            // Single page — no page breaks needed, no initials
-            return $html;
-        }
-
-        // Build a page-break marker div with initials for all parties
-        $pageBreakHtml = $this->buildPageBreakMarker($parties);
-
-        // Find positions in the HTML to insert page breaks.
-        // Strategy: track cumulative visible text length, insert breaks at
-        // block element boundaries (</p>, </div>, </tr>, </table>, </section>)
-        // when we exceed the chars-per-page threshold.
         $breakTags = ['</p>', '</div>', '</tr>', '</table>', '</section>', '</ul>', '</ol>', '</blockquote>'];
 
-        // Don't insert page breaks inside the signature section.
-        // Must match the actual HTML element, not CSS selectors in <style> blocks.
+        // --- Step 1: Find the signature section start in HTML ---
+        // Must match actual HTML element, not CSS selectors in <style> blocks.
         $sigSectionPos = strpos($html, 'class="corex-signature-section"');
         if ($sigSectionPos === false) {
             $sigSectionPos = strpos($html, 'class="sig-section"');
         }
-        $sigSectionStart = $sigSectionPos !== false ? $sigSectionPos : strlen($html);
+        // Walk backward to the opening < of the element containing the class
+        if ($sigSectionPos !== false) {
+            $sigSectionStart = strrpos(substr($html, 0, $sigSectionPos), '<');
+            if ($sigSectionStart === false) {
+                $sigSectionStart = $sigSectionPos;
+            }
+        } else {
+            $sigSectionStart = strlen($html);
+        }
 
-        $result = '';
-        $charCount = 0;
-        $lastBreakPos = 0;
-        $pageBreaksInserted = 0;
-        $i = 0;
-        $len = strlen($html);
+        // --- Step 2: Walk HTML once, count visible chars, record block-end candidates ---
+        // Each candidate = [htmlPos => position after the closing tag, visibleCharCount => chars so far]
+        $candidates = [];
+        $visibleCharCount = 0;
         $inTag = false;
+        $len = strlen($html);
 
-        while ($i < $len) {
+        for ($i = 0; $i < $len; $i++) {
             $char = $html[$i];
 
             if ($char === '<') {
                 $inTag = true;
             } elseif ($char === '>') {
                 $inTag = false;
-            } elseif (!$inTag) {
-                // Count visible characters
-                if (trim($char) !== '') {
-                    $charCount++;
-                }
-            }
 
-            $i++;
-
-            // Check if we've exceeded the page threshold and we're before the sig section
-            if ($charCount >= $charsPerPage && $i < $sigSectionStart) {
-                $inserted = false;
-
-                // Strategy A: Look FORWARD for the next block closing tag (within 2000 bytes, before sig section)
-                foreach ($breakTags as $tag) {
-                    $tagPos = strpos($html, $tag, $i);
-                    if ($tagPos !== false && $tagPos < $sigSectionStart && ($tagPos - $i) < 2000) {
-                        $insertAt = $tagPos + strlen($tag);
-                        $result .= substr($html, $lastBreakPos, $insertAt - $lastBreakPos);
-                        $result .= $pageBreakHtml;
-                        $lastBreakPos = $insertAt;
-                        $i = $insertAt;
-                        $charCount = 0;
-                        $pageBreaksInserted++;
-                        $inserted = true;
-                        break;
-                    }
-                }
-
-                // Strategy B: Forward search failed — look BACKWARD for the last block tag since the previous break
-                if (!$inserted) {
-                    $searchWindow = substr($html, $lastBreakPos, $i - $lastBreakPos);
-                    $bestPos = false;
+                // Check if we just closed a block-level tag (before sig section)
+                if ($i < $sigSectionStart) {
                     foreach ($breakTags as $tag) {
-                        $tagPos = strrpos($searchWindow, $tag);
-                        if ($tagPos !== false) {
-                            $absPos = $lastBreakPos + $tagPos + strlen($tag);
-                            if ($bestPos === false || $absPos > $bestPos) {
-                                $bestPos = $absPos;
-                            }
+                        $tagLen = strlen($tag);
+                        $startPos = $i + 1 - $tagLen; // position where this tag would start
+                        if ($startPos >= 0 && substr($html, $startPos, $tagLen) === $tag) {
+                            $candidates[] = [
+                                'htmlPos' => $i + 1, // insert AFTER the closing tag
+                                'visibleChars' => $visibleCharCount,
+                            ];
+                            break; // only record once per position
                         }
                     }
-                    if ($bestPos !== false && $bestPos > $lastBreakPos) {
-                        $result .= substr($html, $lastBreakPos, $bestPos - $lastBreakPos);
-                        $result .= $pageBreakHtml;
-                        $lastBreakPos = $bestPos;
-                        // Don't change $i — continue scanning forward
-                        $charCount = 0;
-                        $pageBreaksInserted++;
-                    }
+                }
+            } elseif (!$inTag) {
+                if (trim($char) !== '') {
+                    $visibleCharCount++;
                 }
             }
         }
 
-        // Append remaining HTML
-        $result .= substr($html, $lastBreakPos);
+        // Visible chars before sig section (for page count)
+        $contentChars = $visibleCharCount;
+        // If sig section was found, measure only chars before it
+        if ($sigSectionPos !== false) {
+            // Find the last candidate at or before sigSectionStart
+            $contentChars = 0;
+            foreach ($candidates as $c) {
+                if ($c['htmlPos'] <= $sigSectionStart) {
+                    $contentChars = $c['visibleChars'];
+                }
+            }
+            // If no candidates before sig section, count manually
+            if ($contentChars === 0) {
+                $contentChars = $visibleCharCount;
+            }
+        }
+
+        $estimatedPages = (int) ceil($contentChars / $charsPerPage);
+        if ($estimatedPages <= 1) {
+            return $html;
+        }
+
+        // --- Step 3: Determine target break positions in visible-char space ---
+        $breaksNeeded = $estimatedPages - 1;
+        $targetPositions = [];
+        for ($b = 1; $b <= $breaksNeeded; $b++) {
+            $targetPositions[] = $b * $charsPerPage;
+        }
+
+        // --- Step 4: For each target, find the closest block-end candidate ---
+        $insertPositions = []; // HTML positions where we'll insert page breaks
+        foreach ($targetPositions as $target) {
+            $bestCandidate = null;
+            $bestDistance = PHP_INT_MAX;
+            foreach ($candidates as $c) {
+                $distance = abs($c['visibleChars'] - $target);
+                if ($distance < $bestDistance) {
+                    $bestDistance = $distance;
+                    $bestCandidate = $c;
+                }
+            }
+            if ($bestCandidate !== null) {
+                // Avoid duplicate positions
+                if (!in_array($bestCandidate['htmlPos'], $insertPositions)) {
+                    $insertPositions[] = $bestCandidate['htmlPos'];
+                }
+            }
+        }
+
+        if (empty($insertPositions)) {
+            return $html;
+        }
+
+        // --- Step 5: Sort positions descending (insert from end backward) ---
+        rsort($insertPositions);
+
+        $pageBreakHtml = $this->buildPageBreakMarker($parties);
+
+        // Insert from the end so earlier positions remain valid
+        $result = $html;
+        foreach ($insertPositions as $pos) {
+            $result = substr($result, 0, $pos) . $pageBreakHtml . substr($result, $pos);
+        }
 
         return $result;
     }
