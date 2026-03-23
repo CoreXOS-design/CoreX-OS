@@ -197,7 +197,10 @@ function paginateDocument(container, parties) {
     var currentHeight = 0;
     var inSigSection = false;
 
-    children.forEach(function(child) {
+    // Minimum visible content (px) a clause must have on a page to avoid orphaning
+    var MIN_CLAUSE_VISIBLE = 100;
+
+    children.forEach(function(child, idx) {
         // Skip non-element nodes (text nodes, comments)
         if (child.nodeType !== 1) {
             currentPage.push(child);
@@ -216,13 +219,47 @@ function paginateDocument(container, parties) {
         var rect = child.getBoundingClientRect();
         var childHeight = rect.height;
         // Include margins in height calculation
-        var style = window.getComputedStyle(child);
-        var marginTop = parseFloat(style.marginTop) || 0;
-        var marginBottom = parseFloat(style.marginBottom) || 0;
+        var computedStyle = window.getComputedStyle(child);
+        var marginTop = parseFloat(computedStyle.marginTop) || 0;
+        var marginBottom = parseFloat(computedStyle.marginBottom) || 0;
         childHeight += marginTop + marginBottom;
 
-        if (currentHeight + childHeight > PAGE_CONTENT_HEIGHT && currentPage.length > 0 && !inSigSection) {
-            // This element pushes past the page boundary — start a new page
+        // Check if this element is a heading / section header
+        var tag = child.tagName;
+        var isHeading = tag === 'H1' || tag === 'H2' || tag === 'H3' || tag === 'H4' ||
+                        child.classList.contains('corex-h1') ||
+                        child.classList.contains('corex-h2') ||
+                        child.classList.contains('corex-h3') ||
+                        child.classList.contains('corex-section-heading');
+
+        // If heading, measure height INCLUDING the next sibling so they stay together
+        var groupHeight = childHeight;
+        if (isHeading && idx + 1 < children.length && children[idx + 1].nodeType === 1) {
+            var nextRect = children[idx + 1].getBoundingClientRect();
+            var nextStyle = window.getComputedStyle(children[idx + 1]);
+            groupHeight += nextRect.height + (parseFloat(nextStyle.marginTop) || 0) + (parseFloat(nextStyle.marginBottom) || 0);
+        }
+
+        // Check if this is a numbered clause that would be orphaned at page bottom
+        var isNumberedClause = child.classList.contains('corex-clause') &&
+                               child.querySelector('.corex-clause-number');
+
+        if (inSigSection) {
+            // Inside signature section — never break
+            currentPage.push(child);
+            currentHeight += childHeight;
+        } else if (isHeading && currentHeight + groupHeight > PAGE_CONTENT_HEIGHT && currentPage.length > 0) {
+            // Heading + its first child would overflow — push heading to next page
+            pages.push(currentPage);
+            currentPage = [child];
+            currentHeight = childHeight;
+        } else if (currentHeight + childHeight > PAGE_CONTENT_HEIGHT && currentPage.length > 0) {
+            // Normal overflow — start new page
+            pages.push(currentPage);
+            currentPage = [child];
+            currentHeight = childHeight;
+        } else if (isNumberedClause && currentHeight + childHeight > PAGE_CONTENT_HEIGHT - MIN_CLAUSE_VISIBLE && currentPage.length > 0) {
+            // Numbered clause would barely fit — less than MIN_CLAUSE_VISIBLE visible. Push to next page.
             pages.push(currentPage);
             currentPage = [child];
             currentHeight = childHeight;
