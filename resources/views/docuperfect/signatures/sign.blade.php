@@ -161,8 +161,26 @@
     {{-- Main content: Document viewer --}}
     <div class="bg-white border border-gray-200 rounded-md p-4 overflow-hidden flex flex-col" style="min-height:600px;">
 
-        {{-- Page navigation (PDF only — web templates scroll all A4 pages) --}}
-        <template x-if="!isWebTemplate">
+        @if(!empty($isWebTemplate))
+        {{-- ═══════════════════════════════════════════════════════════════
+             WEB TEMPLATE PATH — single scrollable document with A4 pages.
+             ONE container, ONE content output. Nothing else.
+             ═══════════════════════════════════════════════════════════════ --}}
+        <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0;">
+            <link href="/css/corex-document.css" rel="stylesheet">
+            <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+            <div x-ref="pageContainer" style="position:relative; max-width:100%; margin:0 auto;">
+                <div x-ref="webDocContent">{!! $webTemplateHtml !!}</div>
+            </div>
+        </div>
+
+        @else
+        {{-- ═══════════════════════════════════════════════════════════════
+             PDF TEMPLATE PATH — paginated page images with overlay fields
+             and floating signature markers.
+             ═══════════════════════════════════════════════════════════════ --}}
+
+        {{-- Page navigation --}}
         <div class="flex items-center justify-between mb-3 flex-shrink-0">
             <button @click="prevPage()" :disabled="currentPage <= 1"
                     class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
@@ -178,28 +196,16 @@
                 Next
             </button>
         </div>
-        </template>
 
-        {{-- Page display with markers --}}
+        {{-- Page display with field overlays and markers --}}
         <div class="flex-1 overflow-auto flex justify-center" style="background:#e2e8f0; padding:16px 0;">
-            @if(!empty($isWebTemplate))
-            <link href="/css/corex-document.css" rel="stylesheet">
-            <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-            <div x-ref="pageContainer"
-                 style="position:relative; max-width:100%; margin:0 auto;">
-                {{-- Web template: document elements ARE the interactive surface --}}
-                <div x-ref="webDocContent">{!! $webTemplateHtml !!}</div>
-            @else
             <div class="relative inline-block" style="max-width:800px; width:100%;" x-ref="pageContainer">
                 <img :src="pageImages[currentPage - 1]"
                      class="w-full block select-none pointer-events-none"
                      draggable="false"
                      x-ref="pageImage">
-            @endif
 
-                {{-- Render document field values (PDF only — web templates use inline interactive elements) --}}
-                <template x-if="!isWebTemplate">
-                <div>
+                {{-- Document field overlays --}}
                 <template x-for="field in fieldsForCurrentPage()" :key="field.id">
                     <div x-show="!hasFlattened || (field.assignedTo && field.assignedTo !== 'creator')"
                          class="absolute overflow-hidden"
@@ -379,59 +385,55 @@
                         </template>
                     </div>
                 </template>
-                </div>
-                </template>
 
-                {{-- Render floating markers for PDF templates ONLY --}}
-                {{-- Web templates use interactive document elements instead --}}
-                <template x-if="!isWebTemplate">
-                    <template x-for="marker in markersForCurrentPage()" :key="marker.id">
-                        <div class="absolute flex items-center justify-center select-none transition-all duration-200"
-                             :id="'marker-' + marker.id"
-                             :style="`left:${marker.x_position}%;top:${marker.y_position}%;width:${marker.width}%;height:40px;max-width:200px;z-index:10;`"
-                             :class="markerDisplayClasses(marker)"
-                             @click="handleMarkerClick(marker)">
+                {{-- Floating signature markers --}}
+                <template x-for="marker in markersForCurrentPage()" :key="marker.id">
+                    <div class="absolute flex items-center justify-center select-none transition-all duration-200"
+                         :id="'marker-' + marker.id"
+                         :style="`left:${marker.x_position}%;top:${marker.y_position}%;width:${marker.width}%;height:40px;max-width:200px;z-index:10;`"
+                         :class="markerDisplayClasses(marker)"
+                         @click="handleMarkerClick(marker)">
 
-                            {{-- Unsigned agent marker (clickable) --}}
-                            <template x-if="marker.assigned_party === 'agent' && !marker.signed">
-                                <div class="flex flex-col items-center justify-center w-full h-full px-1">
-                                    <span class="text-xs font-bold leading-tight truncate" x-text="markerActionLabel(marker)"></span>
-                                    <span class="text-[10px] leading-tight opacity-70 truncate" x-text="marker.label || markerTypeLabel(marker)"></span>
-                                </div>
-                            </template>
+                        {{-- Unsigned agent marker (clickable) --}}
+                        <template x-if="marker.assigned_party === 'agent' && !marker.signed">
+                            <div class="flex flex-col items-center justify-center w-full h-full px-1">
+                                <span class="text-xs font-bold leading-tight truncate" x-text="markerActionLabel(marker)"></span>
+                                <span class="text-[10px] leading-tight opacity-70 truncate" x-text="marker.label || markerTypeLabel(marker)"></span>
+                            </div>
+                        </template>
 
-                            {{-- Signed agent marker (shows signature/value) --}}
-                            <template x-if="marker.assigned_party === 'agent' && marker.signed">
-                                <div class="flex flex-col items-center justify-center w-full h-full relative">
-                                    <template x-if="marker.signature_data && marker.type !== 'date' && marker.type !== 'text'">
-                                        <img :src="marker.signature_data"
-                                             class="w-full h-full object-contain p-0.5"
-                                             alt="Signature">
-                                    </template>
-                                    <template x-if="marker.type === 'date'">
-                                        <span class="text-xs font-medium" x-text="marker.text_value || marker.date_value || formatDate(new Date())"></span>
-                                    </template>
-                                    <template x-if="marker.type === 'text'">
-                                        <span class="text-xs font-medium truncate px-1" x-text="marker.text_value || ''"></span>
-                                    </template>
-                                    <span class="absolute -bottom-0.5 right-0.5 text-[9px] text-emerald-700 font-semibold" x-text="marker.type === 'text' ? 'Done' : 'Signed'"></span>
-                                </div>
-                            </template>
+                        {{-- Signed agent marker (shows signature/value) --}}
+                        <template x-if="marker.assigned_party === 'agent' && marker.signed">
+                            <div class="flex flex-col items-center justify-center w-full h-full relative">
+                                <template x-if="marker.signature_data && marker.type !== 'date' && marker.type !== 'text'">
+                                    <img :src="marker.signature_data"
+                                         class="w-full h-full object-contain p-0.5"
+                                         alt="Signature">
+                                </template>
+                                <template x-if="marker.type === 'date'">
+                                    <span class="text-xs font-medium" x-text="marker.text_value || marker.date_value || formatDate(new Date())"></span>
+                                </template>
+                                <template x-if="marker.type === 'text'">
+                                    <span class="text-xs font-medium truncate px-1" x-text="marker.text_value || ''"></span>
+                                </template>
+                                <span class="absolute -bottom-0.5 right-0.5 text-[9px] text-emerald-700 font-semibold" x-text="marker.type === 'text' ? 'Done' : 'Signed'"></span>
+                            </div>
+                        </template>
 
-                            {{-- Other party's marker (greyed out) --}}
-                            <template x-if="marker.assigned_party !== 'agent'">
-                                <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
-                                    <svg class="w-3.5 h-3.5 mb-0.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                    </svg>
-                                    <span class="text-[10px] leading-tight capitalize truncate" x-text="marker.assigned_party"></span>
-                                </div>
-                            </template>
-                        </div>
-                    </template>
+                        {{-- Other party's marker (greyed out) --}}
+                        <template x-if="marker.assigned_party !== 'agent'">
+                            <div class="flex flex-col items-center justify-center w-full h-full px-1 opacity-60">
+                                <svg class="w-3.5 h-3.5 mb-0.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                                <span class="text-[10px] leading-tight capitalize truncate" x-text="marker.assigned_party"></span>
+                            </div>
+                        </template>
+                    </div>
                 </template>
             </div>
         </div>
+        @endif
     </div>
 
     {{-- Complete Signing button --}}
