@@ -943,24 +943,36 @@ function signDocument() {
          */
         _computeIncompleteItems() {
             const items = [];
+
+            // Helper: get absolute document-top position (not viewport-relative)
+            function getDocumentTop(el) {
+                let top = 0;
+                let current = el;
+                while (current) {
+                    top += current.offsetTop;
+                    current = current.offsetParent;
+                }
+                return top;
+            }
+
             // Unsigned agent signature elements
             if (this.isWebTemplate) {
                 this.webSigElements.forEach(entry => {
                     if (entry.isMine && !entry.signed) {
-                        items.push({ el: entry.el, label: 'Signature' });
+                        items.push({ el: entry.el, label: 'Signature', type: 'sig', party: entry.partyRole });
                     }
                 });
                 // Unsigned agent initials at page breaks
                 (this.webInitialElements || []).forEach(entry => {
                     if (entry.isMine && !entry.signed) {
-                        items.push({ el: entry.el, label: 'Page Initial' });
+                        items.push({ el: entry.el, label: 'Page Initial', type: 'initial', party: entry.partyRole });
                     }
                 });
             } else {
                 this.markers.forEach(m => {
                     if (m.assigned_party === 'agent' && !m.signed) {
                         const el = document.getElementById('marker-' + m.id);
-                        items.push({ el, label: m.label || m.type });
+                        items.push({ el, label: m.label || m.type, type: 'marker', party: 'agent' });
                     }
                 });
             }
@@ -971,16 +983,26 @@ function signDocument() {
                     if (!inp.value || !inp.value.trim()) {
                         const type = inp.dataset.markerType || 'field';
                         const label = type.charAt(0).toUpperCase() + type.slice(1).replace('_', '/');
-                        items.push({ el: inp, label });
+                        items.push({ el: inp, label, type: 'ceremony', party: 'agent' });
                     }
                 });
                 // Also check am_pm buttons that are ceremony fields
                 container.querySelectorAll('button[data-ceremony-field="true"]').forEach(btn => {
                     if (!btn.textContent || !btn.textContent.trim()) {
-                        items.push({ el: btn, label: 'AM/PM' });
+                        items.push({ el: btn, label: 'AM/PM', type: 'ceremony', party: 'agent' });
                     }
                 });
             }
+
+            // Sort by absolute document position (top-to-bottom)
+            items.sort((a, b) => {
+                const aTop = a.el ? getDocumentTop(a.el) : 0;
+                const bTop = b.el ? getDocumentTop(b.el) : 0;
+                return aTop - bTop;
+            });
+
+            console.log('INCOMPLETE_ORDER', items.map(i => i.type + ' ' + i.party + ' y=' + (i.el ? getDocumentTop(i.el) : '?')));
+
             return items;
         },
 
@@ -1375,9 +1397,14 @@ function signDocument() {
                 entry.el.style.cursor = 'default';
                 entry.el.innerHTML = '<img src="' + signatureData + '" style="max-height:26px;max-width:56px;object-fit:contain;" alt="Initial">';
 
+                // Also set data attribute on DOM element for robust checking
+                entry.el.setAttribute('data-signed', 'true');
+
                 // Update counts
                 this.webSigSigned++;
                 this.signedCount = this.webSigSigned;
+
+                console.log('INITIAL_SIGNED', entry.initKey, 'entry.signed=', entry.signed, 'data-signed=', entry.el.dataset.signed, 'incomplete count now:', this._computeIncompleteItems().length);
 
                 this.showSignModal = false;
 
@@ -1405,6 +1432,7 @@ function signDocument() {
 
                 // Update the DOM element
                 entry.el.classList.add('web-sig-signed');
+                entry.el.setAttribute('data-signed', 'true');
                 entry.el.innerHTML = '<img src="' + signatureData + '" class="web-sig-signed-img" alt="Signature">';
 
                 // Update counts
@@ -1518,6 +1546,7 @@ function signDocument() {
                                 el.style.border = '2px solid #10b981';
                                 el.style.background = 'rgba(16,185,129,0.06)';
                                 el.style.cursor = 'default';
+                                el.setAttribute('data-signed', 'true');
                                 el.innerHTML = '<img src="' + sigData + '" style="max-height:26px;max-width:56px;object-fit:contain;" alt="Initial">';
                             }
                             this.webSigSigned++;
@@ -1540,6 +1569,7 @@ function signDocument() {
                             const el = entry.el;
                             if (el && el.classList) {
                                 el.classList.add('web-sig-signed');
+                                el.setAttribute('data-signed', 'true');
                                 el.innerHTML = '<img src="' + sigData + '" class="web-sig-signed-img" alt="Signature">';
                             }
                             this.webSigSigned++;
