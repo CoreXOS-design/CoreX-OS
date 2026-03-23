@@ -3567,8 +3567,17 @@ class ESignWizardController extends Controller
     {
         $user = $request->user();
 
+        // Only e-sign wizard documents — exclude rental flow documents
         $allTemplates = SignatureTemplate::with(['document.template', 'requests', 'creator'])
             ->where('created_by', $user->id)
+            ->whereHas('document', function ($q) {
+                $q->whereNotIn('document_type', ['rental', 'rental_upload_send', 'lease_agreement'])
+                  ->where(function ($q2) {
+                      $q2->whereDoesntHave('template', function ($tq) {
+                          $tq->where('template_type', 'rental');
+                      })->orWhereDoesntHave('template');
+                  });
+            })
             ->orderByDesc('created_at')
             ->get();
 

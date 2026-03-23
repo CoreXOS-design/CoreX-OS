@@ -211,7 +211,7 @@
                         <td class="px-4 py-3 text-right">
                             <div class="flex flex-col items-end gap-1">
                                 @if($doc)
-                                <a href="{{ route('docuperfect.signatures.review', $doc) }}" class="text-xs hover:underline transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);">View</a>
+                                <a href="{{ route('docuperfect.signatures.sendConfirmation', $doc) }}" class="text-xs hover:underline transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);">View Progress</a>
                                 @endif
                                 @php
                                     $activeReq = $tpl->requests->first(fn($r) => in_array($r->status, ['pending', 'viewed', 'partially_signed']));
@@ -266,7 +266,7 @@
                         <td class="px-4 py-3 text-right">
                             <div class="flex items-center justify-end gap-2">
                                 @if($doc)
-                                <a href="{{ route('docuperfect.signatures.review', $doc) }}" class="corex-btn-primary text-xs px-3 py-1">Set Up Signatures</a>
+                                <a href="{{ route('docuperfect.signatures.sign', $doc) }}" class="corex-btn-primary text-xs px-3 py-1">Sign Document</a>
                                 @endif
                                 <button type="button"
                                         @click="cancelTemplateId = {{ $tpl->id }}; cancelDocName = {{ Js::from($doc->name ?? 'Untitled') }}; showCancelModal = true"
@@ -327,7 +327,7 @@
                         <td class="px-4 py-3 text-right">
                             <div class="flex items-center justify-end gap-2">
                                 @if($doc)
-                                <a href="{{ route('docuperfect.signatures.review', $doc) }}" class="text-xs hover:underline transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);">Continue</a>
+                                <a href="{{ route('docuperfect.signatures.setup', $doc) }}" class="text-xs hover:underline transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);">Continue Setup</a>
                                 @endif
                                 <button type="button"
                                         @click="cancelTemplateId = {{ $tpl->id }}; cancelDocName = {{ Js::from($doc->name ?? 'Untitled') }}; showCancelModal = true"
@@ -375,7 +375,7 @@
                             </td>
                             <td class="px-4 py-3 text-right">
                                 @if($doc)
-                                <a href="{{ route('docuperfect.signatures.review', $doc) }}" class="text-xs hover:underline transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);">Audit</a>
+                                <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs hover:underline transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);">Audit</a>
                                 <a href="{{ route('docuperfect.signatures.download', $doc) }}" class="text-emerald-400 hover:underline text-xs ml-2 transition-all duration-300">Download</a>
                                 @endif
                             </td>
@@ -411,7 +411,7 @@
                             </div>
                         </div>
                         @if($doc)
-                        <a href="{{ route('docuperfect.signatures.review', $doc) }}" class="text-xs hover:underline transition-all duration-300" style="color: var(--text-muted);">View</a>
+                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs hover:underline transition-all duration-300" style="color: var(--text-muted);">View</a>
                         @endif
                     </div>
                 </div>
