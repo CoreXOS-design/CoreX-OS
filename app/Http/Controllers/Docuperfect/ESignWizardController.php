@@ -488,8 +488,11 @@ class ESignWizardController extends Controller
                     foreach ($prop->contacts as $contact) {
                         $pivotRole = $contact->pivot->role ?? $defaultOwnerRole;
                         // Map generic roles to match template field prefixes
-                        if ($template->isSalesDocument($propertySource) && in_array($pivotRole, ['landlord', 'owner', 'lessor'])) {
+                        // 'spouse' linked to a property is a co-owner — map to seller/landlord
+                        if ($template->isSalesDocument($propertySource) && in_array($pivotRole, ['landlord', 'owner', 'lessor', 'spouse'])) {
                             $pivotRole = 'seller';
+                        } elseif (!$template->isSalesDocument($propertySource) && in_array($pivotRole, ['owner', 'seller', 'spouse'])) {
+                            $pivotRole = 'landlord';
                         }
 
                         $recipients[] = [
@@ -2195,7 +2198,10 @@ class ESignWizardController extends Controller
     }
 
     /**
-     * Inject initials blocks at the bottom of every non-last page div.
+     * Inject initials blocks at page boundaries.
+     * For paged templates: injects at the bottom of every non-last page div.
+     * For continuous web templates: estimates page breaks based on content length
+     * and inserts page-break markers with initials for all signing parties.
      */
     private function injectInitialsBlocks(string $html, array $parties): string
     {
@@ -2203,17 +2209,20 @@ class ESignWizardController extends Controller
         $blocks = '';
         foreach ($parties as $n => $party) {
             $role = strtolower($party['role']);
-            $blocks .= '<div class="initial-block" '
+            $label = ucfirst(str_replace('_', ' ', $role));
+            $blocks .= '<div class="corex-page-initials" '
                 . 'data-marker-party="' . $role . '" '
                 . 'data-marker-type="initial" '
                 . 'data-marker-index="' . $n . '" '
-                . 'style="display:inline-block;text-align:center;margin:0 6pt;">'
-                . '<div class="initial-line" style="border-bottom:1pt solid #1a1a1a;width:40pt;margin-bottom:2pt;"></div>'
+                . 'style="display:inline-block;text-align:center;margin:0 6pt;width:60px;height:30px;'
+                . 'border:1px solid #94a3b8;font-size:9px;color:#64748b;cursor:pointer;'
+                . 'line-height:30px;">'
+                . '<span class="initial-placeholder">' . $label . '</span>'
                 . '</div>';
         }
 
         $initialsRow = '<div class="initials-row" style="display:flex;justify-content:flex-end;'
-            . 'gap:12pt;margin-top:8pt;padding-top:8pt;border-top:0.5pt solid #ccc;">'
+            . 'align-items:center;gap:12px;padding:8px 0;">'
             . $blocks
             . '</div>';
 
@@ -2229,36 +2238,148 @@ class ESignWizardController extends Controller
             }
         }
 
-        if ($pageCount <= 1) {
-            // Single page — no initials needed
+        // Paged templates: inject at bottom of each non-last page
+        if ($pageCount > 1) {
+            $currentPage = 0;
+            $result = '';
+            for ($i = 0; $i < count($parts); $i++) {
+                $part = $parts[$i];
+
+                if (preg_match('/^<div\s+class="page[^"]*">/i', $part)) {
+                    $currentPage++;
+                    $result .= $part;
+                    continue;
+                }
+
+                if ($currentPage > 0 && $currentPage < $pageCount) {
+                    $lastDivPos = strrpos($part, '</div>');
+                    if ($lastDivPos !== false) {
+                        $part = substr($part, 0, $lastDivPos) . $initialsRow . substr($part, $lastDivPos);
+                    }
+                }
+
+                $result .= $part;
+            }
+
+            return $result;
+        }
+
+        // Continuous web template: estimate page breaks based on text content length
+        return $this->injectPageBreaksForContinuousHtml($html, $parties);
+    }
+
+    /**
+     * For continuous web template HTML (no page divs), estimate page boundaries
+     * and insert page-break markers with initials blocks.
+     * Uses visible text length as a proxy for rendered height.
+     * A4 printable area ≈ 50 lines × 80 chars ≈ 4000 chars of visible text per page.
+     */
+    private function injectPageBreaksForContinuousHtml(string $html, array $parties): string
+    {
+        // Strip tags to measure visible text length
+        $visibleText = strip_tags($html);
+        $visibleText = preg_replace('/\s+/', ' ', $visibleText);
+        $totalTextLength = mb_strlen(trim($visibleText));
+
+        // ~3500 chars of visible text per A4 page (conservative estimate)
+        $charsPerPage = 3500;
+        $estimatedPages = (int) ceil($totalTextLength / $charsPerPage);
+
+        if ($estimatedPages <= 1) {
+            // Single page — no page breaks needed, no initials
             return $html;
         }
 
-        // Reassemble: for each page except the last, inject initials before its closing </div>
-        $currentPage = 0;
+        // Build a page-break marker div with initials for all parties
+        $pageBreakHtml = $this->buildPageBreakMarker($parties);
+
+        // Find positions in the HTML to insert page breaks.
+        // Strategy: track cumulative visible text length, insert breaks at
+        // block element boundaries (</p>, </div>, </tr>, </table>, </section>)
+        // when we exceed the chars-per-page threshold.
+        $breakTags = ['</p>', '</div>', '</tr>', '</table>', '</section>', '</ul>', '</ol>', '</blockquote>'];
+
+        // Don't insert page breaks inside the signature section
+        $sigSectionPos = strpos($html, 'corex-signature-section');
+        if ($sigSectionPos === false) {
+            $sigSectionPos = strpos($html, 'sig-section');
+        }
+        $sigSectionStart = $sigSectionPos !== false ? $sigSectionPos : strlen($html);
+
         $result = '';
-        for ($i = 0; $i < count($parts); $i++) {
-            $part = $parts[$i];
+        $charCount = 0;
+        $lastBreakPos = 0;
+        $pageBreaksInserted = 0;
+        $i = 0;
+        $len = strlen($html);
+        $inTag = false;
 
-            if (preg_match('/^<div\s+class="page[^"]*">/i', $part)) {
-                $currentPage++;
-                $result .= $part;
-                continue;
-            }
+        while ($i < $len) {
+            $char = $html[$i];
 
-            // This part contains the content of a page div (after the opening tag)
-            if ($currentPage > 0 && $currentPage < $pageCount) {
-                // Find the last </div> in this part (the page's closing div)
-                $lastDivPos = strrpos($part, '</div>');
-                if ($lastDivPos !== false) {
-                    $part = substr($part, 0, $lastDivPos) . $initialsRow . substr($part, $lastDivPos);
+            if ($char === '<') {
+                $inTag = true;
+            } elseif ($char === '>') {
+                $inTag = false;
+            } elseif (!$inTag) {
+                // Count visible characters
+                if (trim($char) !== '') {
+                    $charCount++;
                 }
             }
 
-            $result .= $part;
+            $i++;
+
+            // Check if we've exceeded the page threshold and we're at a block boundary
+            if ($charCount >= $charsPerPage && $i < $sigSectionStart) {
+                // Look for the next block closing tag
+                foreach ($breakTags as $tag) {
+                    $tagPos = strpos($html, $tag, $i);
+                    if ($tagPos !== false && $tagPos < $sigSectionStart && ($tagPos - $i) < 500) {
+                        // Insert page break after this closing tag
+                        $insertAt = $tagPos + strlen($tag);
+                        $result .= substr($html, $lastBreakPos, $insertAt - $lastBreakPos);
+                        $result .= $pageBreakHtml;
+                        $lastBreakPos = $insertAt;
+                        $i = $insertAt;
+                        $charCount = 0;
+                        $pageBreaksInserted++;
+                        break;
+                    }
+                }
+            }
         }
 
+        // Append remaining HTML
+        $result .= substr($html, $lastBreakPos);
+
         return $result;
+    }
+
+    /**
+     * Build a page-break marker div with initials placeholders for all signing parties.
+     */
+    private function buildPageBreakMarker(array $parties): string
+    {
+        $blocks = '';
+        foreach ($parties as $n => $party) {
+            $role = strtolower($party['role']);
+            $label = ucfirst(str_replace('_', ' ', $role));
+            $blocks .= '<div class="corex-page-initials" '
+                . 'data-marker-party="' . $role . '" '
+                . 'data-marker-type="initial" '
+                . 'data-marker-index="' . $n . '" '
+                . 'style="width:60px;height:30px;border:1px solid #94a3b8;display:flex;'
+                . 'align-items:center;justify-content:center;font-size:9px;color:#64748b;cursor:pointer;">'
+                . '<span class="initial-placeholder">' . $label . '</span>'
+                . '</div>';
+        }
+
+        return '<div class="corex-page-break" style="display:flex;justify-content:flex-end;'
+            . 'align-items:center;gap:12px;padding:8px 0;border-top:1px dashed #cbd5e1;margin:16px 0;">'
+            . $blocks
+            . '<div style="margin-left:8px;font-size:9px;color:#94a3b8;font-style:italic;">Page Break</div>'
+            . '</div>';
     }
 
     /**

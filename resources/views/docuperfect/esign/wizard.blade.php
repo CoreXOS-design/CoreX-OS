@@ -1624,6 +1624,33 @@ function esignWizard() {
                 }
             }
 
+            // Fallback: if no data-field element, inject a clause block before the signature section
+            if (!otherField) {
+                // Remove any previously injected clause block
+                const existing = doc.querySelector('.corex-additional-clauses-preview');
+                if (existing) existing.remove();
+
+                if (clauseText) {
+                    // Build clause HTML (mirrors server-side insertBeforeSignatureSection)
+                    const clauses = clauseText.split(/\n\s*\n/).filter(c => c.trim());
+                    let html = '<div class="corex-additional-clauses-preview" style="margin-top:16pt;">';
+                    html += '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
+                    clauses.forEach((c, i) => {
+                        html += '<div style="margin:6pt 0;"><p><strong>' + (i + 1) + '.</strong> ' + c.trim().replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p></div>';
+                    });
+                    html += '</div>';
+
+                    // Insert before signature section (same selectors as server-side)
+                    const sigSection = doc.querySelector('.corex-signature-section') || doc.querySelector('.sig-section');
+                    if (sigSection) {
+                        sigSection.insertAdjacentHTML('beforebegin', html);
+                    } else {
+                        // Append at end of document
+                        doc.insertAdjacentHTML('beforeend', html);
+                    }
+                }
+            }
+
             // Also store in previewFieldValues for reapplication after preview reload
             this.previewFieldValues['other_conditions'] = clauseText;
         },
@@ -1837,6 +1864,9 @@ function esignWizard() {
                     });
                 });
             });
+
+            // Reapply other conditions (clauses) to the preview
+            this.updateClausesPreview();
         },
 
         // ---- Field helpers ----

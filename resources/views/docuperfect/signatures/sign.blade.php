@@ -58,6 +58,44 @@
     margin: 2px auto;
     object-fit: contain;
 }
+/* Page break markers with initials */
+.corex-page-break {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px dashed #cbd5e1;
+    margin: 16px 0;
+}
+.corex-page-initials {
+    width: 60px;
+    height: 30px;
+    border: 1px solid #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.corex-page-initials:hover {
+    border-color: #3b82f6;
+    background: rgba(59,130,246,0.06);
+}
+@media print {
+    .corex-page-break {
+        page-break-before: always;
+        border-top: none;
+        margin: 0;
+        padding: 4px 0;
+        justify-content: flex-end;
+    }
+    .corex-page-initials {
+        border: 1px solid #000;
+    }
+}
 /* Ceremony field highlight when incomplete */
 @keyframes ceremonyPulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.6); }
@@ -546,7 +584,10 @@ function signDocument() {
         webSigTotal: 0,
         webSigSigned: 0,
         webCeremonyValues: {},     // { 'agent_location': 'Shelly Beach', 'agent_day': '23', ... }
-        incompleteCount: 0,        // Total unfilled required items (sigs + ceremony fields)
+        webInitialElements: [],    // [{el, partyRole, index, isMine, signed, sigData}]
+        _pendingInitialApplyAll: false,
+        _initialsApplyAllOffered: false,
+        incompleteCount: 0,        // Total unfilled required items (sigs + initials + ceremony fields)
 
         // Section-by-section signing state
         hasSections: {{ !empty($sections) ? 'true' : 'false' }},
@@ -656,6 +697,9 @@ function signDocument() {
                 // Make "Thus done and signed" ceremony fields editable for the agent's blocks
                 self._makeCeremonyFieldsEditable(container);
 
+                // Make page-break initials interactive
+                self._makeWebInitialsInteractive(container);
+
                 return true;
             };
 
@@ -666,6 +710,74 @@ function signDocument() {
                     clearInterval(interval);
                 }
             }, 200);
+        },
+
+        /**
+         * Make page-break initials elements interactive.
+         * Agent's initials are clickable; other parties are greyed out.
+         * All agent initials must be completed before signing can finish.
+         */
+        _makeWebInitialsInteractive(container) {
+            const self = this;
+            const initialElements = container.querySelectorAll('[data-marker-type="initial"]');
+            if (initialElements.length === 0) return;
+
+            const _isSales = @json($isSalesTemplate ?? false);
+            const partyRoleMap = {
+                'owner': _isSales ? 'seller' : 'landlord',
+                'owner_party': _isSales ? 'seller' : 'landlord',
+                'landlord': 'landlord', 'lessor': 'landlord',
+                'seller': 'seller',
+                'tenant': 'tenant', 'lessee': 'tenant',
+                'buyer': 'buyer',
+                'acquiring_party': _isSales ? 'buyer' : 'tenant',
+                'agent': 'agent',
+            };
+
+            if (!this.webInitialElements) this.webInitialElements = [];
+            let agentInitialCount = 0;
+
+            initialElements.forEach((el, idx) => {
+                const rawParty = (el.dataset.markerParty || '').toLowerCase();
+                const baseRole = partyRoleMap[rawParty] || rawParty;
+                const isMine = baseRole === 'agent';
+                const initKey = baseRole + '-init-' + idx;
+
+                const entry = { el, partyRole: baseRole, rawParty, index: idx, initKey, isMine, signed: false, sigData: null };
+                self.webInitialElements.push(entry);
+
+                if (isMine) {
+                    agentInitialCount++;
+                    el.style.cursor = 'pointer';
+                    el.style.border = '2px dashed #3b82f6';
+                    el.style.background = 'rgba(59,130,246,0.06)';
+                    el.title = 'Click to initial';
+
+                    el.addEventListener('click', () => {
+                        if (entry.signed) return;
+                        // Open signature capture in initial mode (smaller pad)
+                        self.activeMarker = {
+                            id: initKey,
+                            type: 'initial',
+                            assigned_party: 'agent',
+                            _isWebInitial: true,
+                            _webInitialEntry: entry,
+                        };
+                        self.showSignModal = true;
+                    });
+                } else {
+                    // Other party — grey out
+                    el.style.opacity = '0.5';
+                    el.style.pointerEvents = 'none';
+                    el.style.cursor = 'default';
+                }
+            });
+
+            // Add initial count to the total agent items
+            if (agentInitialCount > 0) {
+                this.webSigTotal = (this.webSigTotal || 0) + agentInitialCount;
+                this.totalAgent = (this.totalAgent || 0) + agentInitialCount;
+            }
         },
 
         /**
@@ -827,6 +939,12 @@ function signDocument() {
                 this.webSigElements.forEach(entry => {
                     if (entry.isMine && !entry.signed) {
                         items.push({ el: entry.el, label: 'Signature' });
+                    }
+                });
+                // Unsigned agent initials at page breaks
+                (this.webInitialElements || []).forEach(entry => {
+                    if (entry.isMine && !entry.signed) {
+                        items.push({ el: entry.el, label: 'Page Initial' });
                     }
                 });
             } else {
@@ -1236,6 +1354,39 @@ function signDocument() {
                 signatureType = 'typed';
             }
 
+            // Web template initials: apply to the initial element directly
+            if (this.isWebTemplate && this.activeMarker._isWebInitial) {
+                const entry = this.activeMarker._webInitialEntry;
+                entry.signed = true;
+                entry.sigData = signatureData;
+
+                // Update the DOM element
+                entry.el.style.border = '2px solid #10b981';
+                entry.el.style.background = 'rgba(16,185,129,0.06)';
+                entry.el.style.cursor = 'default';
+                entry.el.innerHTML = '<img src="' + signatureData + '" style="max-height:26px;max-width:56px;object-fit:contain;" alt="Initial">';
+
+                // Update counts
+                this.webSigSigned++;
+                this.signedCount = this.webSigSigned;
+
+                this.showSignModal = false;
+
+                // Offer apply-to-all for remaining agent initials
+                const remainingInitials = (this.webInitialElements || []).filter(e => e.isMine && !e.signed);
+                if (remainingInitials.length > 0 && !this._initialsApplyAllOffered) {
+                    this._initialsApplyAllOffered = true;
+                    this.lastSignatureData = signatureData;
+                    this.lastSignatureType = signatureType;
+                    this._pendingInitialApplyAll = true;
+                    this.showApplyAll = true;
+                }
+
+                this.applying = false;
+                this._updateIncompleteCount();
+                return;
+            }
+
             // Web template: apply signature to the DOM element directly
             if (this.isWebTemplate && this.activeMarker._webEntry) {
                 const entry = this.activeMarker._webEntry;
@@ -1338,7 +1489,6 @@ function signDocument() {
             this.applyingAll = true;
 
             if (this.isWebTemplate) {
-                // Web template: apply to all remaining agent sig elements
                 const sigData = this.lastSignatureData;
                 if (!sigData) {
                     console.error('APPLY_ALL: No signature data available');
@@ -1347,28 +1497,49 @@ function signDocument() {
                     return;
                 }
 
-                const remaining = this.webSigElements.filter(e => e.isMine && !e.signed);
-                console.log('APPLY_ALL: Applying signature to', remaining.length, 'remaining elements');
-
-                for (const entry of remaining) {
-                    try {
-                        entry.signed = true;
-                        entry.sigData = sigData;
-                        this.webSignatures[entry.sigKey] = sigData;
-
-                        // Direct DOM update — use the raw element (unwrap Alpine proxy if needed)
-                        const el = entry.el;
-                        if (el && el.classList) {
-                            el.classList.add('web-sig-signed');
-                            el.innerHTML = '<img src="' + sigData + '" class="web-sig-signed-img" alt="Signature">';
+                // Apply to initials if this was triggered from an initial capture
+                if (this._pendingInitialApplyAll && this.webInitialElements) {
+                    const remainingInitials = this.webInitialElements.filter(e => e.isMine && !e.signed);
+                    for (const entry of remainingInitials) {
+                        try {
+                            entry.signed = true;
+                            entry.sigData = sigData;
+                            const el = entry.el;
+                            if (el) {
+                                el.style.border = '2px solid #10b981';
+                                el.style.background = 'rgba(16,185,129,0.06)';
+                                el.style.cursor = 'default';
+                                el.innerHTML = '<img src="' + sigData + '" style="max-height:26px;max-width:56px;object-fit:contain;" alt="Initial">';
+                            }
+                            this.webSigSigned++;
+                        } catch (err) {
+                            console.error('APPLY_ALL_INITIALS: Failed', err);
                         }
-                        this.webSigSigned++;
-                    } catch (err) {
-                        console.error('APPLY_ALL: Failed to apply signature to', entry.sigKey, err);
                     }
+                    this._pendingInitialApplyAll = false;
+                    this.signedCount = this.webSigSigned;
+                } else {
+                    // Web template: apply to all remaining agent sig elements
+                    const remaining = this.webSigElements.filter(e => e.isMine && !e.signed);
+
+                    for (const entry of remaining) {
+                        try {
+                            entry.signed = true;
+                            entry.sigData = sigData;
+                            this.webSignatures[entry.sigKey] = sigData;
+
+                            const el = entry.el;
+                            if (el && el.classList) {
+                                el.classList.add('web-sig-signed');
+                                el.innerHTML = '<img src="' + sigData + '" class="web-sig-signed-img" alt="Signature">';
+                            }
+                            this.webSigSigned++;
+                        } catch (err) {
+                            console.error('APPLY_ALL: Failed to apply signature to', entry.sigKey, err);
+                        }
+                    }
+                    this.signedCount = this.webSigSigned;
                 }
-                this.signedCount = this.webSigSigned;
-                console.log('APPLY_ALL: Done.', this.webSigSigned, '/', this.webSigTotal, 'signed');
             } else {
                 const remainingSignatures = this.markers.filter(m =>
                     m.assigned_party === 'agent' &&
@@ -1425,8 +1596,17 @@ function signDocument() {
 
                 // Submit all web signatures to server
                 const url = @json(route('docuperfect.signatures.webSignComplete', $document));
+                // Collect initials data from page break markers
+                const initialsData = {};
+                (this.webInitialElements || []).forEach(entry => {
+                    if (entry.isMine && entry.signed && entry.sigData) {
+                        initialsData[entry.initKey] = entry.sigData;
+                    }
+                });
+
                 const payload = {
                     signatures: this.webSignatures,
+                    initials: initialsData,
                     party_role: 'agent',
                     ceremony_values: this.webCeremonyValues || {},
                     esign_flow_id: @json($esignFlowId ?? null),
