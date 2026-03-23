@@ -194,6 +194,97 @@ class PrivatePropertySoapClient
         ]);
     }
 
+    /**
+     * Reactivate a listing on PP (set status back to active).
+     * WSDL: ListingStatusUpdate { guid BranchId, string PropertyId, ListingType ListingType, PropertyStatus PropertyStatus, SecurityToken Token }
+     */
+    public function reactivateListing(string $propertyId, string $listingType = 'Sale'): array
+    {
+        return $this->call('ListingStatusUpdate', [
+            'BranchId'       => config('services.private_property.branch_guid'),
+            'PropertyId'     => $propertyId,
+            'ListingType'    => $listingType,
+            'PropertyStatus' => 'ForSale',
+            'Token'          => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Submit/update a showday event for a listing.
+     * WSDL: ListingShowdayUpdate { guid BranchId, ShowdayEvent Showday, SecurityToken Token }
+     */
+    public function updateShowday(array $showdayData): array
+    {
+        return $this->call('ListingShowdayUpdate', [
+            'BranchId' => config('services.private_property.branch_guid'),
+            'Showday'  => $showdayData,
+            'Token'    => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Upload an agent's profile image to PP.
+     * WSDL: UpdateAgentImage { Agent Agent, string imgurl, SecurityToken Token }
+     */
+    public function updateAgentImage(array $agentData, string $imageUrl): array
+    {
+        return $this->call('UpdateAgentImage', [
+            'Agent'  => $agentData,
+            'imgurl' => $imageUrl,
+            'Token'  => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get all agents registered on PP for this branch.
+     * WSDL: GetAllAgentsForBranch { guid BranchId, SecurityToken Token }
+     */
+    public function getAllAgentsForBranch(): array
+    {
+        return $this->call('GetAllAgentsForBranch', [
+            'BranchId' => config('services.private_property.branch_guid'),
+            'Token'    => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get a specific agent from PP.
+     * WSDL: GetAgent { guid BranchId, SecurityToken Token, string agentID }
+     */
+    public function getAgent(string $agentId): array
+    {
+        return $this->call('GetAgent', [
+            'BranchId' => config('services.private_property.branch_guid'),
+            'Token'    => $this->buildToken(),
+            'agentID'  => $agentId,
+        ]);
+    }
+
+    /**
+     * Get listing summary (includes moderation status, activation date, ref).
+     * WSDL: ListingSummary { guid BranchId, string UniqueListingId, SecurityToken Token }
+     */
+    public function getListingSummary(string $propertyId): array
+    {
+        return $this->call('ListingSummary', [
+            'BranchId'        => config('services.private_property.branch_guid'),
+            'UniqueListingId' => $propertyId,
+            'Token'           => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get active listings for the branch.
+     * WSDL: GetActiveListings { guid BranchId, SecurityToken Token }
+     */
+    public function getActiveListings(): array
+    {
+        return $this->call('GetActiveListings', [
+            'BranchId' => config('services.private_property.branch_guid'),
+            'Token'    => $this->buildToken(),
+        ]);
+    }
+
     private function log(string $level, string $message, array $context = []): void
     {
         Log::channel('private_property')->{$level}($message, $context);

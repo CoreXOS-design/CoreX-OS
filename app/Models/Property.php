@@ -77,6 +77,11 @@ class Property extends Model
         'pp_last_error',
         'pp_images_last_synced_at',
         'pp_listing_last_synced_at',
+        'pp_hide_street_name',
+        'pp_hide_street_number',
+        'pp_hide_complex_name',
+        'pp_hide_unit_number',
+        'rental_price_type',
     ];
 
     protected $casts = [
@@ -111,6 +116,10 @@ class Property extends Model
         'pp_delay_until'          => 'datetime',
         'pp_images_last_synced_at'  => 'datetime',
         'pp_listing_last_synced_at' => 'datetime',
+        'pp_hide_street_name'       => 'boolean',
+        'pp_hide_street_number'     => 'boolean',
+        'pp_hide_complex_name'      => 'boolean',
+        'pp_hide_unit_number'       => 'boolean',
     ];
 
     protected static function boot(): void

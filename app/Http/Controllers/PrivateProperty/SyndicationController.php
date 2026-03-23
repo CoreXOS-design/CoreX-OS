@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PrivateProperty;
 
 use App\Http\Controllers\Controller;
 use App\Models\Property;
+use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use App\Services\PrivateProperty\PrivatePropertySyndicationService;
@@ -157,6 +158,106 @@ class SyndicationController extends Controller
             'pp_last_submitted_at'  => $fresh->pp_last_submitted_at?->format('d M Y H:i'),
             'pp_last_error'         => $fresh->pp_last_error,
         ]);
+    }
+
+    /**
+     * Reactivate a deactivated listing on PP.
+     */
+    public function reactivate(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($property);
+
+        $result = $this->syndicationService->reactivateListing($property);
+
+        return response()->json([
+            'success'               => $result['success'],
+            'message'               => $result['message'],
+            'pp_syndication_status' => $property->fresh()->pp_syndication_status,
+        ], $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * Submit a showday event to PP for this property.
+     */
+    public function showday(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($property);
+
+        $request->validate([
+            'start_date'  => 'required|date',
+            'end_date'    => 'required|date|after:start_date',
+            'description' => 'nullable|string|max:500',
+        ]);
+
+        $result = $this->syndicationService->submitShowday($property, [
+            'start_date'  => \Carbon\Carbon::parse($request->start_date)->format('Y-m-d\TH:i:s'),
+            'end_date'    => \Carbon\Carbon::parse($request->end_date)->format('Y-m-d\TH:i:s'),
+            'description' => $request->description ?? 'Open Showday',
+        ]);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * Update address visibility toggles for PP.
+     */
+    public function updateVisibility(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($property);
+
+        $property->update([
+            'pp_hide_street_name'   => (bool) $request->input('hide_street_name', false),
+            'pp_hide_street_number' => (bool) $request->input('hide_street_number', false),
+            'pp_hide_complex_name'  => (bool) $request->input('hide_complex_name', false),
+            'pp_hide_unit_number'   => (bool) $request->input('hide_unit_number', false),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Address visibility updated',
+        ]);
+    }
+
+    /**
+     * Register/update an agent on PP.
+     */
+    public function registerAgent(Request $request): JsonResponse
+    {
+        $request->validate(['user_id' => 'required|exists:users,id']);
+
+        $user = User::findOrFail($request->user_id);
+        $result = $this->syndicationService->registerAgent($user);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * Deactivate an agent on PP.
+     */
+    public function deactivateAgent(Request $request): JsonResponse
+    {
+        $request->validate(['user_id' => 'required|exists:users,id']);
+
+        $user = User::findOrFail($request->user_id);
+        $result = $this->syndicationService->registerAgent($user, false);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * Upload an agent's profile image to PP.
+     */
+    public function uploadAgentImage(Request $request): JsonResponse
+    {
+        $request->validate([
+            'user_id'   => 'required|exists:users,id',
+            'image_url' => 'required|url',
+        ]);
+
+        $user = User::findOrFail($request->user_id);
+        $result = $this->syndicationService->uploadAgentImage($user, $request->image_url);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
     }
 
     /**

@@ -62,11 +62,11 @@ class PrivatePropertyListingMapper
             'PropertyStatus'          => $status,
             'ShowdayEvents'           => new \stdClass(), // empty ArrayOfShowdayEvent
             'Attributes'              => $this->buildAttributes($property),
-            'HideStreetName'          => false,
-            'HideStreetNo'            => false,
-            'HideComplexName'         => false,
-            'HideUnitNumber'          => false,
-            'RentalPriceType'         => '',
+            'HideStreetName'          => (bool) ($property->pp_hide_street_name ?? false),
+            'HideStreetNo'            => (bool) ($property->pp_hide_street_number ?? false),
+            'HideComplexName'         => (bool) ($property->pp_hide_complex_name ?? false),
+            'HideUnitNumber'          => (bool) ($property->pp_hide_unit_number ?? false),
+            'RentalPriceType'         => $this->mapRentalPriceType($property),
             'SalesPricePresentation'  => '',
             'OffersFromPrice'         => '',
             'SoleMandateExclusiveDays' => 0,
@@ -316,6 +316,71 @@ class PrivatePropertyListingMapper
         ];
 
         return $map[strtolower(trim($province ?? ''))] ?? 'KwaZuluNatal';
+    }
+
+    /**
+     * Map rental price type for PP (e.g. "per sqm" for commercial rentals).
+     */
+    private function mapRentalPriceType(Property $property): string
+    {
+        $listingType = $this->mapListingType($property->mandate_type);
+        if ($listingType !== 'Rental') {
+            return '';
+        }
+
+        $priceType = strtolower($property->rental_price_type ?? '');
+        $map = [
+            'per month'  => 'PerMonth',
+            'per_month'  => 'PerMonth',
+            'monthly'    => 'PerMonth',
+            'per sqm'    => 'PerSqm',
+            'per_sqm'    => 'PerSqm',
+            'persqm'     => 'PerSqm',
+            'per m2'     => 'PerSqm',
+            'per square meter' => 'PerSqm',
+        ];
+
+        return $map[$priceType] ?? 'PerMonth';
+    }
+
+    /**
+     * Build a showday event struct for PP.
+     * WSDL: ShowdayEvent { string PropertyId, dateTime StartDate, dateTime EndDate, string Description, boolean Active }
+     */
+    public function buildShowdayEvent(Property $property, array $showdayData): array
+    {
+        return [
+            'PropertyId'  => (string) $property->id,
+            'StartDate'   => $showdayData['start_date'],  // ISO 8601 format: 2026-03-25T10:00:00
+            'EndDate'     => $showdayData['end_date'],     // ISO 8601 format: 2026-03-25T12:00:00
+            'Description' => $showdayData['description'] ?? 'Open Showday',
+            'Active'      => true,
+        ];
+    }
+
+    /**
+     * Build an Agent struct for PP from a User model.
+     */
+    public function buildAgentData(\App\Models\User $user, bool $active = true): array
+    {
+        $parts     = explode(' ', trim($user->name), 2);
+        $firstName = $parts[0] ?? '';
+        $lastName  = $parts[1] ?? $parts[0] ?? '';
+        $cellPhone = $user->cell ?? $user->phone ?? '';
+
+        return [
+            'AgentId'               => (string) $user->id,
+            'FirstName'             => $firstName,
+            'LastName'              => $lastName,
+            'Email'                 => $user->email ?? '',
+            'TelCell'               => $cellPhone,
+            'TelWork'               => $user->phone ?? $cellPhone,
+            'TelHome'               => $cellPhone,
+            'Active'                => $active,
+            'BranchId'              => config('services.private_property.branch_guid'),
+            'PrivatePropertyAgentId' => '',
+            'PrivysealAlias'        => '',
+        ];
     }
 
     private function buildPhotoUrls(Property $property): array

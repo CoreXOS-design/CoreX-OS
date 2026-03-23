@@ -266,17 +266,21 @@
 
                         @php
                             $ppConfig = [
-                                'propertyId'    => $property->id,
-                                'enabled'       => (bool) $property->pp_syndication_enabled,
-                                'status'        => $property->pp_syndication_status ?? '',
-                                'ppRef'         => $property->pp_ref ?? '',
-                                'lastSubmitted' => $property->pp_last_submitted_at ? $property->pp_last_submitted_at->format('d M Y H:i') : '',
-                                'lastError'     => $property->pp_last_error ?? '',
-                                'exclusiveDays' => (int) ($property->pp_exclusive_days ?? 0),
-                                'mandateType'   => $property->mandate_type ?? '',
-                                'activatedAt'   => $property->pp_activated_at ? $property->pp_activated_at->format('d M Y H:i') : '',
-                                'csrfToken'     => csrf_token(),
-                                'missingFields' => $ppMissingFields ?? [],
+                                'propertyId'      => $property->id,
+                                'enabled'         => (bool) $property->pp_syndication_enabled,
+                                'status'          => $property->pp_syndication_status ?? '',
+                                'ppRef'           => $property->pp_ref ?? '',
+                                'lastSubmitted'   => $property->pp_last_submitted_at ? $property->pp_last_submitted_at->format('d M Y H:i') : '',
+                                'lastError'       => $property->pp_last_error ?? '',
+                                'exclusiveDays'   => (int) ($property->pp_exclusive_days ?? 0),
+                                'mandateType'     => $property->mandate_type ?? '',
+                                'activatedAt'     => $property->pp_activated_at ? $property->pp_activated_at->format('d M Y H:i') : '',
+                                'csrfToken'       => csrf_token(),
+                                'missingFields'   => $ppMissingFields ?? [],
+                                'hideStreetName'  => (bool) ($property->pp_hide_street_name ?? false),
+                                'hideStreetNumber'=> (bool) ($property->pp_hide_street_number ?? false),
+                                'hideComplexName' => (bool) ($property->pp_hide_complex_name ?? false),
+                                'hideUnitNumber'  => (bool) ($property->pp_hide_unit_number ?? false),
                             ];
                         @endphp
                         <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-3">
@@ -356,8 +360,31 @@
                             </div>
                             @endif
 
+                            {{-- Address visibility toggles --}}
+                            <div x-show="enabled" x-cloak class="space-y-1.5 px-1">
+                                <p class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Display Address</p>
+                                <div class="flex flex-wrap gap-x-3 gap-y-1">
+                                    <label class="flex items-center gap-1.5 text-[11px] cursor-pointer" style="color:var(--text-secondary);" @click.stop>
+                                        <input type="checkbox" :checked="!hideStreetName" @change="hideStreetName = !$el.checked; saveVisibility()" class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                        Street Name
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] cursor-pointer" style="color:var(--text-secondary);" @click.stop>
+                                        <input type="checkbox" :checked="!hideStreetNumber" @change="hideStreetNumber = !$el.checked; saveVisibility()" class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                        Street No
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] cursor-pointer" style="color:var(--text-secondary);" @click.stop>
+                                        <input type="checkbox" :checked="!hideComplexName" @change="hideComplexName = !$el.checked; saveVisibility()" class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                        Complex
+                                    </label>
+                                    <label class="flex items-center gap-1.5 text-[11px] cursor-pointer" style="color:var(--text-secondary);" @click.stop>
+                                        <input type="checkbox" :checked="!hideUnitNumber" @change="hideUnitNumber = !$el.checked; saveVisibility()" class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                        Unit No
+                                    </label>
+                                </div>
+                            </div>
+
                             {{-- Action buttons --}}
-                            <div x-show="enabled" x-cloak class="flex gap-2">
+                            <div x-show="enabled" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button"
                                         @click.stop="submitListing()"
                                         :disabled="loading || missingFields.length > 0"
@@ -368,6 +395,17 @@
                                     <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
                                     <span x-text="loading ? 'Submitting...' : 'Submit to PP'"></span>
                                 </button>
+                                {{-- Reactivate button (for deactivated listings) --}}
+                                <button type="button"
+                                        x-show="status === 'deactivated'"
+                                        @click.stop="reactivateListing()"
+                                        :disabled="loading"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(0,212,170,0.10); color:#00d4aa; border:1px solid rgba(0,212,170,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                    Reactivate
+                                </button>
+                                {{-- Deactivate button --}}
                                 <button type="button"
                                         x-show="status === 'submitted' || status === 'active'"
                                         @click.stop="deactivateListing()"
@@ -377,6 +415,41 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
+                            </div>
+
+                            {{-- Showday section --}}
+                            <div x-show="enabled && (status === 'submitted' || status === 'active')" x-cloak class="space-y-2 px-1">
+                                <button type="button" @click.stop="showShowdayForm = !showShowdayForm"
+                                        class="text-[11px] font-semibold flex items-center gap-1"
+                                        style="color:var(--text-secondary);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg>
+                                    <span x-text="showShowdayForm ? 'Hide Showday Form' : 'Add Showday Event'"></span>
+                                </button>
+                                <div x-show="showShowdayForm" x-cloak x-transition class="space-y-2 rounded-md px-3 py-2.5"
+                                     style="background:var(--surface-2); border:1px solid var(--border);">
+                                    <div class="flex gap-2">
+                                        <div class="flex-1">
+                                            <label class="text-[10px] block mb-0.5" style="color:var(--text-muted);">Start</label>
+                                            <input type="datetime-local" x-model="showdayStart" @click.stop
+                                                   class="w-full px-2 py-1 rounded text-[11px]"
+                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        <div class="flex-1">
+                                            <label class="text-[10px] block mb-0.5" style="color:var(--text-muted);">End</label>
+                                            <input type="datetime-local" x-model="showdayEnd" @click.stop
+                                                   class="w-full px-2 py-1 rounded text-[11px]"
+                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                    </div>
+                                    <input type="text" x-model="showdayDescription" @click.stop placeholder="Description (optional)"
+                                           class="w-full px-2 py-1 rounded text-[11px]"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <button type="button" @click.stop="submitShowday()" :disabled="loading || !showdayStart || !showdayEnd"
+                                            class="w-full px-2 py-1.5 rounded text-[11px] font-semibold transition-opacity"
+                                            style="background:rgba(0,212,170,0.12); color:#00d4aa; border:1px solid rgba(0,212,170,0.25);">
+                                        Submit Showday
+                                    </button>
+                                </div>
                             </div>
 
                             {{-- Last submitted timestamp --}}
@@ -2522,6 +2595,16 @@ function ppSyndication(config) {
         messageType: 'success',
         debugErrors: [],
         showDebug: false,
+        // Address visibility
+        hideStreetName: config.hideStreetName || false,
+        hideStreetNumber: config.hideStreetNumber || false,
+        hideComplexName: config.hideComplexName || false,
+        hideUnitNumber: config.hideUnitNumber || false,
+        // Showday
+        showShowdayForm: false,
+        showdayStart: '',
+        showdayEnd: '',
+        showdayDescription: '',
 
         statusLabel() {
             const labels = {
@@ -2662,6 +2745,75 @@ function ppSyndication(config) {
             } finally {
                 this.loading = false;
             }
+        },
+
+        async reactivateListing() {
+            if (!confirm('Reactivate this listing on Private Property?')) return;
+            this.loading = true;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/reactivate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.status = data.pp_syndication_status || 'submitted';
+                    this.showMessage('Listing reactivated on PP');
+                } else {
+                    this.debugErrors = [data.message || 'Reactivation failed'];
+                    this.showDebug = true;
+                }
+            } catch (e) {
+                this.showMessage('Network error', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async submitShowday() {
+            if (!this.showdayStart || !this.showdayEnd) return;
+            this.loading = true;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/showday`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({
+                        start_date: this.showdayStart,
+                        end_date: this.showdayEnd,
+                        description: this.showdayDescription || 'Open Showday',
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.showMessage('Showday event submitted to PP');
+                    this.showShowdayForm = false;
+                    this.showdayStart = '';
+                    this.showdayEnd = '';
+                    this.showdayDescription = '';
+                } else {
+                    this.debugErrors = [data.message || 'Showday submission failed'];
+                    this.showDebug = true;
+                }
+            } catch (e) {
+                this.showMessage('Network error', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async saveVisibility() {
+            try {
+                await fetch(`/corex/properties/${this.propertyId}/syndication/visibility`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({
+                        hide_street_name: this.hideStreetName,
+                        hide_street_number: this.hideStreetNumber,
+                        hide_complex_name: this.hideComplexName,
+                        hide_unit_number: this.hideUnitNumber,
+                    }),
+                });
+            } catch (e) { /* silent save */ }
         },
     };
 }

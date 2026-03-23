@@ -192,6 +192,120 @@ class PrivatePropertySyndicationService
     }
 
     /**
+     * Reactivate a previously deactivated listing on PP.
+     */
+    public function reactivateListing(Property $property): array
+    {
+        $listingType = in_array(strtolower($property->mandate_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+        $result = $this->client->reactivateListing((string) $property->id, $listingType);
+
+        if (isset($result['error']) && $result['error'] === true) {
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => 'Reactivation failed: ' . ($result['message'] ?? 'Unknown error'),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => $result['message'] ?? 'Reactivation failed',
+            ];
+        }
+
+        $property->update([
+            'pp_syndication_status' => 'submitted',
+            'pp_last_error'         => null,
+        ]);
+
+        $this->log('info', "Listing reactivated for property #{$property->id}");
+
+        return [
+            'success' => true,
+            'message' => 'Listing reactivated on Private Property',
+        ];
+    }
+
+    /**
+     * Submit a showday event for a listing on PP.
+     */
+    public function submitShowday(Property $property, array $showdayData): array
+    {
+        $event = $this->mapper->buildShowdayEvent($property, $showdayData);
+        $result = $this->client->updateShowday($event);
+
+        if (isset($result['error']) && $result['error'] === true) {
+            return [
+                'success' => false,
+                'message' => $result['message'] ?? 'Showday submission failed',
+            ];
+        }
+
+        $this->log('info', "Showday submitted for property #{$property->id}", ['event' => $event]);
+
+        return [
+            'success' => true,
+            'message' => 'Showday event submitted to Private Property',
+            'result'  => $result,
+        ];
+    }
+
+    /**
+     * Register or update an agent on PP. Public method for controller use.
+     */
+    public function registerAgent(User $user, bool $active = true): array
+    {
+        $agentData = $this->mapper->buildAgentData($user, $active);
+
+        if (empty($agentData['TelCell'])) {
+            return [
+                'success' => false,
+                'message' => 'Agent has no phone/cell number — required by Private Property',
+            ];
+        }
+
+        $result = $this->client->updateAgent($agentData);
+
+        if (isset($result['error']) && $result['error'] === true) {
+            return [
+                'success' => false,
+                'message' => $result['message'] ?? 'Agent registration failed',
+            ];
+        }
+
+        $this->log('info', "Agent #{$user->id} ({$user->name}) " . ($active ? 'registered' : 'deactivated') . " on PP");
+
+        return [
+            'success' => true,
+            'message' => $active ? 'Agent registered on PP' : 'Agent deactivated on PP',
+            'result'  => $result,
+        ];
+    }
+
+    /**
+     * Upload an agent's profile image to PP.
+     */
+    public function uploadAgentImage(User $user, string $imageUrl): array
+    {
+        $agentData = $this->mapper->buildAgentData($user);
+
+        $result = $this->client->updateAgentImage($agentData, $imageUrl);
+
+        if (isset($result['error']) && $result['error'] === true) {
+            return [
+                'success' => false,
+                'message' => $result['message'] ?? 'Agent image upload failed',
+            ];
+        }
+
+        $this->log('info', "Agent image uploaded for #{$user->id}", ['url' => $imageUrl]);
+
+        return [
+            'success' => true,
+            'message' => 'Agent image uploaded to Private Property',
+            'result'  => $result,
+        ];
+    }
+
+    /**
      * Register the property's agent on PP if not already done.
      * Returns true on success, or an error string on failure.
      */
