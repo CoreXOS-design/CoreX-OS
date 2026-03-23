@@ -58,6 +58,14 @@ class PrivatePropertySyndicationService
             ];
         }
 
+        // Register second agent if assigned
+        if ($property->pp_second_agent_id) {
+            $secondAgent = User::find($property->pp_second_agent_id);
+            if ($secondAgent) {
+                $this->registerAgent($secondAgent);
+            }
+        }
+
         // Send to PP
         $result = $this->client->updateListing($payload);
 

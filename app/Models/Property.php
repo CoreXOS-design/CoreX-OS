@@ -77,6 +77,7 @@ class Property extends Model
         'pp_last_error',
         'pp_images_last_synced_at',
         'pp_listing_last_synced_at',
+        'pp_second_agent_id',
         'pp_hide_street_name',
         'pp_hide_street_number',
         'pp_hide_complex_name',

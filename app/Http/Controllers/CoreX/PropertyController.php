@@ -226,6 +226,12 @@ class PropertyController extends Controller
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
             'agent_id'         => 'nullable|exists:users,id',
+            'pp_second_agent_id' => 'nullable|exists:users,id',
+            'rental_price_type'  => 'nullable|string|max:50',
+            'pp_hide_street_name'   => 'nullable|boolean',
+            'pp_hide_street_number' => 'nullable|boolean',
+            'pp_hide_complex_name'  => 'nullable|boolean',
+            'pp_hide_unit_number'   => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'               => 'nullable|array',
             'dawn_images.*'             => 'image|max:5120',
@@ -370,6 +376,12 @@ class PropertyController extends Controller
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
             'agent_id'         => 'nullable|exists:users,id',
+            'pp_second_agent_id' => 'nullable|exists:users,id',
+            'rental_price_type'  => 'nullable|string|max:50',
+            'pp_hide_street_name'   => 'nullable|boolean',
+            'pp_hide_street_number' => 'nullable|boolean',
+            'pp_hide_complex_name'  => 'nullable|boolean',
+            'pp_hide_unit_number'   => 'nullable|boolean',
             'publish'          => 'nullable|boolean',
             'dawn_images'      => 'nullable|array',
             'dawn_images.*'    => 'image|max:5120',
@@ -380,6 +392,12 @@ class PropertyController extends Controller
             'gallery_images'   => 'nullable|array',
             'gallery_images.*' => 'image|max:5120',
         ]);
+
+        // Checkboxes that aren't checked don't submit — ensure they're explicitly set to false
+        $data['pp_hide_street_name']   = $request->boolean('pp_hide_street_name');
+        $data['pp_hide_street_number'] = $request->boolean('pp_hide_street_number');
+        $data['pp_hide_complex_name']  = $request->boolean('pp_hide_complex_name');
+        $data['pp_hide_unit_number']   = $request->boolean('pp_hide_unit_number');
 
         $data = $this->processSpacesJson($data);
 

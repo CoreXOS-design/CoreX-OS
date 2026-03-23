@@ -360,29 +360,6 @@
                             </div>
                             @endif
 
-                            {{-- Address visibility toggles --}}
-                            <div x-show="enabled" x-cloak class="space-y-1.5 px-1">
-                                <p class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Display Address</p>
-                                <div class="flex flex-wrap gap-x-3 gap-y-1">
-                                    <label class="flex items-center gap-1.5 text-[11px] cursor-pointer" style="color:var(--text-secondary);" @click.stop>
-                                        <input type="checkbox" :checked="!hideStreetName" @change="hideStreetName = !$el.checked; saveVisibility()" class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
-                                        Street Name
-                                    </label>
-                                    <label class="flex items-center gap-1.5 text-[11px] cursor-pointer" style="color:var(--text-secondary);" @click.stop>
-                                        <input type="checkbox" :checked="!hideStreetNumber" @change="hideStreetNumber = !$el.checked; saveVisibility()" class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
-                                        Street No
-                                    </label>
-                                    <label class="flex items-center gap-1.5 text-[11px] cursor-pointer" style="color:var(--text-secondary);" @click.stop>
-                                        <input type="checkbox" :checked="!hideComplexName" @change="hideComplexName = !$el.checked; saveVisibility()" class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
-                                        Complex
-                                    </label>
-                                    <label class="flex items-center gap-1.5 text-[11px] cursor-pointer" style="color:var(--text-secondary);" @click.stop>
-                                        <input type="checkbox" :checked="!hideUnitNumber" @change="hideUnitNumber = !$el.checked; saveVisibility()" class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
-                                        Unit No
-                                    </label>
-                                </div>
-                            </div>
-
                             {{-- Action buttons --}}
                             <div x-show="enabled" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button"
@@ -415,41 +392,6 @@
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
-                            </div>
-
-                            {{-- Showday section --}}
-                            <div x-show="enabled && (status === 'submitted' || status === 'active')" x-cloak class="space-y-2 px-1">
-                                <button type="button" @click.stop="showShowdayForm = !showShowdayForm"
-                                        class="text-[11px] font-semibold flex items-center gap-1"
-                                        style="color:var(--text-secondary);">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg>
-                                    <span x-text="showShowdayForm ? 'Hide Showday Form' : 'Add Showday Event'"></span>
-                                </button>
-                                <div x-show="showShowdayForm" x-cloak x-transition class="space-y-2 rounded-md px-3 py-2.5"
-                                     style="background:var(--surface-2); border:1px solid var(--border);">
-                                    <div class="flex gap-2">
-                                        <div class="flex-1">
-                                            <label class="text-[10px] block mb-0.5" style="color:var(--text-muted);">Start</label>
-                                            <input type="datetime-local" x-model="showdayStart" @click.stop
-                                                   class="w-full px-2 py-1 rounded text-[11px]"
-                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                        </div>
-                                        <div class="flex-1">
-                                            <label class="text-[10px] block mb-0.5" style="color:var(--text-muted);">End</label>
-                                            <input type="datetime-local" x-model="showdayEnd" @click.stop
-                                                   class="w-full px-2 py-1 rounded text-[11px]"
-                                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                        </div>
-                                    </div>
-                                    <input type="text" x-model="showdayDescription" @click.stop placeholder="Description (optional)"
-                                           class="w-full px-2 py-1 rounded text-[11px]"
-                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <button type="button" @click.stop="submitShowday()" :disabled="loading || !showdayStart || !showdayEnd"
-                                            class="w-full px-2 py-1.5 rounded text-[11px] font-semibold transition-opacity"
-                                            style="background:rgba(0,212,170,0.12); color:#00d4aa; border:1px solid rgba(0,212,170,0.25);">
-                                        Submit Showday
-                                    </button>
-                                </div>
                             </div>
 
                             {{-- Last submitted timestamp --}}
@@ -1202,9 +1144,48 @@
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Address</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div class="sm:col-span-2">
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Full Address</label>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-semibold" style="color:var(--text-secondary);">Full Address</label>
+                                <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color:var(--text-muted);">
+                                    <input type="checkbox" name="pp_hide_street_name" value="1" {{ old('pp_hide_street_name', $property->pp_hide_street_name ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                    Hide street on PP
+                                </label>
+                            </div>
                             <input type="text" name="address" value="{{ old('address', $property->address) }}"
                                    placeholder="e.g. 21 Dee Road"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-semibold" style="color:var(--text-secondary);">Complex Name</label>
+                                <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color:var(--text-muted);">
+                                    <input type="checkbox" name="pp_hide_complex_name" value="1" {{ old('pp_hide_complex_name', $property->pp_hide_complex_name ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                    Hide on PP
+                                </label>
+                            </div>
+                            <input type="text" name="complex_name" value="{{ old('complex_name', $property->complex_name) }}"
+                                   placeholder="e.g. Ocean View"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-semibold" style="color:var(--text-secondary);">Unit Number</label>
+                                <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color:var(--text-muted);">
+                                    <input type="checkbox" name="pp_hide_unit_number" value="1" {{ old('pp_hide_unit_number', $property->pp_hide_unit_number ?? false) ? 'checked' : '' }} class="w-3 h-3 rounded" style="accent-color:#00d4aa;">
+                                    Hide on PP
+                                </label>
+                            </div>
+                            <input type="text" name="unit_number" value="{{ old('unit_number', $property->unit_number) }}"
+                                   placeholder="e.g. 14"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property / Erf Number</label>
+                            <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}"
+                                   placeholder="e.g. Erf 789"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
@@ -1216,9 +1197,16 @@
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">City</label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">City / Town</label>
                             <input type="text" name="city" value="{{ old('city', $property->city) }}"
                                    placeholder="e.g. Margate"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
+                            <input type="text" name="district" value="{{ old('district', $property->district) }}"
+                                   placeholder="e.g. Ray Nkonyeni"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
@@ -1268,12 +1256,21 @@
                 {{-- Agent / Branch --}}
                 <div>
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Assignment</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Agent <span class="text-red-400">*</span></label>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Primary Agent <span class="text-red-400">*</span></label>
                             <select name="agent_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                 @foreach($agents as $agent)
                                 <option value="{{ $agent->id }}" {{ (int) old('agent_id', $property->agent_id) === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Second Agent</label>
+                            <select name="pp_second_agent_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="">— None —</option>
+                                @foreach($agents as $agent)
+                                <option value="{{ $agent->id }}" {{ (int) old('pp_second_agent_id', $property->pp_second_agent_id ?? '') === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
                                 @endforeach
                             </select>
                         </div>
@@ -1301,42 +1298,14 @@
                     </div>
                 </div>
 
-                {{-- Rental & Lease Details (collapsible) --}}
-                <div x-data="{ open: {{ ($property->rental_amount || $property->property_number || $property->complex_name || $property->unit_number || $property->district || $property->deposit_amount || $property->commission_percent || $property->admin_fee || $property->marketing_fee || $property->lease_start_date || $property->lease_end_date) ? 'true' : 'false' }} }">
-                    <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left mb-4">
-                        <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Rental & Lease Details</h3>
-                        <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
-                    </button>
-                    <div x-show="open" x-cloak class="space-y-4">
+                {{-- Rental & Lease Details — visible when mandate_type is Rental --}}
+                @php $isRental = in_array(strtolower(old('mandate_type', $property->mandate_type) ?? ''), ['rental']); @endphp
+                <div x-data="{ isRental: {{ $isRental ? 'true' : 'false' }} }"
+                     x-init="$watch('$root.querySelector(\'[name=mandate_type]\')?.value', v => { isRental = v && v.toLowerCase() === 'rental'; })"
+                     @change.window="if ($event.target?.name === 'mandate_type') { isRental = $event.target.value.toLowerCase() === 'rental'; }">
+                    <div x-show="isRental" x-cloak>
+                        <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Rental & Lease Details</h3>
                         <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                            <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property / Erf Number</label>
-                                <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}"
-                                       placeholder="e.g. Erf 789"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Complex Name</label>
-                                <input type="text" name="complex_name" value="{{ old('complex_name', $property->complex_name) }}"
-                                       placeholder="e.g. Ocean View"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Unit Number</label>
-                                <input type="text" name="unit_number" value="{{ old('unit_number', $property->unit_number) }}"
-                                       placeholder="e.g. 14"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
-                                <input type="text" name="district" value="{{ old('district', $property->district) }}"
-                                       placeholder="e.g. Ray Nkonyeni"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Monthly Rental (R)</label>
                                 <input type="number" name="rental_amount" value="{{ old('rental_amount', $property->rental_amount) }}"
@@ -1350,6 +1319,13 @@
                                        placeholder="0.00" min="0" step="0.01"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Price Type</label>
+                                <select name="rental_price_type" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="per month" {{ old('rental_price_type', $property->rental_price_type) === 'per month' ? 'selected' : '' }}>Per Month</option>
+                                    <option value="per sqm" {{ old('rental_price_type', $property->rental_price_type) === 'per sqm' ? 'selected' : '' }}>Per Sqm</option>
+                                </select>
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Commission (%)</label>
@@ -1387,6 +1363,60 @@
                         </div>
                     </div>
                 </div>
+
+                {{-- Showday Events (PP syndication) --}}
+                @if(!$isNew && $property->pp_syndication_enabled && in_array($property->pp_syndication_status, ['submitted', 'active']))
+                <div x-data="{ showForm: false, sdStart: '', sdEnd: '', sdDesc: '', sdLoading: false, sdMsg: '' }">
+                    <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Showday Events (Private Property)</h3>
+                    <div class="space-y-3">
+                        <button type="button" @click="showForm = !showForm"
+                                class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors"
+                                style="background:rgba(0,212,170,0.08); color:#00d4aa; border:1px solid rgba(0,212,170,0.2);">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                            <span x-text="showForm ? 'Cancel' : 'Add Showday'"></span>
+                        </button>
+                        <div x-show="showForm" x-cloak x-transition class="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Start</label>
+                                <input type="datetime-local" x-model="sdStart"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">End</label>
+                                <input type="datetime-local" x-model="sdEnd"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Description</label>
+                                <input type="text" x-model="sdDesc" placeholder="Open Showday"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div class="sm:col-span-3 flex items-center gap-3">
+                                <button type="button" @click="
+                                    if (!sdStart || !sdEnd) return;
+                                    sdLoading = true; sdMsg = '';
+                                    fetch('/corex/properties/{{ $property->id }}/syndication/showday', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+                                        body: JSON.stringify({ start_date: sdStart, end_date: sdEnd, description: sdDesc || 'Open Showday' }),
+                                    }).then(r => r.json()).then(d => {
+                                        sdMsg = d.success ? 'Showday submitted to PP' : (d.message || 'Failed');
+                                        if (d.success) { sdStart = ''; sdEnd = ''; sdDesc = ''; showForm = false; }
+                                    }).catch(() => { sdMsg = 'Network error'; }).finally(() => { sdLoading = false; });
+                                " :disabled="sdLoading || !sdStart || !sdEnd"
+                                   class="px-4 py-2 rounded-md text-xs font-semibold text-white"
+                                   style="background:#00d4aa;">
+                                    <span x-text="sdLoading ? 'Submitting...' : 'Submit Showday to PP'"></span>
+                                </button>
+                                <span x-show="sdMsg" x-text="sdMsg" class="text-xs" style="color:#00d4aa;"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                @endif
 
             </form>{{-- /prop-update-form --}}
 
