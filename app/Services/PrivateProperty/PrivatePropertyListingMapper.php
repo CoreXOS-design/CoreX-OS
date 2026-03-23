@@ -327,10 +327,16 @@ class PrivatePropertyListingMapper
         $baseUrl   = rtrim(!empty($override) ? $override : config('app.url'), '/');
         $urls      = [];
 
+        $appUrl = rtrim(config('app.url'), '/');
+
         foreach ($allImages as $imagePath) {
             if (empty($imagePath)) continue;
 
             if (str_starts_with($imagePath, 'http://') || str_starts_with($imagePath, 'https://')) {
+                // If override is set, rewrite the domain portion of existing full URLs
+                if (!empty($override) && $appUrl) {
+                    $imagePath = str_replace($appUrl, $baseUrl, $imagePath);
+                }
                 $urls[] = $imagePath;
             } else {
                 $urls[] = $baseUrl . $imagePath;
