@@ -1444,6 +1444,60 @@
                         </div>
                         @endif
                     </div>
+
+                    {{-- Showday Event (PP) --}}
+                    @if(!$isNew && $property->pp_syndication_enabled && in_array($property->pp_syndication_status, ['submitted', 'active']))
+                    <div x-data="{ showForm: false, sdStart: '', sdEnd: '', sdDesc: '', sdLoading: false, sdMsg: '' }" class="mt-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Showday Events</p>
+                            <button type="button" @click="showForm = !showForm"
+                                    class="flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-md transition-colors"
+                                    style="background:rgba(0,212,170,0.08); color:#00d4aa; border:1px solid rgba(0,212,170,0.2);">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                                <span x-text="showForm ? 'Cancel' : 'Add Showday'"></span>
+                            </button>
+                        </div>
+                        <div x-show="showForm" x-cloak x-transition class="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Start</label>
+                                <input type="datetime-local" x-model="sdStart"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">End</label>
+                                <input type="datetime-local" x-model="sdEnd"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Description</label>
+                                <input type="text" x-model="sdDesc" placeholder="Open Showday"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div class="sm:col-span-3 flex items-center gap-3">
+                                <button type="button" @click="
+                                    if (!sdStart || !sdEnd) return;
+                                    sdLoading = true; sdMsg = '';
+                                    fetch('/corex/properties/{{ $property->id }}/syndication/showday', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
+                                        body: JSON.stringify({ start_date: sdStart, end_date: sdEnd, description: sdDesc || 'Open Showday' }),
+                                    }).then(r => r.json()).then(d => {
+                                        sdMsg = d.success ? 'Showday submitted to PP' : (d.message || 'Failed');
+                                        if (d.success) { sdStart = ''; sdEnd = ''; sdDesc = ''; showForm = false; }
+                                    }).catch(() => { sdMsg = 'Network error'; }).finally(() => { sdLoading = false; });
+                                " :disabled="sdLoading || !sdStart || !sdEnd"
+                                   class="px-4 py-2 rounded-md text-xs font-semibold text-white"
+                                   style="background:#00d4aa;">
+                                    <span x-text="sdLoading ? 'Submitting...' : 'Submit Showday to PP'"></span>
+                                </button>
+                                <span x-show="sdMsg" x-text="sdMsg" class="text-xs" style="color:#00d4aa;"></span>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
                 </div>
 
                 {{-- Agent / Branch --}}
@@ -1556,60 +1610,6 @@
                         </div>
                     </div>
                 </div>
-
-                {{-- Showday Events (PP syndication) --}}
-                @if(!$isNew && $property->pp_syndication_enabled && in_array($property->pp_syndication_status, ['submitted', 'active']))
-                <div x-data="{ showForm: false, sdStart: '', sdEnd: '', sdDesc: '', sdLoading: false, sdMsg: '' }">
-                    <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Showday Events (Private Property)</h3>
-                    <div class="space-y-3">
-                        <button type="button" @click="showForm = !showForm"
-                                class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors"
-                                style="background:rgba(0,212,170,0.08); color:#00d4aa; border:1px solid rgba(0,212,170,0.2);">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                            <span x-text="showForm ? 'Cancel' : 'Add Showday'"></span>
-                        </button>
-                        <div x-show="showForm" x-cloak x-transition class="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                            <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Start</label>
-                                <input type="datetime-local" x-model="sdStart"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">End</label>
-                                <input type="datetime-local" x-model="sdEnd"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Description</label>
-                                <input type="text" x-model="sdDesc" placeholder="Open Showday"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div class="sm:col-span-3 flex items-center gap-3">
-                                <button type="button" @click="
-                                    if (!sdStart || !sdEnd) return;
-                                    sdLoading = true; sdMsg = '';
-                                    fetch('/corex/properties/{{ $property->id }}/syndication/showday', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'X-Requested-With': 'XMLHttpRequest' },
-                                        body: JSON.stringify({ start_date: sdStart, end_date: sdEnd, description: sdDesc || 'Open Showday' }),
-                                    }).then(r => r.json()).then(d => {
-                                        sdMsg = d.success ? 'Showday submitted to PP' : (d.message || 'Failed');
-                                        if (d.success) { sdStart = ''; sdEnd = ''; sdDesc = ''; showForm = false; }
-                                    }).catch(() => { sdMsg = 'Network error'; }).finally(() => { sdLoading = false; });
-                                " :disabled="sdLoading || !sdStart || !sdEnd"
-                                   class="px-4 py-2 rounded-md text-xs font-semibold text-white"
-                                   style="background:#00d4aa;">
-                                    <span x-text="sdLoading ? 'Submitting...' : 'Submit Showday to PP'"></span>
-                                </button>
-                                <span x-show="sdMsg" x-text="sdMsg" class="text-xs" style="color:#00d4aa;"></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                @endif
 
             </form>{{-- /prop-update-form --}}
 
