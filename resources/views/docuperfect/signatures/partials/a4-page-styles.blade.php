@@ -363,6 +363,51 @@ function _stripInnerStyling(container) {
 }
 
 /**
+ * Restore previously signed initials into page-break initial elements.
+ * Called AFTER paginateDocument() so the initial elements exist in the DOM.
+ *
+ * @param {HTMLElement} container    The document container
+ * @param {Object}      storedInitials  { "agent": { "agent-init-0": "data:image/...", ... }, "supervisor": {...} }
+ */
+function restoreStoredInitials(container, storedInitials) {
+    if (!container || !storedInitials || typeof storedInitials !== 'object') return;
+
+    var allInitialEls = container.querySelectorAll('[data-marker-type="initial"]');
+    if (allInitialEls.length === 0) return;
+
+    // Flatten all party initials into a lookup by party role
+    Object.keys(storedInitials).forEach(function(partyRole) {
+        var partyInitials = storedInitials[partyRole];
+        if (!partyInitials || typeof partyInitials !== 'object') return;
+
+        // Find all initial elements for this party
+        allInitialEls.forEach(function(el) {
+            var elParty = (el.getAttribute('data-marker-party') || '').toLowerCase();
+            if (elParty !== partyRole) return;
+
+            // Check if any stored initial data exists for this party
+            // Use the first available initial image (they're all the same for a party)
+            var firstInitialData = null;
+            for (var key in partyInitials) {
+                if (partyInitials[key]) {
+                    firstInitialData = partyInitials[key];
+                    break;
+                }
+            }
+
+            if (firstInitialData && !el.getAttribute('data-signed')) {
+                el.setAttribute('data-signed', 'true');
+                el.style.border = '2px solid #10b981';
+                el.style.background = 'rgba(16,185,129,0.06)';
+                el.style.cursor = 'default';
+                el.style.opacity = '1';
+                el.innerHTML = '<img src="' + firstInitialData + '" style="max-height:26px;max-width:56px;object-fit:contain;" alt="Initial">';
+            }
+        });
+    });
+}
+
+/**
  * Backward-compat wrapper — old views that call splitDocumentIntoPages() still work.
  */
 function splitDocumentIntoPages(container) {

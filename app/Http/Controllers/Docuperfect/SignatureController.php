@@ -965,6 +965,7 @@ class SignatureController extends Controller
             'isSalesTemplate' => $docTemplate ? $docTemplate->isSalesDocument() : false,
             'esignFlowId' => $esignFlowId,
             'signingParties' => $signingParties,
+            'storedInitials' => $webTemplateData['signed_initials'] ?? [],
         ]);
     }
 
@@ -1282,6 +1283,7 @@ class SignatureController extends Controller
 
         try {
             $signatures = $request->input('signatures', []);
+            $initials = $request->input('initials', []);
             $partyRole = $request->input('party_role', 'agent');
 
             $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
@@ -1317,9 +1319,43 @@ class SignatureController extends Controller
                 ]);
             }
 
-            // Store signatures and ceremony values in web_template_data
+            // Store each initial as a Signature record for audit trail
+            foreach ($initials as $initKey => $initData) {
+                $marker = SignatureMarker::create([
+                    'signature_template_id' => $template->id,
+                    'page_number' => 1,
+                    'x_position' => 0,
+                    'y_position' => 0,
+                    'width' => 15,
+                    'height' => 8,
+                    'type' => 'initial',
+                    'assigned_party' => $partyRole,
+                    'label' => 'Page initial: ' . $initKey,
+                    'required' => true,
+                    'sort_order' => 0,
+                ]);
+
+                Signature::create([
+                    'signature_template_id' => $template->id,
+                    'signature_marker_id' => $marker->id,
+                    'signature_request_id' => $template->requests()->where('party_role', $partyRole)->value('id'),
+                    'signature_data' => $initData,
+                    'signature_type' => 'drawn',
+                    'signer_name' => $user->name,
+                    'signer_email' => $user->email,
+                    'signed_at' => now(),
+                    'signer_ip_address' => $request->ip(),
+                    'signer_user_agent' => $request->userAgent(),
+                ]);
+            }
+
+            // Store signatures, initials, and ceremony values in web_template_data
             $webData = $document->web_template_data ?? [];
             $webData['agent_signatures'] = $signatures;
+            // Store initials keyed by party role so subsequent viewers can restore them
+            $existingInitials = $webData['signed_initials'] ?? [];
+            $existingInitials[$partyRole] = $initials;
+            $webData['signed_initials'] = $existingInitials;
             $ceremonyValues = $request->input('ceremony_values', []);
             if (!empty($ceremonyValues)) {
                 $webData['ceremony_values'] = array_merge($webData['ceremony_values'] ?? [], $ceremonyValues);
@@ -2087,7 +2123,64 @@ class SignatureController extends Controller
             'ceremonyValues' => $ceremonyValues,
             'clauseFlags' => $clauseFlags,
             'signingParties' => $signingParties,
+            'storedInitials' => $webTemplateData['signed_initials'] ?? [],
         ]);
+    }
+
+    /**
+     * Redirect supervisor to the external signing view for candidate flow authorisation.
+     * Generates a token on the supervisor's SignatureRequest so they can sign.
+     */
+    public function authoriseSigning(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        // Only allow for candidate flows awaiting supervisor
+        $supervisorStatuses = [
+            SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
+            SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+        ];
+        if (!in_array($template->status, $supervisorStatuses)) {
+            return redirect()->route('docuperfect.signatures.review', $document)
+                ->with('error', 'This document is not awaiting supervisor authorisation.');
+        }
+
+        // Determine which supervisor request to use
+        $supervisorRole = $template->status === SignatureTemplate::STATUS_AWAITING_SUPERVISOR
+            ? 'supervisor'
+            : 'supervisor_final';
+
+        $supervisorRequest = $template->requests()
+            ->where('party_role', $supervisorRole)
+            ->first();
+
+        if (!$supervisorRequest) {
+            return redirect()->route('docuperfect.signatures.review', $document)
+                ->with('error', 'No supervisor signing request found.');
+        }
+
+        // Generate a token if one doesn't exist
+        if (empty($supervisorRequest->token)) {
+            $supervisorRequest->update([
+                'token' => \Illuminate\Support\Str::random(64),
+                'signer_name' => $user->name,
+                'signer_email' => $user->email,
+                'status' => SignatureRequest::STATUS_PENDING,
+            ]);
+        } else {
+            // Update signer info for the supervisor claiming this request
+            $supervisorRequest->update([
+                'signer_name' => $user->name,
+                'signer_email' => $user->email,
+                'status' => SignatureRequest::STATUS_PENDING,
+            ]);
+        }
+
+        // Redirect to the external signing view with the token
+        return redirect()->route('signatures.external', $supervisorRequest->token);
     }
 
     /**

@@ -308,7 +308,10 @@
             </div>
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    paginateDocument(document.getElementById('reviewDocContent'), @json($signingParties ?? []));
+                    var container = document.getElementById('reviewDocContent');
+                    paginateDocument(container, @json($signingParties ?? []));
+                    // Restore previously signed initials so reviewer sees them
+                    restoreStoredInitials(container, @json($storedInitials ?? []));
                 });
             </script>
         @else
@@ -429,26 +432,39 @@
         <h4 class="font-semibold text-slate-800 mb-4">Review Actions</h4>
 
         <div class="flex flex-wrap items-center gap-3">
-            {{-- Approve & Advance --}}
             @php
                 $nextPartyLabel = $nextParty ? ucfirst(preg_replace('/_\d+$/', '', $nextParty)) : null;
                 $nextPartyName = $nextParty && isset($progress[$nextParty]) ? $progress[$nextParty]['name'] : $nextPartyLabel;
             @endphp
-            <form method="POST" action="{{ route('docuperfect.signatures.approveAndAdvance', $document) }}">
-                @csrf
-                <button type="submit"
-                        class="px-6 py-2.5 text-sm font-medium rounded-lg text-white transition-colors
-                               {{ $nextParty ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-emerald-600 hover:bg-emerald-700' }}"
-                        onclick="return confirm('{{ $nextParty
-                            ? 'Approve and send to ' . ($nextPartyName ?: $nextPartyLabel) . '?'
-                            : 'Approve and complete the document?' }}')">
-                    @if($nextParty)
-                        Approve &amp; Send to {{ $nextPartyName ?: $nextPartyLabel }} &rarr;
-                    @else
-                        Approve &amp; Complete Document
-                    @endif
-                </button>
-            </form>
+
+            @if(!empty($isCandidateFlow) && in_array($template->status, [\App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR, \App\Models\Docuperfect\SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL]))
+                {{-- Candidate flow: supervisor must SIGN, not just approve --}}
+                <a href="{{ route('docuperfect.signatures.authoriseSigning', $document) }}"
+                   class="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold rounded-lg text-white transition-colors shadow"
+                   style="background: #f59e0b;"
+                   onclick="return confirm('You will be taken to the signing view to authorise this document with your signature and initials.')">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                    </svg>
+                    Authorise &amp; Sign Document
+                </a>
+            @else
+                {{-- Normal flow: Approve & Advance --}}
+                <form method="POST" action="{{ route('docuperfect.signatures.approveAndAdvance', $document) }}">
+                    @csrf
+                    <button type="submit"
+                            class="px-6 py-2.5 text-sm font-medium rounded-lg text-white transition-colors bg-emerald-600 hover:bg-emerald-700"
+                            onclick="return confirm('{{ $nextParty
+                                ? 'Approve and send to ' . ($nextPartyName ?: $nextPartyLabel) . '?'
+                                : 'Approve and complete the document?' }}')">
+                        @if($nextParty)
+                            Approve &amp; Send to {{ $nextPartyName ?: $nextPartyLabel }} &rarr;
+                        @else
+                            Approve &amp; Complete Document
+                        @endif
+                    </button>
+                </form>
+            @endif
 
             {{-- Return to Signer with Notes --}}
             <button @click="showReturnModal = true"

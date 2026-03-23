@@ -554,6 +554,7 @@ function signDocument() {
         hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
         isWebTemplate: {{ !empty($isWebTemplate) ? 'true' : 'false' }},
         signingParties: @json($signingParties ?? []),
+        storedInitials: @json($storedInitials ?? []),
         currentPage: 1,
         totalPages: {{ $pageCount }},
         signedCount: {{ $signedCount }},
@@ -619,6 +620,8 @@ function signDocument() {
                     setTimeout(() => {
                         const container = this.$refs.webDocContent;
                         paginateDocument(container, this.signingParties);
+                        // Restore previously signed initials (from other parties)
+                        restoreStoredInitials(container, this.storedInitials);
                         this._makeWebElementsInteractive();
                         // Delay to let DOM settle after ceremony fields are created
                         setTimeout(() => this._updateIncompleteCount(), 300);

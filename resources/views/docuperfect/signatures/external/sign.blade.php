@@ -1142,6 +1142,7 @@ function externalSign() {
         hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
         isWebTemplate: {{ !empty($isWebTemplate) ? 'true' : 'false' }},
         signingParties: @json($signingParties ?? []),
+        storedInitials: @json($storedInitials ?? []),
         webTemplateHtml: @json($webTemplateHtml ?? ''),
         editableFields: @json($editableFields ?? []),
         webFieldsDirty: false,
@@ -1232,6 +1233,7 @@ function externalSign() {
                 this.$nextTick(() => {
                     setTimeout(() => {
                         paginateDocument(this.$refs.webDocContent, this.signingParties);
+                        restoreStoredInitials(this.$refs.webDocContent, this.storedInitials);
                         if (this.editableFields.length > 0) {
                             this.initWebTemplateFields();
                         }
