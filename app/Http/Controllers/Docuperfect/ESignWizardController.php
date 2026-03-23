@@ -2284,10 +2284,17 @@ class ESignWizardController extends Controller
 
         // --- Step 1: Find the signature section start in HTML ---
         // Must match actual HTML element, not CSS selectors in <style> blocks.
-        $sigSectionPos = strpos($html, 'class="corex-signature-section"');
-        if ($sigSectionPos === false) {
-            $sigSectionPos = strpos($html, 'class="sig-section"');
-        }
+        // corex-signature-section = "THUS DONE AND SIGNED" title clause (part of document body)
+        // sig-section = actual signature blocks with input fields (the real boundary)
+        // Use sig-section as preferred boundary; fall back to corex-signature-section.
+        $posCorex = strpos($html, 'class="corex-signature-section"');
+        $posSig = strpos($html, 'class="sig-section"');
+
+        // Prefer sig-section (the actual interactive signing blocks).
+        // corex-signature-section is just a document clause ("THUS DONE AND SIGNED")
+        // that appears before the real signature blocks — it's still pageable content.
+        $sigSectionPos = $posSig !== false ? $posSig : $posCorex;
+
         // Walk backward to the opening < of the element containing the class
         if ($sigSectionPos !== false) {
             $sigSectionStart = strrpos(substr($html, 0, $sigSectionPos), '<');
