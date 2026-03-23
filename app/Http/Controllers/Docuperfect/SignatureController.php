@@ -1996,31 +1996,40 @@ class SignatureController extends Controller
         $flattenedPages = $template->flattened_pages_json ?? [];
         $hasFlattened = !empty($flattenedPages);
         $pageImages = [];
-        $webTemplateDataReview = $document->web_template_data ?? [];
-        $hasDocPages = !empty($webTemplateDataReview['flattened_page_count']);
+        $webTemplateData = $document->web_template_data ?? [];
+        $hasDocPages = !empty($webTemplateData['flattened_page_count']);
 
-        if ($hasDocPages && !$hasFlattened) {
-            // Flattened web template, no signature flattening yet — use document pages
-            $pageCount = (int) $webTemplateDataReview['flattened_page_count'];
-            for ($n = 0; $n < $pageCount; $n++) {
-                $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
-            }
-        } else {
-            $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
-            // For web templates with flattened pages, check document pages fallback
-            if ($pageCount < 1 && $hasDocPages) {
-                $pageCount = (int) $webTemplateDataReview['flattened_page_count'];
-            }
-            for ($n = 0; $n < $pageCount; $n++) {
-                if ($hasFlattened && isset($flattenedPages[$n])) {
-                    $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
-                } elseif ($hasDocPages) {
+        // Detect web template with merged_html — render inline HTML instead of page images
+        $isWebTemplate = false;
+        $webTemplateHtml = null;
+        if (!empty($webTemplateData['merged_html'])) {
+            $isWebTemplate = true;
+            $webTemplateHtml = $webTemplateData['merged_html'];
+        }
+
+        if (!$isWebTemplate) {
+            if ($hasDocPages && !$hasFlattened) {
+                $pageCount = (int) $webTemplateData['flattened_page_count'];
+                for ($n = 0; $n < $pageCount; $n++) {
                     $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
-                } elseif ($docTemplate) {
-                    $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+                }
+            } else {
+                $pageCount = !empty($flattenedPages) ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
+                if ($pageCount < 1 && $hasDocPages) {
+                    $pageCount = (int) $webTemplateData['flattened_page_count'];
+                }
+                for ($n = 0; $n < $pageCount; $n++) {
+                    if ($hasFlattened && isset($flattenedPages[$n])) {
+                        $pageImages[] = route('docuperfect.signatures.flattenedPage', ['templateId' => $template->id, 'page' => $n]);
+                    } elseif ($hasDocPages) {
+                        $pageImages[] = route('docuperfect.documents.pageImage', ['id' => $document->id, 'page' => $n]);
+                    } elseif ($docTemplate) {
+                        $pageImages[] = route('docuperfect.page.image', ['id' => $docTemplate->id, 'page' => $n]);
+                    }
                 }
             }
         }
+        $pageCount = $isWebTemplate ? 0 : ($pageCount ?? 0);
 
         // Get all markers with signatures for display
         $allMarkers = $template->markers()
@@ -2036,6 +2045,11 @@ class SignatureController extends Controller
             $candidateName = $template->creator?->name ?? 'Candidate';
         }
 
+        // Extract signing data from web_template_data for the summary panel
+        $disclosureAnswers = $webTemplateData['disclosure_answers'] ?? [];
+        $ceremonyValues = $webTemplateData['ceremony_values'] ?? [];
+        $clauseFlags = $webTemplateData['clause_flags'] ?? [];
+
         return view('docuperfect.signatures.review', [
             'document' => $document,
             'template' => $template,
@@ -2049,6 +2063,11 @@ class SignatureController extends Controller
             'user' => $user,
             'isCandidateFlow' => $isCandidateFlow,
             'candidateName' => $candidateName,
+            'isWebTemplate' => $isWebTemplate,
+            'webTemplateHtml' => $webTemplateHtml,
+            'disclosureAnswers' => $disclosureAnswers,
+            'ceremonyValues' => $ceremonyValues,
+            'clauseFlags' => $clauseFlags,
         ]);
     }
 
