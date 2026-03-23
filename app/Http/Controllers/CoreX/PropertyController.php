@@ -10,6 +10,7 @@ use App\Models\PropertyAdTemplate;
 use App\Models\PropertySettingItem;
 use App\Models\User;
 use App\Services\PermissionService;
+use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -150,8 +151,13 @@ class PropertyController extends Controller
             })
             ->values();
 
+        // PP feed readiness check for syndication panel
+        $ppMissingFields = $property->exists
+            ? app(PrivatePropertyListingMapper::class)->checkReadiness($property)
+            : [];
+
         return view('corex.properties.show', compact(
-            'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches'
+            'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields'
         ));
     }
 

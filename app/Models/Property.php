@@ -58,6 +58,25 @@ class Property extends Model
         'expiry_date',
         'lease_start_date',
         'lease_end_date',
+        'headline',
+        'street_name',
+        'street_number',
+        'province',
+        'town',
+        'latitude',
+        'longitude',
+        'pp_suburb_id',
+        'pp_syndication_enabled',
+        'pp_syndication_status',
+        'pp_ref',
+        'pp_listing_feed_ref',
+        'pp_last_submitted_at',
+        'pp_activated_at',
+        'pp_exclusive_days',
+        'pp_delay_until',
+        'pp_last_error',
+        'pp_images_last_synced_at',
+        'pp_listing_last_synced_at',
     ];
 
     protected $casts = [
@@ -82,6 +101,16 @@ class Property extends Model
         'commission_percent'  => 'float',
         'admin_fee'           => 'float',
         'marketing_fee'       => 'float',
+        'latitude'                => 'decimal:7',
+        'longitude'               => 'decimal:7',
+        'pp_suburb_id'            => 'integer',
+        'pp_syndication_enabled'  => 'boolean',
+        'pp_last_submitted_at'    => 'datetime',
+        'pp_activated_at'         => 'datetime',
+        'pp_exclusive_days'       => 'integer',
+        'pp_delay_until'          => 'datetime',
+        'pp_images_last_synced_at'  => 'datetime',
+        'pp_listing_last_synced_at' => 'datetime',
     ];
 
     protected static function boot(): void

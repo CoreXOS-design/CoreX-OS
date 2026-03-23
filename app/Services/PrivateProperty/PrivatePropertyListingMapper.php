@@ -1,0 +1,386 @@
+<?php
+
+namespace App\Services\PrivateProperty;
+
+use App\Models\Property;
+
+class PrivatePropertyListingMapper
+{
+    /**
+     * Map a CoreX Property to a PP Listing struct matching the WSDL exactly.
+     *
+     * WSDL Listing struct fields:
+     *   PropertyId, BranchId, Category (ArrayOfCategory), MandateType,
+     *   StreetName, StreetNumber, ComplexName, UnitNumber, Suburb, SuburbId,
+     *   Town, Province, Headline, Description, Price (double), Deposit (double),
+     *   ListingDate, ExpiryDate, AvailableFrom, AgentId, PhotoUrls (ArrayOfString),
+     *   OwnerID, XCoordinate (double), YCoordinate (double), ListingType,
+     *   PropertyStatus, ShowdayEvents, Attributes (ArrayOfAttribute),
+     *   HideStreetName, HideStreetNo, HideComplexName, HideUnitNumber,
+     *   RentalPriceType, SalesPricePresentation, OffersFromPrice,
+     *   SoleMandateExclusiveDays (int)
+     */
+    public function map(Property $property): array
+    {
+        $branchGuid  = config('services.private_property.branch_guid');
+        $category    = $this->mapCategory($property->category);
+        $mandateType = $this->mapMandateType($property->mandate_type);
+        $listingType = $this->mapListingType($property->mandate_type);
+        $status      = $listingType === 'Rental' ? 'ToLet' : 'ForSale';
+
+        // Build the full Listing struct — ALL fields must be present for PHP SoapClient
+        $expiryDate = $property->expiry_date
+            ? $property->expiry_date->format('Y-m-d\TH:i:s')
+            : now()->addYear()->format('Y-m-d\TH:i:s');
+
+        $listing = [
+            'PropertyId'              => (string) $property->id,
+            'BranchId'                => $branchGuid,
+            'Category'                => ['Category' => $category],
+            'MandateType'             => $mandateType,
+            'StreetName'              => $property->street_name ?: $this->parseStreetName($property->address),
+            'StreetNumber'            => $property->street_number ?: $this->parseStreetNumber($property->address),
+            'ComplexName'             => $property->complex_name ?? '',
+            'UnitNumber'              => $property->unit_number ?? '',
+            // PP106: use EITHER SuburbId OR (Suburb + Town + Province) — never both
+            'Suburb'                  => $property->suburb ?? '',
+            'Town'                    => $property->town ?? $property->city ?? '',
+            'Province'                => $this->mapProvince($property->province),
+            'Headline'                => $property->headline ?? $property->title ?? '',
+            'Description'             => $property->description ?? '',
+            'Price'                   => (float) $property->price,
+            'Deposit'                 => $listingType === 'Rental' ? (float) ($property->deposit_amount ?? 0) : 0.0,
+            'ListingDate'             => $property->created_at ? $property->created_at->format('Y-m-d\TH:i:s') : now()->format('Y-m-d\TH:i:s'),
+            'ExpiryDate'              => $expiryDate,
+            'AvailableFrom'           => now()->format('Y-m-d\TH:i:s'),
+            'AgentId'                 => (string) ($property->agent_id ?? ''),
+            'PhotoUrls'               => new \stdClass(), // empty ArrayOfString — overridden below if photos exist
+            'OwnerID'                 => '',
+            'XCoordinate'             => (float) ($property->latitude ?? 0),
+            'YCoordinate'             => (float) ($property->longitude ?? 0),
+            'ListingType'             => $listingType,
+            'PropertyStatus'          => $status,
+            'ShowdayEvents'           => new \stdClass(), // empty ArrayOfShowdayEvent
+            'Attributes'              => $this->buildAttributes($property),
+            'HideStreetName'          => false,
+            'HideStreetNo'            => false,
+            'HideComplexName'         => false,
+            'HideUnitNumber'          => false,
+            'RentalPriceType'         => '',
+            'SalesPricePresentation'  => '',
+            'OffersFromPrice'         => '',
+            'SoleMandateExclusiveDays' => 0,
+        ];
+
+        // PP106: SuburbId and name fields are mutually exclusive
+        if ($property->pp_suburb_id) {
+            $listing['SuburbId'] = (int) $property->pp_suburb_id;
+            $listing['Suburb']   = '';
+            $listing['Town']     = '';
+            $listing['Province'] = 'KwaZuluNatal'; // Province enum still required
+        }
+
+        // SoleMandateExclusiveDays — only for FullMandate Sale
+        if ($mandateType === 'FullMandate' && $listingType === 'Sale' && $property->pp_exclusive_days) {
+            $listing['SoleMandateExclusiveDays'] = (int) $property->pp_exclusive_days;
+        }
+
+        // Photo URLs
+        $skipImages = $property->pp_listing_last_synced_at !== null
+            && $property->pp_images_last_synced_at !== null
+            && $property->pp_images_last_synced_at >= $property->pp_listing_last_synced_at;
+
+        if (!$skipImages) {
+            $photos = $this->buildPhotoUrls($property);
+            if (!empty($photos)) {
+                $listing['PhotoUrls'] = ['string' => $photos];
+            }
+        }
+
+        return $listing;
+    }
+
+    /**
+     * Validate a mapped payload. Returns array of error messages (empty = valid).
+     */
+    public function validate(array $payload): array
+    {
+        $errors = [];
+
+        $required = ['PropertyId', 'BranchId', 'Category', 'MandateType', 'ListingType', 'PropertyStatus', 'Price', 'Description', 'AgentId'];
+
+        foreach ($required as $field) {
+            $val = $payload[$field] ?? null;
+            if ($val === null || $val === '' || ($field === 'Category' && empty($val))) {
+                $errors[] = "Missing required field: {$field}";
+            }
+        }
+
+        if (empty($payload['Suburb']) && empty($payload['SuburbId'])) {
+            $errors[] = 'Either Suburb name or SuburbId must be provided';
+        }
+
+        if (empty($payload['StreetName'])) {
+            $errors[] = 'Street name is required for PP syndication';
+        }
+        if (empty($payload['StreetNumber'])) {
+            $errors[] = 'Street number is required for PP syndication';
+        }
+
+        if (($payload['Price'] ?? 0) <= 0) {
+            $errors[] = 'Price must be greater than zero';
+        }
+
+        if (empty($payload['Description'])) {
+            $errors[] = 'Description is required and cannot be empty';
+        }
+
+        if (empty($payload['Headline'])) {
+            $errors[] = 'Headline is required and cannot be empty';
+        }
+
+        if (!empty($payload['SoleMandateExclusiveDays'])) {
+            $days = $payload['SoleMandateExclusiveDays'];
+            if ($days < 1 || $days > 92) {
+                $errors[] = 'SoleMandateExclusiveDays must be between 1 and 92';
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Check a Property for PP feed readiness.
+     */
+    public function checkReadiness(Property $property): array
+    {
+        $missing = [];
+
+        $checks = [
+            ['field' => 'title',        'label' => 'Title / Headline',  'tab' => 'info'],
+            ['field' => 'description',  'label' => 'Description',       'tab' => 'info'],
+            ['field' => 'price',        'label' => 'Price',             'tab' => 'info',  'min' => 1],
+            ['field' => 'category',     'label' => 'Category',          'tab' => 'info'],
+            ['field' => 'mandate_type', 'label' => 'Mandate Type',      'tab' => 'info'],
+            ['field' => 'property_type','label' => 'Property Type',     'tab' => 'info'],
+            ['field' => 'suburb',       'label' => 'Suburb',            'tab' => 'info'],
+            ['field' => 'agent_id',     'label' => 'Listing Agent',     'tab' => 'info'],
+        ];
+
+        foreach ($checks as $check) {
+            $value = $property->{$check['field']};
+            $empty = $value === null || $value === '' || $value === 0;
+
+            if (isset($check['min']) && is_numeric($value) && (int) $value < $check['min']) {
+                $empty = true;
+            }
+
+            if ($empty) {
+                $missing[] = $check;
+            }
+        }
+
+        // Street address — PP requires both street number and street name (PP119)
+        // Check the dedicated columns first, fall back to parsing from address
+        $hasStreetNumber = !empty($property->street_number) || !empty($this->parseStreetNumber($property->address));
+        $hasStreetName   = !empty($property->street_name) || !empty($this->parseStreetName($property->address));
+
+        if (!$hasStreetNumber) {
+            $missing[] = ['field' => 'address', 'label' => 'Street number (e.g. "14 Ocean Drive")', 'tab' => 'info'];
+        }
+        if (!$hasStreetName) {
+            $missing[] = ['field' => 'address', 'label' => 'Street name (e.g. "14 Ocean Drive")', 'tab' => 'info'];
+        }
+
+        // PP requires minimum 3 images for sale listings, 1 for rentals
+        $allImages = $property->allImages();
+        $isRental  = in_array(strtolower($property->mandate_type ?? ''), ['rental']);
+        $minPhotos = $isRental ? 1 : 3;
+
+        if (count($allImages) < $minPhotos) {
+            $missing[] = ['field' => 'images', 'label' => "At least {$minPhotos} photos (have " . count($allImages) . ')', 'tab' => 'gallery'];
+        }
+
+        return $missing;
+    }
+
+    /**
+     * Build the Attributes array matching WSDL ArrayOfAttribute.
+     * Each attribute: { AttributeType: string, Value: string }
+     */
+    private function buildAttributes(Property $property): array
+    {
+        $attrs = [];
+
+        $map = [
+            'Bedrooms'     => (string) (int) ($property->beds ?? 0),
+            'Bathrooms'    => (string) (int) ($property->baths ?? 0),
+            'Garages'      => (string) (int) ($property->garages ?? 0),
+            'FloorArea'    => (string) (int) ($property->size_m2 ?? 0),
+            'LandArea'     => (string) (int) ($property->erf_size_m2 ?? 0),
+        ];
+
+        if ($property->property_type) {
+            $map['HomeType'] = $this->mapPropertyType($property->property_type);
+        }
+        if ($property->rates_taxes) {
+            $map['Rates'] = (string) (int) $property->rates_taxes;
+        }
+        if ($property->levy) {
+            $map['Levies'] = (string) (int) $property->levy;
+        }
+
+        foreach ($map as $type => $value) {
+            if ($value !== '' && $value !== '0' || in_array($type, ['Bedrooms', 'Bathrooms', 'Garages'])) {
+                $attrs[] = ['AttributeType' => $type, 'Value' => $value];
+            }
+        }
+
+        return ['Attribute' => $attrs]; // ArrayOfAttribute wrapper
+    }
+
+    private function mapCategory(?string $category): string
+    {
+        $map = [
+            'residential'  => 'Residential',
+            'land'         => 'Land',
+            'farms'        => 'Farms',
+            'farm'         => 'Farms',
+            'commercial'   => 'Commercial',
+            'agricultural' => 'Farms',
+        ];
+
+        return $map[strtolower($category ?? '')] ?? 'Residential';
+    }
+
+    private function mapMandateType(?string $mandateType): string
+    {
+        $map = [
+            'sole'          => 'FullMandate',
+            'sole mandate'  => 'FullMandate',
+            'open'          => 'OpenMandate',
+            'open mandate'  => 'OpenMandate',
+            'dual'          => 'OpenMandate',
+            'dual mandate'  => 'OpenMandate',
+            'rental'        => 'Rental',
+        ];
+
+        return $map[strtolower($mandateType ?? '')] ?? 'OpenMandate';
+    }
+
+    private function mapListingType(?string $mandateType): string
+    {
+        return in_array(strtolower($mandateType ?? ''), ['rental']) ? 'Rental' : 'Sale';
+    }
+
+    private function mapPropertyType(?string $type): string
+    {
+        $map = [
+            'house'       => 'House',
+            'apartment'   => 'Apartment',
+            'flat'        => 'Apartment',
+            'townhouse'   => 'Townhouse',
+            'simplex'     => 'Simplex',
+            'duplex'      => 'Duplex',
+            'cluster'     => 'Cluster',
+            'garden_flat' => 'GardenFlat',
+            'cottage'     => 'Cottage',
+            'vacant_land' => 'VacantLand',
+            'land'        => 'VacantLand',
+            'farm'        => 'SmallHolding',
+            'commercial'  => 'Commercial',
+            'industrial'  => 'Industrial',
+            'office'      => 'Office',
+        ];
+
+        return $map[strtolower($type ?? '')] ?? 'House';
+    }
+
+    /**
+     * Map province name to PP Province enum.
+     */
+    private function mapProvince(?string $province): string
+    {
+        $map = [
+            'kwazulu-natal'  => 'KwaZuluNatal',
+            'kwazulu natal'  => 'KwaZuluNatal',
+            'kzn'            => 'KwaZuluNatal',
+            'gauteng'        => 'Gauteng',
+            'western cape'   => 'WesternCape',
+            'eastern cape'   => 'EasternCape',
+            'free state'     => 'FreeState',
+            'limpopo'        => 'Limpopo',
+            'mpumalanga'     => 'Mpumalanga',
+            'north west'     => 'NorthWest',
+            'northern cape'  => 'NorthernCape',
+        ];
+
+        return $map[strtolower(trim($province ?? ''))] ?? 'KwaZuluNatal';
+    }
+
+    private function buildPhotoUrls(Property $property): array
+    {
+        $allImages = $property->allImages();
+        // Use PP_IMAGE_BASE_URL if set (for local dev against sandbox), otherwise APP_URL
+        $override  = config('services.private_property.image_base_url');
+        $baseUrl   = rtrim(!empty($override) ? $override : config('app.url'), '/');
+        $urls      = [];
+
+        foreach ($allImages as $imagePath) {
+            if (empty($imagePath)) continue;
+
+            if (str_starts_with($imagePath, 'http://') || str_starts_with($imagePath, 'https://')) {
+                $urls[] = $imagePath;
+            } else {
+                $urls[] = $baseUrl . $imagePath;
+            }
+        }
+
+        return $urls;
+    }
+
+    /**
+     * Parse street number from a combined address string.
+     * Handles: "14 Ocean Drive", "Lot 14 Marine Rd", "Unit 3 Beach Rd", empty.
+     */
+    private function parseStreetNumber(?string $address): string
+    {
+        $address = trim($address ?? '');
+        if ($address === '') return '';
+
+        // Match leading number: "14 Ocean Drive" → "14"
+        if (preg_match('/^(\d+)\s/', $address, $m)) {
+            return $m[1];
+        }
+
+        // Match "Lot 14 ...", "Unit 3 ...", "No 7 ..."
+        if (preg_match('/^(?:lot|unit|no\.?)\s*(\d+)/i', $address, $m)) {
+            return $m[1];
+        }
+
+        return '';
+    }
+
+    /**
+     * Parse street name from a combined address string.
+     * Returns everything after the leading number/prefix.
+     */
+    private function parseStreetName(?string $address): string
+    {
+        $address = trim($address ?? '');
+        if ($address === '') return '';
+
+        // Strip leading number: "14 Ocean Drive" → "Ocean Drive"
+        if (preg_match('/^\d+\s+(.+)$/', $address, $m)) {
+            return trim($m[1]);
+        }
+
+        // Strip "Lot 14 ...", "Unit 3 ...", "No 7 ..."
+        if (preg_match('/^(?:lot|unit|no\.?)\s*\d+\s+(.+)$/i', $address, $m)) {
+            return trim($m[1]);
+        }
+
+        // No number found — return the whole address as street name
+        return $address;
+    }
+}

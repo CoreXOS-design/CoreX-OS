@@ -55,3 +55,6 @@ Schedule::command('prospecting:maintain-claims')->hourly();
 
 // Carry forward targets from previous month — runs on the 1st at 00:05
 Schedule::command('targets:carry-forward')->monthlyOn(1, '00:05')->withoutOverlapping();
+
+// Private Property activation polling — runs every 15 minutes
+Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinutes()->withoutOverlapping();

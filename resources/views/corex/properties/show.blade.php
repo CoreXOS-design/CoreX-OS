@@ -187,7 +187,7 @@
 
     {{-- Syndication bar --}}
     @if(!$isNew)
-    <div class="flex items-center justify-end px-4 py-2"
+    <div class="flex items-center justify-end gap-2 px-4 py-2"
          style="border-bottom:1px solid var(--border);"
          x-data="{ synOpen: false, synStep: 'main' }">
         <div class="relative">
@@ -216,11 +216,12 @@
                  x-transition:leave="transition ease-in duration-100"
                  x-transition:leave-start="opacity-100 translate-y-0"
                  x-transition:leave-end="opacity-0 translate-y-1"
-                 class="absolute right-0 top-full mt-2 z-50 rounded-md shadow-2xl overflow-hidden"
-                 style="width:260px; background:var(--surface); border:1px solid var(--border);">
+                 class="absolute right-0 top-full mt-2 z-50 rounded-md shadow-2xl"
+                 style="width:380px; max-height:80vh; overflow-y:auto; background:var(--surface); border:1px solid var(--border);">
 
                 {{-- Step: main --}}
-                <div x-show="synStep === 'main'" class="p-4 space-y-3">
+                <div x-show="synStep === 'main'" class="p-4 space-y-4">
+                    {{-- Website publish section --}}
                     <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Publish to Website</p>
 
                     @if(!$property->isPublished())
@@ -250,8 +251,6 @@
                     </div>
                     @endif
 
-                    <div style="border-top:1px solid var(--border);"></div>
-
                     <button type="button"
                             @click="synStep = 'preview'"
                             class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold"
@@ -260,6 +259,160 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                         Live Preview
                     </button>
+
+                    {{-- Portal Syndication section --}}
+                    <div style="border-top:1px solid var(--border); margin-top:4px; padding-top:12px;">
+                        <p class="text-[10px] font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Portal Syndication</p>
+
+                        @php
+                            $ppConfig = [
+                                'propertyId'    => $property->id,
+                                'enabled'       => (bool) $property->pp_syndication_enabled,
+                                'status'        => $property->pp_syndication_status ?? '',
+                                'ppRef'         => $property->pp_ref ?? '',
+                                'lastSubmitted' => $property->pp_last_submitted_at ? $property->pp_last_submitted_at->format('d M Y H:i') : '',
+                                'lastError'     => $property->pp_last_error ?? '',
+                                'exclusiveDays' => (int) ($property->pp_exclusive_days ?? 0),
+                                'mandateType'   => $property->mandate_type ?? '',
+                                'activatedAt'   => $property->pp_activated_at ? $property->pp_activated_at->format('d M Y H:i') : '',
+                                'csrfToken'     => csrf_token(),
+                                'missingFields' => $ppMissingFields ?? [],
+                            ];
+                        @endphp
+                        <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-3">
+
+                            {{-- Private Property toggle row --}}
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
+                                 style="background:var(--surface-2); border:1px solid var(--border);"
+                                 @click="toggleEnabled()"
+                                 :style="enabled ? 'background:rgba(0,212,170,0.06); border-color:rgba(0,212,170,0.25);' : 'background:var(--surface-2); border-color:var(--border);'">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:#00d4aa' : 'color:var(--text-muted)'">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
+                                    </svg>
+                                    <span class="text-xs font-semibold" style="color:var(--text-primary);">Private Property</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    {{-- Toggle switch --}}
+                                    <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                                         :style="enabled ? 'background:#00d4aa' : 'background:var(--surface-3,#374151)'"
+                                         role="switch"
+                                         :aria-checked="enabled">
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                              style="background:#fff; margin-top:2px;"
+                                              :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                    </div>
+                                    {{-- Status badge --}}
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
+                                          :style="statusBadgeStyle()" x-text="statusLabel()"></span>
+                                </div>
+                            </div>
+
+                            {{-- Status line --}}
+                            <div x-show="status && status !== ''" x-cloak class="text-[11px] px-1" style="color:var(--text-secondary);">
+                                <template x-if="ppRef">
+                                    <span>PP Ref: <strong x-text="ppRef" style="color:var(--text-primary);"></strong> &mdash; <span x-text="statusLabel()"></span></span>
+                                </template>
+                                <template x-if="!ppRef && status === 'submitted'">
+                                    <span>Submitted, awaiting activation...</span>
+                                </template>
+                                <template x-if="!ppRef && status === 'pending'">
+                                    <span>Ready to submit</span>
+                                </template>
+                                <template x-if="status === 'error'">
+                                    <span style="color:#ef4444;" x-text="'Error: ' + lastError"></span>
+                                </template>
+                                <template x-if="status === 'deactivated'">
+                                    <span style="color:var(--text-muted);">Deactivated</span>
+                                </template>
+                            </div>
+
+                            {{-- Missing fields warning --}}
+                            <div x-show="enabled && missingFields.length > 0" x-cloak
+                                 class="rounded-md px-3 py-2.5 space-y-1.5"
+                                 style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+                                <p class="text-[11px] font-semibold" style="color:#f59e0b;">Cannot submit — missing required fields:</p>
+                                <ul class="space-y-0.5 m-0 pl-3" style="list-style:disc;">
+                                    <template x-for="f in missingFields" :key="f.field">
+                                        <li class="text-[11px]" style="color:#f59e0b;">
+                                            <span x-text="f.label"></span>
+                                            <span class="opacity-60" x-text="'(' + f.tab + ' tab)'"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+
+                            {{-- Exclusive days (sole mandate sale only) --}}
+                            @if(in_array(strtolower($property->mandate_type ?? ''), ['sole', 'sole mandate']) && !in_array(strtolower($property->mandate_type ?? ''), ['rental']))
+                            <div x-show="enabled" x-cloak class="flex items-center gap-2">
+                                <label class="text-[11px]" style="color:var(--text-secondary);">Exclusive Days</label>
+                                <input type="number"
+                                       x-model.number="exclusiveDays"
+                                       @click.stop
+                                       min="0" max="92" step="1"
+                                       class="w-16 px-2 py-1 rounded-md text-xs text-center"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <span class="text-[10px]" style="color:var(--text-muted);">0-92</span>
+                            </div>
+                            @endif
+
+                            {{-- Action buttons --}}
+                            <div x-show="enabled" x-cloak class="flex gap-2">
+                                <button type="button"
+                                        @click.stop="submitListing()"
+                                        :disabled="loading || missingFields.length > 0"
+                                        class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        :style="missingFields.length > 0 ? 'background:#374151; color:#6b7280; cursor:not-allowed;' : 'background:#00d4aa; color:#fff;'"
+                                        :class="missingFields.length === 0 ? 'hover:opacity-85' : ''">
+                                    <svg x-show="!loading" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                                    <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                    <span x-text="loading ? 'Submitting...' : 'Submit to PP'"></span>
+                                </button>
+                                <button type="button"
+                                        x-show="status === 'submitted' || status === 'active'"
+                                        @click.stop="deactivateListing()"
+                                        :disabled="loading"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(239,68,68,0.10); color:#ef4444; border:1px solid rgba(239,68,68,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                    Deactivate
+                                </button>
+                            </div>
+
+                            {{-- Last submitted timestamp --}}
+                            <div x-show="lastSubmitted" x-cloak class="text-[10px]" style="color:var(--text-muted);">
+                                Last submitted: <span x-text="lastSubmitted"></span>
+                            </div>
+
+                            {{-- Toast message (success only) --}}
+                            <div x-show="message && messageType === 'success'" x-cloak
+                                 x-transition
+                                 class="px-3 py-2 rounded-md text-[11px] font-medium"
+                                 style="background:rgba(0,212,170,0.10); color:#00d4aa; border:1px solid rgba(0,212,170,0.25);"
+                                 x-text="message"></div>
+
+                            {{-- Debug error panel --}}
+                            <div x-show="showDebug && debugErrors.length > 0" x-cloak
+                                 x-transition
+                                 class="rounded-md space-y-2"
+                                 style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); padding:10px 12px;">
+                                <div class="flex items-center justify-between">
+                                    <p class="text-[11px] font-bold" style="color:#ef4444;">Submission Failed</p>
+                                    <button type="button" @click.stop="showDebug = false; debugErrors = []"
+                                            class="text-[10px] px-1.5 py-0.5 rounded"
+                                            style="color:var(--text-muted); background:var(--surface-2);">
+                                        Dismiss
+                                    </button>
+                                </div>
+                                <ul class="space-y-1 m-0 pl-3" style="list-style:disc;">
+                                    <template x-for="(err, i) in debugErrors" :key="i">
+                                        <li class="text-[11px] break-words" style="color:#f87171; word-break:break-word;"
+                                            x-text="err"></li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {{-- Step: preview agent choice --}}
@@ -2349,6 +2502,169 @@ document.addEventListener('keydown', function(e) {
         });
     }
 })();
+
+// Private Property Syndication Alpine component
+function ppSyndication(config) {
+    return {
+        propertyId: config.propertyId,
+        enabled: config.enabled,
+        status: config.status || '',
+        ppRef: config.ppRef || '',
+        lastSubmitted: config.lastSubmitted || '',
+        lastError: config.lastError || '',
+        exclusiveDays: config.exclusiveDays || 0,
+        mandateType: config.mandateType || '',
+        activatedAt: config.activatedAt || '',
+        csrfToken: config.csrfToken,
+        missingFields: config.missingFields || [],
+        loading: false,
+        message: '',
+        messageType: 'success',
+        debugErrors: [],
+        showDebug: false,
+
+        statusLabel() {
+            const labels = {
+                '': 'Disabled',
+                'pending': 'Pending',
+                'submitted': 'Submitted',
+                'active': 'Active',
+                'error': 'Error',
+                'deactivated': 'Deactivated',
+            };
+            if (!this.enabled && !this.status) return 'Disabled';
+            return labels[this.status] || 'Disabled';
+        },
+
+        statusBadgeStyle() {
+            const styles = {
+                '': 'background:var(--surface-2); color:var(--text-muted);',
+                'pending': 'background:rgba(245,158,11,0.12); color:#f59e0b;',
+                'submitted': 'background:rgba(245,158,11,0.12); color:#f59e0b;',
+                'active': 'background:rgba(0,212,170,0.12); color:#00d4aa;',
+                'error': 'background:rgba(239,68,68,0.12); color:#ef4444;',
+                'deactivated': 'background:var(--surface-2); color:var(--text-muted);',
+            };
+            if (!this.enabled && !this.status) return styles[''];
+            return styles[this.status] || styles[''];
+        },
+
+        showMessage(msg, type = 'success') {
+            this.message = msg;
+            this.messageType = type;
+            setTimeout(() => { this.message = ''; }, 5000);
+        },
+
+        async toggleEnabled() {
+            this.loading = true;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/toggle`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.enabled = data.pp_syndication_enabled;
+                    this.status = data.pp_syndication_status || '';
+                    this.showMessage(this.enabled ? 'PP syndication enabled' : 'PP syndication disabled');
+                    // Refresh readiness when enabling so warnings show immediately
+                    if (this.enabled) {
+                        await this.refreshReadiness();
+                    }
+                } else {
+                    this.showMessage(data.message || 'Toggle failed', 'error');
+                }
+            } catch (e) {
+                this.showMessage('Network error', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async refreshReadiness() {
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/readiness`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const data = await res.json();
+                this.missingFields = data.missing_fields || [];
+            } catch (e) { /* silent */ }
+        },
+
+        async submitListing() {
+            // Double-check readiness before submitting
+            await this.refreshReadiness();
+            if (this.missingFields.length > 0) {
+                this.showMessage('Cannot submit — fill in the required fields first', 'error');
+                return;
+            }
+
+            this.loading = true;
+            this.debugErrors = [];
+            this.showDebug = false;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays || null }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.status = data.pp_syndication_status || 'submitted';
+                    this.ppRef = data.pp_ref || this.ppRef;
+                    this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    this.lastError = '';
+                    this.debugErrors = [];
+                    this.showDebug = false;
+                    this.showMessage(data.message || 'Submitted to PP');
+                } else {
+                    if (data.missing_fields && data.missing_fields.length > 0) {
+                        this.missingFields = data.missing_fields;
+                    }
+                    this.status = data.pp_syndication_status || 'error';
+                    this.lastError = data.message || 'Submission failed';
+
+                    // Build debug info from all available error data
+                    this.debugErrors = [];
+                    if (data.errors && data.errors.length > 0) {
+                        data.errors.forEach(e => this.debugErrors.push(typeof e === 'string' ? e : e.label || JSON.stringify(e)));
+                    }
+                    if (data.message) {
+                        this.debugErrors.push(data.message);
+                    }
+                    this.showDebug = true;
+                }
+            } catch (e) {
+                this.debugErrors = ['Network error: ' + e.message];
+                this.showDebug = true;
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async deactivateListing() {
+            if (!confirm('Deactivate this listing on Private Property?')) return;
+            this.loading = true;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/deactivate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.status = data.pp_syndication_status || 'deactivated';
+                    this.showMessage('Listing deactivated on PP');
+                } else {
+                    this.showMessage(data.message || 'Deactivation failed', 'error');
+                }
+            } catch (e) {
+                this.showMessage('Network error', 'error');
+            } finally {
+                this.loading = false;
+            }
+        },
+    };
+}
 </script>
 @endpush
 @endsection

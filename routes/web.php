@@ -608,6 +608,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{property}/marketing',              [\App\Http\Controllers\PropertyMarketingController::class, 'index'])->name('marketing.index');
         Route::post('/{property}/marketing/generate-copy', [\App\Http\Controllers\PropertyMarketingController::class, 'generateCopy'])->name('marketing.generateCopy');
         Route::post('/{property}/marketing/publish',     [\App\Http\Controllers\PropertyMarketingController::class, 'publish'])->name('marketing.publish');
+        // Private Property Syndication
+        Route::post('/{property}/syndication/toggle',     [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'toggle'])->name('syndication.toggle');
+        Route::post('/{property}/syndication/submit',     [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'submit'])->name('syndication.submit');
+        Route::post('/{property}/syndication/deactivate', [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'deactivate'])->name('syndication.deactivate');
+        Route::get('/{property}/syndication/status',      [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'status'])->name('syndication.status');
+        Route::get('/{property}/syndication/readiness',   [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'readiness'])->name('syndication.readiness');
     });
 
     // Ad Template Builder

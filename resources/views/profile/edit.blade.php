@@ -403,8 +403,8 @@
                         @enderror
                     </div>
                     <div>
-                        <label for="cell" style="display:block; font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.06em;">Cell</label>
-                        <input id="cell" name="cell" type="tel" value="{{ old('cell', $user->cell) }}" placeholder="Mobile"
+                        <label for="cell" style="display:block; font-size:0.75rem; font-weight:600; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.06em;">Cell <span style="color:#ef4444;">*</span></label>
+                        <input id="cell" name="cell" type="tel" value="{{ old('cell', $user->cell) }}" placeholder="Mobile" required
                                style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.875rem; box-sizing:border-box; transition:all 300ms;"
                                onfocus="this.style.borderColor='var(--brand-button, #0ea5e9)'; this.style.boxShadow='0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 20%, transparent)'"
                                onblur="this.style.borderColor='var(--border)'; this.style.boxShadow='none'">

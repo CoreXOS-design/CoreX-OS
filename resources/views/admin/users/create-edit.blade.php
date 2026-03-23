@@ -224,12 +224,15 @@
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         </div>
                         <div>
-                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Cell</label>
-                            <input type="tel" name="cell" value="{{ old('cell', $isEdit ? $user->cell : '') }}" placeholder="Mobile"
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Cell <span style="color:#ef4444;">*</span></label>
+                            <input type="tel" name="cell" value="{{ old('cell', $isEdit ? $user->cell : '') }}" placeholder="Mobile" required
                                    autocomplete="off"
                                    class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                            @error('cell')
+                                <p class="text-xs mt-1" style="color:#f87171;">{{ $message }}</p>
+                            @enderror
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Fax</label>

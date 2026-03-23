@@ -63,4 +63,13 @@ return [
         'key' => env('ANTHROPIC_API_KEY'),
     ],
 
+    'private_property' => [
+        'username'       => env('PP_USERNAME'),
+        'password'       => env('PP_PASSWORD'),
+        'branch_guid'    => env('PP_BRANCH_GUID'),
+        'wsdl'           => env('PP_WSDL', 'https://services.sandbox.pp.co.za/AgentImport/AgentImport.asmx?WSDL'),
+        'sandbox'        => env('PP_SANDBOX', true),
+        'image_base_url' => env('PP_IMAGE_BASE_URL', ''),  // Override APP_URL for image URLs (useful for local dev against sandbox)
+    ],
+
 ];

@@ -127,6 +127,13 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'private_property' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/private_property.log'),
+            'level' => 'debug',
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];

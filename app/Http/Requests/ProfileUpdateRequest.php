@@ -27,7 +27,7 @@ class ProfileUpdateRequest extends FormRequest
             ],
             'designation' => ['nullable', 'string', 'max:100'],
             'phone' => ['nullable', 'string', 'max:50'],
-            'cell' => ['nullable', 'string', 'max:50'],
+            'cell' => ['required', 'string', 'max:50'],
             'fax' => ['nullable', 'string', 'max:50'],
             'website' => ['nullable', 'string', 'max:255'],
         ];
