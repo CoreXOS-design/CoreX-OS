@@ -765,7 +765,10 @@ function signDocument() {
                             _isWebInitial: true,
                             _webInitialEntry: entry,
                         };
+                        self.captureMode = 'draw';
+                        self.typedName = @json($userInitials ?? '');
                         self.showSignModal = true;
+                        self.$nextTick(() => self.initCanvas());
                     });
                 } else {
                     // Other party — grey out
