@@ -146,6 +146,143 @@
         </div>
     </div>
 
+    {{-- Amendment History --}}
+    @if(isset($amendments) && $amendments->isNotEmpty())
+    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 bg-amber-50">
+            <h3 class="text-sm font-bold text-amber-800 uppercase tracking-wider">Amendment History</h3>
+        </div>
+        <div class="divide-y divide-slate-100">
+            @foreach($amendments as $amendment)
+                <div class="px-6 py-4">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <div class="text-sm font-semibold text-slate-800">
+                                {{ ucfirst($amendment->amendment_type ?? 'Addition') }}
+                                @if($amendment->amended_by_party_id)
+                                    — by {{ $amendment->amendedBy?->signer_name ?? 'Unknown' }}
+                                @endif
+                            </div>
+                            <div class="text-xs text-slate-500 mt-0.5">
+                                {{ $amendment->created_at?->format('d M Y, H:i') }}
+                                @if($amendment->document_version_before && $amendment->document_version_after)
+                                    &middot; v{{ $amendment->document_version_before }} &rarr; v{{ $amendment->document_version_after }}
+                                @endif
+                            </div>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded-full font-semibold
+                            {{ $amendment->status === 'accepted' ? 'bg-emerald-100 text-emerald-700' : ($amendment->status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700') }}">
+                            {{ ucfirst($amendment->status ?? 'pending') }}
+                        </span>
+                    </div>
+                    @if($amendment->amendment_text)
+                    <div class="mt-2 p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-700 italic">
+                        "{{ $amendment->amendment_text }}"
+                    </div>
+                    @endif
+
+                    {{-- Acceptance/rejection details --}}
+                    @if($amendment->acceptances && $amendment->acceptances->isNotEmpty())
+                    <div class="mt-2 space-y-1">
+                        @foreach($amendment->acceptances as $acceptance)
+                        <div class="flex items-center gap-2 text-xs text-slate-500">
+                            @if($acceptance->accepted)
+                                <span class="text-emerald-600">&#10003;</span>
+                                <span>Accepted by {{ $acceptance->signingRequest?->signer_name ?? 'Unknown' }}</span>
+                            @elseif($acceptance->rejected)
+                                <span class="text-red-600">&#10007;</span>
+                                <span>Rejected by {{ $acceptance->signingRequest?->signer_name ?? 'Unknown' }}
+                                    @if($acceptance->rejection_reason) — {{ $acceptance->rejection_reason }} @endif
+                                </span>
+                            @else
+                                <span class="text-amber-500">&#9679;</span>
+                                <span>Pending from {{ $acceptance->signingRequest?->signer_name ?? 'Unknown' }}</span>
+                            @endif
+                            @if($acceptance->initialled_at)
+                                <span class="text-slate-400">&middot; Initialled {{ $acceptance->initialled_at->format('d M Y, H:i') }}</span>
+                            @endif
+                        </div>
+                        @endforeach
+                    </div>
+                    @endif
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    {{-- Consent Log --}}
+    @if(isset($consentLogs) && $consentLogs->isNotEmpty())
+    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50">
+            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Consent Records</h3>
+        </div>
+        <div class="divide-y divide-slate-100">
+            @foreach($consentLogs as $consent)
+                <div class="px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-sm font-semibold text-slate-800">
+                                {{ $consent->signingRequest?->signer_name ?? $consent->contact?->full_name ?? 'Unknown' }}
+                            </div>
+                            <div class="text-xs text-slate-500">
+                                Consented {{ $consent->consent_accepted_at?->format('d M Y, H:i') }}
+                                &middot; IP: {{ $consent->ip_address }}
+                            </div>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
+                            Consent Recorded
+                        </span>
+                    </div>
+                    @if($consent->device_info)
+                    <div class="text-xs text-slate-400 mt-1">
+                        @php $device = is_array($consent->device_info) ? $consent->device_info : []; @endphp
+                        {{ $device['browser'] ?? '' }} {{ $device['os'] ?? '' }}
+                    </div>
+                    @endif
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    {{-- Document Versions --}}
+    @if(isset($versions) && $versions->isNotEmpty())
+    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50">
+            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider">Document Versions</h3>
+        </div>
+        <div class="divide-y divide-slate-100">
+            @foreach($versions as $version)
+                <div class="px-6 py-4 flex items-center justify-between">
+                    <div>
+                        <div class="text-sm font-semibold text-slate-800">
+                            Version {{ $version->version_number }}
+                            <span class="text-xs font-normal text-slate-500 ml-2">{{ strtoupper($version->file_type) }}</span>
+                        </div>
+                        <div class="text-xs text-slate-500">
+                            Uploaded by {{ $version->uploaded_by_name ?? 'Unknown' }}
+                            &middot; {{ $version->uploaded_at?->format('d M Y, H:i') }}
+                            @if($version->ip_address) &middot; IP: {{ $version->ip_address }} @endif
+                        </div>
+                    </div>
+                    <div>
+                        @if($version->agent_approved)
+                            <span class="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
+                                Approved {{ $version->agent_approved_at?->format('d M Y') }}
+                            </span>
+                        @else
+                            <span class="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-semibold">
+                                Pending Review
+                            </span>
+                        @endif
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     {{-- ECT Act Notice --}}
     <div class="text-center text-xs text-slate-400 py-4">
         This document was signed electronically in accordance with the

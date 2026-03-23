@@ -173,6 +173,23 @@
                             </select>
                         </div>
                     </div>
+
+                    {{-- Candidate Practitioner Info (PPRA compliance) --}}
+                    @php
+                        $isCandidateDesignation = stripos($des, 'Candidate') !== false;
+                    @endphp
+                    <div x-data="{ isCandidate: {{ $isCandidateDesignation ? 'true' : 'false' }} }"
+                         x-init="document.querySelector('[name=designation]')?.addEventListener('change', e => isCandidate = (e.target.value || '').toLowerCase().includes('candidate'))"
+                         class="mt-3" x-show="isCandidate" x-cloak>
+                        <div class="rounded-lg p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <p class="text-xs" style="color:var(--text-muted);">
+                                Candidate practitioner documents require authorisation before processing.
+                                All full-status agents, principals, admins, and owners in the same branch
+                                can authorise — shared queue, no assigned supervisor.
+                            </p>
+                        </div>
+                    </div>
+
                     <div class="flex flex-wrap gap-5 mt-4 pt-4" style="border-top:1px solid var(--border);">
                         <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
                             <input type="hidden" name="can_capture_rentals" value="0">

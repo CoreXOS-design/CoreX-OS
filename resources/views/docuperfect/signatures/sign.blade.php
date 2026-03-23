@@ -22,33 +22,33 @@
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-4"
      x-data="signDocument()" x-init="init()">
 
-    {{-- Header (sticky) --}}
-    <div style="background:var(--corex-navy, #0b2a4a); position:sticky; top:0; z-index:50;" class="rounded-md px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-lg font-semibold text-white leading-tight">
+    {{-- Sticky action bar --}}
+    <x-sticky-action-bar>
+        <x-slot name="left">
+            <a href="{{ route('docuperfect.signatures.setup', $document) }}" class="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                Back to Setup
+            </a>
+        </x-slot>
+        <x-slot name="center">
+            <h2 class="text-sm font-semibold text-gray-700 truncate">
                 Sign Document — {{ $document->name }}
+                <span class="text-gray-400 font-normal">(<span x-text="signedCount"></span> / <span x-text="totalAgent"></span> markers)</span>
             </h2>
-            <div class="text-sm text-white/60 mt-0.5">
-                <span x-text="signedCount"></span> of <span x-text="totalAgent"></span> markers completed
-            </div>
-        </div>
-        <div class="flex items-center gap-4">
-            <a href="{{ route('docuperfect.signatures.setup', $document) }}"
-               class="text-sm text-white/60 hover:text-white transition-colors">Back to Setup</a>
-            <a href="{{ route('docuperfect.rental') }}"
-               class="text-sm text-white/60 hover:text-white transition-colors">Back to Rental</a>
+        </x-slot>
+        <x-slot name="right">
+            <a href="{{ route('docuperfect.rental') }}" class="text-sm text-gray-500 hover:text-gray-700 mr-2">Dashboard</a>
             <button @click="handleComplete()"
                     :disabled="completingForm || signedCount < totalAgent || totalAgent === 0"
-                    class="px-4 py-2 text-sm font-semibold rounded-md transition-colors"
+                    class="px-4 py-2 text-sm font-semibold rounded-sm transition-colors"
                     :class="signedCount >= totalAgent && totalAgent > 0 && !completingForm
-                        ? 'text-white hover:brightness-110'
-                        : 'bg-white/10 text-white/40 cursor-not-allowed'"
-                    :style="signedCount >= totalAgent && totalAgent > 0 && !completingForm ? 'background:var(--brand-button, #0ea5e9);' : ''">
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'">
                 <span x-show="!completingForm">Complete & Send</span>
                 <span x-show="completingForm" x-cloak>Completing...</span>
             </button>
-        </div>
-    </div>
+        </x-slot>
+    </x-sticky-action-bar>
 
     {{-- Progress bar --}}
     <div class="bg-white border border-gray-200 rounded-md p-4" style="border-left:4px solid var(--brand-button, #0ea5e9);">
@@ -66,6 +66,90 @@
                  :style="'width:' + (totalAgent > 0 ? Math.round((signedCount / totalAgent) * 100) : 0) + '%;background:var(--brand-button, #0ea5e9);'"></div>
         </div>
     </div>
+
+    {{-- Section-by-Section Navigator (agent-side) --}}
+    @if(!empty($sections))
+    <div x-show="hasSections" x-cloak class="bg-white border border-gray-200 rounded-md overflow-hidden">
+        {{-- Section progress --}}
+        <div class="px-5 py-3 bg-slate-50 border-b border-slate-200">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-slate-700">
+                    Section <span x-text="currentSection + 1"></span> of <span x-text="totalSections"></span>:
+                    <span class="text-blue-600" x-text="sectionLabels[currentSection] || ''"></span>
+                </h3>
+                <span class="text-xs text-slate-500" x-text="acceptedSections + ' of ' + totalSections + ' accepted'"></span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-2">
+                <div class="h-2 rounded-full transition-all duration-300"
+                     style="background:var(--brand-button, #0ea5e9);"
+                     :style="'width: ' + ((acceptedSections / totalSections) * 100) + '%'"></div>
+            </div>
+        </div>
+
+        {{-- Section dots --}}
+        <div class="px-5 py-2 flex items-center gap-1.5 overflow-x-auto">
+            <template x-for="(sec, si) in sectionLabels" :key="si">
+                <button @click="goToSection(si)"
+                        class="w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center transition-all flex-shrink-0"
+                        :class="{
+                            'bg-emerald-500 text-white': sectionStates[si] === 'accepted',
+                            'bg-red-500 text-white': sectionStates[si] === 'rejected',
+                            'ring-2 ring-blue-300 text-white': si === currentSection && sectionStates[si] === 'pending',
+                            'bg-slate-200 text-slate-600': si !== currentSection && sectionStates[si] === 'pending',
+                        }"
+                        :style="si === currentSection && sectionStates[si] === 'pending' ? 'background:var(--brand-button, #0ea5e9);' : ''"
+                        x-text="si + 1"></button>
+            </template>
+        </div>
+
+        {{-- Section action buttons --}}
+        <div class="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+            <button @click="rejectCurrentSection()"
+                    x-show="sectionStates[currentSection] === 'pending'"
+                    class="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50">
+                Reject Section
+            </button>
+            <div class="flex items-center gap-2 ml-auto">
+                <button @click="goToSection(currentSection - 1)" x-show="currentSection > 0"
+                        class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+                    &larr; Previous
+                </button>
+                <button @click="acceptCurrentSection()"
+                        x-show="sectionStates[currentSection] === 'pending' && currentSection < totalSections"
+                        class="text-xs px-4 py-1.5 rounded-lg text-white font-medium hover:brightness-110"
+                        style="background:var(--brand-button, #0ea5e9);"
+                        :disabled="sectionAccepting">
+                    <span x-show="!sectionAccepting">Accept &amp; Next &rarr;</span>
+                    <span x-show="sectionAccepting">Saving...</span>
+                </button>
+                <button @click="goToSection(currentSection + 1)"
+                        x-show="sectionStates[currentSection] !== 'pending' && currentSection < totalSections - 1"
+                        class="text-xs px-4 py-1.5 rounded-lg text-white font-medium hover:brightness-110"
+                        style="background:var(--brand-button, #0ea5e9);">
+                    Next &rarr;
+                </button>
+            </div>
+        </div>
+
+        {{-- Rejection reason --}}
+        <div x-show="showRejectModal" x-cloak class="px-5 py-3 border-t border-red-100 bg-red-50">
+            <label class="block text-xs font-medium text-red-700 mb-1">Reason for rejection:</label>
+            <textarea x-model="rejectReasonText" rows="2"
+                      class="w-full rounded-lg border border-red-300 text-sm px-3 py-2 focus:ring-red-500 focus:border-red-500"
+                      placeholder="Explain why you are rejecting this section..."></textarea>
+            <div class="flex items-center gap-2 mt-2">
+                <button @click="confirmRejectSection()" :disabled="!rejectReasonText.trim() || sectionRejecting"
+                        class="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">
+                    Confirm Rejection
+                </button>
+                <button @click="showRejectModal = false"
+                        class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+    @endif
 
     {{-- Main content: Document viewer --}}
     <div class="bg-white border border-gray-200 rounded-md p-4 overflow-hidden flex flex-col" style="min-height:600px;">
@@ -384,7 +468,7 @@
          class="fixed inset-0 z-50 flex items-center justify-center"
          style="background:rgba(0,0,0,0.6);"
          @keydown.escape.window="showTextModal = false">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" @click.stop>
+        <div class="bg-white rounded-sm shadow-2xl w-full max-w-md mx-4 overflow-hidden" @click.stop>
             <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
                 <h3 class="text-white font-semibold text-lg">
                     Enter Text: <span x-text="activeMarker ? (activeMarker.label || markerLabel(activeMarker)) : ''"></span>
@@ -473,11 +557,84 @@ function signDocument() {
         lastSignatureData: null,
         lastSignatureType: null,
         applyingAll: false,
+
+        // Section-by-section signing state
+        hasSections: {{ !empty($sections) ? 'true' : 'false' }},
+        sections: @json($sections ?? []),
+        sectionLabels: @json(collect($sections ?? [])->pluck('label')->toArray()),
+        totalSections: {{ count($sections ?? []) }},
+        currentSection: 0,
+        sectionStates: @json(collect($sections ?? [])->map(function($s, $i) use ($sectionAcceptances) {
+            if (isset($sectionAcceptances[$i])) {
+                return $sectionAcceptances[$i]['accepted'] ? 'accepted' : ($sectionAcceptances[$i]['rejected'] ? 'rejected' : 'pending');
+            }
+            return 'pending';
+        })->values()->toArray()),
+        sectionAccepting: false,
+        sectionRejecting: false,
+        showRejectModal: false,
+        rejectReasonText: '',
         firstSignatureDone: false,
 
         init() {
             // Check if agent already has at least one signed marker
             this.firstSignatureDone = this.markers.some(m => m.assigned_party === 'agent' && m.signed);
+        },
+
+        // ── Section signing ──
+        get acceptedSections() {
+            return this.sectionStates.filter(s => s === 'accepted').length;
+        },
+
+        goToSection(idx) {
+            if (idx >= 0 && idx < this.totalSections) {
+                this.currentSection = idx;
+                this.showRejectModal = false;
+                this.rejectReasonText = '';
+            }
+        },
+
+        async acceptCurrentSection() {
+            if (this.sectionAccepting) return;
+            this.sectionAccepting = true;
+            try {
+                const resp = await fetch(@json(route('docuperfect.signatures.acceptSection', $document)), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @json(csrf_token()) },
+                    body: JSON.stringify({ section_index: this.currentSection, section_label: this.sectionLabels[this.currentSection] || '' }),
+                });
+                const data = await resp.json();
+                if (data.ok) {
+                    this.sectionStates[this.currentSection] = 'accepted';
+                    if (this.currentSection < this.totalSections - 1) {
+                        this.currentSection++;
+                    }
+                }
+            } catch (e) { console.error('Section accept error', e); }
+            this.sectionAccepting = false;
+        },
+
+        rejectCurrentSection() {
+            this.showRejectModal = true;
+        },
+
+        async confirmRejectSection() {
+            if (this.sectionRejecting || !this.rejectReasonText.trim()) return;
+            this.sectionRejecting = true;
+            try {
+                const resp = await fetch(@json(route('docuperfect.signatures.acceptSection', $document)), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': @json(csrf_token()) },
+                    body: JSON.stringify({ section_index: this.currentSection, section_label: this.sectionLabels[this.currentSection] || '', rejected: true, rejection_reason: this.rejectReasonText }),
+                });
+                const data = await resp.json();
+                if (data.ok) {
+                    this.sectionStates[this.currentSection] = 'rejected';
+                    this.showRejectModal = false;
+                    this.rejectReasonText = '';
+                }
+            } catch (e) { console.error('Section reject error', e); }
+            this.sectionRejecting = false;
         },
 
         // ── Navigation ──

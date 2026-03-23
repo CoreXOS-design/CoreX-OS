@@ -220,18 +220,16 @@
                                 @endif
                             </div>
                             <div class="flex flex-wrap items-center gap-2 mt-2">
-                                @foreach(['agent', 'tenant', 'landlord'] as $role)
-                                    @php $req = $requests->get($role); @endphp
-                                    @if($req)
-                                        @if($req->status === 'completed')
-                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
-                                                &#10003; {{ ucfirst($role) }} signed
-                                            </span>
-                                        @elseif($req->status === 'waiting')
-                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
-                                                &#128274; {{ ucfirst($role) }} waiting
-                                            </span>
-                                        @endif
+                                @foreach($requests as $role => $req)
+                                    @php $roleLabel = ucfirst(preg_replace('/_\d+$/', '', $role)); @endphp
+                                    @if($req->status === 'completed')
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                                            &#10003; {{ $roleLabel }} signed
+                                        </span>
+                                    @elseif($req->status === 'waiting')
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">
+                                            &#128274; {{ $roleLabel }} waiting
+                                        </span>
                                     @endif
                                 @endforeach
                             </div>
@@ -337,6 +335,12 @@
                                                     <div class="text-red-500 text-[10px] font-medium mt-0.5">&#9888; {{ $days }} days without signing — follow up recommended</div>
                                                 @endif
                                             </div>
+                                        @elseif($req->status === 'deferred')
+                                            <span class="text-amber-500 mt-0.5" title="Deferred — sign later">&#9208;</span>
+                                            <div>
+                                                <span class="text-amber-600 capitalize">{{ $role }}</span>
+                                                <span class="text-amber-600 font-medium">Deferred</span>
+                                            </div>
                                         @elseif($req->status === 'waiting')
                                             <span class="text-slate-300 mt-0.5" title="Waiting for previous party">&#128274;</span>
                                             <div>
@@ -375,10 +379,66 @@
                                             </button>
                                         </form>
                                     @endif
+                                    @php $deferredReq = $sigTemplate->requests->first(fn($r) => $r->status === 'deferred'); @endphp
+                                    @if($deferredReq && in_array($sigTemplate->status, ['awaiting_deferred', 'partial']))
+                                        <button type="button"
+                                                onclick="document.getElementById('resume-modal-{{ $doc->id }}').showModal()"
+                                                class="text-emerald-600 hover:underline text-xs font-medium">
+                                            Resume Signing
+                                        </button>
+                                    @endif
                                 @endif
                             </div>
                         </td>
                     </tr>
+                    {{-- Resume Deferred Modal --}}
+                    @if(isset($deferredReq) && $deferredReq)
+                    <dialog id="resume-modal-{{ $doc->id }}" class="rounded-2xl p-0 w-full max-w-md backdrop:bg-black/30">
+                        <form method="POST" action="{{ route('docuperfect.signatures.resumeDeferred', $doc) }}" class="p-6 space-y-4">
+                            @csrf
+                            <input type="hidden" name="request_id" value="{{ $deferredReq->id }}">
+                            <h3 class="text-lg font-semibold text-slate-800">Resume Signing</h3>
+                            <p class="text-sm text-slate-600">
+                                Enter the details for the <strong class="capitalize">{{ str_replace('_', ' ', preg_replace('/_\d+$/', '', $deferredReq->party_role)) }}</strong> to resume the signing flow.
+                            </p>
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Full Name</label>
+                                    <input type="text" name="signer_name" required
+                                           value="{{ $deferredReq->signer_name }}"
+                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Email Address</label>
+                                    <input type="email" name="signer_email" required
+                                           value="{{ $deferredReq->signer_email }}"
+                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">ID / Passport Number</label>
+                                    <input type="text" name="signer_id_number"
+                                           value="{{ $deferredReq->signer_id_number }}"
+                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-600 mb-1">Cell Number</label>
+                                    <input type="text" name="signer_cell"
+                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-end gap-3 pt-2">
+                                <button type="button" onclick="this.closest('dialog').close()"
+                                        class="text-sm px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+                                    Cancel
+                                </button>
+                                <button type="submit"
+                                        class="text-sm px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-medium">
+                                    Resume & Send
+                                </button>
+                            </div>
+                        </form>
+                    </dialog>
+                    @endif
                 @endforeach
                 </tbody>
             </table>

@@ -126,6 +126,86 @@
         </div>
     @endif
 
+    {{-- Section-by-Section Navigator --}}
+    @if(!empty($sections))
+    <div x-show="hasSections" x-cloak class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        {{-- Progress bar --}}
+        <div class="px-5 py-3 bg-slate-50 border-b border-slate-200">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-slate-700">
+                    Section <span x-text="currentSection + 1"></span> of <span x-text="totalSections"></span>:
+                    <span class="text-blue-600" x-text="sectionLabels[currentSection] || ''"></span>
+                </h3>
+                <span class="text-xs text-slate-500" x-text="acceptedSections + ' of ' + totalSections + ' accepted'"></span>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-2">
+                <div class="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                     :style="'width: ' + ((acceptedSections / totalSections) * 100) + '%'"></div>
+            </div>
+        </div>
+
+        {{-- Section dots --}}
+        <div class="px-5 py-2 flex items-center gap-1.5 overflow-x-auto">
+            <template x-for="(sec, si) in sectionLabels" :key="si">
+                <button @click="goToSection(si)"
+                        class="w-8 h-8 rounded-full text-xs font-bold flex items-center justify-center transition-all flex-shrink-0"
+                        :class="{
+                            'bg-emerald-500 text-white': sectionStates[si] === 'accepted',
+                            'bg-red-500 text-white': sectionStates[si] === 'rejected',
+                            'bg-blue-500 text-white ring-2 ring-blue-300': si === currentSection && sectionStates[si] === 'pending',
+                            'bg-slate-200 text-slate-600': si !== currentSection && sectionStates[si] === 'pending',
+                        }"
+                        x-text="si + 1"></button>
+            </template>
+        </div>
+
+        {{-- Section action buttons --}}
+        <div class="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+            <button @click="rejectCurrentSection()"
+                    x-show="sectionStates[currentSection] === 'pending'"
+                    class="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50">
+                Reject Section
+            </button>
+            <div class="flex items-center gap-2 ml-auto">
+                <button @click="goToSection(currentSection - 1)" x-show="currentSection > 0"
+                        class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+                    &larr; Previous
+                </button>
+                <button @click="acceptCurrentSection()"
+                        x-show="sectionStates[currentSection] === 'pending' && currentSection < totalSections"
+                        class="text-xs px-4 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-medium"
+                        :disabled="sectionAccepting">
+                    <span x-show="!sectionAccepting">Accept &amp; Next &rarr;</span>
+                    <span x-show="sectionAccepting">Saving...</span>
+                </button>
+                <button @click="goToSection(currentSection + 1)"
+                        x-show="sectionStates[currentSection] !== 'pending' && currentSection < totalSections - 1"
+                        class="text-xs px-4 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium">
+                    Next &rarr;
+                </button>
+            </div>
+        </div>
+
+        {{-- Rejection reason modal --}}
+        <div x-show="showRejectModal" x-cloak class="px-5 py-3 border-t border-red-100 bg-red-50">
+            <label class="block text-xs font-medium text-red-700 mb-1">Reason for rejection:</label>
+            <textarea x-model="rejectReasonText" rows="2"
+                      class="w-full rounded-lg border border-red-300 text-sm px-3 py-2 focus:ring-red-500 focus:border-red-500"
+                      placeholder="Explain why you are rejecting this section..."></textarea>
+            <div class="flex items-center gap-2 mt-2">
+                <button @click="confirmRejectSection()" :disabled="!rejectReasonText.trim() || sectionRejecting"
+                        class="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">
+                    Confirm Rejection
+                </button>
+                <button @click="showRejectModal = false"
+                        class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+    @endif
+
     {{-- Wet ink pending review notice --}}
     @if($wetInkPendingReview)
         <div class="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4">
@@ -1059,6 +1139,24 @@ function externalSign() {
         webIsDrawing: false,
         webSigCtx: null,
 
+        // Section-by-section signing
+        hasSections: {{ !empty($sections) ? 'true' : 'false' }},
+        sections: @json($sections ?? []),
+        sectionLabels: @json(array_map(fn($s) => $s['label'] ?? '', $sections ?? [])),
+        totalSections: {{ count($sections ?? []) }},
+        currentSection: 0,
+        sectionStates: @json(array_map(function($idx) use ($sectionAcceptances) {
+            $a = $sectionAcceptances[$idx] ?? null;
+            if ($a && ($a['accepted'] ?? false)) return 'accepted';
+            if ($a && ($a['rejected'] ?? false)) return 'rejected';
+            return 'pending';
+        }, array_keys($sections ?? []))),
+        acceptedSections: {{ collect($sectionAcceptances ?? [])->filter(fn($a) => $a['accepted'] ?? false)->count() }},
+        sectionAccepting: false,
+        sectionRejecting: false,
+        showRejectModal: false,
+        rejectReasonText: '',
+
         init() {
             this.firstSignatureDone = this.markers.some(m => m.is_mine && m.signed);
 
@@ -1077,6 +1175,84 @@ function externalSign() {
                     this.processWebDisclosureChecklists();
                 });
             }
+        },
+
+        // ── Section-by-section navigation ──
+        goToSection(idx) {
+            if (idx < 0 || idx >= this.totalSections) return;
+            this.currentSection = idx;
+            this.showRejectModal = false;
+            // Scroll document to section boundary
+            const section = this.sections[idx];
+            if (section && section.startPage) {
+                this.currentPage = section.startPage;
+            }
+        },
+
+        async acceptCurrentSection() {
+            if (this.sectionAccepting) return;
+            this.sectionAccepting = true;
+            try {
+                const resp = await fetch(`/signatures/external/${this.token}/sections/accept`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        section_index: this.currentSection,
+                        section_label: this.sectionLabels[this.currentSection],
+                        initial_image: this.lastSignatureData || null,
+                    }),
+                });
+                if (resp.ok) {
+                    this.sectionStates[this.currentSection] = 'accepted';
+                    this.acceptedSections = this.sectionStates.filter(s => s === 'accepted').length;
+                    // Auto-advance to next pending section
+                    if (this.currentSection < this.totalSections - 1) {
+                        this.goToSection(this.currentSection + 1);
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to accept section:', e);
+            }
+            this.sectionAccepting = false;
+        },
+
+        rejectCurrentSection() {
+            this.rejectReasonText = '';
+            this.showRejectModal = true;
+        },
+
+        async confirmRejectSection() {
+            if (this.sectionRejecting || !this.rejectReasonText.trim()) return;
+            this.sectionRejecting = true;
+            try {
+                const resp = await fetch(`/signatures/external/${this.token}/sections/reject`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        section_index: this.currentSection,
+                        section_label: this.sectionLabels[this.currentSection],
+                        rejection_reason: this.rejectReasonText,
+                    }),
+                });
+                if (resp.ok) {
+                    this.sectionStates[this.currentSection] = 'rejected';
+                    this.showRejectModal = false;
+                    this.showNotification('Section rejected. The agent has been notified.', 'info');
+                }
+            } catch (e) {
+                console.error('Failed to reject section:', e);
+            }
+            this.sectionRejecting = false;
+        },
+
+        get allSectionsAccepted() {
+            return this.hasSections && this.sectionStates.every(s => s === 'accepted');
         },
 
         // ── Web template field editing ──

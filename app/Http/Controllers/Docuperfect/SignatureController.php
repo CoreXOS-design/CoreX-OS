@@ -9,6 +9,7 @@ use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
+use App\Models\Docuperfect\SignatureZone;
 use App\Models\Docuperfect\WetInkInspection;
 use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignaturePdfService;
@@ -235,6 +236,9 @@ class SignatureController extends Controller
         // Load existing markers (including any just created from zones)
         $markers = $template->markers()->orderBy('page_number')->orderBy('sort_order')->get();
 
+        // Load dynamic signature zones
+        $zones = $template->zones()->orderBy('page_number')->orderBy('sort_order')->get();
+
         // Build page image URLs — use flattened images when available
         $docTemplate = $document->template;
         $flattenedPages = $template->flattened_pages_json ?? [];
@@ -311,6 +315,7 @@ class SignatureController extends Controller
             'template' => $template,
             'sigTemplate' => $template,
             'markers' => $markers,
+            'zones' => $zones,
             'parties' => $parties,
             'pageImages' => $pageImages,
             'pageCount' => $pageCount,
@@ -561,10 +566,10 @@ class SignatureController extends Controller
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
 
-        // Build allowed parties from the template's active parties
+        // Build allowed parties from the template's active parties (all roles including numbered suffixes)
         $allowedParties = collect($template->parties_json ?? [])
             ->pluck('role')
-            ->intersect(['agent', 'tenant', 'landlord', 'buyer', 'seller'])
+            ->unique()
             ->implode(',');
 
         $request->validate([
@@ -595,6 +600,221 @@ class SignatureController extends Controller
     public function updateMarkers(Request $request, Document $document)
     {
         return $this->saveMarkers($request, $document);
+    }
+
+    // ──────────────────────────────────────────────
+    // Dynamic Signature Zones
+    // ──────────────────────────────────────────────
+
+    /**
+     * Get all zones for a document's signature template (JSON API).
+     */
+    public function getZones(Request $request, Document $document)
+    {
+        $this->authorizeDocument($request->user(), $document);
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        $zones = $template->zones()
+            ->orderBy('page_number')
+            ->orderBy('sort_order')
+            ->get()
+            ->map(function (SignatureZone $zone) {
+                return [
+                    'id' => $zone->id,
+                    'zone_type' => $zone->zone_type,
+                    'party_role' => $zone->party_role,
+                    'page_number' => $zone->page_number,
+                    'x_position' => (float) $zone->x_position,
+                    'y_position' => (float) $zone->y_position,
+                    'width' => (float) $zone->width,
+                    'height' => (float) $zone->height,
+                    'is_auto_placed' => $zone->is_auto_placed,
+                    'source' => $zone->source,
+                    'label' => $zone->label,
+                    'marker_count' => $zone->expandedMarkers()->count(),
+                ];
+            });
+
+        return response()->json(['ok' => true, 'zones' => $zones]);
+    }
+
+    /**
+     * Create a new zone (JSON API — user drew a bounding box on setup screen).
+     */
+    public function storeZone(Request $request, Document $document)
+    {
+        $this->authorizeDocument($request->user(), $document);
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        $request->validate([
+            'zone_type' => 'required|in:signature,initial',
+            'party_role' => 'required|string|max:50',
+            'page_number' => 'required|integer|min:1',
+            'x_position' => 'required|numeric|min:0|max:100',
+            'y_position' => 'required|numeric|min:0|max:100',
+            'width' => 'required|numeric|min:3|max:100',
+            'height' => 'required|numeric|min:2|max:100',
+            'label' => 'nullable|string|max:255',
+        ]);
+
+        $zone = $this->signatureService->saveZone($template, $request->only([
+            'zone_type', 'party_role', 'page_number',
+            'x_position', 'y_position', 'width', 'height', 'label',
+        ]));
+
+        $markers = $zone->expandedMarkers()->get()->map(fn ($m) => [
+            'id' => $m->id,
+            'page_number' => $m->page_number,
+            'x_position' => (float) $m->x_position,
+            'y_position' => (float) $m->y_position,
+            'width' => (float) $m->width,
+            'height' => (float) $m->height,
+            'type' => $m->type,
+            'assigned_party' => $m->assigned_party,
+            'label' => $m->label,
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'zone' => [
+                'id' => $zone->id,
+                'zone_type' => $zone->zone_type,
+                'party_role' => $zone->party_role,
+                'page_number' => $zone->page_number,
+                'x_position' => (float) $zone->x_position,
+                'y_position' => (float) $zone->y_position,
+                'width' => (float) $zone->width,
+                'height' => (float) $zone->height,
+                'label' => $zone->label,
+            ],
+            'markers' => $markers,
+        ]);
+    }
+
+    /**
+     * Batch-create zones from DOM positions (JSON API).
+     * Used by setup screen JS to create all zones in one request after
+     * scanning actual DOM element positions.
+     */
+    public function batchStoreZones(Request $request, Document $document)
+    {
+        $this->authorizeDocument($request->user(), $document);
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        $request->validate([
+            'zones' => 'required|array|min:1',
+            'zones.*.zone_type' => 'required|in:signature,initial',
+            'zones.*.party_role' => 'required|string|max:50',
+            'zones.*.page_number' => 'required|integer|min:1',
+            'zones.*.x_position' => 'required|numeric|min:0|max:100',
+            'zones.*.y_position' => 'required|numeric|min:0|max:100',
+            'zones.*.width' => 'required|numeric|min:1|max:100',
+            'zones.*.height' => 'required|numeric|min:1|max:100',
+            'zones.*.label' => 'nullable|string|max:255',
+        ]);
+
+        // Clear existing auto-placed zones before recreating from DOM
+        $template->zones()->where('is_auto_placed', true)->get()->each(function ($z) use ($template) {
+            $template->markers()->where('from_zone_id', $z->id)->forceDelete();
+            $z->delete();
+        });
+
+        $createdZones = [];
+        $allMarkers = [];
+
+        foreach ($request->input('zones') as $zoneData) {
+            $zone = $this->signatureService->saveZone($template, array_merge($zoneData, [
+                'is_auto_placed' => true,
+                'source' => 'dom',
+            ]));
+
+            $zoneMarkers = $zone->expandedMarkers()->get()->map(fn ($m) => [
+                'id' => $m->id,
+                'page_number' => $m->page_number,
+                'x_position' => (float) $m->x_position,
+                'y_position' => (float) $m->y_position,
+                'width' => (float) $m->width,
+                'height' => (float) $m->height,
+                'type' => $m->type,
+                'assigned_party' => $m->assigned_party,
+                'label' => $m->label,
+                'from_zone_id' => $m->from_zone_id,
+            ]);
+
+            $createdZones[] = [
+                'id' => $zone->id,
+                'zone_type' => $zone->zone_type,
+                'party_role' => $zone->party_role,
+                'page_number' => $zone->page_number,
+                'x_position' => (float) $zone->x_position,
+                'y_position' => (float) $zone->y_position,
+                'width' => (float) $zone->width,
+                'height' => (float) $zone->height,
+                'is_auto_placed' => true,
+                'source' => 'dom',
+                'label' => $zone->label,
+                'marker_count' => $zoneMarkers->count(),
+                'markers' => $zoneMarkers->toArray(),
+            ];
+
+            $allMarkers = array_merge($allMarkers, $zoneMarkers->toArray());
+        }
+
+        return response()->json([
+            'ok' => true,
+            'zones' => $createdZones,
+            'markers' => $allMarkers,
+        ]);
+    }
+
+    /**
+     * Update a zone (resize/move — JSON API).
+     */
+    public function updateZone(Request $request, Document $document, SignatureZone $zone)
+    {
+        $this->authorizeDocument($request->user(), $document);
+
+        $request->validate([
+            'zone_type' => 'sometimes|in:signature,initial',
+            'party_role' => 'sometimes|string|max:50',
+            'page_number' => 'sometimes|integer|min:1',
+            'x_position' => 'sometimes|numeric|min:0|max:100',
+            'y_position' => 'sometimes|numeric|min:0|max:100',
+            'width' => 'sometimes|numeric|min:3|max:100',
+            'height' => 'sometimes|numeric|min:2|max:100',
+            'label' => 'nullable|string|max:255',
+        ]);
+
+        $zone = $this->signatureService->updateZone($zone, $request->only([
+            'zone_type', 'party_role', 'page_number',
+            'x_position', 'y_position', 'width', 'height', 'label',
+        ]));
+
+        $markers = $zone->expandedMarkers()->get()->map(fn ($m) => [
+            'id' => $m->id,
+            'page_number' => $m->page_number,
+            'x_position' => (float) $m->x_position,
+            'y_position' => (float) $m->y_position,
+            'width' => (float) $m->width,
+            'height' => (float) $m->height,
+            'type' => $m->type,
+            'assigned_party' => $m->assigned_party,
+            'label' => $m->label,
+            'from_zone_id' => $m->from_zone_id,
+        ]);
+
+        return response()->json(['ok' => true, 'zone' => $zone, 'markers' => $markers]);
+    }
+
+    /**
+     * Delete a zone and its expanded markers (JSON API).
+     */
+    public function deleteZone(Request $request, Document $document, SignatureZone $zone)
+    {
+        $this->authorizeDocument($request->user(), $document);
+        $this->signatureService->deleteZone($zone);
+
+        return response()->json(['ok' => true]);
     }
 
     // ──────────────────────────────────────────────
@@ -697,6 +917,19 @@ class SignatureController extends Controller
             }
         }
 
+        // Section-by-section signing data
+        $sections = $template->sections_json ?? [];
+        $sectionAcceptances = [];
+        if (!empty($sections)) {
+            $agentRequest = $template->requests()->where('party_role', 'agent')->first();
+            if ($agentRequest) {
+                $sectionAcceptances = \App\Models\Docuperfect\SectionAcceptance::where('signature_request_id', $agentRequest->id)
+                    ->get()
+                    ->keyBy('section_index')
+                    ->toArray();
+            }
+        }
+
         return view('docuperfect.signatures.sign', [
             'document' => $document,
             'template' => $template,
@@ -710,6 +943,8 @@ class SignatureController extends Controller
             'isWebTemplate' => $isWebTemplate,
             'webTemplateHtml' => $webTemplateHtml,
             'user' => $user,
+            'sections' => $sections,
+            'sectionAcceptances' => $sectionAcceptances,
         ]);
     }
 
@@ -962,13 +1197,15 @@ class SignatureController extends Controller
         }
 
         // Set status based on the next party
+        // Strip numeric suffix (e.g. seller_2, landlord_3) so the map lookup works
+        $baseNextRole = $nextPartyRole ? preg_replace('/_\d+$/', '', $nextPartyRole) : null;
         $statusMap = [
             'tenant' => SignatureTemplate::STATUS_AWAITING_TENANT,
             'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
             'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
             'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
         ];
-        $nextStatus = $nextPartyRole ? ($statusMap[$nextPartyRole] ?? SignatureTemplate::STATUS_SIGNING) : SignatureTemplate::STATUS_COMPLETED;
+        $nextStatus = $baseNextRole ? ($statusMap[$baseNextRole] ?? SignatureTemplate::STATUS_SIGNING) : SignatureTemplate::STATUS_COMPLETED;
         $template->update(['status' => $nextStatus]);
 
         SignatureAuditLog::log(
@@ -1158,7 +1395,7 @@ class SignatureController extends Controller
         $this->authorizeDocument($request->user(), $document);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
-        $template->loadMissing(['requests', 'markers', 'signatures', 'creator']);
+        $template->loadMissing(['requests', 'markers', 'signatures', 'creator', 'amendments.acceptances']);
 
         $logs = $template->auditLogs()
             ->orderBy('created_at', 'desc')
@@ -1166,12 +1403,31 @@ class SignatureController extends Controller
 
         $progress = $template->partyProgress();
 
+        // Get amendments for the audit trail
+        $amendments = $template->amendments()
+            ->with(['acceptances.signingRequest'])
+            ->orderBy('created_at')
+            ->get();
+
+        // Get consent logs
+        $consentLogs = \App\Models\Docuperfect\ESignConsentLog::where('document_id', $document->id)
+            ->orderBy('created_at')
+            ->get();
+
+        // Get document versions
+        $versions = \App\Models\Docuperfect\SignedDocumentVersion::where('document_id', $document->id)
+            ->orderBy('version_number')
+            ->get();
+
         return view('docuperfect.signatures.audit-log', [
             'document' => $document,
             'template' => $template,
             'logs' => $logs,
             'progress' => $progress,
             'user' => $request->user(),
+            'amendments' => $amendments,
+            'consentLogs' => $consentLogs,
+            'versions' => $versions,
         ]);
     }
 
@@ -1485,6 +1741,13 @@ class SignatureController extends Controller
             ->orderBy('sort_order')
             ->get();
 
+        // Candidate flow context for the view
+        $isCandidateFlow = $template->is_candidate_flow ?? false;
+        $candidateName = null;
+        if ($isCandidateFlow) {
+            $candidateName = $template->creator?->name ?? 'Candidate';
+        }
+
         return view('docuperfect.signatures.review', [
             'document' => $document,
             'template' => $template,
@@ -1496,6 +1759,8 @@ class SignatureController extends Controller
             'allMarkers' => $allMarkers,
             'hasFlattened' => $hasFlattened,
             'user' => $user,
+            'isCandidateFlow' => $isCandidateFlow,
+            'candidateName' => $candidateName,
         ]);
     }
 
@@ -1529,6 +1794,32 @@ class SignatureController extends Controller
 
         return redirect()->route($dashboardRoute)
             ->with('status', 'All signatures approved. Document completed!');
+    }
+
+    /**
+     * Return a document to the candidate practitioner with supervisor notes.
+     * Only available in candidate practitioner flows.
+     */
+    public function returnToCandidate(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $request->validate(['notes' => 'required|string|max:2000']);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        if (!$template->is_candidate_flow) {
+            return back()->with('error', 'This action is only available for candidate practitioner documents.');
+        }
+
+        $result = $this->signatureService->returnToCandidate($template, $request->input('notes'), $user);
+
+        $templateType = $document->template?->template_type ?? 'rentals';
+        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+
+        return redirect()->route($dashboardRoute)
+            ->with('status', "Document returned to {$result['candidate_name']} with your notes.");
     }
 
     /**
@@ -1805,5 +2096,220 @@ class SignatureController extends Controller
         }
 
         return null;
+    }
+
+    // ──────────────────────────────────────────────
+    // Deferred Signing
+    // ──────────────────────────────────────────────
+
+    /**
+     * Resume a deferred signing request — agent provides party details.
+     */
+    public function resumeDeferred(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        if (!in_array($template->status, [
+            SignatureTemplate::STATUS_AWAITING_DEFERRED,
+            SignatureTemplate::STATUS_PARTIAL,
+        ])) {
+            return back()->with('error', 'This document does not have any deferred signers.');
+        }
+
+        $request->validate([
+            'signer_name' => 'required|string|max:255',
+            'signer_email' => 'required|email|max:255',
+            'signer_id_number' => 'nullable|string|max:20',
+            'signer_cell' => 'nullable|string|max:20',
+            'request_id' => 'required|integer',
+        ]);
+
+        $deferredRequest = $template->requests()
+            ->where('id', $request->request_id)
+            ->where('status', SignatureRequest::STATUS_DEFERRED)
+            ->firstOrFail();
+
+        $result = $this->signatureService->resumeDeferredSigning(
+            $template,
+            $deferredRequest,
+            $request->signer_name,
+            $request->signer_email,
+            $request->signer_id_number,
+            $request->signer_cell
+        );
+
+        $templateType = $document->template?->template_type ?? 'rentals';
+        $dashboardRoute = $templateType === 'sales' ? 'docuperfect.sales' : 'docuperfect.rental';
+
+        return redirect()->route($dashboardRoute)
+            ->with('status', "Signing resumed — {$request->signer_name} will be sent the document for signing.");
+    }
+
+    /**
+     * Show property documents with signing status (property document dashboard).
+     */
+    public function propertyDocuments(Request $request, $propertyId)
+    {
+        $user = $request->user();
+        $property = \App\Models\Property::findOrFail($propertyId);
+
+        $documents = Document::where('property_id', $propertyId)
+            ->with(['signatureTemplate.requests'])
+            ->orderByDesc('created_at')
+            ->get();
+
+        $documentRows = $documents->map(function ($doc) {
+            $sigTemplate = $doc->signatureTemplate;
+            if (!$sigTemplate) return null;
+
+            $parties = $sigTemplate->parties_json ?? [];
+            $partyStatuses = [];
+
+            foreach ($parties as $party) {
+                $req = $sigTemplate->requests->firstWhere('party_role', $party['role']);
+                $partyStatuses[] = [
+                    'role' => $party['role'],
+                    'role_label' => $party['role_label'] ?? $party['role'],
+                    'name' => $party['name'] ?? '',
+                    'status' => $req?->status ?? 'unknown',
+                    'is_deferred' => $req?->status === SignatureRequest::STATUS_DEFERRED,
+                    'is_complete' => $req?->status === SignatureRequest::STATUS_COMPLETED,
+                    'request_id' => $req?->id,
+                ];
+            }
+
+            return [
+                'document' => $doc,
+                'template' => $sigTemplate,
+                'party_statuses' => $partyStatuses,
+                'is_complete' => $sigTemplate->isComplete(),
+                'is_deferred' => $sigTemplate->status === SignatureTemplate::STATUS_AWAITING_DEFERRED,
+            ];
+        })->filter();
+
+        return view('docuperfect.signatures.property-documents', [
+            'property' => $property,
+            'documentRows' => $documentRows,
+        ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Section-by-Section Signing (Agent/Internal)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Accept a section (agent signing).
+     */
+    public function acceptSection(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $agentRequest = $template->requests()->where('party_role', 'agent')->firstOrFail();
+
+        $request->validate([
+            'section_index' => 'required|integer|min:0',
+            'section_label' => 'required|string|max:255',
+            'initial_image' => 'nullable|string',
+        ]);
+
+        $acceptance = \App\Models\Docuperfect\SectionAcceptance::updateOrCreate(
+            [
+                'signature_request_id' => $agentRequest->id,
+                'section_index' => $request->section_index,
+            ],
+            [
+                'section_label' => $request->section_label,
+                'accepted' => true,
+                'rejected' => false,
+                'rejection_reason' => null,
+                'initialled_at' => now(),
+                'initial_image' => $request->initial_image,
+            ]
+        );
+
+        return response()->json(['success' => true, 'acceptance' => $acceptance]);
+    }
+
+    /**
+     * Get section progress for agent signing.
+     */
+    public function getSectionProgress(Request $request, Document $document)
+    {
+        $user = $request->user();
+        $this->authorizeDocument($user, $document);
+
+        $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+        $agentRequest = $template->requests()->where('party_role', 'agent')->firstOrFail();
+        $agentRequest->loadMissing('sectionAcceptances');
+
+        $sections = $template->sections_json ?? [];
+        $progress = [];
+
+        foreach ($sections as $idx => $section) {
+            $acceptance = $agentRequest->sectionAcceptances->firstWhere('section_index', $idx);
+            $progress[] = [
+                'index' => $idx,
+                'label' => $section['label'] ?? "Section " . ($idx + 1),
+                'accepted' => $acceptance?->accepted ?? false,
+                'rejected' => $acceptance?->rejected ?? false,
+                'rejection_reason' => $acceptance?->rejection_reason,
+                'initialled_at' => $acceptance?->initialled_at?->toIso8601String(),
+            ];
+        }
+
+        return response()->json([
+            'sections' => $sections,
+            'progress' => $progress,
+            'total' => count($sections),
+            'accepted' => collect($progress)->where('accepted', true)->count(),
+        ]);
+    }
+
+    // ──────────────────────────────────────────────
+    // Amendment Management (Agent/Internal)
+    // ──────────────────────────────────────────────
+
+    /**
+     * List amendments for a document (JSON for review page).
+     */
+    public function amendments(Request $request, Document $document)
+    {
+        $template = $document->signatureTemplate;
+        if (!$template) {
+            return response()->json(['amendments' => []]);
+        }
+
+        $amendments = $this->signatureService->getAmendmentsWithStatus($template);
+
+        return response()->json(['amendments' => $amendments]);
+    }
+
+    /**
+     * Agent accepts or rejects a specific amendment.
+     */
+    public function amendmentAction(Request $request, Document $document, $amendmentId)
+    {
+        $amendment = \App\Models\Docuperfect\DocumentAmendment::where('document_id', $document->id)
+            ->findOrFail($amendmentId);
+
+        $action = $request->input('action'); // 'accept' or 'reject'
+        $reason = $request->input('reason');
+
+        if (!in_array($action, ['accept', 'reject'])) {
+            return response()->json(['ok' => false, 'error' => 'Invalid action.'], 422);
+        }
+
+        $this->signatureService->agentAmendmentAction($amendment, $action, $reason);
+
+        return response()->json([
+            'ok' => true,
+            'action' => $action,
+            'amendment_id' => $amendment->id,
+        ]);
     }
 }

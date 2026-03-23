@@ -23,6 +23,7 @@ class Template extends Model
         'is_esign',
         'party_mode',
         'wizard_config',
+        'sections',
         'render_type',
         'blade_view',
         'signing_parties',
@@ -39,6 +40,7 @@ class Template extends Model
     protected $casts = [
         'fields_json' => 'array',
         'wizard_config' => 'array',
+        'sections' => 'array',
         'signing_parties' => 'array',
         'editor_state' => 'array',
         'cds_json' => 'array',
@@ -117,6 +119,59 @@ class Template extends Model
         return str_contains($name, 'sell') || str_contains($name, 'sale')
             || str_contains($name, 'authority') || str_contains($name, 'otp')
             || str_contains($name, 'purchase');
+    }
+
+    /**
+     * Check if this template type is legally blocked from e-signing.
+     * Sale agreements and OTPs must be signed with wet ink per Alienation of Land Act.
+     */
+    public function isEsignBlocked(): bool
+    {
+        $type = strtolower($this->template_type ?? '');
+        if (in_array($type, ['sale_agreement', 'otp'])) {
+            return true;
+        }
+        // Also check by name for safety
+        $name = strtolower($this->name ?? '');
+        return str_contains($name, 'agreement of sale')
+            || str_contains($name, 'deed of sale')
+            || str_contains($name, 'offer to purchase');
+    }
+
+    /**
+     * Get allowed delivery modes as an array.
+     */
+    public function getAllowedDeliveryModesArray(): array
+    {
+        $modes = $this->allowed_delivery_modes ?? 'esign,wet_ink,download';
+        return array_filter(array_map('trim', explode(',', $modes)));
+    }
+
+    /**
+     * Check if a specific delivery mode is allowed.
+     */
+    public function allowsDeliveryMode(string $mode): bool
+    {
+        // Sale agreements can NEVER use e-sign
+        if ($mode === 'esign' && $this->isEsignBlocked()) {
+            return false;
+        }
+        return in_array($mode, $this->getAllowedDeliveryModesArray());
+    }
+
+    /**
+     * Get effective delivery modes (enforcing legal restrictions).
+     */
+    public function getEffectiveDeliveryModes(): array
+    {
+        $modes = $this->getAllowedDeliveryModesArray();
+        if ($this->isEsignBlocked()) {
+            $modes = array_values(array_diff($modes, ['esign']));
+            if (empty($modes)) {
+                $modes = ['wet_ink', 'download'];
+            }
+        }
+        return $modes;
     }
 
     /**

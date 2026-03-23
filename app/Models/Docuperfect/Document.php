@@ -3,6 +3,7 @@
 namespace App\Models\Docuperfect;
 
 use App\Models\Branch;
+use App\Models\Contact;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -58,6 +59,19 @@ class Document extends Model
     public function property()
     {
         return $this->belongsTo(\App\Models\Rental\RentalProperty::class, 'property_id');
+    }
+
+    public function contacts()
+    {
+        return $this->belongsToMany(Contact::class, 'document_contact', 'document_id', 'contact_id')
+            ->withPivot(['party_role', 'document_type', 'is_signed', 'signed_at', 'signed_pdf_path'])
+            ->withTimestamps();
+    }
+
+    public function versions()
+    {
+        return $this->hasMany(SignedDocumentVersion::class, 'document_id')
+            ->orderBy('version_number');
     }
 
     public function packInstanceValues()

@@ -38,6 +38,8 @@ class SignatureRequest extends Model
         'reviewed_by',
         'reviewed_at',
         'team_alerted_at',
+        'authorised_by',
+        'authorised_at',
     ];
 
     protected $casts = [
@@ -48,6 +50,7 @@ class SignatureRequest extends Model
         'reminder_sent_at' => 'datetime',
         'reviewed_at' => 'datetime',
         'team_alerted_at' => 'datetime',
+        'authorised_at' => 'datetime',
     ];
 
     // Status constants
@@ -58,6 +61,7 @@ class SignatureRequest extends Model
     const STATUS_COMPLETED = 'completed';
     const STATUS_EXPIRED = 'expired';
     const STATUS_DECLINED = 'declined';
+    const STATUS_DEFERRED = 'deferred';
 
     // Wet ink status constants
     const WET_INK_PENDING_UPLOAD = 'pending_upload';
@@ -82,6 +86,11 @@ class SignatureRequest extends Model
         return $this->belongsTo(User::class, 'reviewed_by');
     }
 
+    public function authoriser()
+    {
+        return $this->belongsTo(User::class, 'authorised_by');
+    }
+
     public function inspections()
     {
         return $this->hasMany(WetInkInspection::class);
@@ -90,6 +99,11 @@ class SignatureRequest extends Model
     public function signatures()
     {
         return $this->hasMany(Signature::class);
+    }
+
+    public function sectionAcceptances()
+    {
+        return $this->hasMany(SectionAcceptance::class);
     }
 
     // --- Scopes ---
@@ -126,6 +140,11 @@ class SignatureRequest extends Model
     public function isWetInk(): bool
     {
         return $this->signing_method === 'wet_ink';
+    }
+
+    public function isDeferred(): bool
+    {
+        return $this->status === self::STATUS_DEFERRED;
     }
 
     public function daysUntilExpiry(): int

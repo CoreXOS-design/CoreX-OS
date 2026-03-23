@@ -25,6 +25,11 @@ class Flow extends Model
         'step_data',
         'status',
         'completed_at',
+        'pack_id',
+        'pack_type',
+        'flow_sequence',
+        'parent_flow_id',
+        'pack_status',
     ];
 
     protected $casts = [
@@ -56,6 +61,82 @@ class Flow extends Model
     {
         return $this->hasMany(ESignSigningParty::class, 'flow_id')
             ->orderBy('signing_order');
+    }
+
+    /**
+     * Parent flow (first flow in a pack chain).
+     */
+    public function parentFlow()
+    {
+        return $this->belongsTo(self::class, 'parent_flow_id');
+    }
+
+    /**
+     * Child flows in the same pack chain.
+     */
+    public function packFlows()
+    {
+        return $this->hasMany(self::class, 'parent_flow_id')
+            ->orderBy('flow_sequence');
+    }
+
+    /**
+     * All flows in the same pack (by pack_id).
+     */
+    public function scopeForPack($query, $packId, ?string $packType = null)
+    {
+        $q = $query->where('pack_id', $packId);
+        if ($packType) {
+            $q->where('pack_type', $packType);
+        }
+        return $q->orderBy('flow_sequence');
+    }
+
+    /**
+     * Check if this is part of a pack flow.
+     */
+    public function isPackFlow(): bool
+    {
+        return !empty($this->pack_id);
+    }
+
+    /**
+     * Get the next flow in the pack chain.
+     */
+    public function nextPackFlow(): ?self
+    {
+        if (!$this->isPackFlow()) {
+            return null;
+        }
+
+        return self::where('pack_id', $this->pack_id)
+            ->where('pack_type', $this->pack_type)
+            ->where('flow_sequence', '>', $this->flow_sequence)
+            ->orderBy('flow_sequence')
+            ->first();
+    }
+
+    /**
+     * Get shared data from the parent (first) flow in the pack.
+     */
+    public function getSharedPackData(): array
+    {
+        $sourceFlow = $this->parent_flow_id
+            ? $this->parentFlow
+            : $this;
+
+        if (!$sourceFlow) {
+            return [];
+        }
+
+        $stepData = $sourceFlow->step_data ?? [];
+
+        return [
+            'property' => $stepData['property'] ?? [],
+            'recipients' => $stepData['recipients'] ?? [],
+            'details' => $stepData['details'] ?? [],
+            'rental_details' => $stepData['rental_details'] ?? [],
+        ];
     }
 
     public function scopeActive($query)

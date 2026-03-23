@@ -816,16 +816,6 @@ class DocumentFlattener
      */
     private function renderText($image, string $text, float $x, float $y, float $w, float $h, array $style = []): void
     {
-        \Log::debug('renderText debug', [
-            'text' => $text,
-            'image_width' => imagesx($image),
-            'image_height' => imagesy($image),
-            'field_x' => $x, 'field_y' => $y,
-            'field_w' => $w, 'field_h' => $h,
-            'font_path' => $this->findFont(),
-            'font_exists' => file_exists($this->findFont() ?? ''),
-        ]);
-
         $color = imagecolorallocate($image, 0, 0, 0); // Black text
 
         // If solidBackground is set, fill the area white first
@@ -852,15 +842,6 @@ class DocumentFlattener
 
             // Cap so text never exceeds field height
             $fontSize = min($fontSize, $h * 0.75);
-
-            Log::debug('DocumentFlattener::renderText', [
-                'text' => mb_substr($text, 0, 30),
-                'imgWidth' => $imgWidth,
-                'cssFontPx' => $cssFontPx,
-                'finalGdPts' => round($fontSize, 2),
-                'fieldH' => round($h, 1),
-                'font' => basename($ttfFont),
-            ]);
 
             // Baseline near bottom of field box — text sits ON the line.
             // Leave ~30% of font size below baseline for descenders.

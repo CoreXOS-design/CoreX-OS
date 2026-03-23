@@ -14,6 +14,7 @@ use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Docuperfect\Template;
 use App\Models\Property;
 use App\Models\Rental\RentalProperty;
+use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignatureService;
 
 use App\Services\WebTemplateDataService;
@@ -117,6 +118,18 @@ class ESignWizardController extends Controller
         $isPackFlow = $request->boolean('is_pack_flow');
 
         $pdfPackId = $request->input('pdf_pack_id');
+
+        // HARD BLOCK: Single template — check if sale agreement / OTP
+        $templateId = $request->input('template_id');
+        if ($templateId && !$isPackFlow && !$pdfPackId) {
+            $selectedTemplate = Template::find($templateId);
+            if ($selectedTemplate && $selectedTemplate->isEsignBlocked()) {
+                return response()->json([
+                    'error' => 'Sale agreements must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted.',
+                    'esign_blocked' => true,
+                ], 422);
+            }
+        }
 
         if ($isPackFlow && $packId) {
             // Web Pack flow — merge multiple templates
@@ -292,6 +305,12 @@ class ESignWizardController extends Controller
         $flow->load('template.documentType');
 
         $step = (int) $step;
+
+        // Safety net: step 6 is the final wizard step — redirect invalid steps
+        if ($step > 6) {
+            return redirect()->route('docuperfect.esign.step', ['flow' => $flow->id, 'step' => 6]);
+        }
+
         $template = $flow->template;
         $stepData = $flow->step_data ?? [];
 
@@ -558,37 +577,6 @@ class ESignWizardController extends Controller
             }
         }
 
-        // TEMPORARY DEBUG — remove after verifying step 5 fields work
-        if ($step === 5) {
-            \Illuminate\Support\Facades\Log::info('STEP5_DEBUG', [
-                'flow_id'              => $flow->id,
-                'template_type'        => $template->template_type ?? null,
-                'field_mappings_count' => count($template->field_mappings ?? []),
-                'fields_from_step_data'=> count($flow->step_data['fields'] ?? []),
-                'allWizardFields_count'=> count($allWizardFields),
-                'first_wizard_field'   => json_encode(head($allWizardFields) ?: null),
-                'first_mapping'        => json_encode(head($template->field_mappings ?? []) ?: null),
-            ]);
-
-            \Illuminate\Support\Facades\Log::info('STEP5_FIELD_GROUPS', [
-                'template_id' => $template->id,
-                'group_members_in_fields' => collect($fields)->filter(fn($f) => ($f['mapping_type'] ?? '') === 'field_group_member')->map(fn($f) => [
-                    'field_name' => $f['field_name'] ?? 'none',
-                    'named_field_id' => $f['named_field_id'] ?? 'none',
-                    'value' => $f['value'] ?? 'NULL',
-                    'assignedTo' => $f['assignedTo'] ?? 'none',
-                    'field_group_id' => $f['field_group_id'] ?? 'none',
-                ])->values()->toArray(),
-                'group_display_in_wizard' => collect($allWizardFields)->filter(fn($f) => ($f['mapping_type'] ?? '') === 'field_group_display' || ($f['mapping_type'] ?? '') === 'field_group_member')->map(fn($f) => [
-                    'field_name' => $f['field_name'] ?? 'none',
-                    'type' => $f['type'] ?? 'none',
-                    'value' => $f['value'] ?? 'NULL',
-                    'position_in_array' => array_search($f, $allWizardFields),
-                ])->values()->toArray(),
-                'recipients_by_role' => collect($stepData['recipients']['recipients'] ?? [])->groupBy('role')->map->count()->toArray(),
-            ]);
-        }
-
         // Templates list (for step navigation back to step 1)
         $templates = Template::active()
             ->visibleTo($request->user())
@@ -633,43 +621,6 @@ class ESignWizardController extends Controller
 
         // Auto-fill field group display values from recipients
         $allWizardFields = $this->autoFillFieldGroupDisplays($allWizardFields, $stepData);
-
-        \Illuminate\Support\Facades\Log::debug('VIEW recipients', ['r' => $recipients]);
-
-        \Log::info('STEP 5 STEPDATA', [
-            'has_recipients' => isset($stepData['recipients']),
-            'recipients_raw' => $stepData['recipients'] ?? 'NOT SET',
-            'all_step_keys' => array_keys($stepData),
-        ]);
-
-        \Log::info('STEP 5 RECIPIENTS DETAIL', [
-            'recipient_count' => count($stepData['recipients']['recipients'] ?? []),
-            'recipients' => collect($stepData['recipients']['recipients'] ?? [])->map(function($r, $i) {
-                return [
-                    'index' => $i,
-                    'role' => $r['role'] ?? 'none',
-                    'name' => $r['name'] ?? '',
-                    'first_name' => $r['first_name'] ?? 'MISSING',
-                    'last_name' => $r['last_name'] ?? 'MISSING',
-                    'id_number' => $r['id_number'] ?? 'MISSING',
-                ];
-            })->toArray(),
-        ]);
-
-        \Log::info('STEP 5 SELLER FIELDS', [
-            'seller_fields' => collect($allWizardFields)->filter(fn($f) => str_contains($f['field_name'] ?? '', 'seller'))->map(fn($f) => [
-                'field_name' => $f['field_name'],
-                'value' => $f['value'] ?? 'NULL',
-            ])->values()->toArray(),
-        ]);
-
-        \Log::info('STEP 5 DEBUG', [
-            'step' => $step,
-            'allWizardFields_count' => count($allWizardFields),
-            'allWizardFields_names' => collect($allWizardFields)->pluck('field_name')->toArray(),
-            'allWizardFields_values' => collect($allWizardFields)->pluck('value', 'field_name')->toArray(),
-            'resolvedValues_seller_keys' => array_filter($resolvedValues, fn($v, $k) => str_contains($k, 'seller'), ARRAY_FILTER_USE_BOTH),
-        ]);
 
         return view('docuperfect.esign.wizard', [
             'flow'           => $flow,
@@ -745,8 +696,6 @@ class ESignWizardController extends Controller
             $stepData['fields'] = $fields;
         }
 
-        $flow->step_data = $stepData;
-
         // Handle property/contact linking (pillar connections)
         if ($stepKey === 'property' && !empty($data['property_id'])) {
             // Only link to flows.property_id if source is 'properties' table (not rental_properties)
@@ -763,6 +712,25 @@ class ESignWizardController extends Controller
                     break;
                 }
             }
+        }
+
+        // Step 6 (signing_setup): hoist delivery_mode to top level for prepareSigning
+        if ($stepKey === 'signing_setup' && isset($data['delivery_mode'])) {
+            $stepData['delivery_mode'] = $data['delivery_mode'];
+        }
+
+        // Assign step_data AFTER all modifications (hoisting etc.) so nothing is lost
+        $flow->step_data = $stepData;
+
+        // Step 6 is the final wizard step — save data but do NOT advance past it
+        if ($step >= 6) {
+            $flow->current_step = max($flow->current_step, $step);
+            $flow->save();
+
+            return response()->json([
+                'success'    => true,
+                'final_step' => true,
+            ]);
         }
 
         // Advance step (only forward, never backward)
@@ -1202,14 +1170,28 @@ class ESignWizardController extends Controller
     public function prepareSigning(Request $request, $flowId)
     {
         try {
-        \Log::info('PREPARE_SIGNING HIT', ['flow_id' => $flowId]);
         $user = $request->user();
         $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
         $flow->load('template');
 
         $template = $flow->template;
+
+        // HARD BLOCK: Sale agreements cannot enter the e-sign pipeline (Alienation of Land Act)
+        if ($template->isEsignBlocked()) {
+            return redirect()->route('docuperfect.esign.step', [$flowId, 6])
+                ->with('error', 'Sale agreements and OTPs must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted for this document type.');
+        }
+
+        // This endpoint is exclusively for e-sign delivery mode.
+        // Download and wet-ink modes have their own dedicated endpoints
+        // (prepareDownload / prepareWetInk) — JS branches before submission.
+
         $stepData = $flow->step_data ?? [];
         $fields = $stepData['fields'] ?? ($template->fields_json ?? []);
+
+        // Detect candidate practitioner status early — needed by web template rendering AND the transaction
+        $candidateService = app(CandidatePractitionerService::class);
+        $isCandidateFlow = $candidateService->isCandidate($user);
 
         // Normalise web template fields
         $renderType = $template->render_type ?? 'pdf';
@@ -1250,7 +1232,9 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
-        $signingSetup = $stepData['signing_setup'] ?? [];
+        // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]})
+        $signingSetupRaw = $stepData['signing_setup'] ?? [];
+        $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
         // Build document name
@@ -1349,9 +1333,29 @@ class ESignWizardController extends Controller
                 $viewData['signing_parties'] = $template->signing_parties;
                 $viewData['document_context'] = $template->isSalesDocument() ? 'sales' : 'rental';
             }
-            \Log::info('PREPARE_SIGNING: rendering blade view', ['blade_view' => $template->blade_view]);
+
+            // Build party_names for signature-block component (non-agent recipients first, agent last)
+            $partyNames = [];
+            foreach ($recipients as $r) {
+                if (($r['role'] ?? '') === 'agent') continue;
+                $partyNames[] = $r['name'] ?? '';
+            }
+            $partyNames[] = $user->name;
+            $viewData['party_names'] = $partyNames;
+
+            // Build recipients_by_role for signature-line component (inline sigs)
+            $recipientsByRole = [];
+            foreach ($recipients as $r) {
+                $role = $r['role'] ?? '';
+                $baseRole = preg_replace('/_\d+$/', '', $role);
+                $recipientsByRole[$baseRole][] = $r;
+            }
+            $viewData['recipients_by_role'] = $recipientsByRole;
+            $viewData['is_candidate_flow'] = $isCandidateFlow;
+            if ($isCandidateFlow) {
+                $viewData['supervisor_name'] = 'Authorised Practitioner (shared queue)';
+            }
             $fullHtml = view($template->blade_view, $viewData)->render();
-            \Log::info('PREPARE_SIGNING: blade rendered OK', ['html_length' => strlen($fullHtml)]);
 
             // Extract body HTML (between <body> and </body>)
             preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
@@ -1418,8 +1422,7 @@ class ESignWizardController extends Controller
             $resolvedPropertyId = $stepData['property']['property_id'];
         }
 
-        \Log::info('PREPARE_SIGNING: starting DB transaction', ['doc_name' => $docName]);
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId) {
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $packInstanceId, $resolvedDocType, $resolvedPropertyId, $candidateService, $isCandidateFlow) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,
@@ -1495,18 +1498,54 @@ class ESignWizardController extends Controller
                 $signingOrder[] = $partyKey;
             }
 
+            // ── Candidate Practitioner Flow: auto-inject authorisation steps ──
+            // Shared queue: no specific supervisor assigned. ANY eligible authoriser
+            // in the branch can claim and authorise. Notifications sent to all.
+            // ($candidateService and $isCandidateFlow defined before web template rendering block)
+
+            if ($isCandidateFlow) {
+                // Verify at least one authoriser exists (throws if none)
+                $candidateService->getEligibleAuthorisers($user);
+
+                // Insert authorisation step as signing_order 2 (right after agent, before external parties)
+                $parties[] = [
+                    'role'       => 'supervisor',
+                    'role_label' => 'supervisor',
+                    'name'       => 'Authorised Practitioner',
+                    'email'      => '',
+                    'id_number'  => '',
+                ];
+
+                // Rebuild signing order: agent → supervisor → external parties
+                $externalParties = array_filter($signingOrder, fn($r) => $r !== 'agent');
+                $signingOrder = array_merge(['agent', 'supervisor'], array_values($externalParties));
+
+                // Also add supervisor_final as the last step (after all external parties)
+                $signingOrder[] = 'supervisor_final';
+                $parties[] = [
+                    'role'       => 'supervisor_final',
+                    'role_label' => 'supervisor',
+                    'name'       => 'Authorised Practitioner',
+                    'email'      => '',
+                    'id_number'  => '',
+                ];
+            }
+
             $documentHash = hash('sha256', json_encode($fields, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
             $sigTemplate = SignatureTemplate::create([
-                'document_id'        => $document->id,
-                'document_hash'      => $documentHash,
-                'status'             => SignatureTemplate::STATUS_DRAFT,
-                'parties_json'       => $parties,
-                'signing_order_json' => $signingOrder,
-                'created_by'         => $user->id,
+                'document_id'         => $document->id,
+                'document_hash'       => $documentHash,
+                'status'              => SignatureTemplate::STATUS_DRAFT,
+                'parties_json'        => $parties,
+                'signing_order_json'  => $signingOrder,
+                'created_by'          => $user->id,
+                'is_candidate_flow'   => $isCandidateFlow,
+                'supervisor_user_id'  => null,
+                'sections_json'       => $template->sections,
             ]);
 
-            // 3. Create SignatureRequests — agent first (signing_order=1), then recipients
+            // 3. Create SignatureRequests — agent first (signing_order=1), then supervisor (if candidate), then recipients
             $signatureService->createSigningRequest(
                 $sigTemplate,
                 'agent',
@@ -1516,6 +1555,20 @@ class ESignWizardController extends Controller
                 null,
                 $user
             );
+
+            // Candidate flow: create supervisor request (signing_order=2, right after agent)
+            // Shared queue — no specific person assigned. Any eligible authoriser can claim.
+            if ($isCandidateFlow) {
+                $signatureService->createSigningRequest(
+                    $sigTemplate,
+                    'supervisor',
+                    'Authorised Practitioner',
+                    '',
+                    null,
+                    null,
+                    $user
+                );
+            }
 
             foreach ($orderedRecipients as $i => $r) {
                 $baseRole = $roleAliases[$r['role'] ?? 'other'] ?? ($r['role'] ?? 'other');
@@ -1532,13 +1585,33 @@ class ESignWizardController extends Controller
                 }
                 $skipEmail = !empty($matchedSetup['skipEmail'] ?? false);
                 $email = $matchedSetup['email'] ?? $r['email'] ?? '';
+                $signingAction = $matchedSetup['action'] ?? 'send_after';
 
-                $signatureService->createSigningRequest(
+                $sigReq = $signatureService->createSigningRequest(
                     $sigTemplate,
                     $partyKey,
                     $r['name'] ?? '',
                     $skipEmail ? '' : $email,
                     $r['id_number'] ?? null,
+                    null,
+                    $user
+                );
+
+                // Mark as deferred if "sign_later" was selected and party has no details
+                if ($signingAction === 'sign_later' && (empty($r['name']) || empty($email) || $skipEmail)) {
+                    $sigReq->update(['status' => \App\Models\Docuperfect\SignatureRequest::STATUS_DEFERRED]);
+                }
+            }
+
+            // Candidate flow: create supervisor_final request (last in chain)
+            // Shared queue — any eligible authoriser can claim.
+            if ($isCandidateFlow) {
+                $signatureService->createSigningRequest(
+                    $sigTemplate,
+                    'supervisor_final',
+                    'Authorised Practitioner',
+                    '',
+                    null,
                     null,
                     $user
                 );
@@ -1578,6 +1651,18 @@ class ESignWizardController extends Controller
                 $this->autoPlaceInitialMarkers($sigTemplate, $signingOrder, $template);
             }
 
+            // 4e. Create signature zones for all template types.
+            // Zones provide bounding boxes that the setup screen renders as
+            // draggable/resizable regions. The setup screen JS may refine
+            // positions from DOM measurements, but zones must always exist
+            // server-side first so the setup screen has something to display.
+            $signatureService->createZonesFromParties(
+                $sigTemplate,
+                $parties,
+                max(1, count($webTemplateData['template_ids'] ?? [1])),
+                $isCandidateFlow
+            );
+
             // 5. Keep template in ready status so agent can place markers and sign in-app.
             // sendForSigning() fires later via the send-confirmation page after agent completes signing.
             $sigTemplate->update(['status' => SignatureTemplate::STATUS_READY]);
@@ -1596,7 +1681,7 @@ class ESignWizardController extends Controller
             $flowStepData['document_id'] = $document->id;
             $flowStepData['signature_template_id'] = $sigTemplate->id;
             $flow->step_data = $flowStepData;
-            $flow->current_step = 7;
+            $flow->current_step = 6; // Step 6 is the final wizard step — do not advance past it
             $flow->save();
 
             return $document;
@@ -1608,12 +1693,6 @@ class ESignWizardController extends Controller
         // Redirect to signature setup (Step 2: marker placement) — agent places markers before signing
         $signingUrl = route('docuperfect.signatures.setup', ['document' => $result->id]);
 
-        \Log::info('PREPARE_SIGNING_RETURN', [
-            'document_id' => $result->id,
-            'redirect' => $signingUrl,
-            'render_type' => $template->render_type ?? 'pdf',
-        ]);
-
         return redirect($signingUrl);
 
         } catch (\Throwable $e) {
@@ -1624,7 +1703,7 @@ class ESignWizardController extends Controller
                 'trace' => $e->getTraceAsString(),
             ]);
 
-            return redirect()->route('docuperfect.esign.wizard')
+            return redirect()->route('docuperfect.esign.create')
                 ->withErrors(['error' => 'Failed to prepare signing: ' . $e->getMessage()]);
         }
     }
@@ -2151,12 +2230,6 @@ class ESignWizardController extends Controller
      */
     private function resolveSignatureNames(string $html, array $viewData, array $parties): string
     {
-        // Role mapping: display name → wizard role for data-marker-party
-        $roleMap = [
-            'lessor' => 'landlord', 'lessee' => 'tenant', 'agent' => 'agent',
-            'buyer' => 'buyer', 'seller' => 'seller',
-        ];
-
         // Step 1: Replace {{ $varName ?? 'fallback' }} Blade syntax with actual values from $viewData
         $html = preg_replace_callback(
             '/\{\{\s*\$(\w+)\s*\?\?\s*[\'"]([^"\']*?)[\'"]\s*\}\}/',
@@ -2180,110 +2253,8 @@ class ESignWizardController extends Controller
             $html
         );
 
-        // Step 2: Process sig-block divs — add data-marker-party, resolve sig-name, clone for co-owners
-        // Uses manual div-depth counting because regex cannot handle nested <div> structures
-        $sbOffset = 0;
-        while (($sbPos = strpos($html, '<div class="sig-block"', $sbOffset)) !== false) {
-            $sbTagEnd = strpos($html, '>', $sbPos);
-            if ($sbTagEnd === false) break;
-            $openTag = substr($html, $sbPos, $sbTagEnd - $sbPos + 1);
-
-            // Extract data-parties attribute
-            if (!preg_match('/data-parties="([^"]*)"/', $openTag, $dpMatch)) {
-                $sbOffset = $sbTagEnd + 1;
-                continue;
-            }
-            $partiesAttr = html_entity_decode($dpMatch[1]);
-            $partyNames = json_decode($partiesAttr, true) ?? [];
-
-            // Find matching closing </div> by counting nesting depth
-            $innerStart = $sbTagEnd + 1;
-            $depth = 1;
-            $searchPos = $innerStart;
-            $innerEnd = null;
-            while ($depth > 0) {
-                $nextOpen = strpos($html, '<div', $searchPos);
-                $nextClose = strpos($html, '</div>', $searchPos);
-                if ($nextClose === false) break;
-                if ($nextOpen !== false && $nextOpen < $nextClose) {
-                    $depth++;
-                    $searchPos = $nextOpen + 4;
-                } else {
-                    $depth--;
-                    if ($depth === 0) $innerEnd = $nextClose;
-                    $searchPos = $nextClose + 6;
-                }
-            }
-            if ($innerEnd === null) { $sbOffset = $sbTagEnd + 1; continue; }
-
-            $inner = substr($html, $innerStart, $innerEnd - $innerStart);
-            $blockEnd = $innerEnd + 6; // past </div>
-
-            // Process each sig-block-party: add marker attributes + resolve sig-name to actual name
-            $partyIndex = 0;
-            $roleCounts = [];
-            $processedInner = preg_replace_callback(
-                '/<div\s+class="sig-block-party">([\s\S]*?<div\s+class="sig-name">)([\s\S]*?)(<\/div>[\s\S]*?<\/div>)/i',
-                function ($pm) use (&$partyIndex, &$roleCounts, $partyNames, $roleMap, $parties) {
-                    $displayName = $partyNames[$partyIndex] ?? 'unknown';
-                    $role = $roleMap[strtolower($displayName)] ?? strtolower($displayName);
-                    $roleIdx = $roleCounts[$role] ?? 0;
-                    $roleCounts[$role] = $roleIdx + 1;
-
-                    // Find actual name from $parties matching role + role-occurrence index
-                    $actualName = $displayName;
-                    $seen = 0;
-                    foreach ($parties as $p) {
-                        if ($p['role'] === $role) {
-                            if ($seen === $roleIdx) {
-                                $actualName = $p['name'] ?? $p['display'] ?? $displayName;
-                                break;
-                            }
-                            $seen++;
-                        }
-                    }
-
-                    $idx = $partyIndex++;
-                    return '<div class="sig-block-party" data-marker-party="' . e($role)
-                        . '" data-name="' . e($actualName)
-                        . '" data-marker-type="signature" data-marker-index="' . $idx . '">'
-                        . $pm[1] . e($actualName) . $pm[3];
-                },
-                $inner
-            );
-
-            // Clone sig-block-party divs for co-owners (e.g., two landlords but only one template block)
-            foreach ($roleCounts as $role => $existingCount) {
-                $partiesOfRole = [];
-                foreach ($parties as $p) {
-                    if ($p['role'] === $role) $partiesOfRole[] = $p;
-                }
-                if (count($partiesOfRole) <= $existingCount) continue;
-
-                // Find the last sig-block-party for this role and clone it for additional parties
-                $pattern = '/<div\s+class="sig-block-party"\s+data-marker-party="' . preg_quote($role, '/') . '"[^>]*>[\s\S]*?<\/div>[\s\S]*?<\/div>/i';
-                if (preg_match_all($pattern, $processedInner, $blockMatches, PREG_OFFSET_CAPTURE)) {
-                    $lastMatch = end($blockMatches[0]);
-                    $lastBlock = $lastMatch[0];
-                    $insertPos = $lastMatch[1] + strlen($lastBlock);
-
-                    $clones = '';
-                    for ($ci = $existingCount; $ci < count($partiesOfRole); $ci++) {
-                        $cloneName = $partiesOfRole[$ci]['name'] ?? $partiesOfRole[$ci]['display'] ?? $role;
-                        $cloneIdx = $partyIndex++;
-                        $clone = preg_replace('/data-marker-index="\d+"/', 'data-marker-index="' . $cloneIdx . '"', $lastBlock);
-                        $clone = preg_replace('/(<div\s+class="sig-name">)[\s\S]*?(<\/div>)/i', '$1' . e($cloneName) . '$2', $clone);
-                        $clones .= $clone;
-                    }
-                    $processedInner = substr($processedInner, 0, $insertPos) . $clones . substr($processedInner, $insertPos);
-                }
-            }
-
-            // Rebuild sig-block using original opening tag (prevents duplicate class="sig-block")
-            $replacement = $openTag . $processedInner . '</div>';
-            $html = substr($html, 0, $sbPos) . $replacement . substr($html, $blockEnd);
-            $sbOffset = $sbPos + strlen($replacement);
-        }
+        // Step 2: (removed) sig-block processing — signature-block.blade.php now emits
+        // data-marker-party attributes directly, making post-render DOM manipulation unnecessary.
 
         // Step 3: Replace signed-at field spans with editable inputs
         $html = preg_replace(
@@ -2772,4 +2743,746 @@ class ESignWizardController extends Controller
         return !empty($fields) && empty($fields[0]['id'] ?? null) && empty($fields[0]['field_name'] ?? null);
     }
 
+    // ──────────────────────────────────────────────
+    // Pack Chaining (Multi-Document Flow)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Initialize a chained pack flow: creates Flow records for each template in the pack.
+     * Called when user selects a pack and starts the wizard.
+     */
+    public function initPackChain(Request $request)
+    {
+        $user = $request->user();
+        $packId = $request->input('pack_id');
+        $packType = $request->input('pack_type', 'web'); // 'web' or 'pdf'
+        $ficaPerParty = $request->boolean('fica_per_party');
+
+        // Load templates from pack
+        if ($packType === 'web') {
+            $pack = \App\Models\Docuperfect\WebPack::with('items.template')->findOrFail($packId);
+            $templates = $pack->items->sortBy('sort_order')
+                ->map(fn($item) => $item->template)
+                ->filter()
+                ->values();
+        } else {
+            $pack = \App\Models\Docuperfect\Pack::with('templates')->findOrFail($packId);
+            $templates = $pack->templates
+                ->filter(fn($t) => $t->is_esign)
+                ->values();
+        }
+
+        if ($templates->isEmpty()) {
+            return response()->json(['error' => 'Pack has no eligible templates.'], 422);
+        }
+
+        // Create the parent flow (first template in the pack)
+        $parentFlow = Flow::create([
+            'type' => 'esign',
+            'template_id' => $templates[0]->id,
+            'user_id' => $user->id,
+            'current_step' => 2,
+            'step_data' => [
+                'template' => ['template_id' => $templates[0]->id],
+                'fields' => $templates[0]->fields_json ?? [],
+                'pack_chain' => true,
+                'pack_chain_templates' => $templates->map(fn($t) => [
+                    'id' => $t->id,
+                    'name' => $t->name,
+                    'party_mode' => $t->party_mode ?? null,
+                ])->toArray(),
+            ],
+            'status' => 'active',
+            'pack_id' => $packId,
+            'pack_type' => $packType,
+            'flow_sequence' => 0,
+            'parent_flow_id' => null,
+            'pack_status' => 'in_progress',
+        ]);
+
+        // Create child flows for remaining templates
+        foreach ($templates->slice(1) as $idx => $tpl) {
+            Flow::create([
+                'type' => 'esign',
+                'template_id' => $tpl->id,
+                'user_id' => $user->id,
+                'current_step' => 5, // Start at Fill & Review (skip property/contact/details)
+                'step_data' => [
+                    'template' => ['template_id' => $tpl->id],
+                    'fields' => $tpl->fields_json ?? [],
+                    'pack_chain' => true,
+                    'carry_forward_from' => $parentFlow->id,
+                ],
+                'status' => 'draft', // Inactive until parent flow reaches this doc
+                'pack_id' => $packId,
+                'pack_type' => $packType,
+                'flow_sequence' => $idx + 1,
+                'parent_flow_id' => $parentFlow->id,
+                'pack_status' => null,
+            ]);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'flow_id' => $parentFlow->id,
+            'template_count' => $templates->count(),
+            'redirect' => route('docuperfect.esign.create') . '?flow_id=' . $parentFlow->id,
+        ]);
+    }
+
+    /**
+     * Advance to the next document in a pack chain after the current one is signed.
+     * Called after agent completes signing on a pack doc.
+     */
+    public function nextPackDocument(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $currentFlow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        if (!$currentFlow->isPackFlow()) {
+            return response()->json(['error' => 'Not a pack flow.'], 422);
+        }
+
+        // Mark current flow as completed
+        $currentFlow->update([
+            'status' => 'completed',
+            'completed_at' => now(),
+        ]);
+
+        // Find the next flow in the pack chain
+        $nextFlow = $currentFlow->nextPackFlow();
+
+        if (!$nextFlow) {
+            // All docs in the pack are done
+            // Update parent flow pack_status
+            $parentId = $currentFlow->parent_flow_id ?? $currentFlow->id;
+            Flow::where('id', $parentId)->update(['pack_status' => 'completed']);
+
+            return response()->json([
+                'ok' => true,
+                'pack_complete' => true,
+                'message' => 'All documents in the pack have been signed.',
+            ]);
+        }
+
+        // Carry forward shared data from the parent flow
+        $sharedData = $currentFlow->getSharedPackData();
+        $nextStepData = $nextFlow->step_data ?? [];
+
+        // Merge carry-forward data into the next flow's step_data
+        $nextStepData['property'] = $sharedData['property'] ?? $nextStepData['property'] ?? [];
+        $nextStepData['recipients'] = $sharedData['recipients'] ?? $nextStepData['recipients'] ?? [];
+        $nextStepData['details'] = $sharedData['details'] ?? $nextStepData['details'] ?? [];
+        $nextStepData['rental_details'] = $sharedData['rental_details'] ?? $nextStepData['rental_details'] ?? [];
+        $nextStepData['carried_forward'] = true;
+
+        $nextFlow->update([
+            'status' => 'active',
+            'step_data' => $nextStepData,
+            'current_step' => 5, // Fill & Review (property/contacts/details pre-filled)
+            'property_id' => $currentFlow->property_id,
+        ]);
+
+        $nextTemplate = $nextFlow->template;
+
+        return response()->json([
+            'ok' => true,
+            'pack_complete' => false,
+            'next_flow_id' => $nextFlow->id,
+            'next_template_name' => $nextTemplate->name ?? 'Next Document',
+            'next_sequence' => $nextFlow->flow_sequence + 1,
+            'total_in_pack' => Flow::where('pack_id', $currentFlow->pack_id)
+                ->where('pack_type', $currentFlow->pack_type)
+                ->count(),
+            'redirect' => route('docuperfect.esign.create') . '?flow_id=' . $nextFlow->id,
+        ]);
+    }
+
+    /**
+     * Get pack chain status (how many docs done, what's next).
+     */
+    public function packStatus(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        if (!$flow->isPackFlow()) {
+            return response()->json(['is_pack' => false]);
+        }
+
+        $parentId = $flow->parent_flow_id ?? $flow->id;
+        $allFlows = Flow::where(function ($q) use ($parentId, $flow) {
+            $q->where('id', $parentId)
+              ->orWhere('parent_flow_id', $parentId);
+        })
+            ->where('pack_id', $flow->pack_id)
+            ->orderBy('flow_sequence')
+            ->with('template')
+            ->get();
+
+        $docs = $allFlows->map(function ($f) {
+            return [
+                'flow_id' => $f->id,
+                'template_id' => $f->template_id,
+                'template_name' => $f->template->name ?? 'Unknown',
+                'sequence' => $f->flow_sequence,
+                'status' => $f->status,
+                'completed' => $f->status === 'completed',
+            ];
+        });
+
+        $completedCount = $docs->where('completed', true)->count();
+        $nextFlow = $allFlows->firstWhere('status', 'active');
+        if (!$nextFlow) {
+            $nextFlow = $allFlows->firstWhere('status', 'draft');
+        }
+
+        return response()->json([
+            'is_pack' => true,
+            'total' => $docs->count(),
+            'completed' => $completedCount,
+            'documents' => $docs,
+            'current_flow_id' => $flow->id,
+            'next_flow_id' => $nextFlow?->id,
+            'next_template_name' => $nextFlow?->template?->name,
+            'pack_complete' => $completedCount === $docs->count(),
+        ]);
+    }
+
+    /**
+     * Handle FICA per-party duplication within a pack flow.
+     * Duplicates a FICA template once per contact/recipient.
+     */
+    public function duplicateFicaPerParty(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $parentFlow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+
+        if (!$parentFlow->isPackFlow()) {
+            return response()->json(['error' => 'Not a pack flow.'], 422);
+        }
+
+        $recipients = $parentFlow->step_data['recipients']['recipients'] ?? [];
+        $externalRecipients = collect($recipients)->filter(fn($r) => ($r['role'] ?? '') !== 'agent');
+
+        if ($externalRecipients->isEmpty()) {
+            return response()->json(['error' => 'No external recipients found.'], 422);
+        }
+
+        // Find all FICA flows in this pack that have party_mode = 'per_party'
+        $ficaFlows = Flow::where('pack_id', $parentFlow->pack_id)
+            ->where('pack_type', $parentFlow->pack_type)
+            ->whereHas('template', function ($q) {
+                $q->where('party_mode', 'per_party');
+            })
+            ->get();
+
+        $createdFlows = [];
+
+        foreach ($ficaFlows as $ficaFlow) {
+            $ficaTemplate = $ficaFlow->template;
+            $baseSequence = $ficaFlow->flow_sequence;
+
+            // Remove the original FICA flow (will be replaced by per-party copies)
+            $ficaFlow->delete();
+
+            // Create one flow per external recipient
+            foreach ($externalRecipients->values() as $idx => $recipient) {
+                $recipientName = $recipient['name'] ?? 'Party';
+                $perPartyStepData = $ficaFlow->step_data ?? [];
+                $perPartyStepData['fica_for_party'] = $recipient;
+                $perPartyStepData['fica_party_name'] = $recipientName;
+
+                // Carry forward shared data
+                $sharedData = $parentFlow->getSharedPackData();
+                $perPartyStepData['property'] = $sharedData['property'] ?? [];
+                $perPartyStepData['recipients'] = ['recipients' => [$recipient]]; // Only this person
+                $perPartyStepData['details'] = $sharedData['details'] ?? [];
+                $perPartyStepData['carried_forward'] = true;
+
+                $newFlow = Flow::create([
+                    'type' => 'esign',
+                    'template_id' => $ficaTemplate->id,
+                    'user_id' => $user->id,
+                    'current_step' => 5,
+                    'step_data' => $perPartyStepData,
+                    'status' => 'draft',
+                    'pack_id' => $parentFlow->pack_id,
+                    'pack_type' => $parentFlow->pack_type,
+                    'flow_sequence' => $baseSequence + ($idx * 0.1), // Sub-sequence for ordering
+                    'parent_flow_id' => $parentFlow->parent_flow_id ?? $parentFlow->id,
+                    'pack_status' => null,
+                    'property_id' => $parentFlow->property_id,
+                ]);
+
+                $createdFlows[] = [
+                    'flow_id' => $newFlow->id,
+                    'template_name' => $ficaTemplate->name,
+                    'for_party' => $recipientName,
+                ];
+            }
+        }
+
+        // Re-sequence all pack flows to have clean integer sequences
+        $allFlows = Flow::where('pack_id', $parentFlow->pack_id)
+            ->where('pack_type', $parentFlow->pack_type)
+            ->orderBy('flow_sequence')
+            ->get();
+
+        foreach ($allFlows as $seqIdx => $f) {
+            $f->update(['flow_sequence' => $seqIdx]);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'created_flows' => $createdFlows,
+            'total_pack_docs' => $allFlows->count(),
+        ]);
+    }
+
+    /**
+     * Prepare a download-only document (no signing pipeline).
+     * Creates the document record and generates a PDF for download.
+     */
+    private function prepareDownloadOnly(Request $request, Flow $flow, Template $template)
+    {
+        $user = $request->user();
+        $stepData = $flow->step_data ?? [];
+        $fields = $stepData['fields'] ?? ($template->fields_json ?? []);
+        $renderType = $template->render_type ?? 'pdf';
+
+        // Rebuild from field_mappings if fields are skeletal
+        if ((empty($fields) || $this->fieldsAreSkeletal($fields)) && $renderType === 'web' && !empty($template->field_mappings)) {
+            $fields = $this->buildFieldsFromMappings($template->field_mappings);
+        }
+
+        if ($renderType === 'web') {
+            $fields = array_map(fn($f) => $this->normalizeFieldForWizard($f, $renderType), $fields);
+        }
+
+        // Auto-fill fields
+        $fields = $this->autoFillFields($fields, $stepData);
+
+        // Merge fill_review field values
+        $frValues = $stepData['fill_review']['fieldValues'] ?? [];
+        foreach ($frValues as $fieldId => $value) {
+            foreach ($fields as &$field) {
+                if (($field['id'] ?? null) == $fieldId && $value !== '') {
+                    $field['value'] = $value;
+                }
+            }
+            unset($field);
+        }
+
+        $recipients = $stepData['recipients']['recipients'] ?? [];
+        $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
+
+        $firstRecipientName = '';
+        foreach ($recipients as $r) {
+            if (($r['role'] ?? '') !== 'agent' && !empty($r['name'])) {
+                $firstRecipientName = $r['name'];
+                break;
+            }
+        }
+
+        $docName = $template->name . ($firstRecipientName ? " — {$firstRecipientName}" : '')
+            . ' — ' . now()->format('Y-m-d');
+
+        // Render filled document HTML for web templates
+        $webTemplateData = null;
+        if ($renderType === 'web' && $template->blade_view) {
+            $webTemplateDataService = app(WebTemplateDataService::class);
+            $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+
+            $viewData = $webTemplateData;
+            if (!empty($template->signing_parties)) {
+                $viewData['signing_parties'] = $template->signing_parties;
+                $viewData['document_context'] = $template->isSalesDocument() ? 'sales' : 'rental';
+            }
+
+            // Build party_names for signature-block component
+            $partyNames = [];
+            foreach ($recipients as $r) {
+                if (($r['role'] ?? '') === 'agent') continue;
+                $partyNames[] = $r['name'] ?? '';
+            }
+            $partyNames[] = $user->name;
+            $viewData['party_names'] = $partyNames;
+
+            // Build recipients_by_role
+            $recipientsByRole = [];
+            foreach ($recipients as $r) {
+                $role = $r['role'] ?? '';
+                $baseRole = preg_replace('/_\d+$/', '', $role);
+                $recipientsByRole[$baseRole][] = $r;
+            }
+            $viewData['recipients_by_role'] = $recipientsByRole;
+
+            $fullHtml = view($template->blade_view, $viewData)->render();
+
+            // Extract body + styles
+            preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
+            $bodyHtml = $bodyMatch[1] ?? $fullHtml;
+            $styles = '';
+            if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches)) {
+                $styles = implode("\n", $styleMatches[0]);
+            }
+
+            // Inject field values and clauses
+            $bodyHtml = $this->injectFieldValues($bodyHtml, $webTemplateData);
+
+            $selectedClauses = $stepData['fill_review']['clauses'] ?? [];
+            if (!empty($selectedClauses)) {
+                $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
+                $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
+                foreach ($selectedClauses as $idx => $clause) {
+                    $num = $idx + 1;
+                    $clauseHtml .= '<div style="margin:6pt 0;"><p><strong>' . $num . '.</strong> '
+                        . e($clause['text'] ?? $clause['content'] ?? '') . '</p></div>';
+                }
+                $clauseHtml .= '</div>';
+                $bodyHtml .= $clauseHtml;
+            }
+
+            $webTemplateData['merged_html'] = $styles . $bodyHtml;
+        }
+
+        $document = Document::create([
+            'name' => $docName,
+            'template_id' => $template->id,
+            'fields_json' => $fields,
+            'owner_id' => $user->id,
+            'branch_id' => $user->effectiveBranchId(),
+            'document_type' => $template->template_type,
+            'property_address' => $propertyAddress,
+            'property_id' => $stepData['property']['property_id'] ?? null,
+            'web_template_data' => $webTemplateData,
+        ]);
+
+        // Update flow
+        $stepData['document_id'] = $document->id;
+        $stepData['delivery_mode'] = 'download';
+        $flow->update([
+            'step_data' => $stepData,
+            'status' => 'completed',
+            'completed_at' => now(),
+        ]);
+
+        return redirect()->route('docuperfect.esign.downloadDocument', $document->id)
+            ->with('success', 'Document ready for download.');
+    }
+
+    /**
+     * Prepare download-only delivery (public endpoint hit by wizard JS).
+     * Delegates to the existing prepareDownloadOnly() helper.
+     */
+    public function prepareDownload(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+        $flow->load('template');
+
+        return $this->prepareDownloadOnly($request, $flow, $flow->template);
+    }
+
+    /**
+     * Prepare wet-ink delivery — creates full signing records (Document,
+     * SignatureTemplate, SignatureRequests) so external parties receive
+     * wet-ink portal links, but skips marker/zone creation since signatures
+     * are collected on paper.
+     */
+    public function prepareWetInk(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+        $flow->load('template');
+
+        $template = $flow->template;
+        $stepData = $flow->step_data ?? [];
+        $fields = $stepData['fields'] ?? ($template->fields_json ?? []);
+        $renderType = $template->render_type ?? 'pdf';
+
+        // Rebuild from field_mappings if fields are skeletal
+        if ((empty($fields) || $this->fieldsAreSkeletal($fields)) && $renderType === 'web' && !empty($template->field_mappings)) {
+            $fields = $this->buildFieldsFromMappings($template->field_mappings);
+        }
+
+        if ($renderType === 'web') {
+            $fields = array_map(fn($f) => $this->normalizeFieldForWizard($f, $renderType), $fields);
+        }
+
+        // Auto-fill fields
+        $fields = $this->autoFillFields($fields, $stepData);
+
+        // Merge fill_review field values
+        $frValues = $stepData['fill_review']['fieldValues'] ?? [];
+        foreach ($frValues as $fieldId => $value) {
+            foreach ($fields as &$field) {
+                if (($field['id'] ?? null) == $fieldId && $value !== '') {
+                    $field['value'] = $value;
+                }
+            }
+            unset($field);
+        }
+
+        $recipients = $stepData['recipients']['recipients'] ?? [];
+        $signingSetupRaw = $stepData['signing_setup'] ?? [];
+        $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
+        $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
+
+        $firstRecipientName = '';
+        foreach ($recipients as $r) {
+            if (($r['role'] ?? '') !== 'agent' && !empty($r['name'])) {
+                $firstRecipientName = $r['name'];
+                break;
+            }
+        }
+
+        $docName = $template->name . ($firstRecipientName ? " — {$firstRecipientName}" : '')
+            . ' — ' . now()->format('Y-m-d');
+
+        $signatureService = app(SignatureService::class);
+
+        // Render filled document HTML for web templates (same as download mode)
+        $webTemplateData = null;
+        if ($renderType === 'web' && $template->blade_view) {
+            $webTemplateDataService = app(WebTemplateDataService::class);
+            $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+
+            $viewData = $webTemplateData;
+            if (!empty($template->signing_parties)) {
+                $viewData['signing_parties'] = $template->signing_parties;
+                $viewData['document_context'] = $template->isSalesDocument() ? 'sales' : 'rental';
+            }
+
+            $partyNames = [];
+            foreach ($recipients as $r) {
+                if (($r['role'] ?? '') === 'agent') continue;
+                $partyNames[] = $r['name'] ?? '';
+            }
+            $partyNames[] = $user->name;
+            $viewData['party_names'] = $partyNames;
+
+            $recipientsByRole = [];
+            foreach ($recipients as $r) {
+                $role = $r['role'] ?? '';
+                $baseRole = preg_replace('/_\d+$/', '', $role);
+                $recipientsByRole[$baseRole][] = $r;
+            }
+            $viewData['recipients_by_role'] = $recipientsByRole;
+
+            $fullHtml = view($template->blade_view, $viewData)->render();
+
+            preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
+            $bodyHtml = $bodyMatch[1] ?? $fullHtml;
+            $styles = '';
+            if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches)) {
+                $styles = implode("\n", $styleMatches[0]);
+            }
+
+            $bodyHtml = $this->injectFieldValues($bodyHtml, $webTemplateData);
+
+            $selectedClauses = $stepData['fill_review']['clauses'] ?? [];
+            if (!empty($selectedClauses)) {
+                $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
+                $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
+                foreach ($selectedClauses as $idx => $clause) {
+                    $num = $idx + 1;
+                    $clauseHtml .= '<div style="margin:6pt 0;"><p><strong>' . $num . '.</strong> '
+                        . e($clause['text'] ?? $clause['content'] ?? '') . '</p></div>';
+                }
+                $clauseHtml .= '</div>';
+                $bodyHtml .= $clauseHtml;
+            }
+
+            $webTemplateData['merged_html'] = $styles . $bodyHtml;
+        }
+
+        // Resolve property_id and document_type (same as prepareSigning)
+        $resolvedPropertyId = $flow->property_id;
+        $propSource = $stepData['property']['_property_source'] ?? 'properties';
+        if (!$resolvedPropertyId && $propSource === 'rental_properties' && !empty($stepData['property']['property_id'])) {
+            $resolvedPropertyId = $stepData['property']['property_id'];
+        }
+
+        $resolvedDocType = $template->template_type;
+        if ($template->document_type_id) {
+            $template->loadMissing('documentType');
+            $dtName = $template->documentType->name ?? '';
+            $dtNameMap = [
+                'Mandates' => 'mandate', 'OTPs' => 'other', 'Addendums' => 'addendum',
+                'Condition Reports' => 'inspection_report', 'FICA' => 'disclosure',
+                'Rental Agreements' => 'lease_agreement', 'Other' => 'other',
+            ];
+            $resolvedDocType = $dtNameMap[$dtName] ?? strtolower(str_replace(' ', '_', $dtName));
+        }
+
+        $roleAliases = [
+            'landlord' => 'landlord', 'tenant' => 'tenant',
+            'buyer' => 'buyer', 'seller' => 'seller',
+            'agent' => 'agent', 'witness' => 'witness',
+            'spouse' => 'spouse', 'other' => 'other',
+        ];
+
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $roleAliases) {
+            // 1. Create Document
+            $document = Document::create([
+                'name'             => $docName,
+                'template_id'      => $template->id,
+                'fields_json'      => $fields,
+                'owner_id'         => $user->id,
+                'branch_id'        => $user->effectiveBranchId(),
+                'property_address' => $propertyAddress,
+                'property_id'      => $resolvedPropertyId,
+                'document_type'    => $resolvedDocType,
+                'web_template_data' => $webTemplateData,
+            ]);
+
+            // 2. Create SignatureTemplate
+            $parties = [
+                ['role' => 'agent', 'role_label' => 'agent', 'name' => $user->name, 'email' => $user->email, 'id_number' => ''],
+            ];
+            $signingOrder = ['agent'];
+
+            $orderedRecipients = $recipients;
+            if (!empty($signingSetup) && !empty($signingSetup[0]['signing_order'] ?? null)) {
+                $orderedRecipients = [];
+                foreach ($signingSetup as $ss) {
+                    if (($ss['role'] ?? '') === 'agent') continue;
+                    foreach ($recipients as $r) {
+                        if (($r['role'] ?? '') === ($ss['role'] ?? '') && ($r['name'] ?? '') === ($ss['name'] ?? '')) {
+                            $orderedRecipients[] = $r;
+                            break;
+                        }
+                    }
+                }
+                if (empty($orderedRecipients)) $orderedRecipients = $recipients;
+            }
+
+            $roleCounts = [];
+            $recipientPartyKeys = [];
+            foreach ($orderedRecipients as $i => $r) {
+                $baseRole = $roleAliases[$r['role'] ?? 'other'] ?? ($r['role'] ?? 'other');
+                if ($baseRole === 'agent') continue;
+
+                if (!isset($roleCounts[$baseRole])) {
+                    $roleCounts[$baseRole] = 1;
+                    $partyKey = $baseRole;
+                } else {
+                    $roleCounts[$baseRole]++;
+                    $partyKey = $baseRole . '_' . $roleCounts[$baseRole];
+                }
+
+                $recipientPartyKeys[$i] = $partyKey;
+                $parties[] = [
+                    'role'       => $partyKey,
+                    'role_label' => $baseRole,
+                    'name'       => $r['name'] ?? '',
+                    'email'      => $r['email'] ?? '',
+                    'id_number'  => $r['id_number'] ?? '',
+                ];
+                $signingOrder[] = $partyKey;
+            }
+
+            $documentHash = hash('sha256', json_encode($fields, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            $sigTemplate = SignatureTemplate::create([
+                'document_id'         => $document->id,
+                'document_hash'       => $documentHash,
+                'status'              => SignatureTemplate::STATUS_READY,
+                'parties_json'        => $parties,
+                'signing_order_json'  => $signingOrder,
+                'created_by'          => $user->id,
+                'sections_json'       => $template->sections,
+            ]);
+
+            // 3. Create SignatureRequests with signing_method = 'wet_ink'
+            $agentReq = $signatureService->createSigningRequest(
+                $sigTemplate, 'agent', $user->name, $user->email, null, null, $user
+            );
+            $agentReq->update([
+                'signing_method' => 'wet_ink',
+                'status' => \App\Models\Docuperfect\SignatureRequest::STATUS_PENDING,
+                'sent_at' => now(),
+            ]);
+
+            foreach ($orderedRecipients as $i => $r) {
+                $baseRole = $roleAliases[$r['role'] ?? 'other'] ?? ($r['role'] ?? 'other');
+                if ($baseRole === 'agent') continue;
+                $partyKey = $recipientPartyKeys[$i] ?? $baseRole;
+
+                $matchedSetup = null;
+                foreach ($signingSetup as $ss) {
+                    if (($ss['role'] ?? '') === ($r['role'] ?? '') && ($ss['name'] ?? '') === ($r['name'] ?? '')) {
+                        $matchedSetup = $ss;
+                        break;
+                    }
+                }
+                $skipEmail = !empty($matchedSetup['skipEmail'] ?? false);
+                $email = $matchedSetup['email'] ?? $r['email'] ?? '';
+
+                $sigReq = $signatureService->createSigningRequest(
+                    $sigTemplate, $partyKey, $r['name'] ?? '', $skipEmail ? '' : $email,
+                    $r['id_number'] ?? null, null, $user
+                );
+                $sigReq->update(['signing_method' => 'wet_ink']);
+            }
+
+            // No markers or zones needed — wet ink is signed on paper
+
+            // 4. Link document to flow
+            $flowStepData = $flow->step_data ?? [];
+            $flowStepData['document_id'] = $document->id;
+            $flowStepData['signature_template_id'] = $sigTemplate->id;
+            $flowStepData['delivery_mode'] = 'wet_ink';
+            $flow->update([
+                'step_data' => $flowStepData,
+                'status' => 'completed',
+                'completed_at' => now(),
+            ]);
+
+            return ['document' => $document, 'sigTemplate' => $sigTemplate];
+        });
+
+        return redirect()->route('docuperfect.esign.wetInkConfirmation', $flow->id)
+            ->with('success', 'Document created for wet-ink signing.');
+    }
+
+    /**
+     * Show filled document in a print-friendly view for download mode.
+     */
+    public function downloadDocument(Request $request, $documentId)
+    {
+        $user = $request->user();
+        $document = Document::where('owner_id', $user->id)->findOrFail($documentId);
+        $document->load('template');
+
+        $mergedHtml = $document->web_template_data['merged_html'] ?? null;
+
+        return view('docuperfect.esign.download', [
+            'document' => $document,
+            'template' => $document->template,
+            'mergedHtml' => $mergedHtml,
+        ]);
+    }
+
+    /**
+     * Show wet-ink confirmation page with print/download instructions.
+     */
+    public function wetInkConfirmation(Request $request, $flowId)
+    {
+        $user = $request->user();
+        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
+        $flow->load('template');
+
+        $stepData = $flow->step_data ?? [];
+        $documentId = $stepData['document_id'] ?? null;
+        $document = $documentId ? Document::find($documentId) : null;
+
+        return view('docuperfect.esign.wet-ink-confirmation', [
+            'flow' => $flow,
+            'template' => $flow->template,
+            'document' => $document,
+        ]);
+    }
 }

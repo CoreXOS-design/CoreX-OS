@@ -216,7 +216,7 @@ class CdsRendererService
                 $html .= '<div class="' . $blockClass . '">';
                 $html .= '<div class="corex-signature-role">' . e($label) . '</div>';
                 $html .= '<div class="corex-signature-name">&nbsp;</div>';
-                $html .= '<div class="corex-signature-line"><span class="corex-signature-prompt">Sign here</span></div>';
+                $html .= '<div class="corex-signature-line" data-marker-party="' . e($role) . '" data-marker-type="signature"><span class="corex-signature-prompt">Sign here</span></div>';
                 $html .= '<div class="corex-signature-date">Date: _______________</div>';
                 $html .= '</div>';
             }
@@ -239,9 +239,10 @@ class CdsRendererService
         $html .= '<div class="corex-signature-grid">';
         foreach ($parties as $party) {
             $role = strtoupper($party['label'] ?? $party['role'] ?? 'Party');
+            $roleKey = strtolower($party['role'] ?? $party['label'] ?? 'party');
             $html .= '<div class="corex-signature-block">';
             $html .= '<div class="corex-signature-role">' . e($role) . '</div>';
-            $html .= '<div class="corex-signature-line">'
+            $html .= '<div class="corex-signature-line" data-marker-party="' . e($roleKey) . '" data-marker-type="signature">'
                 . '<span class="corex-signature-prompt">Sign here</span></div>';
             $html .= '<div class="corex-signature-date">Date: _______________</div>';
             $html .= '</div>';

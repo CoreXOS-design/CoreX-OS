@@ -7,16 +7,20 @@ use App\Mail\Signatures\SignedDocumentMail;
 use App\Mail\Signatures\SigningRequestMail;
 use App\Mail\Signatures\WetInkRejectionMail;
 use App\Mail\Signatures\WetInkUploadedNotification;
+use App\Models\Docuperfect\AmendmentAcceptance;
 use App\Models\Docuperfect\Document;
+use App\Models\Docuperfect\DocumentAmendment;
 use App\Models\Docuperfect\LeaseRecord;
 use App\Models\Docuperfect\Signature;
 use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
+use App\Models\Docuperfect\SignatureZone;
 use App\Models\Docuperfect\TemplateSignatureZone;
 use App\Models\Docuperfect\WetInkInspection;
 use App\Models\User;
+use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignaturePdfService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -375,6 +379,383 @@ class SignatureService
     }
 
     // ──────────────────────────────────────────────
+    // Dynamic Signature Zones (V2)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Create dynamic signature zones from web template HTML by scanning
+     * data-marker-party and data-marker-type attributes.
+     *
+     * Groups detected positions by role+type into zones. Creates zone records
+     * on the SignatureTemplate, then expands them into individual markers
+     * using SignatureZoneRenderer.
+     *
+     * @param  SignatureTemplate  $sigTemplate
+     * @param  array  $parties  Parties from the signing chain (with role, name, email)
+     * @param  int  $pageCount  Total pages in the document
+     * @param  bool  $isCandidateFlow  Whether the flow is candidate-originated
+     * @return int  Number of markers created
+     */
+    public function createZonesFromParties(
+        SignatureTemplate $sigTemplate,
+        array $parties,
+        int $pageCount = 1,
+        bool $isCandidateFlow = false
+    ): int {
+        // Don't recreate if zones already exist
+        if ($sigTemplate->zones()->count() > 0) {
+            return 0;
+        }
+
+        $renderer = app(SignatureZoneRenderer::class);
+
+        // Group parties by base role (seller, buyer, agent, landlord, tenant, etc.)
+        $roleGroups = [];
+        foreach ($parties as $party) {
+            $baseRole = preg_replace('/_\d+$/', '', $party['role']);
+            $roleGroups[$baseRole][] = $party;
+        }
+
+        // Count signature locations per role from the template's blade view.
+        // Inline signature-line includes + final signature-block entries give
+        // the total number of distinct locations each role must sign.
+        $locationsByRole = $this->countSignatureLocationsPerRole($sigTemplate);
+
+        $sortOrder = 0;
+        $totalMarkers = 0;
+
+        // Build a flat list of all zone placements (role + location index)
+        // so we can space them evenly through the document's signature area.
+        $zonePlacements = [];
+        foreach ($roleGroups as $baseRole => $roleParties) {
+            if ($baseRole === 'supervisor' && !$isCandidateFlow) {
+                continue;
+            }
+
+            $locationCount = $locationsByRole[$baseRole] ?? 1;
+            for ($loc = 0; $loc < $locationCount; $loc++) {
+                $zonePlacements[] = [
+                    'baseRole' => $baseRole,
+                    'roleParties' => $roleParties,
+                    'locationIndex' => $loc,
+                    'locationCount' => $locationCount,
+                    'isFinal' => ($loc === $locationCount - 1),
+                ];
+            }
+        }
+
+        // Distribute zones through the signature area of the document.
+        // Inline sigs start around 50%, final sigs around 85-92%.
+        // With N total zones, space them evenly between 50% and 92%.
+        $totalZones = count($zonePlacements);
+        $startY = ($totalZones > 1) ? 50 : 85;
+        $endY = 92;
+        $spacing = ($totalZones > 1) ? ($endY - $startY) / ($totalZones - 1) : 0;
+
+        foreach ($zonePlacements as $idx => $placement) {
+            $baseRole = $placement['baseRole'];
+            $roleParties = $placement['roleParties'];
+            $locIdx = $placement['locationIndex'];
+            $locCount = $placement['locationCount'];
+
+            $sortOrder++;
+
+            // Calculate zone Y position — evenly distributed
+            $zoneY = $startY + ($idx * $spacing);
+            $zoneY = min($zoneY, 94);
+
+            // Zone height — fixed at 6%, hard-clamped at 10%
+            $zoneHeight = 6.0;
+            $zoneHeight = min($zoneHeight, 10.0);
+
+            // Zone width: multi-party = full width, single-party = half width
+            $partyCount = count($roleParties);
+            $zoneWidth = $partyCount === 1 ? 45 : 80;
+            $zoneX = 5;
+
+            // Label distinguishes inline vs final locations
+            $locLabel = $locCount > 1
+                ? ($placement['isFinal'] ? ' (Final)' : ' (Inline ' . ($locIdx + 1) . ')')
+                : '';
+
+            $zone = SignatureZone::create([
+                'signature_template_id' => $sigTemplate->id,
+                'zone_type' => SignatureZone::TYPE_SIGNATURE,
+                'party_role' => $baseRole,
+                'page_number' => $pageCount,
+                'x_position' => $zoneX,
+                'y_position' => round($zoneY, 2),
+                'width' => $zoneWidth,
+                'height' => $zoneHeight,
+                'is_auto_placed' => true,
+                'source' => SignatureZone::SOURCE_TEMPLATE,
+                'label' => ucfirst($baseRole) . ' Signature Zone' . $locLabel,
+                'sort_order' => $sortOrder,
+            ]);
+
+            // Expand zone into individual markers
+            $blocks = $renderer->renderZone($zone, $roleParties);
+            $totalMarkers += $this->createMarkersFromBlocks($sigTemplate, $zone, $blocks);
+        }
+
+        // Create initial zones on every page except the last
+        if ($pageCount > 1) {
+            $allParties = $parties;
+            // Remove supervisor if not candidate flow
+            if (!$isCandidateFlow) {
+                $allParties = array_filter($allParties, function ($p) {
+                    return preg_replace('/_\d+$/', '', $p['role']) !== 'supervisor';
+                });
+                $allParties = array_values($allParties);
+            }
+
+            for ($page = 1; $page < $pageCount; $page++) {
+                $sortOrder++;
+
+                $zone = SignatureZone::create([
+                    'signature_template_id' => $sigTemplate->id,
+                    'zone_type' => SignatureZone::TYPE_INITIAL,
+                    'party_role' => 'all', // All parties initial on each page
+                    'page_number' => $page,
+                    'x_position' => 80,
+                    'y_position' => 90,
+                    'width' => 15,
+                    'height' => 8,
+                    'is_auto_placed' => true,
+                    'source' => SignatureZone::SOURCE_TEMPLATE,
+                    'label' => 'Initials — Page ' . $page,
+                    'sort_order' => $sortOrder,
+                ]);
+
+                $blocks = $renderer->renderInitialZone($zone, $allParties);
+                $totalMarkers += $this->createMarkersFromBlocks($sigTemplate, $zone, $blocks);
+            }
+        }
+
+        return $totalMarkers;
+    }
+
+    /**
+     * Expand a single zone into markers based on the current party list.
+     * Deletes existing markers for this zone first (idempotent).
+     */
+    public function expandZone(SignatureZone $zone, array $parties): int
+    {
+        $renderer = app(SignatureZoneRenderer::class);
+        $sigTemplate = $zone->template;
+
+        // Remove existing markers from this zone
+        $sigTemplate->markers()->where('from_zone_id', $zone->id)->forceDelete();
+
+        // Get parties matching this zone's role
+        $matchingParties = $this->getPartiesForRole($zone->party_role, $parties);
+
+        if (empty($matchingParties)) {
+            return 0;
+        }
+
+        if ($zone->zone_type === SignatureZone::TYPE_INITIAL) {
+            $blocks = $renderer->renderInitialZone($zone, $matchingParties);
+        } else {
+            $blocks = $renderer->renderZone($zone, $matchingParties);
+        }
+
+        return $this->createMarkersFromBlocks($sigTemplate, $zone, $blocks);
+    }
+
+    /**
+     * Re-expand all zones on a template (e.g. after parties change).
+     */
+    public function reExpandAllZones(SignatureTemplate $sigTemplate): int
+    {
+        $parties = $sigTemplate->parties_json ?? [];
+        $zones = $sigTemplate->zones()->orderBy('sort_order')->get();
+
+        $total = 0;
+        foreach ($zones as $zone) {
+            $total += $this->expandZone($zone, $parties);
+        }
+
+        return $total;
+    }
+
+    /**
+     * Save a zone from the setup screen (user-drawn bounding box).
+     */
+    public function saveZone(SignatureTemplate $sigTemplate, array $data): SignatureZone
+    {
+        $zone = SignatureZone::create([
+            'signature_template_id' => $sigTemplate->id,
+            'zone_type' => $data['zone_type'] ?? 'signature',
+            'party_role' => $data['party_role'],
+            'page_number' => $data['page_number'],
+            'x_position' => $data['x_position'],
+            'y_position' => $data['y_position'],
+            'width' => $data['width'],
+            'height' => $data['height'],
+            'is_auto_placed' => $data['is_auto_placed'] ?? false,
+            'source' => $data['source'] ?? SignatureZone::SOURCE_SETUP,
+            'label' => $data['label'] ?? (ucfirst($data['party_role']) . ' ' . ucfirst($data['zone_type'] ?? 'signature') . ' Zone'),
+            'sort_order' => $sigTemplate->zones()->max('sort_order') + 1,
+        ]);
+
+        // Immediately expand into markers
+        $parties = $sigTemplate->parties_json ?? [];
+        $this->expandZone($zone, $parties);
+
+        return $zone;
+    }
+
+    /**
+     * Update a zone (resize/move) and re-expand its markers.
+     */
+    public function updateZone(SignatureZone $zone, array $data): SignatureZone
+    {
+        $zone->update(array_intersect_key($data, array_flip([
+            'zone_type', 'party_role', 'page_number',
+            'x_position', 'y_position', 'width', 'height', 'label',
+        ])));
+
+        // Re-expand markers with new dimensions
+        $parties = $zone->template->parties_json ?? [];
+        $this->expandZone($zone, $parties);
+
+        return $zone->fresh();
+    }
+
+    /**
+     * Delete a zone and its expanded markers.
+     */
+    public function deleteZone(SignatureZone $zone): void
+    {
+        // Delete expanded markers
+        $zone->template->markers()->where('from_zone_id', $zone->id)->forceDelete();
+        $zone->delete();
+    }
+
+    /**
+     * Count signature locations per role by reading the template's blade view.
+     *
+     * Inline signature-line includes use: ['party' => 'seller']
+     * Final signature-block includes use: ["parties" => ["Seller", "Agent"]]
+     *
+     * Returns ['seller' => 3, 'agent' => 1, ...] — total distinct locations per role.
+     */
+    protected function countSignatureLocationsPerRole(SignatureTemplate $sigTemplate): array
+    {
+        $counts = [];
+
+        // Navigate to the Template model via Document
+        $document = $sigTemplate->document;
+        if (!$document) {
+            return $counts;
+        }
+
+        $template = $document->template;
+        if (!$template || !$template->blade_view) {
+            return $counts;
+        }
+
+        // Read the blade file content
+        $viewPath = str_replace('.', '/', $template->blade_view);
+        $bladePath = resource_path("views/{$viewPath}.blade.php");
+        if (!file_exists($bladePath)) {
+            return $counts;
+        }
+
+        $content = file_get_contents($bladePath);
+
+        // Role alias map — blade uses display names, we need base role keys
+        $roleAliases = [
+            'seller' => 'seller', 'buyer' => 'buyer', 'agent' => 'agent',
+            'landlord' => 'landlord', 'tenant' => 'tenant',
+            'lessor' => 'landlord', 'lessee' => 'tenant',
+            'supervisor' => 'supervisor',
+        ];
+
+        // 1. Count inline signature-line includes: signature-line", ['party' => 'seller']
+        if (preg_match_all('/signature-line["\'].*?\[\'party\'\s*=>\s*\'(\w+)\'\]/i', $content, $matches)) {
+            foreach ($matches[1] as $party) {
+                $role = $roleAliases[strtolower($party)] ?? strtolower($party);
+                $counts[$role] = ($counts[$role] ?? 0) + 1;
+            }
+        }
+
+        // 2. Count final signature-block parties: ["parties" => ["Seller", "Agent"]]
+        if (preg_match('/signature-block["\'].*?\["parties"\s*=>\s*\[([^\]]+)\]\]/i', $content, $blockMatch)) {
+            $partiesStr = $blockMatch[1];
+            if (preg_match_all('/["\'](\w+)["\']/i', $partiesStr, $partyMatches)) {
+                foreach ($partyMatches[1] as $party) {
+                    $role = $roleAliases[strtolower($party)] ?? strtolower($party);
+                    $counts[$role] = ($counts[$role] ?? 0) + 1;
+                }
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Create marker records from block definitions returned by the renderer.
+     */
+    protected function createMarkersFromBlocks(
+        SignatureTemplate $sigTemplate,
+        SignatureZone $zone,
+        array $blocks
+    ): int {
+        $sortOrder = $sigTemplate->markers()->max('sort_order') ?? -1;
+        $count = 0;
+
+        foreach ($blocks as $block) {
+            $sortOrder++;
+            $type = $block['zone_type'] === 'initial'
+                ? SignatureMarker::TYPE_INITIAL
+                : SignatureMarker::TYPE_SIGNATURE;
+
+            $partyRole = $block['party_role'];
+            $partyName = $block['party_name'] ?? '';
+            $roleDisplay = ucfirst(preg_replace('/_\d+$/', '', $partyRole));
+            $typeDisplay = $type === 'initial' ? 'Initial' : 'Signature';
+
+            SignatureMarker::create([
+                'signature_template_id' => $sigTemplate->id,
+                'page_number' => $zone->page_number,
+                'x_position' => $block['x'],
+                'y_position' => $block['y'],
+                'width' => $block['width'],
+                'height' => $block['height'],
+                'type' => $type,
+                'assigned_party' => $partyRole,
+                'assigned_email' => $block['party_email'] ?? null,
+                'label' => $partyName
+                    ? "{$roleDisplay} — {$partyName} {$typeDisplay}"
+                    : "{$roleDisplay} {$typeDisplay}",
+                'sort_order' => $sortOrder,
+                'required' => true,
+                'from_zone_id' => $zone->id,
+            ]);
+            $count++;
+        }
+
+        return $count;
+    }
+
+    /**
+     * Get parties matching a zone's role. For 'all' role, returns all parties.
+     */
+    protected function getPartiesForRole(string $zoneRole, array $parties): array
+    {
+        if ($zoneRole === 'all') {
+            return $parties;
+        }
+
+        return array_values(array_filter($parties, function ($p) use ($zoneRole) {
+            $baseRole = preg_replace('/_\d+$/', '', $p['role']);
+            return $baseRole === $zoneRole;
+        }));
+    }
+
+    // ──────────────────────────────────────────────
     // Signing requests
     // ──────────────────────────────────────────────
 
@@ -604,13 +985,14 @@ class SignatureService
      */
     public function isFullyComplete(SignatureTemplate $template): bool
     {
-        // Document is fully complete when zero waiting/pending requests remain
+        // Document is fully complete when zero waiting/pending/deferred requests remain
         return !$template->requests()
             ->whereIn('status', [
                 SignatureRequest::STATUS_WAITING,
                 SignatureRequest::STATUS_PENDING,
                 SignatureRequest::STATUS_VIEWED,
                 SignatureRequest::STATUS_PARTIALLY_SIGNED,
+                SignatureRequest::STATUS_DEFERRED,
             ])
             ->exists();
     }
@@ -640,8 +1022,8 @@ class SignatureService
                 ]);
             }
 
-            // If an external party (non-agent) just completed, require agent approval
-            if ($completedParty !== 'agent') {
+            // If an external party (non-agent, non-supervisor) just completed, require agent approval
+            if ($completedParty !== 'agent' && $completedParty !== 'supervisor' && $completedParty !== 'supervisor_final') {
                 $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
 
                 SignatureAuditLog::log(
@@ -660,8 +1042,70 @@ class SignatureService
                 return;
             }
 
-            // Agent just finished — auto-advance to the first external party
-            $this->advanceToNextParty($template, $completedParty);
+            // Supervisor initial review completed — record who authorised, advance to external parties
+            if ($completedParty === 'supervisor') {
+                // Record authorised_by audit trail on the request
+                if ($request) {
+                    $request->update([
+                        'authorised_by' => $request->authorised_by ?? auth()->id(),
+                        'authorised_at' => $request->authorised_at ?? now(),
+                    ]);
+                }
+
+                $authoriserName = $request?->authorised_by
+                    ? (User::find($request->authorised_by)?->name ?? 'Authoriser')
+                    : ($request?->signer_name ?? 'Authoriser');
+
+                SignatureAuditLog::log(
+                    $template,
+                    'supervisor_authorised',
+                    SignatureAuditLog::ACTOR_USER,
+                    $authoriserName,
+                    metadata: [
+                        'completed_party' => 'supervisor',
+                        'authorised_by' => $request?->authorised_by,
+                    ],
+                );
+                $this->advanceToNextParty($template, $completedParty);
+                return;
+            }
+
+            // Supervisor final sign-off — record who authorised, complete the document
+            if ($completedParty === 'supervisor_final') {
+                // Record authorised_by audit trail on the request
+                if ($request) {
+                    $request->update([
+                        'authorised_by' => $request->authorised_by ?? auth()->id(),
+                        'authorised_at' => $request->authorised_at ?? now(),
+                    ]);
+                }
+
+                $authoriserName = $request?->authorised_by
+                    ? (User::find($request->authorised_by)?->name ?? 'Authoriser')
+                    : ($request?->signer_name ?? 'Authoriser');
+
+                SignatureAuditLog::log(
+                    $template,
+                    'supervisor_final_signoff',
+                    SignatureAuditLog::ACTOR_USER,
+                    $authoriserName,
+                    metadata: [
+                        'completed_party' => 'supervisor_final',
+                        'authorised_by' => $request?->authorised_by,
+                    ],
+                );
+                $this->completeDocument($template);
+                return;
+            }
+
+            // Agent just finished signing
+            if ($template->is_candidate_flow) {
+                // Candidate flow: route to supervisor for initial review (not directly to external parties)
+                $this->advanceToSupervisor($template);
+            } else {
+                // Full status flow: auto-advance to the first external party
+                $this->advanceToNextParty($template, $completedParty);
+            }
         });
     }
 
@@ -690,11 +1134,23 @@ class SignatureService
                     'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
                     'buyer' => SignatureTemplate::STATUS_AWAITING_BUYER,
                     'seller' => SignatureTemplate::STATUS_AWAITING_SELLER,
+                    'supervisor' => SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
+                    'supervisor_final' => SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
                 ];
                 $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
                 $template->update(['status' => $newStatus]);
 
-                $this->sendSigningRequest($nextRequest);
+                // Supervisor steps: notify all eligible authorisers (shared queue)
+                if (in_array($nextRequest->party_role, ['supervisor', 'supervisor_final'])) {
+                    $nextRequest->update([
+                        'status'  => SignatureRequest::STATUS_PENDING,
+                        'sent_at' => now(),
+                    ]);
+                    $notifyType = $nextRequest->party_role === 'supervisor_final' ? 'final_signoff' : 'initial_review';
+                    $this->notifyEligibleAuthorisers($template, $notifyType);
+                } else {
+                    $this->sendSigningRequest($nextRequest);
+                }
 
                 SignatureAuditLog::log(
                     $template,
@@ -709,7 +1165,66 @@ class SignatureService
                 return ['action' => 'sent', 'next_party' => $nextRequest->party_role, 'next_name' => $nextRequest->signer_name];
             }
 
-            // All external parties done — complete the document
+            // Candidate flow: route to authorisation queue for final sign-off instead of completing
+            if ($template->is_candidate_flow) {
+                $supervisorFinalRequest = $template->requests()
+                    ->where('party_role', 'supervisor_final')
+                    ->whereIn('status', [SignatureRequest::STATUS_WAITING, SignatureRequest::STATUS_PENDING])
+                    ->first();
+
+                if ($supervisorFinalRequest && $supervisorFinalRequest->status !== SignatureRequest::STATUS_COMPLETED) {
+                    $template->update([
+                        'status' => SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+                        'document_hash' => $this->generateDocumentHash($template->document),
+                    ]);
+
+                    // Mark request as pending (shared queue — no specific person)
+                    $supervisorFinalRequest->update([
+                        'status'  => SignatureRequest::STATUS_PENDING,
+                        'sent_at' => now(),
+                    ]);
+
+                    // Notify ALL eligible authorisers
+                    $this->notifyEligibleAuthorisers($template, 'final_signoff');
+
+                    SignatureAuditLog::log(
+                        $template,
+                        'candidate_routed_to_authorisation_queue_final',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: ['notification' => 'all_eligible_authorisers'],
+                    );
+
+                    return ['action' => 'sent', 'next_party' => 'supervisor_final', 'next_name' => 'Authorisation Queue'];
+                }
+            }
+
+            // Check for deferred requests — pause flow if next party is deferred
+            $deferredRequest = $template->requests()
+                ->where('status', SignatureRequest::STATUS_DEFERRED)
+                ->orderBy('signing_order', 'asc')
+                ->first();
+
+            if ($deferredRequest) {
+                $template->update([
+                    'status' => SignatureTemplate::STATUS_AWAITING_DEFERRED,
+                ]);
+
+                SignatureAuditLog::log(
+                    $template,
+                    'flow_paused_deferred',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    metadata: [
+                        'deferred_party' => $deferredRequest->party_role,
+                        'reason' => 'Party details not yet known',
+                    ],
+                );
+
+                return ['action' => 'deferred', 'deferred_party' => $deferredRequest->party_role];
+            }
+
+            // All parties done — complete the document
             $this->completeDocument($template);
 
             SignatureAuditLog::log(
@@ -726,6 +1241,61 @@ class SignatureService
     }
 
     /**
+     * Resume a deferred signing request — agent provides party details, flow picks up.
+     */
+    public function resumeDeferredSigning(
+        SignatureTemplate $template,
+        SignatureRequest $deferredRequest,
+        string $name,
+        string $email,
+        ?string $idNumber = null,
+        ?string $cell = null
+    ): array {
+        return DB::transaction(function () use ($template, $deferredRequest, $name, $email, $idNumber, $cell) {
+            // Update the deferred request with the new party details
+            $deferredRequest->update([
+                'signer_name' => $name,
+                'signer_email' => $email,
+                'signer_id_number' => $idNumber,
+                'status' => SignatureRequest::STATUS_WAITING,
+            ]);
+
+            // Update the parties_json to reflect the new details
+            $parties = $template->parties_json ?? [];
+            foreach ($parties as &$party) {
+                if ($party['role'] === $deferredRequest->party_role) {
+                    $party['name'] = $name;
+                    $party['email'] = $email;
+                    $party['id_number'] = $idNumber ?? '';
+                    break;
+                }
+            }
+            unset($party);
+            $template->update(['parties_json' => $parties]);
+
+            SignatureAuditLog::log(
+                $template,
+                'deferred_signing_resumed',
+                SignatureAuditLog::ACTOR_USER,
+                auth()->user()?->name ?? 'Agent',
+                auth()->user()?->email,
+                auth()->id(),
+                $deferredRequest->id,
+                metadata: [
+                    'party_role' => $deferredRequest->party_role,
+                    'signer_name' => $name,
+                    'signer_email' => $email,
+                ],
+            );
+
+            // Now advance — the request is "waiting", so advanceToNextParty will pick it up
+            $this->advanceToNextParty($template, 'deferred_resume');
+
+            return ['action' => 'resumed', 'party_role' => $deferredRequest->party_role, 'signer_name' => $name];
+        });
+    }
+
+    /**
      * Advance to next party in signing order (used after agent signs).
      */
     private function advanceToNextParty(SignatureTemplate $template, string $completedParty): void
@@ -737,25 +1307,228 @@ class SignatureService
             ->orderBy('signing_order', 'asc')
             ->first();
 
-        if ($nextRequest) {
-            $statusMap = [
-                'tenant'   => SignatureTemplate::STATUS_AWAITING_TENANT,
-                'landlord' => SignatureTemplate::STATUS_AWAITING_LANDLORD,
-                'buyer'    => SignatureTemplate::STATUS_AWAITING_BUYER,
-                'seller'   => SignatureTemplate::STATUS_AWAITING_SELLER,
-            ];
-            $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
+        // If no waiting request, check for deferred requests (sign later)
+        if (!$nextRequest) {
+            $deferredRequest = $template->requests()
+                ->where('status', SignatureRequest::STATUS_DEFERRED)
+                ->orderBy('signing_order', 'asc')
+                ->first();
 
+            if ($deferredRequest) {
+                // Flow pauses — document is partial, awaiting deferred party details
+                $template->update([
+                    'status' => SignatureTemplate::STATUS_AWAITING_DEFERRED,
+                ]);
+
+                SignatureAuditLog::log(
+                    $template,
+                    'flow_paused_deferred',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    metadata: [
+                        'deferred_party' => $deferredRequest->party_role,
+                        'reason' => 'Party details not yet known',
+                    ],
+                );
+                return;
+            }
+
+            if ($this->isFullyComplete($template)) {
+                $this->completeDocument($template);
+            }
+            return;
+        }
+
+        $statusMap = [
+            'tenant'           => SignatureTemplate::STATUS_AWAITING_TENANT,
+            'landlord'         => SignatureTemplate::STATUS_AWAITING_LANDLORD,
+            'buyer'            => SignatureTemplate::STATUS_AWAITING_BUYER,
+            'seller'           => SignatureTemplate::STATUS_AWAITING_SELLER,
+            'supervisor'       => SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
+            'supervisor_final' => SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+        ];
+        $newStatus = $statusMap[$nextRequest->party_role] ?? SignatureTemplate::STATUS_SIGNING;
+
+        $template->update([
+            'status'        => $newStatus,
+            'document_hash' => $this->generateDocumentHash($template->document),
+        ]);
+
+        // Supervisor steps: notify all eligible authorisers (shared queue)
+        if (in_array($nextRequest->party_role, ['supervisor', 'supervisor_final'])) {
+            $nextRequest->update([
+                'status'  => SignatureRequest::STATUS_PENDING,
+                'sent_at' => now(),
+            ]);
+            $notifyType = $nextRequest->party_role === 'supervisor_final' ? 'final_signoff' : 'initial_review';
+            $this->notifyEligibleAuthorisers($template, $notifyType);
+        } else {
+            $this->sendSigningRequest($nextRequest);
+        }
+    }
+
+    /**
+     * Candidate flow: advance to authorisation queue after candidate signs.
+     * Shared queue: emails ALL eligible authorisers in the branch.
+     */
+    private function advanceToSupervisor(SignatureTemplate $template): void
+    {
+        $supervisorRequest = $template->requests()
+            ->where('party_role', 'supervisor')
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->first();
+
+        if ($supervisorRequest) {
             $template->update([
-                'status'        => $newStatus,
+                'status'        => SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
                 'document_hash' => $this->generateDocumentHash($template->document),
             ]);
 
-            $this->sendSigningRequest($nextRequest);
+            // Mark request as pending (but don't send to a single person)
+            $supervisorRequest->update([
+                'status'  => SignatureRequest::STATUS_PENDING,
+                'sent_at' => now(),
+            ]);
 
-        } elseif ($this->isFullyComplete($template)) {
-            $this->completeDocument($template);
+            // Notify ALL eligible authorisers in the branch
+            $this->notifyEligibleAuthorisers($template, 'initial_review');
+
+            SignatureAuditLog::log(
+                $template,
+                'candidate_routed_to_authorisation_queue',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: [
+                    'candidate_name' => $template->creator?->name,
+                    'notification' => 'all_eligible_authorisers',
+                ],
+            );
+        } else {
+            // Supervisor already completed — advance to external parties
+            $this->advanceToNextParty($template, 'supervisor');
         }
+    }
+
+    /**
+     * Notify all eligible authorisers in the candidate's branch.
+     * Shared queue: any of them can review and authorise from the dashboard.
+     */
+    private function notifyEligibleAuthorisers(SignatureTemplate $template, string $type = 'initial_review'): void
+    {
+        try {
+            $candidateUser = $template->creator;
+            if (!$candidateUser) {
+                return;
+            }
+
+            $candidateService = app(CandidatePractitionerService::class);
+            $authorisers = $candidateService->getEligibleAuthorisers($candidateUser);
+            $documentName = $template->document->name ?? 'Document';
+            $dashboardUrl = route('docuperfect.rental');
+
+            $typeLabel = $type === 'final_signoff' ? 'final sign-off' : 'review and authorisation';
+
+            foreach ($authorisers as $authoriser) {
+                try {
+                    Mail::to($authoriser->email)->send(
+                        (new SigningRequestMail(
+                            signerName: $authoriser->name,
+                            documentName: "[Candidate Authorisation] {$documentName}",
+                            signingUrl: $dashboardUrl,
+                            personalMessage: "Candidate practitioner {$candidateUser->name} has a document requiring your {$typeLabel}. "
+                                . "Please review it from your dashboard. Any eligible authoriser can action this.",
+                            expiresAt: now()->addDays(14),
+                        ))
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send authorisation notification', [
+                        'authoriser_id' => $authoriser->id,
+                        'template_id' => $template->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            SignatureAuditLog::log(
+                $template,
+                'authorisation_notifications_sent',
+                SignatureAuditLog::ACTOR_SYSTEM,
+                'System',
+                metadata: [
+                    'type' => $type,
+                    'notified_count' => $authorisers->count(),
+                    'notified_users' => $authorisers->pluck('name')->toArray(),
+                ],
+            );
+        } catch (\Throwable $e) {
+            Log::error('Failed to notify eligible authorisers', [
+                'template_id' => $template->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Return a document from supervisor to candidate with notes.
+     * Candidate practitioner flow only.
+     */
+    public function returnToCandidate(SignatureTemplate $template, string $notes, User $supervisor): array
+    {
+        return DB::transaction(function () use ($template, $notes, $supervisor) {
+            $candidateUser = $template->creator;
+            $candidateName = $candidateUser?->name ?? 'Candidate';
+
+            // Set the supervisor's request back to waiting
+            $supervisorRequest = $template->requests()
+                ->where('party_role', 'supervisor')
+                ->where('status', SignatureRequest::STATUS_COMPLETED)
+                ->first();
+
+            if ($supervisorRequest) {
+                $supervisorRequest->update([
+                    'status' => SignatureRequest::STATUS_WAITING,
+                    'completed_at' => null,
+                    'returned_notes' => $notes,
+                ]);
+            }
+
+            // Set the candidate's (agent) request to a returned state
+            $candidateRequest = $template->requests()
+                ->where('party_role', 'agent')
+                ->first();
+
+            if ($candidateRequest) {
+                $candidateRequest->update([
+                    'returned_notes' => $notes,
+                ]);
+            }
+
+            // Update template status
+            $template->update([
+                'status' => SignatureTemplate::STATUS_RETURNED_TO_CANDIDATE,
+            ]);
+
+            SignatureAuditLog::log(
+                $template,
+                'supervisor_returned_to_candidate',
+                SignatureAuditLog::ACTOR_USER,
+                $supervisor->name,
+                $supervisor->email,
+                $supervisor->id,
+                metadata: [
+                    'notes' => $notes,
+                    'candidate_name' => $candidateName,
+                ],
+            );
+
+            // TODO: Send email notification to candidate about the return
+            // Mail::to($candidateUser->email)->send(new SupervisorReturnedDocumentMail(...));
+
+            return [
+                'candidate_name' => $candidateName,
+                'notes' => $notes,
+            ];
+        });
     }
 
     /**
@@ -855,9 +1628,61 @@ class SignatureService
         // 3. Email signed copies — client copy to signers, internal copy to agent
         $this->sendCompletionEmails($template, $pdfPaths);
 
-        // 4. Extract lease data if this is a lease/rental document
+        // 4. Link document to contacts via pivot (for FICA tracking / compliance)
+        $this->linkDocumentToContacts($template, $pdfPaths);
+
+        // 5. Extract lease data if this is a lease/rental document
         if ($this->isLeaseDocument($template)) {
             $this->createLeaseRecord($template);
+        }
+    }
+
+    /**
+     * Link completed document to all signing party contacts via pivot.
+     */
+    private function linkDocumentToContacts(SignatureTemplate $template, ?array $pdfPaths): void
+    {
+        $document = $template->document;
+        if (!$document) return;
+
+        $docTemplate = $document->template;
+        $documentType = $docTemplate?->template_type ?? $document->document_type ?? 'other';
+
+        // Determine if this is a FICA document
+        $isFica = false;
+        $docName = strtolower($document->name ?? '');
+        if (str_contains($docName, 'fica') || str_contains($docName, 'kyc')) {
+            $isFica = true;
+            $documentType = 'fica';
+        }
+
+        foreach ($template->requests as $request) {
+            if (!$request->signer_email || $request->party_role === 'agent') continue;
+
+            // Find matching contact by email
+            $contact = \App\Models\Contact::where('email', $request->signer_email)->first();
+            if (!$contact) continue;
+
+            // Link if not already linked
+            $exists = \Illuminate\Support\Facades\DB::table('document_contact')
+                ->where('document_id', $document->id)
+                ->where('contact_id', $contact->id)
+                ->where('party_role', $request->party_role)
+                ->exists();
+
+            if (!$exists) {
+                \Illuminate\Support\Facades\DB::table('document_contact')->insert([
+                    'document_id' => $document->id,
+                    'contact_id' => $contact->id,
+                    'party_role' => $request->party_role,
+                    'document_type' => $documentType,
+                    'is_signed' => true,
+                    'signed_at' => $request->completed_at ?? now(),
+                    'signed_pdf_path' => $pdfPaths['client'] ?? null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
         }
     }
 
@@ -1224,10 +2049,17 @@ class SignatureService
                 match ($sigTemplate->status) {
                     SignatureTemplate::STATUS_COMPLETED => $groups['completed']->push($doc),
                     SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL => $groups['pending_approval']->push($doc),
+                    // Candidate flow: awaiting authorisation goes to pending_approval (shared queue)
+                    SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
+                    SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL => $groups['pending_approval']->push($doc),
                     SignatureTemplate::STATUS_REJECTED => $groups['rejected']->push($doc),
                     SignatureTemplate::STATUS_SIGNING,
                     SignatureTemplate::STATUS_AWAITING_TENANT,
-                    SignatureTemplate::STATUS_AWAITING_LANDLORD => $groups['awaiting_signatures']->push($doc),
+                    SignatureTemplate::STATUS_AWAITING_LANDLORD,
+                    SignatureTemplate::STATUS_AWAITING_BUYER,
+                    SignatureTemplate::STATUS_AWAITING_SELLER,
+                    SignatureTemplate::STATUS_AWAITING_DEFERRED,
+                    SignatureTemplate::STATUS_PARTIAL => $groups['awaiting_signatures']->push($doc),
                     SignatureTemplate::STATUS_READY,
                     SignatureTemplate::STATUS_DRAFT => $groups['ready_to_sign']->push($doc),
                     default => $groups['draft']->push($doc),
@@ -1692,5 +2524,427 @@ class SignatureService
         } while (SignatureRequest::where('token', $token)->exists());
 
         return $token;
+    }
+
+    // ──────────────────────────────────────────────
+    // Amendment Detection & Flow
+    // ──────────────────────────────────────────────
+
+    /**
+     * Detect if the signing party added Other Conditions content.
+     * Returns the new text if an amendment is detected, null otherwise.
+     */
+    public function detectAmendment(SignatureTemplate $template, string $newOtherConditionsText): ?string
+    {
+        $previousText = $template->other_conditions_text ?? '';
+        $newText = trim($newOtherConditionsText);
+
+        if ($newText === '' || $newText === $previousText) {
+            return null;
+        }
+
+        return $newText;
+    }
+
+    /**
+     * Create an amendment record and trigger the re-signing flow.
+     * Returns the created DocumentAmendment, or null if no amendment needed.
+     */
+    public function createAmendment(
+        SignatureTemplate $template,
+        SignatureRequest $amendingRequest,
+        string $newConditionsText,
+        ?string $originalText = null
+    ): ?DocumentAmendment {
+        $document = $template->document;
+        if (!$document) {
+            return null;
+        }
+
+        $hashBefore = $this->generateDocumentHash($document);
+        $currentVersion = $template->document_version ?? 1;
+        $newVersion = $currentVersion + 1;
+
+        // Determine amendment type
+        $amendmentType = empty($originalText) ? 'addition' : 'modification';
+
+        $amendment = DocumentAmendment::create([
+            'document_id' => $document->id,
+            'signature_template_id' => $template->id,
+            'amended_by_request_id' => $amendingRequest->id,
+            'amendment_type' => $amendmentType,
+            'section_reference' => 'Other Conditions',
+            'original_text' => $originalText,
+            'new_text' => $newConditionsText,
+            'document_version_before' => $currentVersion,
+            'document_version_after' => $newVersion,
+            'document_hash_before' => $hashBefore,
+            'document_hash_after' => null, // Will be set after conditions stored
+            'status' => DocumentAmendment::STATUS_PENDING,
+        ]);
+
+        // Update template version and store new conditions text
+        $template->update([
+            'document_version' => $newVersion,
+            'other_conditions_text' => $newConditionsText,
+            'amendment_status' => 'pending_review',
+        ]);
+
+        // Recalculate hash after update
+        $document->refresh();
+        $amendment->update([
+            'document_hash_after' => $this->generateDocumentHash($document),
+        ]);
+
+        SignatureAuditLog::log(
+            $template,
+            'amendment_detected',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $amendingRequest->signer_name ?? 'Unknown',
+            metadata: [
+                'amendment_id' => $amendment->id,
+                'amendment_type' => $amendmentType,
+                'amended_by_role' => $amendingRequest->party_role,
+                'version_before' => $currentVersion,
+                'version_after' => $newVersion,
+            ],
+        );
+
+        return $amendment;
+    }
+
+    /**
+     * Handle the amendment flow: halt forward progress, notify previous signers.
+     * Creates amendment acceptance records for each previous signer.
+     */
+    public function handleAmendment(SignatureTemplate $template, DocumentAmendment $amendment, SignatureRequest $amendingRequest): void
+    {
+        DB::transaction(function () use ($template, $amendment, $amendingRequest) {
+            // Put template into amendment review status
+            $template->update([
+                'status' => SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+            ]);
+
+            // Find all PREVIOUS signers (completed before the amending party)
+            $previousSigners = $template->requests()
+                ->where('status', SignatureRequest::STATUS_COMPLETED)
+                ->where('id', '!=', $amendingRequest->id)
+                ->where('signing_order', '<', $amendingRequest->signing_order)
+                ->get();
+
+            foreach ($previousSigners as $previousRequest) {
+                // Create acceptance record for each previous signer per amendment
+                AmendmentAcceptance::create([
+                    'amendment_id' => $amendment->id,
+                    'signature_request_id' => $previousRequest->id,
+                    'accepted' => false,
+                    'rejected' => false,
+                ]);
+
+                // Generate new token for re-signing
+                $resignToken = $this->generateToken();
+                $previousRequest->update([
+                    'token' => $resignToken,
+                    'token_expires_at' => now()->addDays(14),
+                    'status' => SignatureRequest::STATUS_PENDING,
+                ]);
+
+                // Send notification email
+                try {
+                    $signingUrl = route('signatures.external.amendment-review', $resignToken);
+                    Mail::to($previousRequest->signer_email)->send(
+                        new SigningRequestMail(
+                            signerName: $previousRequest->signer_name,
+                            documentName: $template->document->name ?? 'Document',
+                            signingUrl: $signingUrl,
+                            personalMessage: "{$amendingRequest->signer_name} has added conditions to this document. Please review and initial each amendment to continue.",
+                        )
+                    );
+
+                    SignatureAuditLog::log(
+                        $template,
+                        'amendment_review_sent',
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'amendment_id' => $amendment->id,
+                            'sent_to' => $previousRequest->signer_name,
+                            'sent_to_email' => $previousRequest->signer_email,
+                            'party_role' => $previousRequest->party_role,
+                        ],
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send amendment review notification', [
+                        'amendment_id' => $amendment->id,
+                        'request_id' => $previousRequest->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // Also notify the agent
+            $this->sendAgentAmendmentNotification($template, $amendment, $amendingRequest);
+        });
+    }
+
+    /**
+     * Accept an amendment (one party initials one amendment).
+     */
+    public function acceptAmendment(
+        DocumentAmendment $amendment,
+        SignatureRequest $signerRequest,
+        ?string $initialImage = null
+    ): AmendmentAcceptance {
+        $acceptance = AmendmentAcceptance::where('amendment_id', $amendment->id)
+            ->where('signature_request_id', $signerRequest->id)
+            ->firstOrFail();
+
+        $acceptance->update([
+            'accepted' => true,
+            'rejected' => false,
+            'initial_image' => $initialImage,
+        ]);
+
+        SignatureAuditLog::log(
+            $amendment->template,
+            'amendment_accepted',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signerRequest->signer_name ?? 'Unknown',
+            metadata: [
+                'amendment_id' => $amendment->id,
+                'party_role' => $signerRequest->party_role,
+            ],
+        );
+
+        // Check if all amendments are fully accepted — if so, resume normal flow
+        $this->checkAmendmentResolution($amendment->template);
+
+        return $acceptance;
+    }
+
+    /**
+     * Reject an amendment (one party rejects with reason).
+     */
+    public function rejectAmendment(
+        DocumentAmendment $amendment,
+        SignatureRequest $signerRequest,
+        string $reason
+    ): AmendmentAcceptance {
+        $acceptance = AmendmentAcceptance::where('amendment_id', $amendment->id)
+            ->where('signature_request_id', $signerRequest->id)
+            ->firstOrFail();
+
+        $acceptance->update([
+            'accepted' => false,
+            'rejected' => true,
+            'rejection_reason' => $reason,
+        ]);
+
+        $amendment->update(['status' => DocumentAmendment::STATUS_REJECTED]);
+
+        SignatureAuditLog::log(
+            $amendment->template,
+            'amendment_rejected',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signerRequest->signer_name ?? 'Unknown',
+            metadata: [
+                'amendment_id' => $amendment->id,
+                'party_role' => $signerRequest->party_role,
+                'reason' => $reason,
+            ],
+        );
+
+        // Notify the agent about the rejection
+        $this->sendAgentAmendmentNotification($amendment->template, $amendment, $signerRequest, 'rejected');
+
+        return $acceptance;
+    }
+
+    /**
+     * Agent accepts/rejects an amendment on behalf of the agency.
+     */
+    public function agentAmendmentAction(
+        DocumentAmendment $amendment,
+        string $action,
+        ?string $reason = null
+    ): void {
+        if ($action === 'accept') {
+            $amendment->update(['status' => DocumentAmendment::STATUS_ACCEPTED]);
+
+            // Mark all pending acceptances for this amendment as accepted (agent override)
+            AmendmentAcceptance::where('amendment_id', $amendment->id)
+                ->where('accepted', false)
+                ->where('rejected', false)
+                ->update(['accepted' => true]);
+
+            SignatureAuditLog::log(
+                $amendment->template,
+                'amendment_agent_accepted',
+                SignatureAuditLog::ACTOR_USER,
+                auth()->user()?->name ?? 'Agent',
+                metadata: [
+                    'amendment_id' => $amendment->id,
+                ],
+            );
+        } else {
+            $amendment->update([
+                'status' => DocumentAmendment::STATUS_REJECTED,
+            ]);
+
+            SignatureAuditLog::log(
+                $amendment->template,
+                'amendment_agent_rejected',
+                SignatureAuditLog::ACTOR_USER,
+                auth()->user()?->name ?? 'Agent',
+                metadata: [
+                    'amendment_id' => $amendment->id,
+                    'reason' => $reason,
+                ],
+            );
+        }
+
+        $this->checkAmendmentResolution($amendment->template);
+    }
+
+    /**
+     * Check if all pending amendments are resolved. If so, resume normal signing flow.
+     */
+    private function checkAmendmentResolution(SignatureTemplate $template): void
+    {
+        $template->refresh();
+
+        $pendingAmendments = $template->amendments()
+            ->where('status', DocumentAmendment::STATUS_PENDING)
+            ->count();
+
+        if ($pendingAmendments > 0) {
+            return; // Still amendments pending
+        }
+
+        // Check if all accepted amendments have full acceptance from all parties
+        $acceptedAmendments = $template->amendments()
+            ->where('status', DocumentAmendment::STATUS_ACCEPTED)
+            ->orWhere(function ($q) use ($template) {
+                $q->where('signature_template_id', $template->id)
+                  ->where('status', DocumentAmendment::STATUS_PENDING);
+            })
+            ->get();
+
+        foreach ($acceptedAmendments as $amendment) {
+            $pendingAcceptances = $amendment->acceptances()
+                ->where('accepted', false)
+                ->where('rejected', false)
+                ->count();
+
+            if ($pendingAcceptances > 0) {
+                return; // Still waiting for party acceptances
+            }
+        }
+
+        // All amendments resolved — mark accepted ones
+        $template->amendments()
+            ->where('status', DocumentAmendment::STATUS_PENDING)
+            ->update(['status' => DocumentAmendment::STATUS_ACCEPTED]);
+
+        $template->update([
+            'amendment_status' => 'resolved',
+            'status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL,
+        ]);
+
+        // Re-mark previous signers as completed (they've now re-signed)
+        $template->requests()
+            ->where('status', SignatureRequest::STATUS_PENDING)
+            ->whereHas('sectionAcceptances') // only if they had acceptances
+            ->update(['status' => SignatureRequest::STATUS_COMPLETED]);
+
+        SignatureAuditLog::log(
+            $template,
+            'all_amendments_resolved',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: [
+                'total_amendments' => $template->amendments()->count(),
+            ],
+        );
+    }
+
+    /**
+     * Send the agent a notification about an amendment.
+     */
+    private function sendAgentAmendmentNotification(
+        SignatureTemplate $template,
+        DocumentAmendment $amendment,
+        SignatureRequest $amendingRequest,
+        string $type = 'detected'
+    ): void {
+        try {
+            $agentUser = $template->creator;
+            if (!$agentUser) {
+                return;
+            }
+
+            $documentName = $template->document->name ?? 'Document';
+            $reviewUrl = route('docuperfect.signatures.review', $template->document_id);
+
+            $messageMap = [
+                'detected' => "{$amendingRequest->signer_name} has added conditions to \"{$documentName}\". Review the amendments.",
+                'rejected' => "{$amendingRequest->signer_name} has rejected an amendment on \"{$documentName}\". Your mediation is required.",
+            ];
+
+            Mail::to($agentUser->email)->send(
+                new SigningRequestMail(
+                    signerName: $agentUser->name,
+                    documentName: "[Amendment] {$documentName}",
+                    signingUrl: $reviewUrl,
+                    personalMessage: $messageMap[$type] ?? $messageMap['detected'],
+                )
+            );
+        } catch (\Throwable $e) {
+            Log::error('Failed to send agent amendment notification', [
+                'template_id' => $template->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Get all amendments for a template with their acceptance status.
+     */
+    public function getAmendmentsWithStatus(SignatureTemplate $template): array
+    {
+        $amendments = $template->amendments()
+            ->with(['amendedByRequest', 'acceptances.signingRequest'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return $amendments->map(function ($amendment) {
+            $acceptances = $amendment->acceptances->map(function ($acc) {
+                return [
+                    'id' => $acc->id,
+                    'signer_name' => $acc->signingRequest->signer_name ?? 'Unknown',
+                    'party_role' => $acc->signingRequest->party_role ?? '',
+                    'accepted' => $acc->accepted,
+                    'rejected' => $acc->rejected,
+                    'rejection_reason' => $acc->rejection_reason,
+                    'has_initial' => !empty($acc->initial_image),
+                    'created_at' => $acc->created_at?->format('Y-m-d H:i'),
+                ];
+            });
+
+            return [
+                'id' => $amendment->id,
+                'type' => $amendment->amendment_type,
+                'section' => $amendment->section_reference,
+                'original_text' => $amendment->original_text,
+                'new_text' => $amendment->new_text,
+                'status' => $amendment->status,
+                'amended_by' => $amendment->amendedByRequest->signer_name ?? 'Unknown',
+                'amended_by_role' => $amendment->amendedByRequest->party_role ?? '',
+                'version_before' => $amendment->document_version_before,
+                'version_after' => $amendment->document_version_after,
+                'created_at' => $amendment->created_at?->format('Y-m-d H:i'),
+                'acceptances' => $acceptances,
+            ];
+        })->toArray();
     }
 }

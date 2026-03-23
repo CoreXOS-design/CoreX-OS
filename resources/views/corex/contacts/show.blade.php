@@ -106,11 +106,20 @@
     {{-- Tab bar --}}
     <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
         <div class="flex" style="border-bottom:1px solid var(--border);" id="tab-bar">
+            @php
+                $ficaStatus = $contact->ficaStatus();
+                $ficaIcon = match($ficaStatus) {
+                    'complete' => '<span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:#dcfce7; color:#166534;">Complete</span>',
+                    'expiring' => '<span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:#fef3c7; color:#92400e;">Expiring</span>',
+                    default => '<span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:#fecaca; color:#991b1b;">Incomplete</span>',
+                };
+            @endphp
             @foreach([
                 ['key'=>'info','label'=>'Info'],
                 ['key'=>'properties','label'=>'Properties <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->properties->count() .'</span>'],
                 ['key'=>'notes','label'=>'Notes <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->contactNotes->count() .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
+                ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'matches','label'=>'Core Matches <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->matches->count() .'</span>'],
             ] as $t)
             @if($t['key'] === 'matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !auth()->user()->hasPermission('access_core_matches')))
@@ -725,6 +734,125 @@
             <div class="py-10 text-center" style="color:var(--text-muted);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
                 <div class="text-sm">No files uploaded yet.</div>
+            </div>
+            @endif
+        </div>
+
+        {{-- ════════════════════════════
+             FICA COMPLIANCE TAB
+             ════════════════════════════ --}}
+        <div x-show="activeTab === 'fica'" x-cloak class="p-6 space-y-6" id="tab-fica">
+
+            {{-- FICA status indicator --}}
+            @php
+                $ficaDocs = $contact->signedDocuments()
+                    ->wherePivot('document_type', 'fica')
+                    ->wherePivot('is_signed', true)
+                    ->orderByPivot('signed_at', 'desc')
+                    ->get();
+                $allSignedDocs = $contact->signedDocuments()
+                    ->wherePivot('is_signed', true)
+                    ->orderByPivot('signed_at', 'desc')
+                    ->get();
+            @endphp
+
+            <div class="rounded-lg p-5" style="border:1px solid var(--border); background:var(--surface-2);">
+                <div class="flex items-center gap-4">
+                    @if($ficaStatus === 'complete')
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg" style="background:#dcfce7; color:#166534;">
+                            &#10003;
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold" style="color:var(--text-primary);">FICA Complete</h3>
+                            <p class="text-sm" style="color:var(--text-secondary);">
+                                {{ $ficaDocs->count() }} FICA document{{ $ficaDocs->count() !== 1 ? 's' : '' }} on file.
+                                @if($ficaDocs->first()?->pivot?->signed_at)
+                                    Latest signed {{ \Carbon\Carbon::parse($ficaDocs->first()->pivot->signed_at)->format('d M Y') }}.
+                                @endif
+                            </p>
+                        </div>
+                    @elseif($ficaStatus === 'expiring')
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg" style="background:#fef3c7; color:#92400e;">
+                            &#9888;
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold" style="color:var(--text-primary);">FICA Expiring Soon</h3>
+                            <p class="text-sm" style="color:var(--text-secondary);">FICA documents are nearing expiry. Consider requesting updated documentation.</p>
+                        </div>
+                    @else
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg" style="background:#fecaca; color:#991b1b;">
+                            &#10007;
+                        </div>
+                        <div>
+                            <h3 class="text-base font-bold" style="color:var(--text-primary);">No FICA on File</h3>
+                            <p class="text-sm" style="color:var(--text-secondary);">This contact has no signed FICA documents. FICA compliance is required before transacting.</p>
+                        </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- FICA documents --}}
+            @if($ficaDocs->isNotEmpty())
+            <div>
+                <h4 class="text-sm font-bold uppercase tracking-wide mb-3" style="color:var(--text-muted);">FICA Documents</h4>
+                <div class="space-y-2">
+                    @foreach($ficaDocs as $doc)
+                    <div class="flex items-center justify-between p-3 rounded-lg" style="background:var(--surface); border:1px solid var(--border);">
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 flex-shrink-0" style="color:var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                            </svg>
+                            <div>
+                                <p class="text-sm font-semibold" style="color:var(--text-primary);">{{ $doc->name }}</p>
+                                <p class="text-xs" style="color:var(--text-muted);">
+                                    {{ ucfirst(str_replace('_', ' ', $doc->pivot->party_role ?? '')) }}
+                                    &middot; Signed {{ $doc->pivot->signed_at ? \Carbon\Carbon::parse($doc->pivot->signed_at)->format('d M Y') : 'N/A' }}
+                                </p>
+                            </div>
+                        </div>
+                        @if($doc->pivot->signed_pdf_path)
+                        <a href="{{ route('docuperfect.signatures.download', $doc) }}"
+                           class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
+                           style="color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
+                            Download
+                        </a>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+            @endif
+
+            {{-- All signed documents for this contact --}}
+            @if($allSignedDocs->isNotEmpty())
+            <div>
+                <h4 class="text-sm font-bold uppercase tracking-wide mb-3" style="color:var(--text-muted);">All Signed Documents</h4>
+                <div class="space-y-2">
+                    @foreach($allSignedDocs as $doc)
+                    <div class="flex items-center justify-between p-3 rounded-lg" style="background:var(--surface); border:1px solid var(--border);">
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 flex-shrink-0" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                            </svg>
+                            <div>
+                                <p class="text-sm font-semibold" style="color:var(--text-primary);">{{ $doc->name }}</p>
+                                <p class="text-xs" style="color:var(--text-muted);">
+                                    {{ ucfirst(str_replace('_', ' ', $doc->pivot->party_role ?? '')) }}
+                                    &middot; {{ ucfirst($doc->pivot->document_type ?? 'document') }}
+                                    &middot; {{ $doc->pivot->signed_at ? \Carbon\Carbon::parse($doc->pivot->signed_at)->format('d M Y') : '' }}
+                                </p>
+                            </div>
+                        </div>
+                        @if($doc->pivot->signed_pdf_path)
+                        <a href="{{ route('docuperfect.signatures.download', $doc) }}"
+                           class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
+                           style="color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
+                            Download
+                        </a>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
             </div>
             @endif
         </div>

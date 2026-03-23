@@ -25,6 +25,7 @@ class SignatureMarker extends Model
         'sort_order',
         'required',
         'from_template_zone_id',
+        'from_zone_id',
     ];
 
     protected $casts = [
@@ -46,6 +47,11 @@ class SignatureMarker extends Model
     public function template()
     {
         return $this->belongsTo(SignatureTemplate::class, 'signature_template_id');
+    }
+
+    public function zone()
+    {
+        return $this->belongsTo(SignatureZone::class, 'from_zone_id');
     }
 
     public function signatures()

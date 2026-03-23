@@ -1,0 +1,634 @@
+
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37m/[39m[38;5;103m ........................................................................................................ [39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37maccount-setup/[39m[33m{user}[39m[38;5;103m .................................... account.setup › Auth\AccountSetupController@show[39m
+  [33mPOST[39m      [37maccount-setup/[39m[33m{user}[39m[38;5;103m ............................. account.setup.store › Auth\AccountSetupController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/agent/[39m[33m{userId}[39m[37m/performance[39m[38;5;103m ......... admin.agent.performance › Admin\AgentPerformanceController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/branch-assignments[39m[38;5;103m ............... admin.branch-assignments › Admin\BranchAssignmentController@index[39m
+  [33mPOST[39m      [37madmin/branch-assignments[39m[38;5;103m ....... admin.branch-assignments.update › Admin\BranchAssignmentController@update[39m
+  [33mPOST[39m      [37madmin/branch-settings/[39m[33m{branch}[39m[38;5;103m admin.branch-settings.update › Admin\BranchAssignmentController@updateBran…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/branch/[39m[33m{branchId}[39m[37m/performance[39m[38;5;103m ... admin.branch.performance › Admin\BranchPerformanceController@index[39m
+  [33mPOST[39m      [37madmin/branches[39m[38;5;103m ...................... admin.branches.store › Admin\BranchAssignmentController@createBranch[39m
+  [33mPOST[39m      [37madmin/branches/[39m[33m{branch}[39m[37m/delete[39m[38;5;103m ..... admin.branches.delete › Admin\BranchAssignmentController@deleteBranch[39m
+  [33mPOST[39m      [37madmin/branches/[39m[33m{branch}[39m[37m/restore[39m[38;5;103m .. admin.branches.restore › Admin\BranchAssignmentController@restoreBranch[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/daily/summary[39m[38;5;103m ..................... admin.daily.summary › Admin\DailyActivitySummaryController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/daily/summary/activity/[39m[33m{definition}[39m[38;5;103m admin.daily.summary.activity › Admin\DailyActivitySummaryContro…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/daily/summary/activity/[39m[33m{definition}[39m[37m/branch/[39m[33m{branch}[39m[38;5;103m admin.daily.summary.activity.branch › Admin\Dai…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/daily/summary/activity/[39m[33m{definition}[39m[37m/branch/[39m[33m{branch}[39m[37m/agent/[39m[33m{user}[39m[38;5;103m admin.daily.summary.activity.branc…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/dashboard[39m[38;5;103m ......................................... admin.dashboard › AdminDashboardController@index[39m
+  [33mPOST[39m      [37madmin/dashboard/expenses[39m[38;5;103m ..................... admin.expenses.save › AdminDashboardController@saveExpenses[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/deals[39m[38;5;103m ..................................................... admin.deals › Admin\DealController@index[39m
+  [33mPOST[39m      [37madmin/deals[39m[38;5;103m ............................................... admin.deals.store › Admin\DealController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/deals/create[39m[38;5;103m ...................................... admin.deals.create › Admin\DealController@create[39m
+  [33mPOST[39m      [37madmin/deals/[39m[33m{deal}[39m[38;5;103m ...................................... admin.deals.update › Admin\DealController@update[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/deals/[39m[33m{deal}[39m[37m/edit[39m[38;5;103m ..................................... admin.deals.edit › Admin\DealController@edit[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/deals/[39m[33m{deal}[39m[37m/log[39m[38;5;103m ........................................ admin.deals.log › Admin\DealController@log[39m
+  [33mPOST[39m      [37madmin/deals/[39m[33m{deal}[39m[37m/quick[39m[38;5;103m ...................... admin.deals.quickUpdate › Admin\DealController@quickUpdate[39m
+  [33mPOST[39m      [37madmin/deals/[39m[33m{deal}[39m[37m/remark[39m[38;5;103m ............................ admin.deals.remark › Admin\DealController@addRemark[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/deals/[39m[33m{deal}[39m[37m/settle[39m[38;5;103m ............................... admin.deals.settle › Admin\DealController@settle[39m
+  [33mPOST[39m      [37madmin/deals/[39m[33m{deal}[39m[37m/settle[39m[38;5;103m .................. admin.deals.settle.save › Admin\DealController@saveSettlement[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/deals/[39m[33m{deal}[39m[37m/settle/print[39m[38;5;103m .......... admin.deals.settle.print › Admin\DealController@printSettlement[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/deals/[39m[33m{deal}[39m[37m/settle/print/[39m[33m{user}[39m[38;5;103m admin.deals.settle.print.agent › Admin\DealController@printAgentPa…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/designations[39m[38;5;103m .......................... admin.designations.index › Admin\DesignationController@index[39m
+  [33mPOST[39m      [37madmin/designations[39m[38;5;103m .......................... admin.designations.store › Admin\DesignationController@store[39m
+  [33mPOST[39m      [37madmin/designations/[39m[33m{designation}[39m[38;5;103m .......... admin.designations.update › Admin\DesignationController@update[39m
+  [33mPOST[39m      [37madmin/designations/[39m[33m{designation}[39m[37m/delete[39m[38;5;103m ... admin.designations.delete › Admin\DesignationController@delete[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/finance/audit[39m[38;5;103m ....................... admin.finance.audit.index › Admin\FinanceAuditController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/finance/audit/deals/[39m[33m{deal}[39m[38;5;103m ............ admin.finance.audit.deal › Admin\FinanceAuditController@deal[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/finance/audit/runs/[39m[33m{run}[39m[38;5;103m ................ admin.finance.audit.run › Admin\FinanceAuditController@run[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/finance/definitions[39m[38;5;103m ........... admin.finance.definitions › Admin\FinanceAuditController@definitions[39m
+  [33mPOST[39m      [37madmin/finance/recalculate[39m[38;5;103m ........... admin.finance.recalculate › Admin\FinanceAuditController@recalculate[39m
+  [33mPOST[39m      [37madmin/impersonate/stop[39m[38;5;103m ............................... impersonate.stop › Admin\ImpersonateController@stop[39m
+  [33mPOST[39m      [37madmin/impersonate/[39m[33m{user}[39m[38;5;103m ........................... impersonate.start › Admin\ImpersonateController@start[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/knowledge[39m[38;5;103m .................................. admin.knowledge.index › Admin\KnowledgeController@index[39m
+  [33mPOST[39m      [37madmin/knowledge/categories[39m[38;5;103m ....... admin.knowledge.storeCategory › Admin\KnowledgeController@storeCategory[39m
+  [33mPOST[39m      [37madmin/knowledge/categories/reorder[39m[38;5;103m admin.knowledge.reorderCategories › Admin\KnowledgeController@reorderC…[39m
+  [33mPUT[39m       [37madmin/knowledge/categories/[39m[33m{id}[39m[38;5;103m admin.knowledge.updateCategory › Admin\KnowledgeController@updateCategory[39m
+  [31mDELETE[39m    [37madmin/knowledge/categories/[39m[33m{id}[39m[38;5;103m admin.knowledge.deleteCategory › Admin\KnowledgeController@deleteCategory[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/knowledge/category/[39m[33m{id}[39m[38;5;103m .................. admin.knowledge.category › Admin\KnowledgeController@show[39m
+  [33mPOST[39m      [37madmin/knowledge/upload[39m[38;5;103m ......................... admin.knowledge.upload › Admin\KnowledgeController@upload[39m
+  [31mDELETE[39m    [37madmin/knowledge/[39m[33m{id}[39m[38;5;103m ......................... admin.knowledge.destroy › Admin\KnowledgeController@destroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/knowledge/[39m[33m{id}[39m[37m/preview[39m[38;5;103m ................. admin.knowledge.preview › Admin\KnowledgeController@preview[39m
+  [33mPOST[39m      [37madmin/knowledge/[39m[33m{id}[39m[37m/reprocess[39m[38;5;103m ........... admin.knowledge.reprocess › Admin\KnowledgeController@reprocess[39m
+  [33mPOST[39m      [37madmin/knowledge/[39m[33m{id}[39m[37m/toggle-active[39m[38;5;103m . admin.knowledge.toggleActive › Admin\KnowledgeController@toggleActive[39m
+  [33mPOST[39m      [37madmin/knowledge/[39m[33m{id}[39m[37m/toggle-ellie[39m[38;5;103m .... admin.knowledge.toggleEllie › Admin\KnowledgeController@toggleEllie[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/listing-targets[39m[38;5;103m ........................ admin.listing-targets › Admin\ListingTargetController@index[39m
+  [33mPOST[39m      [37madmin/listing-targets[39m[38;5;103m .................. admin.listing-targets.store › Admin\ListingTargetController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/listings/agents[39m[38;5;103m ........................ admin.listings.agents › Admin\ListingStockController@agents[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/listings/agents/[39m[33m{user}[39m[38;5;103m ......... admin.listings.agents.show › Admin\ListingStockController@agentShow[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/listings/import[39m[38;5;103m ........................ admin.listings.import › Admin\ListingImportController@index[39m
+  [33mPOST[39m      [37madmin/listings/import[39m[38;5;103m .................. admin.listings.import.store › Admin\ListingImportController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/listings/stock[39m[38;5;103m .................... admin.listings.stock › Admin\CompanyListingStockController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/listings/stock/[39m[33m{listing}[39m[37m/agents[39m[38;5;103m admin.listings.stock.agents.edit › Admin\ListingStockController@edi…[39m
+  [33mPOST[39m      [37madmin/listings/stock/[39m[33m{listing}[39m[37m/agents[39m[38;5;103m admin.listings.stock.agents.update › Admin\ListingStockController@u…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/monthly-goals[39m[38;5;103m .............................. admin.monthly-goals › Admin\MonthlyGoalController@index[39m
+  [33mPOST[39m      [37madmin/monthly-goals[39m[38;5;103m .......................... admin.monthly-goals.save › Admin\MonthlyGoalController@save[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/p24[39m[38;5;103m .................................................... admin.p24.index › Admin\P24Controller@index[39m
+  [33mPOST[39m      [37madmin/p24/import[39m[38;5;103m ........................................ admin.p24.import › Admin\P24Controller@runImport[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/p24/listings[39m[38;5;103m ..................................... admin.p24.listings › Admin\P24Controller@listings[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/performance[39m[38;5;103m .................................. admin.performance › Admin\PerformanceController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/performance-settings[39m[38;5;103m .... admin.performance-settings.edit › Admin\PerformanceSettingsController@edit[39m
+  [33mPOST[39m      [37madmin/performance-settings[39m[38;5;103m admin.performance-settings.update › Admin\PerformanceSettingsController@update[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/splitter/doc-types[39m[38;5;103m .......... admin.splitter.doc-types.index › Admin\SplitterDocTypeController@index[39m
+  [33mPOST[39m      [37madmin/splitter/doc-types[39m[38;5;103m .......... admin.splitter.doc-types.store › Admin\SplitterDocTypeController@store[39m
+  [33mPOST[39m      [37madmin/splitter/doc-types/bulk-save[39m[38;5;103m admin.splitter.doc-types.bulk-save › Admin\SplitterDocTypeController@b…[39m
+  [33mPUT[39m       [37madmin/splitter/doc-types/[39m[33m{doc_type}[39m[38;5;103m admin.splitter.doc-types.update › Admin\SplitterDocTypeController@upd…[39m
+  [31mDELETE[39m    [37madmin/splitter/doc-types/[39m[33m{doc_type}[39m[38;5;103m admin.splitter.doc-types.destroy › Admin\SplitterDocTypeController@de…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/targets[39m[38;5;103m ............................................... admin.targets › Admin\TargetController@index[39m
+  [33mPOST[39m      [37madmin/targets[39m[38;5;103m ........................................... admin.targets.save › Admin\TargetController@save[39m
+  [33mPOST[39m      [37madmin/targets/activity-columns[39m[38;5;103m admin.targets.activity.columns.create › Admin\TargetController@activityCol…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/targets/activity-definitions[39m[38;5;103m admin.targets.activity.definitions › Admin\TargetController@activityDe…[39m
+  [33mPOST[39m      [37madmin/targets/activity-definitions[39m[38;5;103m admin.targets.activity.definitions.save › Admin\TargetController@activ…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/targets/activity-setup[39m[38;5;103m ................................................ admin.targets.activity.setup[39m
+  [33mPOST[39m      [37madmin/targets/activity-setup[39m[38;5;103m admin.targets.activity.setup.save › Admin\TargetController@activitySetupSave[39m
+  [33mPOST[39m      [37madmin/targets/carry-forward[39m[38;5;103m .................................................. admin.targets.carry-forward[39m
+  [33mPOST[39m      [37madmin/targets/daily[39m[38;5;103m .......................... admin.targets.daily.save › Admin\TargetController@saveDaily[39m
+  [33mPOST[39m      [37madmin/tv-code/generate[39m[38;5;103m .......................... admin.tv-code.generate › Admin\TvCodeController@generate[39m
+  [33mPOST[39m      [37madmin/tv-code/generate-company[39m[38;5;103m ... admin.tv-code.generate-company › Admin\TvCodeController@generateCompany[39m
+  [33mPOST[39m      [37madmin/tv-code/revoke[39m[38;5;103m ................................ admin.tv-code.revoke › Admin\TvCodeController@revoke[39m
+  [33mPOST[39m      [37madmin/tv-code/revoke-company[39m[38;5;103m ......... admin.tv-code.revoke-company › Admin\TvCodeController@revokeCompany[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/tv-messages[39m[38;5;103m ..................................... admin.tv-messages › TvMessageController@adminIndex[39m
+  [33mPOST[39m      [37madmin/tv-messages[39m[38;5;103m ............................... admin.tv-messages.store › TvMessageController@adminStore[39m
+  [33mPOST[39m      [37madmin/tv-messages/[39m[33m{tvMessage}[39m[38;5;103m ................. admin.tv-messages.update › TvMessageController@adminUpdate[39m
+  [33mPOST[39m      [37madmin/tv-messages/[39m[33m{tvMessage}[39m[37m/delete[39m[38;5;103m .......... admin.tv-messages.delete › TvMessageController@adminDelete[39m
+  [33mPOST[39m      [37madmin/tv-messages/[39m[33m{tvMessage}[39m[37m/restore[39m[38;5;103m ....... admin.tv-messages.restore › TvMessageController@adminRestore[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/users[39m[38;5;103m ........................................... admin.users › Admin\UserManagementController@index[39m
+  [33mPOST[39m      [37madmin/users[39m[38;5;103m ..................................... admin.users.store › Admin\UserManagementController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/users/create[39m[38;5;103m ............................ admin.users.create › Admin\UserManagementController@create[39m
+  [33mPUT[39m       [37madmin/users/[39m[33m{user}[39m[38;5;103m ............................ admin.users.update › Admin\UserManagementController@update[39m
+  [33mPOST[39m      [37madmin/users/[39m[33m{user}[39m[37m/defaults[39m[38;5;103m .. admin.users.defaults.update › Admin\UserManagementController@updateDefaults[39m
+  [33mPOST[39m      [37madmin/users/[39m[33m{user}[39m[37m/delete[39m[38;5;103m ..................... admin.users.delete › Admin\UserManagementController@delete[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/users/[39m[33m{user}[39m[37m/edit[39m[38;5;103m ........................... admin.users.edit › Admin\UserManagementController@edit[39m
+  [33mPOST[39m      [37madmin/users/[39m[33m{user}[39m[37m/remove-file[39m[38;5;103m .. admin.users.remove-file › Admin\UserManagementController@removeAgentFile[39m
+  [33mPOST[39m      [37madmin/users/[39m[33m{user}[39m[37m/resend-invite[39m[38;5;103m . admin.users.resend-invite › Admin\UserManagementController@resendInvite[39m
+  [33mPOST[39m      [37madmin/users/[39m[33m{user}[39m[37m/role[39m[38;5;103m .............. admin.users.role.update › Admin\UserManagementController@updateRole[39m
+  [33mPOST[39m      [37madmin/users/[39m[33m{user}[39m[37m/toggle[39m[38;5;103m ..................... admin.users.toggle › Admin\UserManagementController@toggle[39m
+  [33mPOST[39m      [37madmin/view-as[39m[38;5;103m ........................................ admin.viewas.update › Admin\ViewAsController@update[39m
+  [33mPOST[39m      [37madmin/view-as/reset[39m[38;5;103m .................................... admin.viewas.reset › Admin\ViewAsController@clear[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37madmin/worksheet-market[39m[38;5;103m .................... admin.worksheet-market › Admin\WorksheetMarketController@index[39m
+  [33mPOST[39m      [37madmin/worksheet-market[39m[38;5;103m .............. admin.worksheet-market.store › Admin\WorksheetMarketController@store[39m
+  [33mPOST[39m      [37magency/switch/clear[39m[38;5;103m ........................... agency.switch.clear › Admin\AgencySwitcherController@clear[39m
+  [33mPOST[39m      [37magency/switch/[39m[33m{agency}[39m[38;5;103m ............................. agency.switch › Admin\AgencySwitcherController@switch[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37magent/daily[39m[38;5;103m ............................................ agent.daily › Agent\DailyActivityController@index[39m
+  [33mPOST[39m      [37magent/daily[39m[38;5;103m .......................................................... Agent\DailyActivityController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37magent/daily/print[39m[38;5;103m ........................... agent.daily.print › Agent\DailyActivityController@printSheet[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37magent/daily/summary[39m[38;5;103m ..................... agent.daily.summary › Agent\DailyActivitySummaryController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37magent/daily/summary/activity/[39m[33m{definition}[39m[38;5;103m agent.daily.summary.activity › Agent\DailyActivitySummaryContro…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37magent/dashboard[39m[38;5;103m ........................................ agent.dashboard › Agent\DashboardController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37magent/deals[39m[38;5;103m ....................................... agent.deals.index › Agent\DealRegisterController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37magent/deals/[39m[33m{deal}[39m[37m/log[39m[38;5;103m ................................ agent.deals.log › Agent\DealRegisterController@log[39m
+  [33mPOST[39m      [37magent/deals/[39m[33m{deal}[39m[37m/remark[39m[38;5;103m .................... agent.deals.remark › Agent\DealRegisterController@addRemark[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37magent/listings[39m[38;5;103m ....................................... agent.listings › Agent\ListingStockController@index[39m
+  [33mPOST[39m      [37magent/listings/[39m[33m{listing}[39m[37m/cma[39m[38;5;103m ................... agent.listings.cma › Agent\ListingStockController@saveCma[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mai-buddy[39m[38;5;103m ........................................................................................ ai.buddy[39m
+  [33mPOST[39m      [37mapi/login[39m[38;5;103m ................................................................................................ [39m
+  [33mPOST[39m      [37mapi/logout[39m[38;5;103m ............................................................................................... [39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mapi/profile[39m[38;5;103m .............................................................................................. [39m
+  [33mPOST[39m      [37mapi/properties/pull-from-portal[39m[38;5;103m ................................ Api\PropertyPullController@pullFromPortal[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mapi/properties/[39m[33m{propertyId}[39m[37m/pull-status[39m[38;5;103m ............................ Api\PropertyPullController@pullStatus[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mapi/prospecting/check-search[39m[38;5;103m .................................... Api\ProspectingApiController@checkSearch[39m
+  [33mPOST[39m      [37mapi/prospecting/import[39m[38;5;103m ............................................... Api\ProspectingApiController@import[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/agent/[39m[33m{userId}[39m[37m/performance[39m[38;5;103m .................. bm.agent.performance › BM\AgentPerformanceController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/daily/summary[39m[38;5;103m .............................. bm.daily.summary › BM\DailyActivitySummaryController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/daily/summary/activity/[39m[33m{definition}[39m[38;5;103m bm.daily.summary.activity › BM\DailyActivitySummaryController@acti…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/daily/summary/activity/[39m[33m{definition}[39m[37m/agent/[39m[33m{user}[39m[38;5;103m bm.daily.summary.activity.agent › BM\DailyActivitySum…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/listings[39m[38;5;103m ................................................ bm.listings › BM\ListingStockController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/my-dashboard[39m[38;5;103m ......................................... bm.my.dashboard › BM\MyDashboardController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/performance[39m[38;5;103m ........................................... bm.performance › BM\PerformanceController@index[39m
+  [33mPOST[39m      [37mbm/performance[39m[38;5;103m ....................................... bm.performance.save › BM\PerformanceController@save[39m
+  [33mPOST[39m      [37mbm/performance/align-agent-to-company[39m[38;5;103m bm.performance.alignAgentToCompany › BM\PerformanceController@align…[39m
+  [33mPOST[39m      [37mbm/performance/align-targets[39m[38;5;103m ................ bm.performance.align › BM\PerformanceController@alignTargets[39m
+  [33mPOST[39m      [37mbm/performance/set-agent-targets[39m[38;5;103m bm.performance.setAgentTargets › BM\PerformanceController@setAgentTargets[39m
+  [33mPOST[39m      [37mbm/tv-code/generate[39m[38;5;103m ................................... bm.tv-code.generate › BM\TvCodeController@generate[39m
+  [33mPOST[39m      [37mbm/tv-code/revoke[39m[38;5;103m ......................................... bm.tv-code.revoke › BM\TvCodeController@revoke[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/tv-messages[39m[38;5;103m .............................................. bm.tv-messages › TvMessageController@bmIndex[39m
+  [33mPOST[39m      [37mbm/tv-messages[39m[38;5;103m ........................................ bm.tv-messages.store › TvMessageController@bmStore[39m
+  [33mPOST[39m      [37mbm/tv-messages/[39m[33m{tvMessage}[39m[38;5;103m .......................... bm.tv-messages.update › TvMessageController@bmUpdate[39m
+  [33mPOST[39m      [37mbm/tv-messages/[39m[33m{tvMessage}[39m[37m/delete[39m[38;5;103m ................... bm.tv-messages.delete › TvMessageController@bmDelete[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mbm/worksheet-market[39m[38;5;103m ............................. bm.worksheet.market › BM\WorksheetMarketController@index[39m
+  [33mPOST[39m      [37mbm/worksheet-market[39m[38;5;103m ......................... bm.worksheet.market.save › BM\WorksheetMarketController@save[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcalculators[39m[38;5;103m ............................................... calculators.index › CalculatorController@index[39m
+  [33mPOST[39m      [37mcalculators/bond[39m[38;5;103m ................................... calculators.bond › CalculatorController@calculateBond[39m
+  [33mPOST[39m      [37mcalculators/bond-overpayment[39m[38;5;103m . calculators.bondOverpayment › CalculatorController@calculateBondOverpayment[39m
+  [33mPOST[39m      [37mcalculators/commission[39m[38;5;103m ................. calculators.commission › CalculatorController@calculateCommission[39m
+  [33mPOST[39m      [37mcalculators/transfer-costs[39m[38;5;103m ....... calculators.transferCosts › CalculatorController@calculateTransferCosts[39m
+  [33mPOST[39m      [37mcalculators/upload-fee-sheet[39m[38;5;103m ............ calculators.uploadFeeSheet › CalculatorController@uploadFeeSheet[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcommercial-evaluations[39m[38;5;103m ............... commercial-evaluations.index › CommercialEvaluationController@index[39m
+  [33mPOST[39m      [37mcommercial-evaluations[39m[38;5;103m ............... commercial-evaluations.store › CommercialEvaluationController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcommercial-evaluations/create[39m[38;5;103m ...... commercial-evaluations.create › CommercialEvaluationController@create[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcommercial-evaluations/[39m[33m{evaluation}[39m[38;5;103m .... commercial-evaluations.show › CommercialEvaluationController@show[39m
+  [33mPUT[39m       [37mcommercial-evaluations/[39m[33m{evaluation}[39m[38;5;103m commercial-evaluations.update › CommercialEvaluationController@update[39m
+  [31mDELETE[39m    [37mcommercial-evaluations/[39m[33m{evaluation}[39m[38;5;103m commercial-evaluations.destroy › CommercialEvaluationController@destr…[39m
+  [33mPOST[39m      [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/assets[39m[38;5;103m commercial-evaluations.assets.store › CommercialEvaluationCont…[39m
+  [31mDELETE[39m    [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/assets/[39m[33m{asset}[39m[38;5;103m commercial-evaluations.assets.destroy › CommercialEval…[39m
+  [33mPOST[39m      [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/comparables[39m[38;5;103m commercial-evaluations.comparables.store › CommercialEval…[39m
+  [31mDELETE[39m    [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/comparables/[39m[33m{comparable}[39m[38;5;103m commercial-evaluations.comparables.destroy  …[39m
+  [33mPOST[39m      [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/crops[39m[38;5;103m commercial-evaluations.crops.store › CommercialEvaluationContro…[39m
+  [31mDELETE[39m    [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/crops/[39m[33m{crop}[39m[38;5;103m commercial-evaluations.crops.destroy › CommercialEvaluat…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/edit[39m[38;5;103m commercial-evaluations.edit › CommercialEvaluationController@edit[39m
+  [33mPOST[39m      [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/evaluate[39m[38;5;103m commercial-evaluations.evaluate › CommercialEvaluationContro…[39m
+  [33mPOST[39m      [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/financials[39m[38;5;103m commercial-evaluations.financials.store › CommercialEvalua…[39m
+  [33mPOST[39m      [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/livestock[39m[38;5;103m commercial-evaluations.livestock.store › CommercialEvaluati…[39m
+  [31mDELETE[39m    [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/livestock/[39m[33m{livestock}[39m[38;5;103m commercial-evaluations.livestock.destroy › Comm…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/pdf[39m[38;5;103m commercial-evaluations.pdf › CommercialEvaluationController@downl…[39m
+  [33mPOST[39m      [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/restore[39m[38;5;103m commercial-evaluations.restore › CommercialEvaluationControll…[39m
+  [33mPOST[39m      [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/units[39m[38;5;103m commercial-evaluations.units.store › CommercialEvaluationContro…[39m
+  [31mDELETE[39m    [37mcommercial-evaluations/[39m[33m{evaluation}[39m[37m/units/[39m[33m{unit}[39m[38;5;103m commercial-evaluations.units.destroy › CommercialEvaluat…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcompany-summary[39m[38;5;103m ......................................... company.summary › CompanySummaryController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mconfirm-password[39m[38;5;103m .............................. password.confirm › Auth\ConfirmablePasswordController@show[39m
+  [33mPOST[39m      [37mconfirm-password[39m[38;5;103m ................................................ Auth\ConfirmablePasswordController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex[39m[38;5;103m .................................................. corex.dashboard › CoreX\DashboardController@index[39m
+  [33mPOST[39m      [37mcorex/ad-templates[39m[38;5;103m ................... corex.ad-templates.store › CoreX\PropertyAdTemplateController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/ad-templates/builder[39m[38;5;103m ....... corex.ad-templates.builder › CoreX\PropertyAdTemplateController@builder[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/ad-templates/builder/[39m[33m{template}[39m[38;5;103m corex.ad-templates.builder.edit › CoreX\PropertyAdTemplateControlle…[39m
+  [33mPUT[39m       [37mcorex/ad-templates/[39m[33m{template}[39m[38;5;103m ...... corex.ad-templates.update › CoreX\PropertyAdTemplateController@update[39m
+  [31mDELETE[39m    [37mcorex/ad-templates/[39m[33m{template}[39m[38;5;103m .... corex.ad-templates.destroy › CoreX\PropertyAdTemplateController@destroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/client-portal[39m[38;5;103m ............................... corex.client-portal › CoreX\PlaceholderController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/communication[39m[38;5;103m ............................... corex.communication › CoreX\PlaceholderController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/compliance[39m[38;5;103m ..................................... corex.compliance › CoreX\PlaceholderController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/contacts[39m[38;5;103m ...................................... corex.contacts.index › CoreX\ContactController@index[39m
+  [33mPOST[39m      [37mcorex/contacts[39m[38;5;103m ...................................... corex.contacts.store › CoreX\ContactController@store[39m
+  [33mPOST[39m      [37mcorex/contacts/check-duplicate[39m[38;5;103m ... corex.contacts.check-duplicate › CoreX\ContactController@checkDuplicate[39m
+  [31mDELETE[39m    [37mcorex/contacts/destroy-all[39m[38;5;103m ............... corex.contacts.destroy-all › CoreX\ContactController@destroyAll[39m
+  [33mPOST[39m      [37mcorex/contacts/import[39m[38;5;103m ....................... corex.contacts.import › CoreX\ContactImportController@import[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/contacts/[39m[33m{contact}[39m[38;5;103m .............................. corex.contacts.show › CoreX\ContactController@show[39m
+  [33mPUT[39m       [37mcorex/contacts/[39m[33m{contact}[39m[38;5;103m .......................... corex.contacts.update › CoreX\ContactController@update[39m
+  [31mDELETE[39m    [37mcorex/contacts/[39m[33m{contact}[39m[38;5;103m ........................ corex.contacts.destroy › CoreX\ContactController@destroy[39m
+  [33mPOST[39m      [37mcorex/contacts/[39m[33m{contact}[39m[37m/documents[39m[38;5;103m corex.contacts.documents.store › CoreX\ContactDocumentController@store[39m
+  [31mDELETE[39m    [37mcorex/contacts/[39m[33m{contact}[39m[37m/documents/[39m[33m{document}[39m[38;5;103m corex.contacts.documents.destroy › CoreX\ContactDocumentCon…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/contacts/[39m[33m{contact}[39m[37m/documents/[39m[33m{document}[39m[37m/download[39m[38;5;103m corex.contacts.documents.download › CoreX\ContactD…[39m
+  [33mPOST[39m      [37mcorex/contacts/[39m[33m{contact}[39m[37m/increment[39m[38;5;103m ... corex.contacts.increment › CoreX\ContactController@incrementChannel[39m
+  [33mPOST[39m      [37mcorex/contacts/[39m[33m{contact}[39m[37m/matches[39m[38;5;103m ....... corex.contacts.matches.store › CoreX\ContactMatchController@store[39m
+  [31mDELETE[39m    [37mcorex/contacts/[39m[33m{contact}[39m[37m/matches/[39m[33m{match}[39m[38;5;103m corex.contacts.matches.destroy › CoreX\ContactMatchController@de…[39m
+  [33mPOST[39m      [37mcorex/contacts/[39m[33m{contact}[39m[37m/matches/[39m[33m{match}[39m[37m/hide/[39m[33m{property}[39m[38;5;103m corex.contacts.matches.toggleHide › CoreX\Contac…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/contacts/[39m[33m{contact}[39m[37m/matches/[39m[33m{match}[39m[37m/results[39m[38;5;103m corex.contacts.matches.results › CoreX\ContactMatchContr…[39m
+  [33mPOST[39m      [37mcorex/contacts/[39m[33m{contact}[39m[37m/notes[39m[38;5;103m ............ corex.contacts.notes.store › CoreX\ContactNoteController@store[39m
+  [31mDELETE[39m    [37mcorex/contacts/[39m[33m{contact}[39m[37m/notes/[39m[33m{note}[39m[38;5;103m . corex.contacts.notes.destroy › CoreX\ContactNoteController@destroy[39m
+  [33mPOST[39m      [37mcorex/contacts/[39m[33m{contact}[39m[37m/properties/link[39m[38;5;103m corex.contacts.properties.link › CoreX\ContactPropertyController…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/contacts/[39m[33m{contact}[39m[37m/properties/search[39m[38;5;103m corex.contacts.properties.search › CoreX\ContactPropertyContro…[39m
+  [31mDELETE[39m    [37mcorex/contacts/[39m[33m{contact}[39m[37m/properties/[39m[33m{property}[39m[38;5;103m corex.contacts.properties.unlink › CoreX\ContactPropertyCo…[39m
+  [33mPOST[39m      [37mcorex/contacts/[39m[33m{contact}[39m[37m/tags[39m[38;5;103m ................ corex.contacts.tags.sync › CoreX\ContactController@syncTags[39m
+  [33mPOST[39m      [37mcorex/contacts/[39m[33m{contact}[39m[37m/touch[39m[38;5;103m ...................... corex.contacts.touch › CoreX\ContactController@touch[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/core-matches[39m[38;5;103m ......................... corex.core-matches.index › CoreX\ContactMatchController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/documents[39m[38;5;103m ....................................... corex.documents › CoreX\PlaceholderController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/extension/download[39m[38;5;103m .................. corex.extension.download › ProfileController@downloadExtension[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/franchise-admin[39m[38;5;103m ........................... corex.franchise-admin › CoreX\PlaceholderController@show[39m
+  [33mPOST[39m      [37mcorex/marketing/posts/[39m[33m{post}[39m[37m/sync-insights[39m[38;5;103m corex.marketing.sync-insights › PropertyMarketingController@sy…[39m
+  [33mPOST[39m      [37mcorex/marketing/social/disconnect[39m[38;5;103m corex.marketing.social.disconnect › PropertyMarketingController@disconn…[39m
+  [33mPOST[39m      [37mcorex/marketing/upload-template-image[39m[38;5;103m corex.marketing.upload-template-image › PropertyMarketingController…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties[39m[38;5;103m ................................. corex.properties.index › CoreX\PropertyController@index[39m
+  [33mPOST[39m      [37mcorex/properties[39m[38;5;103m ................................. corex.properties.store › CoreX\PropertyController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties/contacts/search[39m[38;5;103m corex.properties.contacts.search-global › CoreX\PropertyContactControlle…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties/create[39m[38;5;103m ........................ corex.properties.create › CoreX\PropertyController@create[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties/[39m[33m{property}[39m[38;5;103m ........................ corex.properties.show › CoreX\PropertyController@show[39m
+  [33mPUT[39m       [37mcorex/properties/[39m[33m{property}[39m[38;5;103m .................... corex.properties.update › CoreX\PropertyController@update[39m
+  [31mDELETE[39m    [37mcorex/properties/[39m[33m{property}[39m[38;5;103m .................. corex.properties.destroy › CoreX\PropertyController@destroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties/[39m[33m{property}[39m[37m/ad[39m[38;5;103m ......................... corex.properties.ad › CoreX\PropertyController@ad[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/contacts/create-link[39m[38;5;103m corex.properties.contacts.createAndLink › CoreX\Property…[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/contacts/link[39m[38;5;103m corex.properties.contacts.link › CoreX\PropertyContactControlle…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties/[39m[33m{property}[39m[37m/contacts/search[39m[38;5;103m corex.properties.contacts.search › CoreX\PropertyContactContr…[39m
+  [31mDELETE[39m    [37mcorex/properties/[39m[33m{property}[39m[37m/contacts/[39m[33m{contact}[39m[38;5;103m corex.properties.contacts.unlink › CoreX\PropertyContactCo…[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/delete-image[39m[38;5;103m corex.properties.deleteImage › CoreX\PropertyController@deleteIm…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties/[39m[33m{property}[39m[37m/edit[39m[38;5;103m ................... corex.properties.edit › CoreX\PropertyController@edit[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/files[39m[38;5;103m ...... corex.properties.files.store › CoreX\PropertyFileController@store[39m
+  [31mDELETE[39m    [37mcorex/properties/[39m[33m{property}[39m[37m/files/[39m[33m{file}[39m[38;5;103m corex.properties.files.destroy › CoreX\PropertyFileController@de…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties/[39m[33m{property}[39m[37m/marketing[39m[38;5;103m corex.properties.marketing.index › PropertyMarketingController@index[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/marketing/generate-copy[39m[38;5;103m corex.properties.marketing.generateCopy › PropertyMar…[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/marketing/publish[39m[38;5;103m corex.properties.marketing.publish › PropertyMarketingContr…[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/notes[39m[38;5;103m ...... corex.properties.notes.store › CoreX\PropertyNoteController@store[39m
+  [31mDELETE[39m    [37mcorex/properties/[39m[33m{property}[39m[37m/notes/[39m[33m{note}[39m[38;5;103m corex.properties.notes.destroy › CoreX\PropertyNoteController@de…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/properties/[39m[33m{property}[39m[37m/preview[39m[38;5;103m ...... corex.properties.preview › CoreX\PropertyController@livePreview[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/reorder-images[39m[38;5;103m corex.properties.reorderImages › CoreX\PropertyController@reor…[39m
+  [33mPOST[39m      [37mcorex/properties/[39m[33m{property}[39m[37m/restore[39m[38;5;103m .......... corex.properties.restore › CoreX\PropertyController@restore[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/role-manager[39m[38;5;103m ................................ corex.role-manager › CoreX\RoleManagerController@index[39m
+  [33mPOST[39m      [37mcorex/role-manager/copy-permissions[39m[38;5;103m corex.role-manager.copy › CoreX\RoleManagerController@copyPermissions[39m
+  [33mPOST[39m      [37mcorex/role-manager/permissions[39m[38;5;103m ..... corex.role-manager.save › CoreX\RoleManagerController@savePermissions[39m
+  [33mPOST[39m      [37mcorex/role-manager/roles[39m[38;5;103m .......... corex.role-manager.roles.store › CoreX\RoleManagerController@storeRole[39m
+  [33mPUT[39m       [37mcorex/role-manager/roles/[39m[33m{role}[39m[38;5;103m . corex.role-manager.roles.update › CoreX\RoleManagerController@updateRole[39m
+  [31mDELETE[39m    [37mcorex/role-manager/roles/[39m[33m{role}[39m[38;5;103m corex.role-manager.roles.destroy › CoreX\RoleManagerController@destroyRole[39m
+  [33mPOST[39m      [37mcorex/role-manager/user-role[39m[38;5;103m ... corex.role-manager.user-role › CoreX\RoleManagerController@updateUserRole[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/settings[39m[38;5;103m ........................................... corex.settings › CoreX\SettingsController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/settings/agencies[39m[38;5;103m .................................... agencies.index › Admin\AgencyController@index[39m
+  [33mPOST[39m      [37mcorex/settings/agencies[39m[38;5;103m .................................... agencies.store › Admin\AgencyController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/settings/agencies/create[39m[38;5;103m ........................... agencies.create › Admin\AgencyController@create[39m
+  [33mPUT[39m       [37mcorex/settings/agencies/[39m[33m{agency}[39m[38;5;103m ......................... agencies.update › Admin\AgencyController@update[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/settings/agencies/[39m[33m{agency}[39m[37m/edit[39m[38;5;103m ........................ agencies.edit › Admin\AgencyController@edit[39m
+  [33mPUT[39m       [37mcorex/settings/agency[39m[38;5;103m ............... corex.settings.agency.update › CoreX\SettingsController@updateAgency[39m
+  [33mPOST[39m      [37mcorex/settings/contact-sources[39m[38;5;103m corex.settings.contact-sources.store › CoreX\ContactSourceController@store[39m
+  [33mPUT[39m       [37mcorex/settings/contact-sources/[39m[33m{contactSource}[39m[38;5;103m corex.settings.contact-sources.update › CoreX\ContactSourc…[39m
+  [31mDELETE[39m    [37mcorex/settings/contact-sources/[39m[33m{contactSource}[39m[38;5;103m corex.settings.contact-sources.destroy › CoreX\ContactSour…[39m
+  [33mPOST[39m      [37mcorex/settings/contact-tags[39m[38;5;103m ......... corex.settings.contact-tags.store › CoreX\ContactTagController@store[39m
+  [33mPUT[39m       [37mcorex/settings/contact-tags/[39m[33m{contactTag}[39m[38;5;103m corex.settings.contact-tags.update › CoreX\ContactTagController@…[39m
+  [31mDELETE[39m    [37mcorex/settings/contact-tags/[39m[33m{contactTag}[39m[38;5;103m corex.settings.contact-tags.destroy › CoreX\ContactTagController…[39m
+  [33mPOST[39m      [37mcorex/settings/contact-types[39m[38;5;103m ...... corex.settings.contact-types.store › CoreX\ContactTypeController@store[39m
+  [33mPUT[39m       [37mcorex/settings/contact-types/[39m[33m{contactType}[39m[38;5;103m corex.settings.contact-types.update › CoreX\ContactTypeControl…[39m
+  [31mDELETE[39m    [37mcorex/settings/contact-types/[39m[33m{contactType}[39m[38;5;103m corex.settings.contact-types.destroy › CoreX\ContactTypeContro…[39m
+  [33mPOST[39m      [37mcorex/settings/generate-token[39m[38;5;103m .. corex.settings.generate-token › CoreX\SettingsController@generateApiToken[39m
+  [33mPOST[39m      [37mcorex/settings/marketing-enabled[39m[38;5;103m corex.settings.marketing-enabled › CoreX\SettingsController@updateMarket…[39m
+  [33mPOST[39m      [37mcorex/settings/matches-enabled[39m[38;5;103m corex.settings.matches-enabled › CoreX\SettingsController@updateMatchesEna…[39m
+  [33mPOST[39m      [37mcorex/settings/matches-show-on-properties[39m[38;5;103m corex.settings.matches-show-on-properties › CoreX\SettingsContr…[39m
+  [33mPOST[39m      [37mcorex/settings/matches-wa-message[39m[38;5;103m corex.settings.matches-wa-message › CoreX\SettingsController@updateMatc…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/settings/preview-header[39m[38;5;103m ..... corex.settings.preview-header › CoreX\SettingsController@previewHeader[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/settings/preview-signature[39m[38;5;103m corex.settings.preview-signature › CoreX\SettingsController@previewSigna…[39m
+  [33mPOST[39m      [37mcorex/settings/property-items[39m[38;5;103m corex.settings.property-items.store › CoreX\SettingsController@storePropert…[39m
+  [33mPOST[39m      [37mcorex/settings/property-items/batch-toggle/[39m[33m{group}[39m[38;5;103m corex.settings.property-items.batch-toggle › CoreX\Set…[39m
+  [33mPOST[39m      [37mcorex/settings/property-items/reorder[39m[38;5;103m corex.settings.property-items.reorder › CoreX\SettingsController@re…[39m
+  [33mPUT[39m       [37mcorex/settings/property-items/[39m[33m{item}[39m[38;5;103m corex.settings.property-items.update › CoreX\SettingsController@upda…[39m
+  [31mDELETE[39m    [37mcorex/settings/property-items/[39m[33m{item}[39m[38;5;103m corex.settings.property-items.destroy › CoreX\SettingsController@des…[39m
+  [33mPOST[39m      [37mcorex/settings/property-items/[39m[33m{item}[39m[37m/toggle[39m[38;5;103m corex.settings.property-items.toggle › CoreX\SettingsControll…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/social/oauth/callback[39m[38;5;103m ...... corex.social.oauth.callback › PropertyMarketingController@oauthCallback[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/social/oauth/redirect[39m[38;5;103m ...... corex.social.oauth.redirect › PropertyMarketingController@oauthRedirect[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/supervision[39m[38;5;103m ................................... corex.supervision › CoreX\PlaceholderController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mcorex/training[39m[38;5;103m ......................................... corex.training › CoreX\PlaceholderController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdashboard[39m[38;5;103m ...................................................................................... dashboard[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuments/download/[39m[33m{token}[39m[38;5;103m ......... signatures.download.page › Docuperfect\SigningController@downloadPage[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuments/download/[39m[33m{token}[39m[37m/file[39m[38;5;103m signatures.download.file › Docuperfect\SigningController@downloadSignedFi…[39m
+  [33mPOST[39m      [37mdocuments/download/[39m[33m{token}[39m[37m/verify[39m[38;5;103m signatures.download.verify › Docuperfect\SigningController@downloadVeri…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuments/library[39m[38;5;103m .................... documents.library.index › Documents\DocumentLibraryController@index[39m
+  [33mPOST[39m      [37mdocuments/library/attach[39m[38;5;103m ........... documents.library.attach › Documents\DocumentLibraryController@attach[39m
+  [33mPOST[39m      [37mdocuments/library/types[39m[38;5;103m .... documents.library.types.store › Documents\DocumentLibraryController@storeType[39m
+  [33mPUT[39m       [37mdocuments/library/types/[39m[33m{documentType}[39m[38;5;103m documents.library.types.update › Documents\DocumentLibraryControll…[39m
+  [31mDELETE[39m    [37mdocuments/library/types/[39m[33m{documentType}[39m[38;5;103m documents.library.types.destroy › Documents\DocumentLibraryControl…[39m
+  [33mPOST[39m      [37mdocuments/library/upload[39m[38;5;103m ........... documents.library.upload › Documents\DocumentLibraryController@upload[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuments/library/[39m[33m{item}[39m[37m/download[39m[38;5;103m documents.library.download › Documents\DocumentLibraryController@downlo…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect[39m[38;5;103m ................................ docuperfect.dashboard › Docuperfect\DashboardController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/api/clauses[39m[38;5;103m ................. docuperfect.clauses.json › Docuperfect\ClauseController@listJson[39m
+  [33mPOST[39m      [37mdocuperfect/api/pack-instance-values[39m[38;5;103m docuperfect.api.packInstanceValuesSave › Docuperfect\PackInstanceVal…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/api/pack-instance-values/[39m[33m{instanceId}[39m[38;5;103m docuperfect.api.packInstanceValues › Docuperfect\PackIn…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/api/pack-instance/[39m[33m{instanceId}[39m[37m/combined-pdf-data[39m[38;5;103m docuperfect.api.combinedPdfData › Docuperfec…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/attachments/[39m[33m{id}[39m[37m/download[39m[38;5;103m docuperfect.attachments.download › Docuperfect\PackController@downl…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/clauses[39m[38;5;103m ....................... docuperfect.clauses.index › Docuperfect\ClauseController@index[39m
+  [33mPOST[39m      [37mdocuperfect/clauses[39m[38;5;103m ....................... docuperfect.clauses.store › Docuperfect\ClauseController@store[39m
+  [33mPOST[39m      [37mdocuperfect/clauses/[39m[33m{clause}[39m[37m/restore[39m[38;5;103m .. docuperfect.clauses.restore › Docuperfect\ClauseController@restore[39m
+  [33mPUT[39m       [37mdocuperfect/clauses/[39m[33m{id}[39m[38;5;103m ................ docuperfect.clauses.update › Docuperfect\ClauseController@update[39m
+  [31mDELETE[39m    [37mdocuperfect/clauses/[39m[33m{id}[39m[38;5;103m .............. docuperfect.clauses.destroy › Docuperfect\ClauseController@destroy[39m
+  [33mPOST[39m      [37mdocuperfect/clauses/[39m[33m{id}[39m[37m/copy[39m[38;5;103m ............... docuperfect.clauses.copy › Docuperfect\ClauseController@copy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/create[39m[38;5;103m ........................... docuperfect.create › Docuperfect\DashboardController@create[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents[39m[38;5;103m ........................................................ docuperfect.documents.index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/create/[39m[33m{templateId}[39m[38;5;103m docuperfect.documents.create › Docuperfect\DocumentController@c…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/create/[39m[33m{templateId}[39m[38;5;103m docuperfect.documents.store › Docuperfect\DocumentController@st…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/amendments[39m[38;5;103m docuperfect.signatures.amendments › Docuperfect\SignatureCont…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/amendments/[39m[33m{amendment}[39m[37m/action[39m[38;5;103m docuperfect.signatures.amendmentAction › D…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/reject[39m[38;5;103m docuperfect.signatures.reject › Docuperfect\SignatureController@r…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/save-agent-fields[39m[38;5;103m docuperfect.signatures.saveAgentFields › Docuperfect\S…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/save-agent-web-fields[39m[38;5;103m docuperfect.signatures.saveAgentWebFields › Docupe…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/sections/accept[39m[38;5;103m docuperfect.signatures.acceptSection › Docuperfect\Signa…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/sections/progress[39m[38;5;103m docuperfect.signatures.sectionProgress › Docuperfect\S…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/send-confirmation[39m[38;5;103m docuperfect.signatures.sendConfirmation › Docuperfect\…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/send-for-signature[39m[38;5;103m docuperfect.signatures.send › Docuperfect\SignatureCo…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/send-reminder/[39m[33m{signatureRequest}[39m[38;5;103m docuperfect.signatures.sendReminder › D…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/sign[39m[38;5;103m . docuperfect.signatures.sign › Docuperfect\SignatureController@sign[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/sign-complete[39m[38;5;103m docuperfect.signatures.signComplete › Docuperfect\Signatur…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/sign/[39m[33m{marker}[39m[38;5;103m docuperfect.signatures.capture › Docuperfect\SignatureCont…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/approve-and-advance[39m[38;5;103m docuperfect.signatures.approveAndAdvance …[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/audit[39m[38;5;103m docuperfect.signatures.audit › Docuperfect\SignatureCon…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/download[39m[38;5;103m docuperfect.signatures.download › Docuperfect\Signat…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/inspect/[39m[33m{signingRequest}[39m[38;5;103m docuperfect.signatures.wetInkReview …[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/inspect/[39m[33m{signingRequest}[39m[37m/decision[39m[38;5;103m docuperfect.signatures.wetI…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/inspect/[39m[33m{signingRequest}[39m[37m/file/[39m[33m{fileIndex}[39m[38;5;103m docuperfect.signatu…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/inspect/[39m[33m{signingRequest}[39m[37m/upload-on-behalf[39m[38;5;103m docuperfect.signatu…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/markers[39m[38;5;103m docuperfect.signatures.saveMarkers › Docuperfect\Sign…[39m
+  [33mPUT[39m       [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/markers[39m[38;5;103m docuperfect.signatures.updateMarkers › Docuperfect\Si…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/parties[39m[38;5;103m docuperfect.signatures.saveParties › Docuperfect\Sign…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/resume-deferred[39m[38;5;103m docuperfect.signatures.resumeDeferred › Docup…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/return-to-candidate[39m[38;5;103m docuperfect.signatures.returnToCandidate …[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/review[39m[38;5;103m docuperfect.signatures.review › Docuperfect\SignatureC…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/setup[39m[38;5;103m docuperfect.signatures.setup › Docuperfect\SignatureCon…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/upload-presigned[39m[38;5;103m docuperfect.signatures.uploadPresigned › Doc…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/zones[39m[38;5;103m docuperfect.signatures.zones › Docuperfect\SignatureCon…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/zones[39m[38;5;103m docuperfect.signatures.storeZone › Docuperfect\Signatur…[39m
+  [33mPUT[39m       [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/zones/[39m[33m{zone}[39m[38;5;103m docuperfect.signatures.updateZone › Docuperfect\…[39m
+  [31mDELETE[39m    [37mdocuperfect/documents/[39m[33m{document}[39m[37m/signatures/zones/[39m[33m{zone}[39m[38;5;103m docuperfect.signatures.deleteZone › Docuperfect\…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{document}[39m[37m/supersede[39m[38;5;103m docuperfect.signatures.supersede › Docuperfect\SignatureContro…[39m
+  [31mDELETE[39m    [37mdocuperfect/documents/[39m[33m{id}[39m[38;5;103m ........ docuperfect.documents.destroy › Docuperfect\DocumentController@destroy[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{id}[39m[37m/archive[39m[38;5;103m docuperfect.documents.archive › Docuperfect\DocumentController@archive[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{id}[39m[37m/edit[39m[38;5;103m ......... docuperfect.documents.edit › Docuperfect\DocumentController@edit[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{id}[39m[37m/fields[39m[38;5;103m docuperfect.documents.saveFields › Docuperfect\DocumentController@saveF…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/documents/[39m[33m{id}[39m[37m/page/[39m[33m{page}[39m[38;5;103m docuperfect.documents.pageImage › Docuperfect\PageImageController@…[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{id}[39m[37m/reject[39m[38;5;103m .. docuperfect.documents.reject › Docuperfect\SignatureController@reject[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{id}[39m[37m/rename[39m[38;5;103m ... docuperfect.documents.rename › Docuperfect\DocumentController@rename[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{id}[39m[37m/restore[39m[38;5;103m docuperfect.documents.restore › Docuperfect\DocumentController@restore[39m
+  [33mPOST[39m      [37mdocuperfect/documents/[39m[33m{id}[39m[37m/send-to-rentals[39m[38;5;103m docuperfect.documents.sendToRentals › Docuperfect\DocumentCont…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/esign/api/contacts[39m[38;5;103m docuperfect.esign.api.contacts › Docuperfect\ESignWizardController@searchC…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/esign/api/properties[39m[38;5;103m docuperfect.esign.api.properties › Docuperfect\ESignWizardController@sea…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/esign/api/template/[39m[33m{templateId}[39m[37m/pages[39m[38;5;103m docuperfect.esign.api.templatePages › Docuperfect\ESign…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/esign/create[39m[38;5;103m ............. docuperfect.esign.create › Docuperfect\ESignWizardController@create[39m
+  [33mPOST[39m      [37mdocuperfect/esign/pack-chain/init[39m[38;5;103m docuperfect.esign.initPackChain › Docuperfect\ESignWizardController@ini…[39m
+  [33mPOST[39m      [37mdocuperfect/esign/store[39m[38;5;103m ................ docuperfect.esign.store › Docuperfect\ESignWizardController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/esign/test-render/[39m[33m{templateId}[39m[38;5;103m docuperfect.esign.testRender › Docuperfect\ESignWizardControll…[39m
+  [31mDELETE[39m    [37mdocuperfect/esign/[39m[33m{flow}[39m[38;5;103m ........... docuperfect.esign.destroy › Docuperfect\ESignWizardController@destroy[39m
+  [33mPOST[39m      [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/autosave-fields[39m[38;5;103m docuperfect.esign.autosaveFields › Docuperfect\ESignWizardContro…[39m
+  [33mPOST[39m      [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/draft[39m[38;5;103m . docuperfect.esign.saveDraft › Docuperfect\ESignWizardController@saveDraft[39m
+  [33mPOST[39m      [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/duplicate-fica[39m[38;5;103m docuperfect.esign.duplicateFica › Docuperfect\ESignWizardControll…[39m
+  [33mPOST[39m      [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/next-pack-doc[39m[38;5;103m docuperfect.esign.nextPackDoc › Docuperfect\ESignWizardController@…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/pack-status[39m[38;5;103m docuperfect.esign.packStatus › Docuperfect\ESignWizardController@pac…[39m
+  [33mPOST[39m      [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/prepare-signing[39m[38;5;103m docuperfect.esign.prepareSigning › Docuperfect\ESignWizardContro…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/signing-complete[39m[38;5;103m docuperfect.esign.signingComplete › Docuperfect\ESignWizardCont…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/step/[39m[33m{step}[39m[38;5;103m . docuperfect.esign.step › Docuperfect\ESignWizardController@showStep[39m
+  [33mPOST[39m      [37mdocuperfect/esign/[39m[33m{flow}[39m[37m/step/[39m[33m{step}[39m[38;5;103m docuperfect.esign.saveStep › Docuperfect\ESignWizardController@saveS…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/field-groups[39m[38;5;103m ......... docuperfect.field-groups.index › Docuperfect\FieldGroupController@index[39m
+  [33mPOST[39m      [37mdocuperfect/field-groups[39m[38;5;103m ......... docuperfect.field-groups.store › Docuperfect\FieldGroupController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/field-groups/json[39m[38;5;103m ...... docuperfect.field-groups.json › Docuperfect\FieldGroupController@json[39m
+  [33mPUT[39m       [37mdocuperfect/field-groups/[39m[33m{group}[39m[38;5;103m docuperfect.field-groups.update › Docuperfect\FieldGroupController@update[39m
+  [31mDELETE[39m    [37mdocuperfect/field-groups/[39m[33m{group}[39m[38;5;103m docuperfect.field-groups.destroy › Docuperfect\FieldGroupController@dest…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/import[39m[38;5;103m ............... docuperfect.import.index › Docuperfect\DocumentImporterController@index[39m
+  [33mPOST[39m      [37mdocuperfect/import/cds[39m[38;5;103m docuperfect.import.cds › Docuperfect\DocumentImporterController@generateCdsTemplate[39m
+  [33mPOST[39m      [37mdocuperfect/import/draft/save[39m[38;5;103m docuperfect.import.draft.save › Docuperfect\DocumentImporterController@save…[39m
+  [31mDELETE[39m    [37mdocuperfect/import/draft/[39m[33m{id}[39m[38;5;103m docuperfect.import.draft.destroy › Docuperfect\DocumentImporterController@d…[39m
+  [33mPOST[39m      [37mdocuperfect/import/generate[39m[38;5;103m docuperfect.import.generate › Docuperfect\DocumentImporterController@generate[39m
+  [33mPOST[39m      [37mdocuperfect/import/parse[39m[38;5;103m ......... docuperfect.import.parse › Docuperfect\DocumentImporterController@parse[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/import/parties[39m[38;5;103m docuperfect.import.parties.index › Docuperfect\DocumentImporterController@getP…[39m
+  [33mPOST[39m      [37mdocuperfect/import/parties[39m[38;5;103m docuperfect.import.parties.store › Docuperfect\DocumentImporterController@stor…[39m
+  [33mPOST[39m      [37mdocuperfect/import/parties/reorder[39m[38;5;103m docuperfect.import.parties.reorder › Docuperfect\DocumentImporterContr…[39m
+  [33mPUT[39m       [37mdocuperfect/import/parties/[39m[33m{id}[39m[38;5;103m docuperfect.import.parties.update › Docuperfect\DocumentImporterControlle…[39m
+  [31mDELETE[39m    [37mdocuperfect/import/parties/[39m[33m{id}[39m[38;5;103m docuperfect.import.parties.destroy › Docuperfect\DocumentImporterControll…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/import/review[39m[38;5;103m ...... docuperfect.import.review › Docuperfect\DocumentImporterController@review[39m
+  [33mPOST[39m      [37mdocuperfect/import/review/mappings[39m[38;5;103m docuperfect.import.review.mappings › Docuperfect\DocumentImporterContr…[39m
+  [33mPOST[39m      [37mdocuperfect/import/template/[39m[33m{id}[39m[37m/edit[39m[38;5;103m docuperfect.import.template.edit › Docuperfect\DocumentImporterCont…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/leases[39m[38;5;103m ..................... docuperfect.leases.index › Docuperfect\SignatureController@leases[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/leases/[39m[33m{lease}[39m[37m/history[39m[38;5;103m . docuperfect.leases.history › Docuperfect\LeaseController@leaseHistory[39m
+  [33mPOST[39m      [37mdocuperfect/leases/[39m[33m{lease}[39m[37m/renew[39m[38;5;103m ....... docuperfect.leases.renew › Docuperfect\LeaseController@renewLease[39m
+  [33mPOST[39m      [37mdocuperfect/leases/[39m[33m{lease}[39m[37m/terminate[39m[38;5;103m docuperfect.leases.terminate › Docuperfect\LeaseController@terminate…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/packs[39m[38;5;103m ............................. docuperfect.packs.index › Docuperfect\PackController@index[39m
+  [33mPOST[39m      [37mdocuperfect/packs[39m[38;5;103m ............................. docuperfect.packs.store › Docuperfect\PackController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/packs/create[39m[38;5;103m .................... docuperfect.packs.create › Docuperfect\PackController@create[39m
+  [33mPUT[39m       [37mdocuperfect/packs/[39m[33m{id}[39m[38;5;103m ...................... docuperfect.packs.update › Docuperfect\PackController@update[39m
+  [31mDELETE[39m    [37mdocuperfect/packs/[39m[33m{id}[39m[38;5;103m .................... docuperfect.packs.destroy › Docuperfect\PackController@destroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/packs/[39m[33m{id}[39m[37m/edit[39m[38;5;103m ..................... docuperfect.packs.edit › Docuperfect\PackController@edit[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/packs/[39m[33m{id}[39m[37m/launch[39m[38;5;103m ....... docuperfect.packs.showLaunch › Docuperfect\PackController@showLaunch[39m
+  [33mPOST[39m      [37mdocuperfect/packs/[39m[33m{id}[39m[37m/launch[39m[38;5;103m ........ docuperfect.packs.launch › Docuperfect\PackController@executeLaunch[39m
+  [33mPOST[39m      [37mdocuperfect/packs/[39m[33m{pack}[39m[37m/restore[39m[38;5;103m .......... docuperfect.packs.restore › Docuperfect\PackController@restore[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/parser-test[39m[38;5;103m .......................................................... docuperfect.parser-test[39m
+  [33mPOST[39m      [37mdocuperfect/parser-test[39m[38;5;103m ................................................... docuperfect.parser-test.upload[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/property/[39m[33m{propertyId}[39m[37m/documents[39m[38;5;103m docuperfect.property.documents › Docuperfect\SignatureControl…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/renderer-test[39m[38;5;103m ...................................................... docuperfect.renderer-test[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/rental[39m[38;5;103m .................................................................... docuperfect.rental[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/rental/status-check[39m[38;5;103m docuperfect.rental.statusCheck › Docuperfect\SignatureController@statusCh…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/rental/upload-and-send[39m[38;5;103m docuperfect.rental.uploadAndSend › Docuperfect\SignatureController@sho…[39m
+  [33mPOST[39m      [37mdocuperfect/rental/upload-and-send[39m[38;5;103m docuperfect.rental.uploadAndSend.store › Docuperfect\SignatureControll…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/sales[39m[38;5;103m .......................... docuperfect.sales › Docuperfect\SalesDocumentController@index[39m
+  [33mPOST[39m      [37mdocuperfect/sales/documents/[39m[33m{document}[39m[37m/upload-signed[39m[38;5;103m docuperfect.sales.uploadSigned › Docuperfect\SalesDo…[39m
+  [33mPOST[39m      [37mdocuperfect/sales/recipient/[39m[33m{recipient}[39m[37m/mark-returned[39m[38;5;103m docuperfect.sales.mark-returned › Docuperfect\Sales…[39m
+  [33mPOST[39m      [37mdocuperfect/sales/recipient/[39m[33m{recipient}[39m[37m/remind[39m[38;5;103m docuperfect.sales.remind › Docuperfect\SalesDocumentContro…[39m
+  [33mPOST[39m      [37mdocuperfect/sales/recipient/[39m[33m{recipient}[39m[37m/resend[39m[38;5;103m docuperfect.sales.resend › Docuperfect\SalesDocumentContro…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/sales/send[39m[38;5;103m ......... docuperfect.sales.send › Docuperfect\SalesDocumentController@showSendForm[39m
+  [33mPOST[39m      [37mdocuperfect/sales/send[39m[38;5;103m ... docuperfect.sales.send.store › Docuperfect\SalesDocumentController@sendToClient[39m
+  [33mPOST[39m      [37mdocuperfect/sales/[39m[33m{send}[39m[37m/approve/[39m[33m{recipient}[39m[38;5;103m docuperfect.sales.approve › Docuperfect\SalesDocumentControl…[39m
+  [33mPOST[39m      [37mdocuperfect/sales/[39m[33m{send}[39m[37m/cancel[39m[38;5;103m .... docuperfect.sales.cancel › Docuperfect\SalesDocumentController@cancel[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/sales/[39m[33m{send}[39m[37m/download[39m[38;5;103m docuperfect.sales.download › Docuperfect\SalesDocumentController@downlo…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/sales/[39m[33m{send}[39m[37m/recipient/[39m[33m{recipient}[39m[37m/file/[39m[33m{index}[39m[38;5;103m docuperfect.sales.recipientFile › Docuperfect…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/sales/[39m[33m{send}[39m[37m/review/[39m[33m{recipient}[39m[38;5;103m docuperfect.sales.review › Docuperfect\SalesDocumentControlle…[39m
+  [33mPOST[39m      [37mdocuperfect/sales/[39m[33m{send}[39m[37m/upload-on-behalf/[39m[33m{recipient}[39m[38;5;103m docuperfect.sales.uploadOnBehalf › Docuperfect\Sale…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/settings/named-fields[39m[38;5;103m docuperfect.settings.namedFields › Docuperfect\NamedFieldController@ind…[39m
+  [33mPOST[39m      [37mdocuperfect/settings/named-fields[39m[38;5;103m docuperfect.settings.namedFields.store › Docuperfect\NamedFieldControll…[39m
+  [33mPOST[39m      [37mdocuperfect/settings/named-fields/reorder[39m[38;5;103m docuperfect.settings.namedFields.reorder › Docuperfect\NamedFie…[39m
+  [33mPOST[39m      [37mdocuperfect/settings/named-fields/[39m[33m{field}[39m[37m/restore[39m[38;5;103m docuperfect.settings.namedFields.restore › Docuperfect\…[39m
+  [33mPUT[39m       [37mdocuperfect/settings/named-fields/[39m[33m{id}[39m[38;5;103m docuperfect.settings.namedFields.update › Docuperfect\NamedFieldCo…[39m
+  [31mDELETE[39m    [37mdocuperfect/settings/named-fields/[39m[33m{id}[39m[38;5;103m docuperfect.settings.namedFields.destroy › Docuperfect\NamedFieldC…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/settings/types[39m[38;5;103m ......... docuperfect.settings.types › Docuperfect\DocumentTypeController@index[39m
+  [33mPOST[39m      [37mdocuperfect/settings/types[39m[38;5;103m ... docuperfect.settings.types.store › Docuperfect\DocumentTypeController@store[39m
+  [33mPOST[39m      [37mdocuperfect/settings/types/reorder[39m[38;5;103m docuperfect.settings.types.reorder › Docuperfect\DocumentTypeControlle…[39m
+  [33mPUT[39m       [37mdocuperfect/settings/types/[39m[33m{id}[39m[38;5;103m docuperfect.settings.types.update › Docuperfect\DocumentTypeController@up…[39m
+  [31mDELETE[39m    [37mdocuperfect/settings/types/[39m[33m{id}[39m[38;5;103m docuperfect.settings.types.destroy › Docuperfect\DocumentTypeController@d…[39m
+  [33mPOST[39m      [37mdocuperfect/settings/types/[39m[33m{type}[39m[37m/restore[39m[38;5;103m docuperfect.settings.types.restore › Docuperfect\DocumentTypeCo…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/signatures/[39m[33m{templateId}[39m[37m/flattened-page/[39m[33m{page}[39m[38;5;103m docuperfect.signatures.flattenedPage › Docuperf…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/templates[39m[38;5;103m ................. docuperfect.templates.index › Docuperfect\TemplateController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/templates/cds/builder/[39m[33m{draft}[39m[38;5;103m docuperfect.cds.builder › Docuperfect\TemplateController@cdsBui…[39m
+  [33mPOST[39m      [37mdocuperfect/templates/cds/draft/save[39m[38;5;103m docuperfect.cds.draft.save › Docuperfect\TemplateController@cdsSaveD…[39m
+  [31mDELETE[39m    [37mdocuperfect/templates/cds/draft/[39m[33m{draft}[39m[38;5;103m docuperfect.cds.draft.destroy › Docuperfect\TemplateController@cd…[39m
+  [33mPOST[39m      [37mdocuperfect/templates/cds/generate[39m[38;5;103m . docuperfect.cds.generate › Docuperfect\TemplateController@cdsGenerate[39m
+  [33mPOST[39m      [37mdocuperfect/templates/cds/mappings[39m[38;5;103m docuperfect.cds.mappings › Docuperfect\TemplateController@cdsSaveMappi…[39m
+  [33mPOST[39m      [37mdocuperfect/templates/upload[39m[38;5;103m ........ docuperfect.templates.upload › Docuperfect\TemplateController@upload[39m
+  [31mDELETE[39m    [37mdocuperfect/templates/[39m[33m{id}[39m[38;5;103m ........ docuperfect.templates.destroy › Docuperfect\TemplateController@destroy[39m
+  [33mPOST[39m      [37mdocuperfect/templates/[39m[33m{id}[39m[37m/archive[39m[38;5;103m docuperfect.templates.archive › Docuperfect\TemplateController@archive[39m
+  [33mPOST[39m      [37mdocuperfect/templates/[39m[33m{id}[39m[37m/copy[39m[38;5;103m ......... docuperfect.templates.copy › Docuperfect\TemplateController@copy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/templates/[39m[33m{id}[39m[37m/edit[39m[38;5;103m ......... docuperfect.templates.edit › Docuperfect\TemplateController@edit[39m
+  [33mPOST[39m      [37mdocuperfect/templates/[39m[33m{id}[39m[37m/fields[39m[38;5;103m docuperfect.templates.saveFields › Docuperfect\TemplateController@saveF…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/templates/[39m[33m{id}[39m[37m/page/[39m[33m{page}[39m[38;5;103m ..... docuperfect.page.image › Docuperfect\PageImageController@show[39m
+  [33mPOST[39m      [37mdocuperfect/templates/[39m[33m{id}[39m[37m/pages[39m[38;5;103m docuperfect.templates.uploadPages › Docuperfect\TemplateController@uploa…[39m
+  [33mPOST[39m      [37mdocuperfect/templates/[39m[33m{id}[39m[37m/restore[39m[38;5;103m docuperfect.templates.restore › Docuperfect\TemplateController@restore[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/templates/[39m[33m{id}[39m[37m/web-preview[39m[38;5;103m docuperfect.templates.webPreview › Docuperfect\TemplateController@…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/templates/[39m[33m{id}[39m[37m/wizard-config[39m[38;5;103m docuperfect.templates.wizardConfig › Docuperfect\TemplateControl…[39m
+  [33mPOST[39m      [37mdocuperfect/templates/[39m[33m{id}[39m[37m/wizard-config[39m[38;5;103m docuperfect.templates.wizardConfig.save › Docuperfect\TemplateCo…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-packs[39m[38;5;103m .................. docuperfect.web-packs.index › Docuperfect\WebPackController@index[39m
+  [33mPOST[39m      [37mdocuperfect/web-packs[39m[38;5;103m .................. docuperfect.web-packs.store › Docuperfect\WebPackController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-packs/create[39m[38;5;103m ......... docuperfect.web-packs.create › Docuperfect\WebPackController@create[39m
+  [33mPUT[39m       [37mdocuperfect/web-packs/[39m[33m{id}[39m[38;5;103m ........... docuperfect.web-packs.update › Docuperfect\WebPackController@update[39m
+  [31mDELETE[39m    [37mdocuperfect/web-packs/[39m[33m{id}[39m[38;5;103m ......... docuperfect.web-packs.destroy › Docuperfect\WebPackController@destroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-packs/[39m[33m{id}[39m[37m/edit[39m[38;5;103m .......... docuperfect.web-packs.edit › Docuperfect\WebPackController@edit[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-preview/commercial-lease-agreement-v5[39m[38;5;103m docuperfect.webPreview.commercialLeaseAgreementV5  …[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-preview/lease-agreement-popi-v8[39m[38;5;103m docuperfect.webPreview.leaseAgreementPopiV8 › Docuperfect…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-preview/letting-mandate-v5[39m[38;5;103m docuperfect.webPreview.lettingMandateV5 › Docuperfect\WebTempl…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-preview/letting-mandatory-disclosure-v7[39m[38;5;103m docuperfect.webPreview.lettingMandatoryDisclosure…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-preview/letting-marketing-permission-v7[39m[38;5;103m docuperfect.webPreview.lettingMarketingPermission…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mdocuperfect/web-preview/rental-application-v8[39m[38;5;103m docuperfect.webPreview.rentalApplicationV8 › Docuperfect\We…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mellie[39m[38;5;103m ................................................................ ellie.index › EllieController@index[39m
+  [33mPOST[39m      [37mellie/archive[39m[38;5;103m .................................................... ellie.archive › EllieController@archive[39m
+  [33mPOST[39m      [37mellie/rename[39m[38;5;103m ....................................................... ellie.rename › EllieController@rename[39m
+  [33mPOST[39m      [37mellie/send[39m[38;5;103m ............................................................. ellie.send › EllieController@send[39m
+  [33mPOST[39m      [37mellie/unarchive[39m[38;5;103m .............................................. ellie.unarchive › EllieController@unarchive[39m
+  [33mPOST[39m      [37memail/verification-notification[39m[38;5;103m ... verification.send › Auth\EmailVerificationNotificationController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mevaluation[39m[38;5;103m .............................................................................. evaluation.index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mfiling-register[39m[38;5;103m ................................... filing-register.index › DocumentFilingController@index[39m
+  [33mPOST[39m      [37mfiling-register[39m[38;5;103m ................................... filing-register.store › DocumentFilingController@store[39m
+  [33mPOST[39m      [37mfiling-register/[39m[33m{filing}[39m[37m/restore[39m[38;5;103m .............. filing-register.restore › DocumentFilingController@restore[39m
+  [33mPUT[39m       [37mfiling-register/[39m[33m{id}[39m[38;5;103m ............................ filing-register.update › DocumentFilingController@update[39m
+  [31mDELETE[39m    [37mfiling-register/[39m[33m{id}[39m[38;5;103m .......................... filing-register.destroy › DocumentFilingController@destroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mforgot-password[39m[38;5;103m ............................... password.request › Auth\PasswordResetLinkController@create[39m
+  [33mPOST[39m      [37mforgot-password[39m[38;5;103m .................................. password.email › Auth\PasswordResetLinkController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37minternal/ai-auth-check[39m[38;5;103m .......................... internal.ai-auth-check › Internal\AiAuthController@check[39m
+  [33mPOST[39m      [37minternal/ai-chat-proxy[39m[38;5;103m ...................... internal.ai-chat-proxy › Internal\AiChatProxyController@chat[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mlogin[39m[38;5;103m ................................................. login › Auth\AuthenticatedSessionController@create[39m
+  [33mPOST[39m      [37mlogin[39m[38;5;103m .......................................................... Auth\AuthenticatedSessionController@store[39m
+  [33mPOST[39m      [37mlogout[39m[38;5;103m .............................................. logout › Auth\AuthenticatedSessionController@destroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mmy/presentations/versions[39m[38;5;103m .. presentations.versions.mine › Presentation\PresentationVersionController@mine[39m
+  [33mPUT[39m       [37mpassword[39m[38;5;103m ................................................ password.update › Auth\PasswordController@update[39m
+  [33mPOST[39m      [37mportal-captures/ingest[39m[38;5;103m .............. portal-captures.ingest › Presentation\PortalCaptureController@ingest[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations[39m[38;5;103m ............................ presentations.index › Presentation\PresentationController@index[39m
+  [33mPOST[39m      [37mpresentations[39m[38;5;103m ............................ presentations.store › Presentation\PresentationController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/create[39m[38;5;103m ................... presentations.create › Presentation\PresentationController@create[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/versions[39m[38;5;103m ... presentations.versions.index › Presentation\PresentationVersionController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[38;5;103m ............... presentations.show › Presentation\PresentationController@show[39m
+  [33mPATCH[39m     [37mpresentations/[39m[33m{presentation}[39m[38;5;103m ........... presentations.update › Presentation\PresentationController@update[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/analysis[39m[38;5;103m presentations.analysis › Presentation\PresentationController@analys…[39m
+  [33mPATCH[39m     [37mpresentations/[39m[33m{presentation}[39m[37m/analysis-selections[39m[38;5;103m presentations.analysis-selections.update › Presentation\…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/analysis/run[39m[38;5;103m presentations.analysis.run › Presentation\PresentationControlle…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/brain[39m[38;5;103m ....... presentations.brain › Presentation\PresentationController@brain[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/competitive-threats[39m[38;5;103m presentations.competitive-threats › Presentation\Present…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/compile[39m[38;5;103m . presentations.compile › Presentation\PresentationController@compile[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/edit[39m[38;5;103m .......... presentations.edit › Presentation\PresentationController@edit[39m
+  [33mPATCH[39m     [37mpresentations/[39m[33m{presentation}[39m[37m/holding-cost[39m[38;5;103m presentations.holding-cost.update › Presentation\PresentationCo…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/links[39m[38;5;103m presentations.links.store › Presentation\PresentationController@storeL…[39m
+  [31mDELETE[39m    [37mpresentations/[39m[33m{presentation}[39m[37m/links/[39m[33m{link}[39m[38;5;103m presentations.links.destroy › Presentation\PresentationControll…[39m
+  [33mPATCH[39m     [37mpresentations/[39m[33m{presentation}[39m[37m/links/[39m[33m{link}[39m[37m/override[39m[38;5;103m presentations.links.override › Presentation\Presentati…[39m
+  [31mDELETE[39m    [37mpresentations/[39m[33m{presentation}[39m[37m/links/[39m[33m{link}[39m[37m/override[39m[38;5;103m presentations.links.override.clear › Presentation\Pres…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/links/[39m[33m{link}[39m[37m/re-extract[39m[38;5;103m presentations.links.re-extract › Presentation\Presen…[39m
+  [33mPATCH[39m     [37mpresentations/[39m[33m{presentation}[39m[37m/links/[39m[33m{link}[39m[37m/type[39m[38;5;103m presentations.links.update-type › Presentation\Presentatio…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/live-snapshot[39m[38;5;103m presentations.live-snapshot › Presentation\PortalCaptureContro…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/portal-captures[39m[38;5;103m presentations.portal-captures.index › Presentation\PortalCap…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/portal-captures/reclassify[39m[38;5;103m presentations.portal-captures.reclassify › Presen…[39m
+  [31mDELETE[39m    [37mpresentations/[39m[33m{presentation}[39m[37m/portal-captures/[39m[33m{capture}[39m[38;5;103m presentations.portal-captures.destroy › Presentati…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/portal-captures/[39m[33m{capture}[39m[37m/attach[39m[38;5;103m presentations.portal-captures.attach › Pres…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/price-band[39m[38;5;103m presentations.price-band › Presentation\PresentationController@pr…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/pricing-simulator[39m[38;5;103m presentations.pricing-simulator › Presentation\Presentatio…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/pricing-simulator/compute[39m[38;5;103m presentations.pricing-simulator.compute › Presenta…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/pricing-simulator/present[39m[38;5;103m presentations.pricing-simulator.present › Presenta…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/pricing-simulator/save[39m[38;5;103m presentations.pricing-simulator.save › Presentation\P…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/restore[39m[38;5;103m . presentations.restore › Presentation\PresentationController@restore[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/seller-live[39m[38;5;103m presentations.seller-live › Presentation\PresentationController@…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/seller-live/capture[39m[38;5;103m presentations.seller-live.capture › Presentation\Present…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/simulate[39m[38;5;103m presentations.simulate › Presentation\PresentationController@simula…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/simulate-trajectory[39m[38;5;103m presentations.simulate-trajectory › Presentation\Present…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/snapshots[39m[38;5;103m presentations.snapshots.save › Presentation\PresentationSnapshotCo…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/snapshots/[39m[33m{snapshot}[39m[38;5;103m presentations.snapshots.show › Presentation\Presentatio…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/upload[39m[38;5;103m .... presentations.upload › Presentation\PresentationController@upload[39m
+  [31mDELETE[39m    [37mpresentations/[39m[33m{presentation}[39m[37m/uploads/[39m[33m{upload}[39m[38;5;103m presentations.uploads.destroy › Presentation\PresentationCo…[39m
+  [33mPATCH[39m     [37mpresentations/[39m[33m{presentation}[39m[37m/uploads/[39m[33m{upload}[39m[37m/override[39m[38;5;103m presentations.uploads.override › Presentation\Pres…[39m
+  [31mDELETE[39m    [37mpresentations/[39m[33m{presentation}[39m[37m/uploads/[39m[33m{upload}[39m[37m/override[39m[38;5;103m presentations.uploads.override.clear › Presentatio…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/uploads/[39m[33m{upload}[39m[37m/re-extract[39m[38;5;103m presentations.uploads.re-extract › Presentation\…[39m
+  [33mPATCH[39m     [37mpresentations/[39m[33m{presentation}[39m[37m/uploads/[39m[33m{upload}[39m[37m/type[39m[38;5;103m presentations.uploads.update-type › Presentation\Prese…[39m
+  [33mPOST[39m      [37mpresentations/[39m[33m{presentation}[39m[37m/url-snapshots[39m[38;5;103m presentations.url-snapshots.store › Presentation\PresentationC…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/versions/[39m[33m{version}[39m[37m/complete-pack[39m[38;5;103m presentations.versions.complete-pack › Pres…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mpresentations/[39m[33m{presentation}[39m[37m/versions/[39m[33m{version}[39m[37m/pdf[39m[38;5;103m presentations.versions.pdf › Presentation\Presentatio…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mprofile[39m[38;5;103m ............................................................ profile.edit › ProfileController@edit[39m
+  [33mPATCH[39m     [37mprofile[39m[38;5;103m ........................................................ profile.update › ProfileController@update[39m
+  [31mDELETE[39m    [37mprofile[39m[38;5;103m ...................................................... profile.destroy › ProfileController@destroy[39m
+  [33mPUT[39m       [37mprofile/theme[39m[38;5;103m .............................................. profile.theme › ProfileController@updateTheme[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mprospecting[39m[38;5;103m .............................................. prospecting.index › ProspectingController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mprospecting/thumbnail/[39m[33m{listing}[39m[38;5;103m .................. prospecting.thumbnail › ProspectingController@thumbnail[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mprospecting/[39m[33m{listing}[39m[38;5;103m ...................................... prospecting.show › ProspectingController@show[39m
+  [33mPOST[39m      [37mprospecting/[39m[33m{listing}[39m[37m/claim[39m[38;5;103m .............................. prospecting.claim › ProspectingController@claim[39m
+  [33mPOST[39m      [37mprospecting/[39m[33m{listing}[39m[37m/feedback[39m[38;5;103m ..................... prospecting.feedback › ProspectingController@feedback[39m
+  [33mPOST[39m      [37mprospecting/[39m[33m{listing}[39m[37m/release[39m[38;5;103m ........................ prospecting.release › ProspectingController@release[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mregister[39m[38;5;103m ................................................. register › Auth\RegisteredUserController@create[39m
+  [33mPOST[39m      [37mregister[39m[38;5;103m ............................................................. Auth\RegisteredUserController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental[39m[38;5;103m ...................................... rental.dashboard › Rental\RentalDivisionController@dashboard[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/active-leases[39m[38;5;103m ................. rental.active-leases › Rental\RentalDivisionController@activeLeases[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/expired-leases[39m[38;5;103m .............. rental.expired-leases › Rental\RentalDivisionController@expiredLeases[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/settings[39m[38;5;103m ............................... rental.settings › Rental\RentalDivisionController@settings[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/settings/document-types[39m[38;5;103m rental.settings.document-types.index › Rental\RentalDocumentTypeController…[39m
+  [33mPOST[39m      [37mrental/settings/document-types[39m[38;5;103m rental.settings.document-types.store › Rental\RentalDocumentTypeController…[39m
+  [33mPUT[39m       [37mrental/settings/document-types/[39m[33m{type}[39m[38;5;103m rental.settings.document-types.update › Rental\RentalDocumentTypeCo…[39m
+  [33mPOST[39m      [37mrental/settings/document-types/[39m[33m{type}[39m[37m/toggle[39m[38;5;103m rental.settings.document-types.toggle › Rental\RentalDocumen…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/settings/properties[39m[38;5;103m ...... rental.settings.properties.index › Rental\RentalPropertyController@index[39m
+  [33mPOST[39m      [37mrental/settings/properties[39m[38;5;103m ...... rental.settings.properties.store › Rental\RentalPropertyController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/settings/properties/create[39m[38;5;103m rental.settings.properties.create › Rental\RentalPropertyController@cre…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/settings/properties/search[39m[38;5;103m rental.settings.properties.search › Rental\RentalPropertyController@sea…[39m
+  [33mPUT[39m       [37mrental/settings/properties/[39m[33m{property}[39m[38;5;103m rental.settings.properties.update › Rental\RentalPropertyController…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/settings/properties/[39m[33m{property}[39m[37m/edit[39m[38;5;103m rental.settings.properties.edit › Rental\RentalPropertyControl…[39m
+  [33mPOST[39m      [37mrental/settings/properties/[39m[33m{property}[39m[37m/toggle[39m[38;5;103m rental.settings.properties.toggle › Rental\RentalPropertyCon…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/settings/reminders[39m[38;5;103m rental.settings.reminders.index › Rental\RentalReminderSettingsController@index[39m
+  [33mPUT[39m       [37mrental/settings/reminders[39m[38;5;103m rental.settings.reminders.update › Rental\RentalReminderSettingsController@upda…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrental/signatures[39m[38;5;103m ......................... rental.signatures › Rental\RentalDivisionController@signatures[39m
+  [33mPOST[39m      [37mrental/signatures/[39m[33m{document}[39m[37m/assign-metadata[39m[38;5;103m rental.signatures.assign-metadata › Rental\RentalDivisionCon…[39m
+  [33mPOST[39m      [37mrental/signatures/[39m[33m{document}[39m[37m/set-expiry[39m[38;5;103m rental.signatures.set-expiry › Rental\RentalDivisionController@se…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrentals[39m[38;5;103m .......................................................... rentals.index › RentalsController@index[39m
+  [33mPOST[39m      [37mrentals[39m[38;5;103m .......................................................... rentals.store › RentalsController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrentals/create[39m[38;5;103m ................................................. rentals.create › RentalsController@create[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrentals/permissions[39m[38;5;103m .............................. rentals.permissions › RentalPermissionsController@index[39m
+  [33mPOST[39m      [37mrentals/permissions[39m[38;5;103m ...................... rentals.permissions.update › RentalPermissionsController@update[39m
+  [33mPOST[39m      [37mrentals/[39m[33m{id}[39m[38;5;103m ................................................... rentals.update › RentalsController@update[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mrentals/[39m[33m{id}[39m[37m/edit[39m[38;5;103m .................................................. rentals.edit › RentalsController@edit[39m
+  [33mPOST[39m      [37mreset-password[39m[38;5;103m ......................................... password.store › Auth\NewPasswordController@store[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mreset-password/[39m[33m{token}[39m[38;5;103m ................................ password.reset › Auth\NewPasswordController@create[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msales-documents/return/[39m[33m{token}[39m[38;5;103m sales-documents.upload › Docuperfect\SalesDocumentController@showUploadPage[39m
+  [33mPOST[39m      [37msales-documents/return/[39m[33m{token}[39m[38;5;103m sales-documents.upload.store › Docuperfect\SalesDocumentController@handleU…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msales-documents/return/[39m[33m{token}[39m[37m/download[39m[38;5;103m sales-documents.download › Docuperfect\SalesDocumentController@do…[39m
+  [33mPOST[39m      [37msales-documents/return/[39m[33m{token}[39m[37m/verify[39m[38;5;103m sales-documents.verify › Docuperfect\SalesDocumentController@verify…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msanctum/csrf-cookie[39m[38;5;103m .................... sanctum.csrf-cookie › Laravel\Sanctum › CsrfCookieController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msettings/p24-suburbs[39m[38;5;103m ........................... admin.p24-suburbs.index › Admin\P24SuburbController@index[39m
+  [33mPOST[39m      [37msettings/p24-suburbs[39m[38;5;103m ........................... admin.p24-suburbs.store › Admin\P24SuburbController@store[39m
+  [33mPUT[39m       [37msettings/p24-suburbs/[39m[33m{p24Suburb}[39m[38;5;103m ............. admin.p24-suburbs.update › Admin\P24SuburbController@update[39m
+  [31mDELETE[39m    [37msettings/p24-suburbs/[39m[33m{p24Suburb}[39m[38;5;103m ........... admin.p24-suburbs.destroy › Admin\P24SuburbController@destroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mshared/match/[39m[33m{token}[39m[38;5;103m ........................................... shared.match › SharedMatchController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mshared/match/[39m[33m{token}[39m[37m/view/[39m[33m{property}[39m[38;5;103m ................ shared.match.view › SharedMatchController@recordView[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[38;5;103m .................................... signatures.external › Docuperfect\SigningController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/already-signed[39m[38;5;103m signatures.external.alreadySigned › Docuperfect\SigningController@alreadySign…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/amendment-review[39m[38;5;103m signatures.external.amendment-review › Docuperfect\SigningController@amendm…[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/amendment/[39m[33m{amendment}[39m[37m/accept[39m[38;5;103m signatures.external.acceptAmendment › Docuperfect\SigningContro…[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/amendment/[39m[33m{amendment}[39m[37m/reject[39m[38;5;103m signatures.external.rejectAmendment › Docuperfect\SigningContro…[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/capture/[39m[33m{marker}[39m[38;5;103m ........ signatures.external.capture › Docuperfect\SigningController@capture[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/choose-method[39m[38;5;103m . signatures.external.chooseMethod › Docuperfect\SigningController@chooseMethod[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/complete[39m[38;5;103m .............. signatures.external.complete › Docuperfect\SigningController@complete[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/complete-web[39m[38;5;103m .... signatures.external.completeWeb › Docuperfect\SigningController@completeWeb[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/completed[39m[38;5;103m ........... signatures.external.completed › Docuperfect\SigningController@completed[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/consent[39m[38;5;103m ......... signatures.external.showConsent › Docuperfect\SigningController@showConsent[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/consent[39m[38;5;103m .......... signatures.external.consent › Docuperfect\SigningController@captureConsent[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/decline[39m[38;5;103m ................. signatures.external.decline › Docuperfect\SigningController@decline[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/download[39m[38;5;103m .... signatures.external.download › Docuperfect\SigningController@downloadForSigning[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/flattened-page/[39m[33m{page}[39m[38;5;103m signatures.external.flattenedPage › Docuperfect\SigningController@flat…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/gateway[39m[38;5;103m ................. signatures.external.gateway › Docuperfect\SigningController@gateway[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/save-fields[39m[38;5;103m ....... signatures.external.saveFields › Docuperfect\SigningController@saveFields[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/save-web-fields[39m[38;5;103m signatures.external.saveWebFields › Docuperfect\SigningController@saveWebFie…[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/sections/accept[39m[38;5;103m signatures.external.acceptSection › Docuperfect\SigningController@acceptSect…[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/sections/progress[39m[38;5;103m signatures.external.sectionProgress › Docuperfect\SigningController@getSec…[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/sections/reject[39m[38;5;103m signatures.external.rejectSection › Docuperfect\SigningController@rejectSect…[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/upload[39m[38;5;103m .............. signatures.external.upload › Docuperfect\SigningController@uploadWetInk[39m
+  [33mPOST[39m      [37msign/[39m[33m{token}[39m[37m/verify[39m[38;5;103m .................... signatures.external.verify › Docuperfect\SigningController@verify[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37msign/[39m[33m{token}[39m[37m/wet-ink-portal[39m[38;5;103m signatures.external.wetInkPortal › Docuperfect\SigningController@wetInkPortal[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mstorage/[39m[33m{path}[39m[38;5;103m ............................................................................. storage.local[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtools/cma[39m[38;5;103m ................................................................ tools.cma › ToolsController@cma[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtools/commission[39m[38;5;103m ........................................... tools.commission › ToolsController@commission[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtools/history[39m[38;5;103m ......................................... tools.history.index › ToolsController@historyIndex[39m
+  [33mPOST[39m      [37mtools/history[39m[38;5;103m ......................................... tools.history.store › ToolsController@historyStore[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtools/history/[39m[33m{id}[39m[38;5;103m ...................................... tools.history.show › ToolsController@historyShow[39m
+  [31mDELETE[39m    [37mtools/history/[39m[33m{id}[39m[38;5;103m ................................ tools.history.destroy › ToolsController@historyDestroy[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtools/pdf-splitter[39m[38;5;103m .......................... tools.pdf_splitter.index › Tools\PdfSplitterController@index[39m
+  [33mPOST[39m      [37mtools/pdf-splitter/confirm[39m[38;5;103m .............. tools.pdf_splitter.confirm › Tools\PdfSplitterController@confirm[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtools/pdf-splitter/download[39m[38;5;103m .... tools.pdf_splitter.download › Tools\PdfSplitterController@downloadLastZip[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtools/pdf-splitter/review[39m[38;5;103m ................. tools.pdf_splitter.review › Tools\PdfSplitterController@review[39m
+  [33mPOST[39m      [37mtools/pdf-splitter/run[39m[38;5;103m .......................... tools.pdf_splitter.run › Tools\PdfSplitterController@run[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtools/pdf-splitter/thumb/[39m[33m{page}[39m[38;5;103m ........ tools.pdf_splitter.thumb › Tools\PdfSplitterController@serveThumb[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtv[39m[38;5;103m ...................................................................... tv.index › TV\TvController@index[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtv/branch/[39m[33m{branchId}[39m[38;5;103m .............................................. tv.branch › TV\BranchTvController@show[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mtv/display/[39m[33m{code}[39m[38;5;103m ................................................... tv.display › TV\TvController@display[39m
+  [33mPOST[39m      [37mtv/verify[39m[38;5;103m ............................................................. tv.verify › TV\TvController@verify[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mup[39m[38;5;103m ....................................................................................................... [39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mverify-email[39m[38;5;103m ................................ verification.notice › Auth\EmailVerificationPromptController[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mverify-email/[39m[33m{id}[39m[37m/[39m[33m{hash}[39m[38;5;103m ................................ verification.verify › Auth\VerifyEmailController[39m
+  [34mGET[39m[38;5;103m|[39m[38;5;103mHEAD[39m  [37mworksheet[39m[38;5;103m .................................................... worksheet.index › WorksheetController@index[39m
+  [33mPOST[39m      [37mworksheet[39m[38;5;103m .................................................... worksheet.store › WorksheetController@store[39m
+  [33mPOST[39m      [37mworksheet/align-company-target[39m[38;5;103m ...................... worksheet.align › WorksheetController@alignToCompany[39m
+  [33mPOST[39m      [37mworksheet/apply-branch-default[39m[38;5;103m ..... worksheet.applyBranchDefault › WorksheetController@applyBranchDefault[39m
+
+                                                                                                  [34;1mShowing [630] routes[39;22m
+

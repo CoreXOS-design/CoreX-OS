@@ -135,6 +135,9 @@
                             </form>
                         @else
                             <a href="{{ route('docuperfect.templates.edit', $tpl->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Edit</a>
+                            @if($tpl->is_esign)
+                            <a href="{{ route('docuperfect.templates.wizardConfig', $tpl->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Wizard Setup</a>
+                            @endif
                             <form method="POST" action="{{ route('docuperfect.templates.copy', $tpl->id) }}" class="inline">
                                 @csrf
                                 <button class="corex-btn-outline text-xs px-3 py-1.5">Copy</button>

@@ -267,7 +267,6 @@ class DocxParserService
                 ->get();
         } catch (\Throwable $e) {
             // Table may not exist yet — silently skip
-            Log::debug('DocxParser: Could not query corrections', ['error' => $e->getMessage()]);
             return '';
         }
 
@@ -574,7 +573,6 @@ class DocxParserService
 
         // Only attempt stripping if document starts with a table element
         if (stripos($trimmed, '<table') !== 0) {
-            Log::debug('stripHeader: no leading table, skipping');
             return $html;
         }
 
@@ -592,24 +590,12 @@ class DocxParserService
         $hasFfc    = strpos($tableText, 'ffc') !== false
                   || strpos($tableText, 'vat') !== false;
 
-        Log::debug('stripHeader: table check', [
-            'hasBase64' => $hasBase64,
-            'hasReg'    => $hasReg,
-            'hasFfc'    => $hasFfc,
-            'tableLen'  => strlen($tableHtml),
-        ]);
-
         if (!$hasBase64 && !($hasReg && $hasFfc)) {
-            Log::debug('stripHeader: table is not agency header');
             return $html;
         }
 
         // Strip the header table
         $remainder = ltrim(substr($trimmed, $tableEnd + 8));
-
-        Log::debug('stripHeader: stripped agency header', [
-            'removed_bytes' => strlen($html) - strlen($remainder),
-        ]);
 
         return $remainder;
     }

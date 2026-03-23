@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\Docuperfect\SignatureTemplate;
+use App\Services\CandidatePractitionerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -31,10 +33,26 @@ class DashboardController extends Controller
             ->where('period', $period)
             ->value('points_target') ?? 0);
 
+        // Candidate documents needing authorisation (shared queue for full-status users)
+        $candidateService = new CandidatePractitionerService();
+        $candidateDocs = collect();
+
+        if ($candidateService->canAuthorise($user)) {
+            $candidateDocs = SignatureTemplate::with(['document', 'creator'])
+                ->where('is_candidate_flow', true)
+                ->whereIn('status', [
+                    SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
+                    SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+                ])
+                ->orderBy('created_at', 'desc')
+                ->get();
+        }
+
         return view('corex.dashboard', [
             'mtdPoints'     => $mtdPoints,
             'monthlyTarget' => $monthlyTarget,
             'period'        => $period,
+            'candidateDocs' => $candidateDocs,
         ]);
     }
 }

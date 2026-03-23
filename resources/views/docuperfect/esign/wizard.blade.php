@@ -765,6 +765,40 @@
             <div x-show="currentStep === 6" x-cloak>
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Signing Setup</h3>
 
+                {{-- Delivery Mode Selection --}}
+                <template x-if="effectiveDeliveryModes.length > 1">
+                    <div class="mb-6 p-4 rounded-lg border border-gray-200 bg-white">
+                        <h4 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">Delivery Mode</h4>
+                        <div class="space-y-2">
+                            <template x-for="mode in effectiveDeliveryModes" :key="mode">
+                                <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all"
+                                       :class="deliveryMode === mode ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'">
+                                    <input type="radio" name="delivery_mode" :value="mode" x-model="deliveryMode"
+                                           class="mt-0.5 rounded-full border-gray-300 text-blue-600">
+                                    <div>
+                                        <div class="text-sm font-semibold text-gray-800" x-text="deliveryModeLabel(mode)"></div>
+                                        <div class="text-xs text-gray-500 mt-0.5" x-text="deliveryModeDescription(mode)"></div>
+                                    </div>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+                <template x-if="effectiveDeliveryModes.length === 1">
+                    <div class="mb-4 p-3 rounded-lg bg-gray-50 border border-gray-200 text-sm text-gray-600">
+                        <span class="font-semibold" x-text="deliveryModeLabel(effectiveDeliveryModes[0])"></span>
+                        <span class="text-xs ml-2 text-gray-400" x-text="'(only available mode for this template)'"></span>
+                    </div>
+                </template>
+                <template x-if="esignBlocked">
+                    <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-300 text-sm text-amber-800">
+                        <strong>Sale agreements must be signed with wet ink</strong> per the Alienation of Land Act. E-signing is not permitted for this document type.
+                    </div>
+                </template>
+
+                {{-- Only show signing order for e-sign mode --}}
+                <div x-show="deliveryMode === 'esign'">
+
                 {{-- Signing order cards --}}
                 <h4 class="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">Signing Order</h4>
                 <div class="space-y-2 mb-6">
@@ -817,8 +851,15 @@
                                                 :disabled="r.skipEmail"
                                                 class="text-xs rounded border border-gray-300 bg-white text-gray-700 px-2 py-1">
                                             <option value="send_after" x-bind:disabled="!r.email || r.skipEmail">Send after previous</option>
-                                            <option value="sign_later">Sign later</option>
+                                            <option value="sign_later">Sign later (deferred)</option>
                                         </select>
+                                        <div x-show="signingActions[ri] === 'sign_later'" class="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200">
+                                            <div class="flex items-center gap-2 text-xs text-amber-700">
+                                                <span>&#9208;</span>
+                                                <span class="font-medium">Deferred — details not yet known</span>
+                                            </div>
+                                            <p class="text-xs text-amber-600 mt-1">This party's signing will be paused until you provide their details. You can resume signing later from the document dashboard.</p>
+                                        </div>
                                         <label class="flex items-center gap-2 mt-2 text-sm">
                                             <input type="checkbox"
                                                    x-model="r.skipEmail"
@@ -852,6 +893,27 @@
                             <span x-text="zg.label + ': ' + zg.initials + ' initials + ' + zg.signatures + ' signature'"></span>
                         </div>
                     </template>
+                </div>
+
+                </div>{{-- end deliveryMode === 'esign' wrapper --}}
+
+                {{-- Wet ink mode info --}}
+                <div x-show="deliveryMode === 'wet_ink'" class="p-4 rounded-lg border border-gray-200 bg-white space-y-3">
+                    <h4 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">Wet Ink Signing</h4>
+                    <p class="text-sm text-gray-600">The document will be generated as a PDF. Each signing party will receive a secure link to:</p>
+                    <ol class="text-sm text-gray-600 list-decimal ml-5 space-y-1">
+                        <li>Download the document for printing</li>
+                        <li>Sign in ink on the printed copy</li>
+                        <li>Scan or photograph the signed pages</li>
+                        <li>Upload the signed document through the portal</li>
+                    </ol>
+                    <p class="text-xs text-gray-400 mt-2">You will review and approve each uploaded document before it proceeds to the next party.</p>
+                </div>
+
+                {{-- Download only mode info --}}
+                <div x-show="deliveryMode === 'download'" class="p-4 rounded-lg border border-gray-200 bg-white space-y-3">
+                    <h4 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">Download Only</h4>
+                    <p class="text-sm text-gray-600">The document will be generated as a PDF for you to download. No signing pipeline will be created.</p>
                 </div>
             </div>
 
@@ -1310,15 +1372,43 @@ function esignWizard() {
         // Step 6: Signing setup
         signingActions: [],
 
+        // Delivery mode
+        deliveryMode: serverStepData?.delivery_mode || 'esign',
+        templateDeliveryModes: (serverTemplate?.allowed_delivery_modes || 'esign,wet_ink,download').split(',').map(s => s.trim()).filter(Boolean),
+        esignBlocked: (() => {
+            const tpl = serverTemplate;
+            if (!tpl) return false;
+            const t = (tpl.template_type || '').toLowerCase();
+            if (t === 'sale_agreement' || t === 'otp') return true;
+            const n = (tpl.name || '').toLowerCase();
+            return n.includes('agreement of sale') || n.includes('deed of sale') || n.includes('offer to purchase');
+        })(),
+        get effectiveDeliveryModes() {
+            let modes = [...this.templateDeliveryModes];
+            if (this.esignBlocked) {
+                modes = modes.filter(m => m !== 'esign');
+                if (modes.length === 0) modes = ['wet_ink', 'download'];
+            }
+            return modes;
+        },
+        deliveryModeLabel(mode) {
+            const labels = { 'esign': 'E-Signature', 'wet_ink': 'Wet Ink (Print & Sign)', 'download': 'Download Only' };
+            return labels[mode] || mode;
+        },
+        deliveryModeDescription(mode) {
+            const descs = {
+                'esign': 'Sign electronically through the secure online portal',
+                'wet_ink': 'Download, print, sign in ink, scan and upload through secure portal',
+                'download': 'Generate PDF for download only — no signing pipeline'
+            };
+            return descs[mode] || '';
+        },
+
         // Resize
         leftPanelPx: 420,
         _resizing: false,
 
         init() {
-            // TEMPORARY DEBUG — remove after verifying step 5 fields work
-            console.log('STEP5_DEBUG allWizardFields count:', this.allWizardFields?.length);
-            console.log('STEP5_DEBUG first 3:', JSON.stringify(this.allWizardFields?.slice(0, 3)));
-
             // Initialize field values from server data (unified ordered list)
             const allFields = this.allWizardFields.length > 0
                 ? this.allWizardFields
@@ -1888,7 +1978,6 @@ function esignWizard() {
         },
 
         moveRecipient(index, direction) {
-            console.log('moveRecipient called', index, direction, this.recipients.length);
             const swapWith = direction === 'up' ? index - 1 : index + 1;
             if (swapWith < 0) return;
             if (swapWith >= this.recipients.length) return;
@@ -2016,15 +2105,8 @@ function esignWizard() {
         },
 
         async goNext() {
-            console.log('goNext called', {step: this.currentStep, loading: this.loading, canGoNext: this.canGoNext()});
-            if (this.loading) {
-                console.log('goNext: BLOCKED — loading is true');
-                return;
-            }
-            if (!this.canGoNext()) {
-                console.log('goNext: BLOCKED — canGoNext() returned false');
-                return;
-            }
+            if (this.loading) return;
+            if (!this.canGoNext()) return;
             this.loading = true;
 
             try {
@@ -2036,7 +2118,6 @@ function esignWizard() {
                     await this.saveAndAdvance();
                 }
             } catch (e) {
-                console.error('goNext error:', e);
                 this.showToast('Error: ' + (e.message || 'Something went wrong'), 'error');
             } finally {
                 this.loading = false;
@@ -2131,14 +2212,17 @@ function esignWizard() {
                     return detailsData;
                 }
                 case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses };
-                case 6: return this.signingActions.map((action, i) => ({
-                    signing_order: i + 1,
-                    action,
-                    role: this.recipients[i]?.role || '',
-                    name: this.recipients[i]?.name || '',
-                    email: this.recipients[i]?.email || '',
-                    skipEmail: this.recipients[i]?.skipEmail || false,
-                }));
+                case 6: return {
+                    delivery_mode: this.deliveryMode,
+                    parties: this.signingActions.map((action, i) => ({
+                        signing_order: i + 1,
+                        action,
+                        role: this.recipients[i]?.role || '',
+                        name: this.recipients[i]?.name || '',
+                        email: this.recipients[i]?.email || '',
+                        skipEmail: this.recipients[i]?.skipEmail || false,
+                    })),
+                };
                 default: return {};
             }
         },
@@ -2201,9 +2285,7 @@ function esignWizard() {
 
         // ---- Prepare Signing ----
         async prepareSigning() {
-            console.log('SIGN ACTION FIRED', JSON.stringify({flowId: this.flowId, step: this.currentStep}));
             if (!this.flowId) {
-                console.log('prepareSigning: ABORT — no flowId');
                 this.showToast('Error: No flow ID found. Please reload and try again.', 'error');
                 return;
             }
@@ -2212,26 +2294,34 @@ function esignWizard() {
                 // First save step 6 data via AJAX (lightweight, always works)
                 const saveUrl = '/docuperfect/esign/' + this.flowId + '/step/6';
                 const stepData = this.getStepData();
-                console.log('prepareSigning: saving step 6 data');
                 const saveResp = await fetch(saveUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json' },
                     body: JSON.stringify({ data: stepData }),
                 });
                 if (!saveResp.ok) {
-                    const saveText = await saveResp.text();
-                    console.error('prepareSigning: step 6 save failed', saveResp.status, saveText);
                     throw new Error('Failed to save signing setup (step 6): HTTP ' + saveResp.status);
                 }
-                console.log('prepareSigning: step 6 saved OK, submitting form to prepare-signing');
+
+                // Branch by delivery mode BEFORE form submission so each mode
+                // hits its own dedicated endpoint on the server.
+                let prepareUrl;
+                switch (this.deliveryMode) {
+                    case 'download':
+                        prepareUrl = '/docuperfect/esign/' + this.flowId + '/prepare-download';
+                        break;
+                    case 'wet_ink':
+                        prepareUrl = '/docuperfect/esign/' + this.flowId + '/prepare-wet-ink';
+                        break;
+                    default: // 'esign'
+                        prepareUrl = '/docuperfect/esign/' + this.flowId + '/prepare-signing';
+                        break;
+                }
 
                 // Submit as a regular form POST — browser follows the redirect natively.
-                // This matches the working pattern: no fetch, no response body parsing,
-                // no hanging on resp.text(). The server returns redirect() and the browser
-                // navigates to the signing page directly.
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.action = '/docuperfect/esign/' + this.flowId + '/prepare-signing';
+                form.action = prepareUrl;
                 const tokenInput = document.createElement('input');
                 tokenInput.type = 'hidden';
                 tokenInput.name = '_token';
@@ -2241,7 +2331,6 @@ function esignWizard() {
                 form.submit();
                 // Browser will navigate away — no further JS executes
             } catch (e) {
-                console.error('prepareSigning error:', e);
                 this.showToast('Error: ' + (e.message || 'Something went wrong'), 'error');
                 this.loading = false;
             }

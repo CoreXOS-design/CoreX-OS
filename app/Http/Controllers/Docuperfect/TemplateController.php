@@ -1000,4 +1000,43 @@ BLADE;
 
         return $parties->toArray();
     }
+
+    /**
+     * Show the E-Sign Wizard Setup page for a template.
+     */
+    public function wizardConfig(Request $request, $id)
+    {
+        $user = $request->user();
+        if (!$user->hasPermission('manage_templates')) {
+            abort(403);
+        }
+
+        $template = Template::with(['branches', 'documentType'])->findOrFail($id);
+
+        return view('docuperfect.templates.wizard-config', [
+            'template' => $template,
+        ]);
+    }
+
+    /**
+     * Save the E-Sign Wizard configuration for a template.
+     */
+    public function saveWizardConfig(Request $request, $id)
+    {
+        $user = $request->user();
+        if (!$user->hasPermission('manage_templates')) {
+            abort(403);
+        }
+
+        $template = Template::findOrFail($id);
+
+        $template->update([
+            'wizard_config' => $request->input('wizard_config'),
+            'signing_parties' => $request->input('signing_parties'),
+            'sections' => $request->input('sections'),
+            'allowed_delivery_modes' => $request->input('allowed_delivery_modes', 'esign,wet_ink,download'),
+        ]);
+
+        return response()->json(['status' => 'saved', 'saved_at' => now()->toIso8601String()]);
+    }
 }

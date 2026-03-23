@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Docuperfect;
 
 use App\Http\Controllers\Controller;
+use App\Models\Agency;
+use App\Models\Docuperfect\ESignConsentLog;
 use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
@@ -13,6 +15,7 @@ use App\Services\WebTemplateFieldPartyMap;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
 class SigningController extends Controller
@@ -40,10 +43,26 @@ class SigningController extends Controller
             ]);
         }
 
-        // Already completed
+        // Already completed — show enhanced summary
         if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED) {
+            $branding = $this->getAgencyBranding($signingRequest);
+            $consentLog = ESignConsentLog::where('signature_request_id', $signingRequest->id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+            $creator = $signingRequest->template->creator ?? null;
+            $template = $signingRequest->template;
+            $downloadAvailable = $template && !empty($template->signed_pdf_path);
+
             return view('docuperfect.signatures.external.already-completed', [
                 'request' => $signingRequest,
+                'consentLog' => $consentLog,
+                'downloadAvailable' => $downloadAvailable,
+                'agentName' => $creator->name ?? null,
+                'agentEmail' => $creator->email ?? null,
+                'agentPhone' => $creator->phone ?? $creator->cell ?? null,
+                'agencyName' => $branding['name'],
+                'agencyLogo' => $branding['logo'],
+                'agencyColor' => $branding['color'],
             ]);
         }
 
@@ -55,7 +74,32 @@ class SigningController extends Controller
             ]);
         }
 
-        // Mark as viewed if pending (first view)
+        // Gateway gate — signer must verify ID AND accept consent before seeing documents
+        if (!empty($signingRequest->signer_id_number)) {
+            if (!session("signing_verified_{$token}")) {
+                return redirect()->route('signatures.external.gateway', ['token' => $token]);
+            }
+            if (!session("esign_consent_{$signingRequest->id}")) {
+                return redirect()->route('signatures.external.showConsent', ['token' => $token]);
+            }
+        }
+
+        // If signing method is forced wet_ink, redirect to wet ink portal
+        if ($signingRequest->signing_method === 'wet_ink') {
+            return redirect()->route('signatures.external.wetInkPortal', $token);
+        }
+
+        // Also check if template is e-sign blocked — force to wet ink portal
+        $docTemplate = $signingRequest->template?->document?->template;
+        if ($docTemplate && $docTemplate->isEsignBlocked()) {
+            $signingRequest->update([
+                'signing_method' => 'wet_ink',
+                'wet_ink_status' => $signingRequest->wet_ink_status ?: SignatureRequest::WET_INK_PENDING_UPLOAD,
+            ]);
+            return redirect()->route('signatures.external.wetInkPortal', $token);
+        }
+
+        // Mark as viewed if pending (first real view — after gateway/consent)
         if ($signingRequest->status === SignatureRequest::STATUS_PENDING) {
             $signingRequest->update([
                 'status' => SignatureRequest::STATUS_VIEWED,
@@ -74,13 +118,6 @@ class SigningController extends Controller
                 ip: $request->ip(),
                 ua: $request->userAgent(),
             );
-        }
-
-        // Identity verification gate — only if signer has an ID number on file
-        if (!session("signing_verified_{$token}") && !empty($signingRequest->signer_id_number)) {
-            return view('docuperfect.signatures.external.verify', [
-                'request' => $signingRequest,
-            ]);
         }
 
         $template = $signingRequest->template;
@@ -193,6 +230,17 @@ class SigningController extends Controller
         // Check if wet ink was rejected (needs re-upload)
         $wetInkRejected = $signingRequest->wet_ink_status === SignatureRequest::WET_INK_REJECTED;
 
+        // Section-by-section signing data
+        $sections = $template->sections_json ?? [];
+        $sectionAcceptances = [];
+        if (!empty($sections)) {
+            $sectionAcceptances = $signingRequest->sectionAcceptances()
+                ->orderBy('section_index')
+                ->get()
+                ->keyBy('section_index')
+                ->toArray();
+        }
+
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
             'template' => $template,
@@ -212,16 +260,18 @@ class SigningController extends Controller
             'signerRole' => $signingRequest->party_role,
             'fieldMappings' => $webTemplateData['field_mappings'] ?? [],
             'token' => $token,
+            'sections' => $sections,
+            'sectionAcceptances' => $sectionAcceptances,
         ]);
     }
 
     /**
-     * Verify signer identity (ID/passport number only).
+     * Verify signer identity (full ID/passport number).
      */
     public function verify(Request $request, $token)
     {
         $signingRequest = SignatureRequest::where('token', $token)
-            ->with('template')
+            ->with('template.creator')
             ->firstOrFail();
 
         if ($signingRequest->isExpired()) {
@@ -249,13 +299,19 @@ class SigningController extends Controller
                 metadata: ['id_match' => false],
             );
 
-            return redirect()->back()
-                ->withInput()
-                ->with('error', 'The ID number does not match our records. Please try again.');
+            $branding = $this->getAgencyBranding($signingRequest);
+            $creator = $signingRequest->template->creator ?? null;
+
+            return redirect()->route('signatures.external.gateway', ['token' => $token])
+                ->with('error', 'ID not recognised. Please contact your agent'
+                    . ($creator ? " at {$creator->email}" . ($creator->phone ? " / {$creator->phone}" : '') : '')
+                    . '.');
         }
 
         // Store verification in session
         session(["signing_verified_{$token}" => true]);
+        // Store entered ID for consent step
+        session(["signing_id_entered_{$token}" => $request->id_number]);
 
         SignatureAuditLog::log(
             $signingRequest->template,
@@ -268,7 +324,302 @@ class SigningController extends Controller
             ua: $request->userAgent(),
         );
 
+        // Proceed to consent declaration
+        return redirect()->route('signatures.external.showConsent', ['token' => $token]);
+    }
+
+    /**
+     * Gateway landing page — agency-branded ID entry ceremony.
+     */
+    public function gateway(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document', 'template.creator'])
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return view('docuperfect.signatures.external.expired', [
+                'request' => $signingRequest,
+            ]);
+        }
+
+        // Already completed — redirect to already-signed
+        if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED) {
+            return redirect()->route('signatures.external', ['token' => $token]);
+        }
+
+        // Already verified + consented — go straight to sign
+        if (session("signing_verified_{$token}") && session("esign_consent_{$signingRequest->id}")) {
+            return redirect()->route('signatures.external', ['token' => $token]);
+        }
+
+        // Already verified but not yet consented — go to consent
+        if (session("signing_verified_{$token}")) {
+            return redirect()->route('signatures.external.showConsent', ['token' => $token]);
+        }
+
+        $branding = $this->getAgencyBranding($signingRequest);
+        $documentName = $signingRequest->template->document->name ?? 'Document';
+
+        return view('docuperfect.signatures.external.gateway', [
+            'request' => $signingRequest,
+            'documentName' => $documentName,
+            'agencyName' => $branding['name'],
+            'agencyLogo' => $branding['logo'],
+            'agencyColor' => $branding['color'],
+        ]);
+    }
+
+    /**
+     * Show consent declaration (after ID verification).
+     */
+    public function showConsent(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document', 'template.creator'])
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return view('docuperfect.signatures.external.expired', [
+                'request' => $signingRequest,
+            ]);
+        }
+
+        // Must be verified first
+        if (!session("signing_verified_{$token}")) {
+            return redirect()->route('signatures.external.gateway', ['token' => $token]);
+        }
+
+        // Already consented — go to sign
+        if (session("esign_consent_{$signingRequest->id}")) {
+            return redirect()->route('signatures.external', ['token' => $token]);
+        }
+
+        $branding = $this->getAgencyBranding($signingRequest);
+        $documentName = $signingRequest->template->document->name ?? 'Document';
+        $idNumber = $signingRequest->signer_id_number ?? '';
+        $idLastFour = strlen($idNumber) >= 4 ? substr($idNumber, -4) : $idNumber;
+
+        return view('docuperfect.signatures.external.consent', [
+            'token' => $token,
+            'request' => $signingRequest,
+            'signerName' => $signingRequest->signer_name,
+            'idLastFour' => $idLastFour,
+            'documentName' => $documentName,
+            'agencyName' => $branding['name'],
+            'agencyLogo' => $branding['logo'],
+            'agencyColor' => $branding['color'],
+        ]);
+    }
+
+    /**
+     * Capture consent — create immutable consent log record, then proceed to signing.
+     */
+    public function captureConsent(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document'])
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return redirect()->route('signatures.external', ['token' => $token]);
+        }
+
+        // Must be verified first
+        if (!session("signing_verified_{$token}")) {
+            return redirect()->route('signatures.external.gateway', ['token' => $token]);
+        }
+
+        // Validate checkbox
+        if (!$request->input('consent_accepted')) {
+            return redirect()->back()->with('error', 'You must accept the consent declaration to proceed.');
+        }
+
+        $template = $signingRequest->template;
+        $document = $template->document;
+
+        // Build consent declaration text (exact text shown to signer)
+        $idNumber = $signingRequest->signer_id_number ?? '';
+        $idLastFour = strlen($idNumber) >= 4 ? substr($idNumber, -4) : $idNumber;
+        $consentText = "By proceeding, I confirm:\n"
+            . "1. I am {$signingRequest->signer_name} (ID: ****{$idLastFour}).\n"
+            . "2. I am acting of my own free will and have not been coerced.\n"
+            . "3. I understand I am about to review and electronically sign legal documents.\n"
+            . "4. My electronic signature carries the same legal weight as a handwritten signature under the Electronic Communications and Transactions Act 25 of 2002.\n"
+            . "5. I consent to the processing of my personal information for the purposes of this transaction in terms of the Protection of Personal Information Act 4 of 2013.\n\n"
+            . "I have read and understood the above.";
+
+        // Generate document hash (SHA-256 of current document content)
+        $documentHash = '';
+        if ($document) {
+            $webData = $document->web_template_data ?? [];
+            $htmlContent = $webData['merged_html'] ?? json_encode($webData);
+            $documentHash = hash('sha256', $htmlContent);
+        }
+
+        // Parse user agent for device info
+        $ua = $request->userAgent() ?? '';
+        $deviceInfo = $this->parseDeviceInfo($ua);
+
+        // Get the ID number that was entered during verification
+        $idEntered = session("signing_id_entered_{$token}", $idNumber);
+
+        // Create immutable consent log record
+        $consentLog = new ESignConsentLog();
+        $consentLog->flow_id = null; // Set if wizard flow exists
+        $consentLog->document_id = $document->id ?? null;
+        $consentLog->signature_request_id = $signingRequest->id;
+        $consentLog->signing_party_id = null; // Set if esign_signing_party exists
+        $consentLog->contact_id = null; // Will be linked if contact found
+        $consentLog->id_number_entered = $idEntered; // Encrypted via mutator
+        $consentLog->id_verified = true;
+        $consentLog->consent_text = $consentText;
+        $consentLog->consent_accepted_at = now();
+        $consentLog->ip_address = $request->ip();
+        $consentLog->user_agent = $ua;
+        $consentLog->device_info = $deviceInfo;
+        $consentLog->document_hash = $documentHash;
+        $consentLog->created_at = now();
+        $consentLog->save();
+
+        // Store consent session flag
+        session(["esign_consent_{$signingRequest->id}" => true]);
+
+        // Audit log
+        SignatureAuditLog::log(
+            $template,
+            'gateway_consent_captured',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signingRequest->signer_name,
+            $signingRequest->signer_email,
+            requestId: $signingRequest->id,
+            ip: $request->ip(),
+            ua: $ua,
+            metadata: [
+                'consent_log_id' => $consentLog->id,
+                'document_hash' => $documentHash,
+            ],
+        );
+
+        // Mark as viewed if pending (first real access after consent)
+        if ($signingRequest->status === SignatureRequest::STATUS_PENDING) {
+            $signingRequest->update([
+                'status' => SignatureRequest::STATUS_VIEWED,
+                'viewed_at' => now(),
+                'ip_address' => $request->ip(),
+                'user_agent' => $ua,
+            ]);
+
+            SignatureAuditLog::log(
+                $template,
+                SignatureAuditLog::ACTION_VIEWED,
+                SignatureAuditLog::ACTOR_SIGNER,
+                $signingRequest->signer_name,
+                $signingRequest->signer_email,
+                requestId: $signingRequest->id,
+                ip: $request->ip(),
+                ua: $ua,
+            );
+        }
+
         return redirect()->route('signatures.external', ['token' => $token]);
+    }
+
+    /**
+     * Already-signed summary page.
+     */
+    public function alreadySigned(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document', 'template.creator'])
+            ->firstOrFail();
+
+        if ($signingRequest->status !== SignatureRequest::STATUS_COMPLETED) {
+            return redirect()->route('signatures.external', ['token' => $token]);
+        }
+
+        $branding = $this->getAgencyBranding($signingRequest);
+        $consentLog = ESignConsentLog::where('signature_request_id', $signingRequest->id)
+            ->orderBy('created_at', 'desc')
+            ->first();
+        $creator = $signingRequest->template->creator ?? null;
+        $template = $signingRequest->template;
+        $downloadAvailable = $template && !empty($template->signed_pdf_path);
+
+        return view('docuperfect.signatures.external.already-completed', [
+            'request' => $signingRequest,
+            'consentLog' => $consentLog,
+            'downloadAvailable' => $downloadAvailable,
+            'agentName' => $creator->name ?? null,
+            'agentEmail' => $creator->email ?? null,
+            'agentPhone' => $creator->phone ?? $creator->cell ?? null,
+            'agencyName' => $branding['name'],
+            'agencyLogo' => $branding['logo'],
+            'agencyColor' => $branding['color'],
+        ]);
+    }
+
+    /**
+     * Get agency branding data for external views.
+     */
+    private function getAgencyBranding(SignatureRequest $signingRequest): array
+    {
+        $agency = null;
+
+        // Try to get agency from the creator's agency_id
+        $creator = $signingRequest->template->creator ?? null;
+        if ($creator && $creator->agency_id) {
+            $agency = Agency::find($creator->agency_id);
+        }
+
+        // Fallback to first agency
+        if (!$agency) {
+            $agency = Agency::first();
+        }
+
+        return [
+            'name' => $agency->name ?? 'Home Finders Coastal',
+            'logo' => $agency && $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
+            'color' => $agency->default_color ?? $agency->button_color ?? '#0b2a4a',
+        ];
+    }
+
+    /**
+     * Parse user agent into structured device info.
+     */
+    private function parseDeviceInfo(string $ua): array
+    {
+        $info = [
+            'browser' => 'Unknown',
+            'os' => 'Unknown',
+            'raw' => $ua,
+        ];
+
+        // Browser detection
+        if (preg_match('/Edg\/(\S+)/', $ua)) {
+            $info['browser'] = 'Microsoft Edge';
+        } elseif (preg_match('/Chrome\/(\S+)/', $ua) && !preg_match('/Edg/', $ua)) {
+            $info['browser'] = 'Chrome';
+        } elseif (preg_match('/Firefox\/(\S+)/', $ua)) {
+            $info['browser'] = 'Firefox';
+        } elseif (preg_match('/Safari\/(\S+)/', $ua) && !preg_match('/Chrome/', $ua)) {
+            $info['browser'] = 'Safari';
+        }
+
+        // OS detection
+        if (preg_match('/Windows NT/', $ua)) {
+            $info['os'] = 'Windows';
+        } elseif (preg_match('/Mac OS X/', $ua)) {
+            $info['os'] = 'macOS';
+        } elseif (preg_match('/Android/', $ua)) {
+            $info['os'] = 'Android';
+        } elseif (preg_match('/iPhone|iPad/', $ua)) {
+            $info['os'] = 'iOS';
+        } elseif (preg_match('/Linux/', $ua)) {
+            $info['os'] = 'Linux';
+        }
+
+        return $info;
     }
 
     /**
@@ -297,6 +648,59 @@ class SigningController extends Controller
         }
 
         return response()->json(['ok' => true, 'method' => $request->method]);
+    }
+
+    /**
+     * Show the dedicated wet ink portal page.
+     * Used for documents that are forced wet-ink-only (sale agreements, OTPs).
+     */
+    public function wetInkPortal(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document', 'sender'])
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return view('docuperfect.signatures.external.expired', [
+                'request' => $signingRequest,
+            ]);
+        }
+
+        if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED) {
+            return redirect()->route('signatures.external.alreadySigned', $token);
+        }
+
+        // Verify session (gateway must be passed first)
+        if ($signingRequest->signer_id_number && !session("signing_verified_{$token}")) {
+            return redirect()->route('signatures.external.gateway', $token);
+        }
+
+        // Mark as wet ink if not already
+        if ($signingRequest->signing_method !== 'wet_ink') {
+            $signingRequest->update([
+                'signing_method' => 'wet_ink',
+                'wet_ink_status' => SignatureRequest::WET_INK_PENDING_UPLOAD,
+            ]);
+        }
+
+        $branding = $this->getAgencyBranding($signingRequest);
+        $document = $signingRequest->template->document ?? null;
+
+        // Get version history
+        $versions = $document
+            ? \App\Models\Docuperfect\SignedDocumentVersion::where('document_id', $document->id)
+                ->where('signature_request_id', $signingRequest->id)
+                ->orderBy('version_number', 'desc')
+                ->get()
+            : collect();
+
+        return view('docuperfect.signatures.external.wet-ink-portal', [
+            'request' => $signingRequest,
+            'document' => $document,
+            'branding' => $branding,
+            'token' => $token,
+            'versions' => $versions,
+        ]);
     }
 
     /**
@@ -592,6 +996,43 @@ class SigningController extends Controller
 
         $document->update(['web_template_data' => $webData]);
 
+        // --- Amendment Detection (Other Conditions) ---
+        $otherConditionsText = $request->input('other_conditions_text', '');
+        if (!empty(trim($otherConditionsText))) {
+            $detectedText = $this->signatureService->detectAmendment($template, $otherConditionsText);
+            if ($detectedText !== null) {
+                $amendment = $this->signatureService->createAmendment(
+                    $template,
+                    $signingRequest,
+                    $detectedText,
+                    $template->other_conditions_text
+                );
+
+                if ($amendment) {
+                    // Mark this request as completed (they did sign)
+                    $signingRequest->update([
+                        'status' => SignatureRequest::STATUS_COMPLETED,
+                        'completed_at' => now(),
+                        'signing_method' => 'electronic',
+                        'ip_address' => $request->ip(),
+                        'user_agent' => $request->userAgent(),
+                    ]);
+
+                    // Trigger amendment re-signing flow (halts forward progress)
+                    $this->signatureService->handleAmendment($template, $amendment, $signingRequest);
+
+                    return response()->json([
+                        'ok' => true,
+                        'completed' => true,
+                        'amendment_detected' => true,
+                        'amendment_id' => $amendment->id,
+                        'message' => 'Your signature has been recorded. The document has been amended and previous signers will be notified for review.',
+                        'redirect' => route('signatures.external.completed', $token),
+                    ]);
+                }
+            }
+        }
+
         // Mark signing request as completed
         $signingRequest->update([
             'status' => SignatureRequest::STATUS_COMPLETED,
@@ -740,6 +1181,32 @@ class SigningController extends Controller
         }
 
         if ($this->signatureService->isPartyComplete($template, $party)) {
+            // --- Amendment Detection (Other Conditions) for PDF signing ---
+            $otherConditionsText = $request->input('other_conditions_text', '');
+            if (!empty(trim($otherConditionsText))) {
+                $detectedText = $this->signatureService->detectAmendment($template, $otherConditionsText);
+                if ($detectedText !== null) {
+                    $amendment = $this->signatureService->createAmendment(
+                        $template, $signingRequest, $detectedText, $template->other_conditions_text
+                    );
+                    if ($amendment) {
+                        $signingRequest->update([
+                            'status' => SignatureRequest::STATUS_COMPLETED,
+                            'completed_at' => now(),
+                            'ip_address' => $request->ip(),
+                            'user_agent' => $request->userAgent(),
+                        ]);
+                        $this->signatureService->handleAmendment($template, $amendment, $signingRequest);
+                        return response()->json([
+                            'ok' => true, 'completed' => true, 'amendment_detected' => true,
+                            'amendment_id' => $amendment->id,
+                            'message' => 'Your signature has been recorded. The document has been amended and previous signers will be notified for review.',
+                            'redirect' => route('signatures.external.completed', $token),
+                        ]);
+                    }
+                }
+            }
+
             // Mark THIS specific request as completed (not just any request for the role)
             $signingRequest->update([
                 'status' => SignatureRequest::STATUS_COMPLETED,
@@ -872,6 +1339,24 @@ class SigningController extends Controller
             ua: $request->userAgent(),
             metadata: ['file_count' => count($paths), 'total_files' => count($allPaths)],
         );
+
+        // Create version record for tracking
+        $document = $signingRequest->template?->document;
+        if ($document) {
+            foreach ($paths as $path) {
+                $ext = pathinfo($path, PATHINFO_EXTENSION);
+                \App\Models\Docuperfect\SignedDocumentVersion::create([
+                    'document_id' => $document->id,
+                    'signature_request_id' => $signingRequest->id,
+                    'version_number' => \App\Models\Docuperfect\SignedDocumentVersion::nextVersion($document->id),
+                    'file_path' => $path,
+                    'file_type' => $ext,
+                    'uploaded_by_name' => $signingRequest->signer_name,
+                    'uploaded_at' => now(),
+                    'ip_address' => $request->ip(),
+                ]);
+            }
+        }
 
         // Notify the agent
         $this->signatureService->notifyWetInkUploaded($signingRequest);
@@ -1225,5 +1710,262 @@ class SigningController extends Controller
         );
 
         return response()->download($pdfPath, $filename);
+    }
+
+    // ──────────────────────────────────────────────
+    // Section-by-Section Signing (External)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Accept a section (external signer).
+     */
+    public function acceptSection(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
+
+        $request->validate([
+            'section_index' => 'required|integer|min:0',
+            'section_label' => 'required|string|max:255',
+            'initial_image' => 'nullable|string',
+        ]);
+
+        $acceptance = \App\Models\Docuperfect\SectionAcceptance::updateOrCreate(
+            [
+                'signature_request_id' => $signingRequest->id,
+                'section_index' => $request->section_index,
+            ],
+            [
+                'section_label' => $request->section_label,
+                'accepted' => true,
+                'rejected' => false,
+                'rejection_reason' => null,
+                'initialled_at' => now(),
+                'initial_image' => $request->initial_image,
+            ]
+        );
+
+        SignatureAuditLog::log(
+            $signingRequest->template,
+            'section_accepted',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signingRequest->signer_name,
+            $signingRequest->signer_email,
+            requestId: $signingRequest->id,
+            ip: $request->ip(),
+            ua: $request->userAgent(),
+            metadata: [
+                'section_index' => $request->section_index,
+                'section_label' => $request->section_label,
+            ],
+        );
+
+        return response()->json([
+            'success' => true,
+            'acceptance' => $acceptance,
+        ]);
+    }
+
+    /**
+     * Reject a section (external signer).
+     */
+    public function rejectSection(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
+
+        $request->validate([
+            'section_index' => 'required|integer|min:0',
+            'section_label' => 'required|string|max:255',
+            'rejection_reason' => 'required|string|max:2000',
+        ]);
+
+        $acceptance = \App\Models\Docuperfect\SectionAcceptance::updateOrCreate(
+            [
+                'signature_request_id' => $signingRequest->id,
+                'section_index' => $request->section_index,
+            ],
+            [
+                'section_label' => $request->section_label,
+                'accepted' => false,
+                'rejected' => true,
+                'rejection_reason' => $request->rejection_reason,
+                'initialled_at' => null,
+                'initial_image' => null,
+            ]
+        );
+
+        SignatureAuditLog::log(
+            $signingRequest->template,
+            'section_rejected',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signingRequest->signer_name,
+            $signingRequest->signer_email,
+            requestId: $signingRequest->id,
+            ip: $request->ip(),
+            ua: $request->userAgent(),
+            metadata: [
+                'section_index' => $request->section_index,
+                'section_label' => $request->section_label,
+                'rejection_reason' => $request->rejection_reason,
+            ],
+        );
+
+        // Notify the agent about the rejection
+        $this->sendSectionRejectionNotification($signingRequest, $request->section_label, $request->rejection_reason);
+
+        return response()->json([
+            'success' => true,
+            'acceptance' => $acceptance,
+        ]);
+    }
+
+    /**
+     * Get section progress for an external signer.
+     */
+    public function getSectionProgress(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('sectionAcceptances')
+            ->firstOrFail();
+
+        $template = $signingRequest->template;
+        $sections = $template->sections_json ?? [];
+
+        $progress = [];
+        foreach ($sections as $idx => $section) {
+            $acceptance = $signingRequest->sectionAcceptances->firstWhere('section_index', $idx);
+            $progress[] = [
+                'index' => $idx,
+                'label' => $section['label'] ?? "Section " . ($idx + 1),
+                'accepted' => $acceptance?->accepted ?? false,
+                'rejected' => $acceptance?->rejected ?? false,
+                'rejection_reason' => $acceptance?->rejection_reason,
+                'initialled_at' => $acceptance?->initialled_at?->toIso8601String(),
+            ];
+        }
+
+        return response()->json([
+            'sections' => $sections,
+            'progress' => $progress,
+            'total' => count($sections),
+            'accepted' => collect($progress)->where('accepted', true)->count(),
+            'rejected' => collect($progress)->where('rejected', true)->count(),
+        ]);
+    }
+
+    /**
+     * Notify agent about a section rejection.
+     */
+    private function sendSectionRejectionNotification(SignatureRequest $signingRequest, string $sectionLabel, string $reason): void
+    {
+        try {
+            $template = $signingRequest->template;
+            $template->loadMissing(['document', 'creator']);
+            $agent = $template->creator;
+
+            if ($agent && $agent->email) {
+                Mail::raw(
+                    "{$signingRequest->signer_name} has rejected section \"{$sectionLabel}\" on document \"{$template->document->name}\".\n\n" .
+                    "Reason: {$reason}\n\n" .
+                    "Please review and take action.",
+                    function ($message) use ($agent, $template) {
+                        $message->to($agent->email)
+                            ->subject("Section Rejected — {$template->document->name}");
+                    }
+                );
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to send section rejection notification', ['error' => $e->getMessage()]);
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Amendment Review (External — re-signing)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Show amendment review page for external signer (token-based, no auth).
+     */
+    public function amendmentReview(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document', 'template.amendments.acceptances'])
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return view('docuperfect.signatures.external.expired', [
+                'request' => $signingRequest,
+            ]);
+        }
+
+        $template = $signingRequest->template;
+
+        // Get pending amendments that need this signer's acceptance
+        $pendingAmendments = $template->amendments()
+            ->where('status', \App\Models\Docuperfect\DocumentAmendment::STATUS_PENDING)
+            ->with(['amendedByRequest', 'acceptances' => function ($q) use ($signingRequest) {
+                $q->where('signature_request_id', $signingRequest->id);
+            }])
+            ->get();
+
+        $branding = $this->getAgencyBranding($signingRequest);
+
+        return view('docuperfect.signatures.external.amendment-review', [
+            'request' => $signingRequest,
+            'template' => $template,
+            'document' => $template->document,
+            'amendments' => $pendingAmendments,
+            'branding' => $branding,
+            'token' => $token,
+        ]);
+    }
+
+    /**
+     * Accept a single amendment (external signer initials it).
+     */
+    public function acceptAmendment(Request $request, $token, $amendmentId)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return response()->json(['ok' => false, 'error' => 'Link expired.'], 410);
+        }
+
+        $amendment = \App\Models\Docuperfect\DocumentAmendment::findOrFail($amendmentId);
+        $initialImage = $request->input('initial_image');
+
+        $acceptance = $this->signatureService->acceptAmendment($amendment, $signingRequest, $initialImage);
+
+        return response()->json([
+            'ok' => true,
+            'accepted' => true,
+            'acceptance_id' => $acceptance->id,
+        ]);
+    }
+
+    /**
+     * Reject a single amendment (external signer gives reason).
+     */
+    public function rejectAmendment(Request $request, $token, $amendmentId)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return response()->json(['ok' => false, 'error' => 'Link expired.'], 410);
+        }
+
+        $amendment = \App\Models\Docuperfect\DocumentAmendment::findOrFail($amendmentId);
+        $reason = $request->input('reason', '');
+
+        if (empty(trim($reason))) {
+            return response()->json(['ok' => false, 'error' => 'A reason is required when rejecting an amendment.'], 422);
+        }
+
+        $acceptance = $this->signatureService->rejectAmendment($amendment, $signingRequest, $reason);
+
+        return response()->json([
+            'ok' => true,
+            'rejected' => true,
+            'acceptance_id' => $acceptance->id,
+        ]);
     }
 }

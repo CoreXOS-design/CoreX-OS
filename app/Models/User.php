@@ -20,6 +20,7 @@ class User extends Authenticatable
         'password',
         'role',
         'designation',
+        'supervised_by',
         'branch_id',
         'agency_id',
         'is_active',
@@ -149,6 +150,22 @@ class User extends Authenticatable
     public function isCandidate(): bool
     {
         return stripos($this->designation ?? '', 'Candidate') !== false;
+    }
+
+    /**
+     * The supervisor (full-status practitioner) assigned to this candidate.
+     */
+    public function supervisor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'supervised_by');
+    }
+
+    /**
+     * Candidates supervised by this user.
+     */
+    public function supervisees(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(User::class, 'supervised_by');
     }
 
     // --- Permission helpers (delegate to PermissionService) ---

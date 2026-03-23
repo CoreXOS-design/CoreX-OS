@@ -15,9 +15,12 @@ class ESignConsentLog extends Model
 
     protected $fillable = [
         'flow_id',
+        'document_id',
+        'signature_request_id',
         'signing_party_id',
         'contact_id',
         'id_number_entered',
+        'id_verified',
         'consent_text',
         'consent_accepted_at',
         'ip_address',
@@ -31,6 +34,7 @@ class ESignConsentLog extends Model
         'consent_accepted_at' => 'datetime',
         'created_at' => 'datetime',
         'device_info' => 'array',
+        'id_verified' => 'boolean',
     ];
 
     public function setIdNumberEnteredAttribute($value)
@@ -66,6 +70,16 @@ class ESignConsentLog extends Model
     public function flow(): BelongsTo
     {
         return $this->belongsTo(Flow::class, 'flow_id');
+    }
+
+    public function document(): BelongsTo
+    {
+        return $this->belongsTo(Document::class, 'document_id');
+    }
+
+    public function signatureRequest(): BelongsTo
+    {
+        return $this->belongsTo(SignatureRequest::class, 'signature_request_id');
     }
 
     public function signingParty(): BelongsTo
