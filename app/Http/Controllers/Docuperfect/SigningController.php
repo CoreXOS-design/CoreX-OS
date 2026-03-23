@@ -1526,11 +1526,8 @@ class SigningController extends Controller
         $pdf->setOption('isRemoteEnabled', true);
         $pdf->setOption('isHtml5ParserEnabled', true);
 
-        // Update signing method
-        $signingRequest->update([
-            'signing_method' => 'wet_ink',
-            'wet_ink_status' => $signingRequest->wet_ink_status ?: SignatureRequest::WET_INK_PENDING_UPLOAD,
-        ]);
+        // Do NOT set signing_method to wet_ink here — downloading does not commit to wet ink.
+        // The signing method is set when the signer explicitly chooses via chooseMethod().
 
         $filename = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $document->name) . ' - For Signing.pdf';
 
@@ -1582,15 +1579,49 @@ class SigningController extends Controller
         $pdf->setOption('isRemoteEnabled', true);
         $pdf->setOption('isHtml5ParserEnabled', true);
 
-        // Update signing method
-        $signingRequest->update([
-            'signing_method' => 'wet_ink',
-            'wet_ink_status' => $signingRequest->wet_ink_status ?: SignatureRequest::WET_INK_PENDING_UPLOAD,
-        ]);
+        // Do NOT set signing_method to wet_ink here — downloading does not commit to wet ink.
+        // The signing method is set when the signer explicitly chooses via chooseMethod().
 
         $filename = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $document->name) . ' - For Signing.pdf';
 
         return $pdf->download($filename);
+    }
+
+    /**
+     * Render the document as a clean printable HTML page.
+     * Opens in a new tab — recipient uses browser Print / Save as PDF.
+     * Primary path for "Download, Print & Sign" (faster and more reliable than dompdf).
+     */
+    public function printView($token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document.template'])
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return redirect()->route('signatures.external', $token)
+                ->with('error', 'Signing link has expired.');
+        }
+
+        $signatureTemplate = $signingRequest->template;
+        $document = $signatureTemplate->document;
+        $docTemplate = $document->template ?? null;
+        $webTemplateData = $document->web_template_data ?? [];
+        $mergedHtml = $webTemplateData['merged_html'] ?? '';
+
+        if (empty($mergedHtml)) {
+            // Fallback to dompdf download for PDF templates
+            return redirect()->route('signatures.external.download', $token);
+        }
+
+        // Do NOT set signing_method here — viewing/printing does not commit to wet ink.
+
+        return view('docuperfect.signatures.external.print', [
+            'document' => $document,
+            'mergedHtml' => $mergedHtml,
+            'signerName' => $signingRequest->signer_name,
+            'token' => $token,
+        ]);
     }
 
     /**

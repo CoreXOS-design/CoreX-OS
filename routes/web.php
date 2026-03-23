@@ -1202,6 +1202,7 @@ Route::prefix('sign')->group(function () {
     Route::get('/{token}/completed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completed'])->name('signatures.external.completed');
     Route::post('/{token}/upload', [\App\Http\Controllers\Docuperfect\SigningController::class, 'uploadWetInk'])->name('signatures.external.upload');
     Route::get('/{token}/download', [\App\Http\Controllers\Docuperfect\SigningController::class, 'downloadForSigning'])->name('signatures.external.download');
+    Route::get('/{token}/print', [\App\Http\Controllers\Docuperfect\SigningController::class, 'printView'])->name('signatures.external.print');
     Route::get('/{token}/wet-ink-portal', [\App\Http\Controllers\Docuperfect\SigningController::class, 'wetInkPortal'])->name('signatures.external.wetInkPortal');
     Route::post('/{token}/decline', [\App\Http\Controllers\Docuperfect\SigningController::class, 'decline'])->name('signatures.external.decline');
     Route::get('/{token}/flattened-page/{page}', [\App\Http\Controllers\Docuperfect\SigningController::class, 'flattenedPageImage'])->name('signatures.external.flattenedPage');
