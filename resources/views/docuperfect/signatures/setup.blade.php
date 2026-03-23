@@ -289,9 +289,17 @@
                             min-height: 28pt;
                         }
                     </style>
+                    @php
+                        $setupParties = collect($parties ?? [])->map(function($p) {
+                            return [
+                                'role' => $p['role'] ?? 'unknown',
+                                'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
+                            ];
+                        })->values()->toArray();
+                    @endphp
                     <div class="relative" style="max-width:100%; margin:0 auto;"
                          x-ref="pageContainer"
-                         x-init="pageLoaded = true; $nextTick(() => paginateDocument(document.getElementById('webDocContent'), @json(collect($parties ?? [])->map(fn($p) => ['role' => $p['role'] ?? 'unknown', 'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown'))])->values()->toArray())))"
+                         x-init="pageLoaded = true; $nextTick(() => paginateDocument(document.getElementById('webDocContent'), {{ Js::from($setupParties) }}))"
                          @dragover.prevent="$event.dataTransfer.dropEffect = 'copy'"
                          @drop.prevent="handleDrop($event)"
                          @mousedown.prevent="startZoneDrawOnPage($event)">
