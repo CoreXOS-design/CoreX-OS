@@ -14,10 +14,15 @@
     {{-- Page Header --}}
     <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5 flex items-center justify-between">
         <div>
-            <h2 class="text-xl font-bold text-white leading-tight tracking-tight">My E-Sign Documents</h2>
+            <h2 class="text-xl font-bold text-white leading-tight tracking-tight">{{ ($showOnlyAuthorisation ?? false) ? 'Authorise Documents' : 'My E-Sign Documents' }}</h2>
             <div class="text-sm text-white/60 mt-1">
-                <a href="{{ route('docuperfect.dashboard') }}" class="text-white/60 hover:text-white transition-all duration-300">&larr; DocuPerfect</a>
-                &middot; Track all your e-sign flows, signing progress, and approvals.
+                @if($showOnlyAuthorisation ?? false)
+                    <a href="{{ route('docuperfect.esign.myDocuments') }}" class="text-white/60 hover:text-white transition-all duration-300">&larr; My E-Sign Documents</a>
+                    &middot; Candidate documents requiring your authorisation.
+                @else
+                    <a href="{{ route('docuperfect.dashboard') }}" class="text-white/60 hover:text-white transition-all duration-300">&larr; DocuPerfect</a>
+                    &middot; Track all your e-sign flows, signing progress, and approvals.
+                @endif
             </div>
         </div>
         <a href="{{ route('docuperfect.esign.create') }}"
@@ -41,6 +46,7 @@
         </div>
     @endif
 
+    @if(!($showOnlyAuthorisation ?? false))
     {{-- Status summary tiles --}}
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
         @if(($counts['needs_authorisation'] ?? 0) > 0)
@@ -78,6 +84,7 @@
             <div class="text-xs mt-1" style="color: {{ $counts['completed'] > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}">Completed</div>
         </a>
     </div>
+    @endif
 
     {{-- ===== CANDIDATE DOCUMENTS — NEEDS AUTHORISATION ===== --}}
     @if(($groups['needs_authorisation'] ?? collect())->isNotEmpty())
@@ -133,6 +140,7 @@
     </div>
     @endif
 
+    @if(!($showOnlyAuthorisation ?? false))
     {{-- ===== NEEDS YOUR APPROVAL ===== --}}
     @if($groups['pending_approval']->isNotEmpty())
     <div id="section-pending-approval" class="space-y-3 scroll-mt-4">
@@ -495,6 +503,7 @@
         </a>
     </div>
     @endif
+    @endif {{-- end showOnlyAuthorisation --}}
 
     {{-- ===== CANCEL MODAL ===== --}}
     <div x-show="showCancelModal" x-cloak

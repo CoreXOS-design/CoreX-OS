@@ -381,8 +381,19 @@
                 </div>
             </div>
 
+            {{-- Completion overlay — prevents Alpine re-render issues --}}
+            <div x-show="completionDone" x-cloak class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-8 text-center" style="min-height:300px;">
+                <div class="flex flex-col items-center justify-center gap-4 py-12">
+                    <svg class="w-16 h-16 text-emerald-500 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                    <h3 class="text-lg font-semibold text-emerald-700">Signing Complete</h3>
+                    <p class="text-sm text-gray-500">Processing your signatures... Redirecting shortly.</p>
+                </div>
+            </div>
+
             {{-- Document viewer --}}
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 overflow-hidden flex flex-col" style="min-height:600px;">
+            <div x-show="!completionDone" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 overflow-hidden flex flex-col" style="min-height:600px;">
 
                 {{-- Web template: render HTML directly — document elements are the interactive surface --}}
                 <template x-if="isWebTemplate">
@@ -1166,6 +1177,7 @@ function externalSign() {
         typedName: @json($request->signer_name),
         applying: false,
         completing: false,
+        completionDone: false,
         signaturePad: null,
 
         // Apply-to-all
@@ -2171,15 +2183,20 @@ function externalSign() {
                 });
                 const data = await resp.json();
                 if (data.ok && data.redirect) {
+                    this.completionDone = true;
                     window.location.href = data.redirect;
+                } else if (data.ok) {
+                    this.completionDone = true;
                 } else {
                     this.showNotification(data.error || 'Could not complete signing. Please try again.', 'error');
                 }
             } catch (err) {
-                this.showNotification('Network error. Please check your connection and try again.', 'error');
-                console.error('Complete signing failed:', err);
+                if (!this.completionDone) {
+                    this.showNotification('Network error. Please check your connection and try again.', 'error');
+                    console.error('Complete signing failed:', err);
+                }
             }
-            this.completing = false;
+            if (!this.completionDone) this.completing = false;
         },
 
         // ── Navigate to next unsigned marker ──

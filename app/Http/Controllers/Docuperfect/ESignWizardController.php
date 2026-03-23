@@ -3811,6 +3811,7 @@ class ESignWizardController extends Controller
             'groups' => $groups,
             'counts' => $counts,
             'user'   => $user,
+            'showOnlyAuthorisation' => $request->query('filter') === 'authorisation',
         ]);
     }
 

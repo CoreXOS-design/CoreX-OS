@@ -942,10 +942,13 @@ class SignatureController extends Controller
         $esignFlowId = session('esign_wizard_flow_id');
 
         // Build signing parties for client-side pagination initials
-        $signingParties = collect($template->parties_json ?? [])->map(fn($p) => [
+        // Deduplicate supervisor/supervisor_final — same person, one initial block
+        $signingParties = collect($template->parties_json ?? [])->filter(function ($p) {
+            return ($p['role'] ?? '') !== 'supervisor_final';
+        })->map(fn($p) => [
             'role' => $p['role'] ?? 'unknown',
             'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
-        ])->values()->toArray();
+        ])->unique('role')->values()->toArray();
 
         return view('docuperfect.signatures.sign', [
             'document' => $document,
@@ -1364,7 +1367,7 @@ class SignatureController extends Controller
             // Embed agent signature images into merged_html so next signer sees them
             if (!empty($webData['merged_html'])) {
                 $html = $webData['merged_html'];
-                $html = $this->embedSignaturesIntoHtml($html, $signatures, $partyRole);
+                $html = $this->embedSignaturesIntoHtml($html, $signatures, $partyRole, $user->name);
                 // Also embed ceremony values into the HTML
                 if (!empty($ceremonyValues)) {
                     $html = $this->embedCeremonyValuesIntoHtml($html, $ceremonyValues);
@@ -1437,7 +1440,7 @@ class SignatureController extends Controller
      * Embed signature images into HTML by finding data-marker-party elements
      * and replacing their content with <img> tags.
      */
-    public function embedSignaturesIntoHtml(string $html, array $signatures, string $partyRole): string
+    public function embedSignaturesIntoHtml(string $html, array $signatures, string $partyRole, string $signerName = ''): string
     {
         try {
             // Role aliases: the signing code uses keys like "agent-sig-0", "landlord-sig-1"
@@ -1465,7 +1468,7 @@ class SignatureController extends Controller
             foreach ($signatures as $sigKey => $sigData) {
                 $els = $xpath->query('//*[@data-sig-id="' . htmlspecialchars($sigKey) . '"]');
                 if ($els->length > 0) {
-                    $this->embedSigIntoElement($dom, $els->item(0), $sigData, $partyRole);
+                    $this->embedSigIntoElement($dom, $els->item(0), $sigData, $partyRole, $signerName);
                     $matched[$sigKey] = true;
                 }
             }
@@ -1495,7 +1498,7 @@ class SignatureController extends Controller
                         }
 
                         if ($sigData) {
-                            $this->embedSigIntoElement($dom, $el, $sigData, $partyRole);
+                            $this->embedSigIntoElement($dom, $el, $sigData, $partyRole, $signerName);
                         }
 
                         $sigIdx++;
@@ -1521,7 +1524,7 @@ class SignatureController extends Controller
     /**
      * Insert a signature image into a DOM element and mark it as signed.
      */
-    private function embedSigIntoElement(\DOMDocument $dom, \DOMElement $el, string $sigData, string $partyRole): void
+    private function embedSigIntoElement(\DOMDocument $dom, \DOMElement $el, string $sigData, string $partyRole, string $signerName = ''): void
     {
         while ($el->firstChild) {
             $el->removeChild($el->firstChild);
@@ -1536,7 +1539,7 @@ class SignatureController extends Controller
 
         $label = $dom->createElement('div');
         $label->setAttribute('style', 'font-size:8px;color:#059669;text-align:center;font-weight:600;');
-        $label->textContent = 'Signed by ' . ucfirst($partyRole);
+        $label->textContent = 'Signed by ' . ($signerName ?: ucfirst($partyRole));
         $el->appendChild($label);
     }
 
@@ -2099,10 +2102,13 @@ class SignatureController extends Controller
         $ceremonyValues = $webTemplateData['ceremony_values'] ?? [];
         $clauseFlags = $webTemplateData['clause_flags'] ?? [];
 
-        $signingParties = collect($template->parties_json ?? [])->map(fn($p) => [
+        // Deduplicate supervisor/supervisor_final — same person, one initial block
+        $signingParties = collect($template->parties_json ?? [])->filter(function ($p) {
+            return ($p['role'] ?? '') !== 'supervisor_final';
+        })->map(fn($p) => [
             'role' => $p['role'] ?? 'unknown',
             'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
-        ])->values()->toArray();
+        ])->unique('role')->values()->toArray();
 
         return view('docuperfect.signatures.review', [
             'document' => $document,

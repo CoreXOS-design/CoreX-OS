@@ -158,8 +158,19 @@
          The agent created the document — they sign, they don't reject their own sections.
          Section navigator and rejection UI live in external/sign.blade.php. --}}
 
+    {{-- Completion overlay — prevents Alpine re-render issues --}}
+    <div x-show="completionDone" x-cloak class="bg-white border border-emerald-200 rounded-md p-8 text-center" style="min-height:300px;">
+        <div class="flex flex-col items-center justify-center gap-4 py-12">
+            <svg class="w-16 h-16 text-emerald-500 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <h3 class="text-lg font-semibold text-emerald-700">Signing Complete</h3>
+            <p class="text-sm text-gray-500">Processing your signatures... Redirecting shortly.</p>
+        </div>
+    </div>
+
     {{-- Main content: Document viewer --}}
-    <div class="bg-white border border-gray-200 rounded-md p-4 overflow-hidden flex flex-col" style="min-height:600px;">
+    <div x-show="!completionDone" class="bg-white border border-gray-200 rounded-md p-4 overflow-hidden flex flex-col" style="min-height:600px;">
 
         @if(!empty($isWebTemplate))
         {{-- ═══════════════════════════════════════════════════════════════
@@ -572,6 +583,7 @@ function signDocument() {
 
         // Complete form state
         completingForm: false,
+        completionDone: false,
         fieldsDirty: false,
 
         // Apply-to-all state
@@ -1665,8 +1677,10 @@ function signDocument() {
                     });
                     const data = await resp.json();
                     if (data.ok && data.redirect) {
+                        this.completionDone = true;
                         window.location.href = data.redirect;
                     } else if (data.ok) {
+                        this.completionDone = true;
                         // Fallback: use the standard signComplete POST
                         const form = document.createElement('form');
                         form.method = 'POST';
@@ -1684,7 +1698,9 @@ function signDocument() {
                     }
                 } catch (err) {
                     console.error('COMPLETE_ERROR', err);
-                    alert('Network error: ' + err.message);
+                    // If completion already succeeded server-side but redirect failed, show success
+                    if (this.completionDone) return;
+                    alert('Network error: ' + err.message + '. Please try again.');
                     this.completingForm = false;
                 }
                 return;
@@ -1715,6 +1731,7 @@ function signDocument() {
             }
 
             // Submit via form POST for redirect
+            this.completionDone = true;
             const form = document.createElement('form');
             form.method = 'POST';
             form.action = @json(route('docuperfect.signatures.signComplete', $document));

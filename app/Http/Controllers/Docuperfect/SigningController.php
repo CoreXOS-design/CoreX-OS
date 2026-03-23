@@ -1037,7 +1037,7 @@ class SigningController extends Controller
         if (!empty($webData['merged_html']) && !empty($signatures)) {
             $sigController = app(SignatureController::class);
             $html = $webData['merged_html'];
-            $html = $sigController->embedSignaturesIntoHtml($html, $signatures, $signingRequest->party_role);
+            $html = $sigController->embedSignaturesIntoHtml($html, $signatures, $signingRequest->party_role, $signingRequest->signer_name ?? '');
             if (!empty($ceremonyValues)) {
                 $html = $sigController->embedCeremonyValuesIntoHtml($html, $ceremonyValues);
             }
