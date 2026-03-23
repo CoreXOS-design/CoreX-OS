@@ -28,6 +28,29 @@
     width: 210mm;
     max-width: 100%;
 }
+/* Kill inner container styling when A4 pages are active */
+.corex-a4-page .corex-document-wrapper,
+.corex-a4-page .corex-page {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+}
+/* Also for when split hasn't run yet but document is in a page container */
+#webDocContent .corex-document-wrapper,
+#webDocContent .corex-page,
+[x-ref="webDocContent"] .corex-document-wrapper,
+[x-ref="webDocContent"] .corex-page {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+}
 @media print {
     .corex-a4-page {
         box-shadow: none;
@@ -54,6 +77,9 @@
 <script>
 function splitDocumentIntoPages(container) {
     if (!container) return;
+    // Guard against double invocation (e.g. init + method choice in external signing)
+    if (container.dataset.pagesSplit === 'true') return;
+    container.dataset.pagesSplit = 'true';
     var breaks = container.querySelectorAll('.corex-page-break');
     if (breaks.length === 0) return;
 
