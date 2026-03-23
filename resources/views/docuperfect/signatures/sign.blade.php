@@ -553,6 +553,7 @@ function signDocument() {
         documentFields: Array.from(Object.values(@json($document->fields_json ?? []))),
         hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
         isWebTemplate: {{ !empty($isWebTemplate) ? 'true' : 'false' }},
+        signingParties: @json($signingParties ?? []),
         currentPage: 1,
         totalPages: {{ $pageCount }},
         signedCount: {{ $signedCount }},
@@ -617,9 +618,7 @@ function signDocument() {
                 this.$nextTick(() => {
                     setTimeout(() => {
                         const container = this.$refs.webDocContent;
-                        console.log('SPLIT_PRE', container ? container.querySelectorAll('.corex-page-break').length : 'NO_CONTAINER');
-                        splitDocumentIntoPages(container);
-                        console.log('SPLIT_POST', container ? container.querySelectorAll('.corex-a4-page').length : 'NO_CONTAINER');
+                        paginateDocument(container, this.signingParties);
                         this._makeWebElementsInteractive();
                         // Delay to let DOM settle after ceremony fields are created
                         setTimeout(() => this._updateIncompleteCount(), 300);

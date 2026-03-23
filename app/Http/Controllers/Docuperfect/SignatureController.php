@@ -941,6 +941,12 @@ class SignatureController extends Controller
         // Pass wizard flow ID so the sign page can include it in the webSignComplete request
         $esignFlowId = session('esign_wizard_flow_id');
 
+        // Build signing parties for client-side pagination initials
+        $signingParties = collect($template->parties_json ?? [])->map(fn($p) => [
+            'role' => $p['role'] ?? 'unknown',
+            'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
+        ])->values()->toArray();
+
         return view('docuperfect.signatures.sign', [
             'document' => $document,
             'template' => $template,
@@ -958,6 +964,7 @@ class SignatureController extends Controller
             'sectionAcceptances' => $sectionAcceptances,
             'isSalesTemplate' => $docTemplate ? $docTemplate->isSalesDocument() : false,
             'esignFlowId' => $esignFlowId,
+            'signingParties' => $signingParties,
         ]);
     }
 
@@ -2050,6 +2057,11 @@ class SignatureController extends Controller
         $ceremonyValues = $webTemplateData['ceremony_values'] ?? [];
         $clauseFlags = $webTemplateData['clause_flags'] ?? [];
 
+        $signingParties = collect($template->parties_json ?? [])->map(fn($p) => [
+            'role' => $p['role'] ?? 'unknown',
+            'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
+        ])->values()->toArray();
+
         return view('docuperfect.signatures.review', [
             'document' => $document,
             'template' => $template,
@@ -2068,6 +2080,7 @@ class SignatureController extends Controller
             'disclosureAnswers' => $disclosureAnswers,
             'ceremonyValues' => $ceremonyValues,
             'clauseFlags' => $clauseFlags,
+            'signingParties' => $signingParties,
         ]);
     }
 

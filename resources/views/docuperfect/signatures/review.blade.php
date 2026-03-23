@@ -308,7 +308,7 @@
             </div>
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
-                    splitDocumentIntoPages(document.getElementById('reviewDocContent'));
+                    paginateDocument(document.getElementById('reviewDocContent'), @json($signingParties ?? []));
                 });
             </script>
         @else

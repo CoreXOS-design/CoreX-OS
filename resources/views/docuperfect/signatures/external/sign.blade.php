@@ -1141,6 +1141,7 @@ function externalSign() {
         documentFields: @json($document->fields_json ?? []),
         hasFlattened: {{ !empty($hasFlattened) ? 'true' : 'false' }},
         isWebTemplate: {{ !empty($isWebTemplate) ? 'true' : 'false' }},
+        signingParties: @json($signingParties ?? []),
         webTemplateHtml: @json($webTemplateHtml ?? ''),
         editableFields: @json($editableFields ?? []),
         webFieldsDirty: false,
@@ -1230,7 +1231,7 @@ function externalSign() {
             if (this.isWebTemplate && this.signingMethod === 'electronic') {
                 this.$nextTick(() => {
                     setTimeout(() => {
-                        splitDocumentIntoPages(this.$refs.webDocContent);
+                        paginateDocument(this.$refs.webDocContent, this.signingParties);
                         if (this.editableFields.length > 0) {
                             this.initWebTemplateFields();
                         }
@@ -1722,7 +1723,7 @@ function externalSign() {
                     if (method === 'electronic' && this.isWebTemplate) {
                         this.$nextTick(() => {
                             setTimeout(() => {
-                                splitDocumentIntoPages(this.$refs.webDocContent);
+                                paginateDocument(this.$refs.webDocContent, this.signingParties);
                                 if (this.editableFields.length > 0) {
                                     this.initWebTemplateFields();
                                 }

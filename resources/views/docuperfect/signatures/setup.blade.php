@@ -291,7 +291,7 @@
                     </style>
                     <div class="relative" style="max-width:100%; margin:0 auto;"
                          x-ref="pageContainer"
-                         x-init="pageLoaded = true; $nextTick(() => splitDocumentIntoPages(document.getElementById('webDocContent')))"
+                         x-init="pageLoaded = true; $nextTick(() => paginateDocument(document.getElementById('webDocContent'), @json(collect($parties ?? [])->map(fn($p) => ['role' => $p['role'] ?? 'unknown', 'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown'))])->values()->toArray())))"
                          @dragover.prevent="$event.dataTransfer.dropEffect = 'copy'"
                          @drop.prevent="handleDrop($event)"
                          @mousedown.prevent="startZoneDrawOnPage($event)">

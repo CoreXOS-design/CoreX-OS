@@ -1386,8 +1386,9 @@ class ESignWizardController extends Controller
                 $styles = implode("\n", $styleMatches[0]);
             }
 
-            // Process the HTML: inject initials and resolve signature names
-            $bodyHtml = $this->injectInitialsBlocks($bodyHtml, $partiesForSigning);
+            // Process the HTML: resolve signature names and field values
+            // Page breaks and initials are now handled client-side (a4-page-styles.blade.php)
+            // via paginateDocument() which measures actual rendered element heights.
             $bodyHtml = $this->resolveSignatureNames($bodyHtml, $webTemplateData, $partiesForSigning);
             $bodyHtml = $this->injectFieldValues($bodyHtml, $webTemplateData);
 

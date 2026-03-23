@@ -230,7 +230,7 @@
     <script>
         // Split into A4 pages, then clean up interactive elements
         document.addEventListener('DOMContentLoaded', function() {
-            splitDocumentIntoPages(document.querySelector('.document-content'));
+            paginateDocument(document.querySelector('.document-content'), @json($signingParties ?? []));
 
             // Remove "Click to sign" prompts
             document.querySelectorAll('.web-sig-prompt, .init-prompt').forEach(function(el) {

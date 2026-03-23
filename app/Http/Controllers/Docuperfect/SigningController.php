@@ -248,6 +248,11 @@ class SigningController extends Controller
                 ->toArray();
         }
 
+        $signingParties = collect($template->parties_json ?? [])->map(fn($p) => [
+            'role' => $p['role'] ?? 'unknown',
+            'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
+        ])->values()->toArray();
+
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
             'template' => $template,
@@ -269,6 +274,7 @@ class SigningController extends Controller
             'token' => $token,
             'sections' => $sections,
             'sectionAcceptances' => $sectionAcceptances,
+            'signingParties' => $signingParties,
         ]);
     }
 
@@ -1616,11 +1622,17 @@ class SigningController extends Controller
 
         // Do NOT set signing_method here — viewing/printing does not commit to wet ink.
 
+        $signingParties = collect($signatureTemplate->parties_json ?? [])->map(fn($p) => [
+            'role' => $p['role'] ?? 'unknown',
+            'label' => ucfirst(str_replace('_', ' ', $p['role_label'] ?? $p['role'] ?? 'unknown')),
+        ])->values()->toArray();
+
         return view('docuperfect.signatures.external.print', [
             'document' => $document,
             'mergedHtml' => $mergedHtml,
             'signerName' => $signingRequest->signer_name,
             'token' => $token,
+            'signingParties' => $signingParties,
         ]);
     }
 
