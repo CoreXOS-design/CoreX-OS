@@ -4,11 +4,26 @@ namespace App\Services\Docuperfect;
 
 class CdsRendererService
 {
+    /** @var array Signing parties extracted from signature_section — used by renderPageInitials. */
+    private array $signingParties = [];
+
     /**
      * Render CDS JSON to HTML using CoreX document classes.
      */
     public function render(array $cds): string
     {
+        // Pre-pass: extract parties from signature_section so page_initials can use them
+        $this->signingParties = [];
+        foreach ($cds['sections'] ?? [] as $section) {
+            if (($section['type'] ?? '') === 'signature_section' && !empty($section['parties'])) {
+                $this->signingParties = $section['parties'];
+                break;
+            }
+            if (($section['type'] ?? '') === 'inline_signature' && !empty($section['parties'])) {
+                $this->signingParties = array_merge($this->signingParties, $section['parties']);
+            }
+        }
+
         $html = '';
 
         foreach ($cds['sections'] ?? [] as $section) {
@@ -255,7 +270,35 @@ class CdsRendererService
     private function renderPageInitials(array $section): string
     {
         $pageNum = $section['page_number'] ?? '';
+        $parties = $this->signingParties;
 
+        // If parties are known, generate per-party initials blocks with data-marker attributes
+        // matching ESignWizardController::injectInitialsBlocks format
+        if (!empty($parties)) {
+            $blocks = '';
+            foreach ($parties as $n => $party) {
+                $role = strtolower($party['role'] ?? $party['label'] ?? 'party');
+                $label = ucfirst(str_replace('_', ' ', $role));
+                $blocks .= '<div class="corex-page-initials" '
+                    . 'data-marker-party="' . e($role) . '" '
+                    . 'data-marker-type="initial" '
+                    . 'data-marker-index="' . $n . '" '
+                    . 'style="display:inline-block;text-align:center;margin:0 6pt;width:60px;height:30px;'
+                    . 'border:1px solid #94a3b8;font-size:9px;color:#64748b;cursor:pointer;'
+                    . 'line-height:30px;">'
+                    . '<span class="initial-placeholder">' . e($label) . '</span>'
+                    . '</div>';
+            }
+
+            return '<div class="corex-page-break" '
+                . 'style="display:flex;justify-content:flex-end;align-items:center;gap:12px;'
+                . 'padding:8px 0;border-top:1px dashed #cbd5e1;margin:16px 0;">'
+                . '<span style="font-size:8pt;color:#94a3b8;margin-right:auto;">Page ' . e($pageNum) . '</span>'
+                . $blocks
+                . '</div>';
+        }
+
+        // Fallback: no parties known — generic placeholder (template preview/builder)
         $html = '<div class="corex-page-initials" '
             . 'style="display: flex; justify-content: flex-end; '
             . 'align-items: center; gap: 6px; padding: 8px 0; '
