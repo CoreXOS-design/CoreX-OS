@@ -74,6 +74,13 @@ class SigningController extends Controller
             ]);
         }
 
+        // Not yet their turn — sequential signing gate
+        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+            return view('docuperfect.signatures.external.waiting', [
+                'request' => $signingRequest,
+            ]);
+        }
+
         // Gateway gate — signer must verify ID AND accept consent before seeing documents
         if (!empty($signingRequest->signer_id_number)) {
             if (!session("signing_verified_{$token}")) {
@@ -716,6 +723,11 @@ class SigningController extends Controller
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
+        // Sequential signing gate
+        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet.'], 403);
+        }
+
         // Verify session
         if (!session("signing_verified_{$token}")) {
             return response()->json(['ok' => false, 'error' => 'Identity not verified.'], 403);
@@ -942,6 +954,11 @@ class SigningController extends Controller
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
+        // Sequential signing gate — reject if not this signer's turn
+        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
+        }
+
         // Validate consent
         if (!$request->input('consented')) {
             return response()->json(['message' => 'Consent is required to sign electronically.'], 422);
@@ -1093,6 +1110,11 @@ class SigningController extends Controller
             ->doesntExist();
 
         if ($allRoleComplete) {
+            // All co-owners for this role signed — run approval gate
+            $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
+        } else {
+            // More co-owners still need to sign — still require agent approval before next co-owner
+            $template->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
             $this->signatureService->handlePartyCompletion($template, $party, $signingRequest);
         }
 
@@ -1161,6 +1183,11 @@ class SigningController extends Controller
 
         if ($signingRequest->isExpired()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        // Sequential signing gate — reject if not this signer's turn
+        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
         }
 
         $template = $signingRequest->template;
