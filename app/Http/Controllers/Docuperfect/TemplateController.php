@@ -50,6 +50,15 @@ class TemplateController extends Controller
             }
         }
 
+        // Category filter (sales/rentals)
+        if ($cat = $request->input('category')) {
+            if ($cat === 'none') {
+                $query->whereNull('category');
+            } else {
+                $query->where('category', $cat);
+            }
+        }
+
         // Template type filter (sales/rental/compliance)
         if ($type = $request->input('type')) {
             $query->where('template_type', $type);
@@ -137,6 +146,8 @@ class TemplateController extends Controller
                         'party_mode' => $template->party_mode,
                         'allowed_delivery_modes' => $template->allowed_delivery_modes,
                         'security_tier' => $template->security_tier,
+                        'category' => $template->category,
+                        'document_type_id' => $template->document_type_id,
                     ],
                     'source_template_id' => $template->id,
                     'status' => 'draft',
@@ -225,6 +236,10 @@ class TemplateController extends Controller
         }
         if ($request->has('document_type_id')) {
             $data['document_type_id'] = $request->input('document_type_id') ?: null;
+        }
+        if ($request->has('category')) {
+            $val = $request->input('category');
+            $data['category'] = in_array($val, ['sales', 'rentals']) ? $val : null;
         }
         if ($request->has('is_global')) {
             $data['is_global'] = $request->boolean('is_global');
@@ -456,6 +471,11 @@ class TemplateController extends Controller
         // Load signing parties for agency
         $agencyParties = $this->loadAgencyParties($user);
 
+        // Load source template for fallback values (category, document_type_id)
+        $sourceTemplate = $draft->source_template_id
+            ? Template::find($draft->source_template_id)
+            : null;
+
         return view('docuperfect.templates.cds-builder', [
             'draftId' => $draft->id,
             'cds' => $draft->cds_json,
@@ -464,6 +484,7 @@ class TemplateController extends Controller
             'title' => $draft->template_name,
             'templateName' => $draft->template_name,
             'sourceTemplateId' => $draft->source_template_id,
+            'sourceTemplate' => $sourceTemplate,
             'groupedFields' => $groupedFields,
             'fieldGroups' => $fieldGroups,
             'namedFieldsAll' => $namedFields->map(fn($nf) => [
@@ -546,6 +567,8 @@ class TemplateController extends Controller
             'allowed_delivery_modes' => $request->input('allowed_delivery_modes', 'esign,wet_ink,download'),
             'security_tier' => $request->input('security_tier', 'enhanced'),
             'signing_parties' => $request->input('signing_parties') ? json_decode($request->input('signing_parties'), true) : null,
+            'category' => in_array($request->input('category'), ['sales', 'rentals']) ? $request->input('category') : null,
+            'document_type_id' => $request->input('document_type_id') ?: null,
             'is_global' => true,
             'owner_id' => $user->id,
             'editor_state' => [
@@ -702,15 +725,33 @@ class TemplateController extends Controller
             $renderer = app(CdsRendererService::class);
             $rawHtml = $renderer->render($filteredCds);
 
-            // Replace marker-based signature/initial placeholders
-            $html = preg_replace(
+            // Replace marker-based signature/initial placeholders (preserving party param)
+            $html = preg_replace_callback(
                 '/<span\s+class="corex-field"[^>]*data-marker-type="signature"[^>]*>.*?<\/span>/s',
-                '@include("docuperfect.web-templates.components.signature-line")',
+                function ($m) {
+                    $party = null;
+                    if (preg_match('/data-marker-party="([^"]*)"/', $m[0], $pm)) {
+                        $party = $pm[1];
+                    }
+                    if ($party) {
+                        return '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                    }
+                    return '@include("docuperfect.web-templates.components.signature-line")';
+                },
                 $rawHtml
             );
-            $html = preg_replace(
+            $html = preg_replace_callback(
                 '/<span\s+class="corex-field"[^>]*data-marker-type="initial"[^>]*>.*?<\/span>/s',
-                '@include("docuperfect.web-templates.components.initials-line")',
+                function ($m) {
+                    $party = null;
+                    if (preg_match('/data-marker-party="([^"]*)"/', $m[0], $pm)) {
+                        $party = $pm[1];
+                    }
+                    if ($party) {
+                        return '@include("docuperfect.web-templates.components.initials-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                    }
+                    return '@include("docuperfect.web-templates.components.initials-line")';
+                },
                 $html
             );
 
@@ -806,12 +847,20 @@ BLADE;
             function ($matches) use ($mappings, $namedFields) {
                 $span = $matches[0];
 
-                // Signature tags → @include component
+                // Signature tags → @include component (preserve party from mappings)
                 if (str_contains($span, 'doc-tag-sig')) {
+                    $party = $this->extractPartyFromTagSpan($span, $mappings);
+                    if ($party) {
+                        return '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                    }
                     return '@include("docuperfect.web-templates.components.signature-line")';
                 }
-                // Initial tags → @include component
+                // Initial tags → @include component (preserve party from mappings)
                 if (str_contains($span, 'doc-tag-ini')) {
+                    $party = $this->extractPartyFromTagSpan($span, $mappings);
+                    if ($party) {
+                        return '@include("docuperfect.web-templates.components.initials-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                    }
                     return '@include("docuperfect.web-templates.components.initials-line")';
                 }
 
@@ -839,6 +888,36 @@ BLADE;
         );
 
         return $processed;
+    }
+
+    /**
+     * Extract party role from a doc-tag span using its data-tag-id and the mappings array.
+     * The CDS builder stores party assignments in mappings[tagId].parties = ['Seller'].
+     * Returns lowercase party name (e.g. 'seller') or null if not assigned.
+     */
+    private function extractPartyFromTagSpan(string $span, array $mappings): ?string
+    {
+        if (!preg_match('/data-tag-id="([^"]*)"/', $span, $idMatch)) {
+            return null;
+        }
+        $tagId = $idMatch[1];
+        $mapping = $mappings[$tagId] ?? null;
+        if (!$mapping || empty($mapping['parties'])) {
+            return null;
+        }
+        $party = is_array($mapping['parties']) ? ($mapping['parties'][0] ?? null) : null;
+        if (!$party) {
+            return null;
+        }
+        // Resolve generic party names to concrete roles
+        $party = strtolower($party);
+        $resolveMap = [
+            'owner_party' => 'seller',
+            'acquiring_party' => 'buyer',
+            'lessor' => 'landlord',
+            'lessee' => 'tenant',
+        ];
+        return $resolveMap[$party] ?? $party;
     }
 
     /**

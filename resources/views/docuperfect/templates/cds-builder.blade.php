@@ -76,6 +76,8 @@
                             <input type="hidden" name="allowed_delivery_modes" :value="deliveryModes.join(',')">
                             <input type="hidden" name="security_tier" :value="securityTier">
                             <input type="hidden" name="signing_parties" :value="JSON.stringify(templateSigningParties)">
+                            <input type="hidden" name="category" :value="templateCategory">
+                            <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -98,6 +100,8 @@
                             <input type="hidden" name="allowed_delivery_modes" :value="deliveryModes.join(',')">
                             <input type="hidden" name="security_tier" :value="securityTier">
                             <input type="hidden" name="signing_parties" :value="JSON.stringify(templateSigningParties)">
+                            <input type="hidden" name="category" :value="templateCategory">
+                            <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -243,6 +247,29 @@
                     </button>
 
                     <div x-show="settingsExpanded" x-transition class="border-t border-gray-200 p-3 space-y-3">
+                        {{-- Category --}}
+                        <div>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Category</label>
+                            <select x-model="templateCategory"
+                                    class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700 focus:ring-teal-400 focus:border-teal-400">
+                                <option value="">Select category...</option>
+                                <option value="sales">Sales</option>
+                                <option value="rentals">Rentals</option>
+                            </select>
+                        </div>
+
+                        {{-- Document Type --}}
+                        <div>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Document Type</label>
+                            <select x-model="templateDocumentTypeId"
+                                    class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700 focus:ring-teal-400 focus:border-teal-400">
+                                <option value="">Select document type...</option>
+                                @foreach(\App\Models\Docuperfect\DocumentType::orderBy('sort_order')->get() as $dt)
+                                <option value="{{ $dt->id }}">{{ $dt->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+
                         {{-- Delivery Modes --}}
                         <div>
                             <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Delivery Modes</label>
@@ -862,6 +889,8 @@ function cdsEditor() {
         deliveryModes: ['esign', 'wet_ink', 'download'],
         securityTier: 'enhanced',
         templateSigningParties: ['owner_party', 'agent'],
+        templateCategory: '',
+        templateDocumentTypeId: '',
         settingsExpanded: false,
 
         get isSalesContext() {
@@ -993,6 +1022,8 @@ function cdsEditor() {
                             allowed_delivery_modes: this.deliveryModes.join(','),
                             security_tier: this.securityTier,
                             signing_parties: this.templateSigningParties,
+                            category: this.templateCategory || null,
+                            document_type_id: this.templateDocumentTypeId || null,
                         },
                     }),
                 });
@@ -1076,6 +1107,17 @@ function cdsEditor() {
                         if (this.savedSettings.signing_parties && Array.isArray(this.savedSettings.signing_parties)) {
                             this.templateSigningParties = this.savedSettings.signing_parties;
                         }
+                        if (this.savedSettings.category) this.templateCategory = this.savedSettings.category;
+                        if (this.savedSettings.document_type_id) this.templateDocumentTypeId = String(this.savedSettings.document_type_id);
+                    }
+
+                    // Fallback to source template values if draft settings don't have category/document_type_id
+                    if (!this.templateCategory) {
+                        this.templateCategory = @json($sourceTemplate->category ?? '');
+                    }
+                    if (!this.templateDocumentTypeId) {
+                        const fallbackDocTypeId = @json($sourceTemplate->document_type_id ?? null);
+                        if (fallbackDocTypeId) this.templateDocumentTypeId = String(fallbackDocTypeId);
                     }
 
                     this._startAutoSave();
