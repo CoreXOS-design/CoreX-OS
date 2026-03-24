@@ -26,9 +26,11 @@ if (!existsSync(inputPath)) {
     process.exit(1);
 }
 
-// Locate browser — env var first, then Windows Edge paths, then Linux Chromium
+// Locate browser — env var first, then Windows Chrome/Edge, then Linux Chromium
 const candidatePaths = [
     process.env.PUPPETEER_BROWSER_PATH,
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
     '/usr/bin/chromium-browser',
