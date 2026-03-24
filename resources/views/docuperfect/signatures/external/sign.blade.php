@@ -1328,7 +1328,12 @@ function externalSign() {
                         this.processWebDisclosureChecklists();
                         this._processDisclosureTable();
                         this._initClauseFlagging();
-                        setTimeout(() => this.updateIncompleteCount(), 300);
+                        // Compute incomplete count after all interactive elements are set up
+                        setTimeout(() => {
+                            this.updateIncompleteCount();
+                            // Safety re-check after DOM settles
+                            setTimeout(() => this.updateIncompleteCount(), 500);
+                        }, 400);
                     }, 150);
                 });
             }
@@ -1418,7 +1423,8 @@ function externalSign() {
                 attempts++;
                 if (tryInit() || attempts > 20) {
                     clearInterval(interval);
-                    self.updateIncompleteCount();
+                    // Don't call updateIncompleteCount here — ceremony fields and initials
+                    // may not be ready yet. The delayed call after all init is complete handles it.
                 }
             }, 200);
         },
@@ -2795,16 +2801,33 @@ function externalSign() {
                 sigData = canvas.toDataURL('image/png');
             }
 
-            this.webSignatures[this.currentWebSigBlockId] = sigData;
+            const sigId = this.currentWebSigBlockId;
+            const isInitial = sigId && sigId.includes('-init-');
 
-            // Update the signature element in the document using the new interactive approach
-            const container = this.$refs.webDocContent || this.$el.querySelector('[x-html="webTemplateHtml"]');
-            if (container) {
-                const block = container.querySelector('[data-sig-id="' + this.currentWebSigBlockId + '"]');
-                if (block) {
-                    block.setAttribute('data-signed', 'true');
-                    block.classList.add('web-sig-signed');
-                    block.innerHTML = '<img src="' + sigData + '" class="web-sig-signed-img" alt="Signature">';
+            this.webSignatures[sigId] = sigData;
+
+            if (isInitial) {
+                // Update the webInitialElements entry AND the DOM for the clicked initial
+                const entry = (this.webInitialElements || []).find(e => e.initKey === sigId);
+                if (entry) {
+                    entry.signed = true;
+                    entry.sigData = sigData;
+                    entry.el.innerHTML = '<img src="' + sigData + '" style="max-height:26px;margin:auto;display:block;object-fit:contain;" alt="Initial">';
+                    entry.el.classList.add('initial-signed');
+                    entry.el.style.border = '2px solid #10b981';
+                    entry.el.style.background = 'rgba(16,185,129,0.06)';
+                    entry.el.style.cursor = 'default';
+                }
+            } else {
+                // Update the signature element in the document via data-sig-id
+                const container = this.$refs.webDocContent || this.$el.querySelector('[x-html="webTemplateHtml"]');
+                if (container) {
+                    const block = container.querySelector('[data-sig-id="' + sigId + '"]');
+                    if (block) {
+                        block.setAttribute('data-signed', 'true');
+                        block.classList.add('web-sig-signed');
+                        block.innerHTML = '<img src="' + sigData + '" class="web-sig-signed-img" alt="Signature">';
+                    }
                 }
             }
 
@@ -2814,13 +2837,10 @@ function externalSign() {
             this.showWebSigCapture = false;
             this.updateIncompleteCount();
 
-            // Check if this was an initial and offer apply-to-all prompt
-            const sigId = this.currentWebSigBlockId;
-            const isInitial = sigId && sigId.includes('-init-');
+            // For initials: offer apply-to-all prompt if there are remaining unsigned initials
             if (isInitial) {
                 const unsignedInitials = (this.webInitialElements || []).filter(e => e.isMine && !e.signed);
                 if (unsignedInitials.length > 0 && !this.webInitialSigData) {
-                    // Show confirmation prompt before applying to all
                     this.pendingInitialSigData = sigData;
                     this.pendingInitialBlockId = sigId;
                     this.showInitialApplyAll = true;
@@ -2859,6 +2879,7 @@ function externalSign() {
         declineInitialApplyAll() {
             this.showInitialApplyAll = false;
             this.pendingInitialSigData = null;
+            this.updateIncompleteCount();
             this.showNotification('Initial applied.', 'info');
         },
 
