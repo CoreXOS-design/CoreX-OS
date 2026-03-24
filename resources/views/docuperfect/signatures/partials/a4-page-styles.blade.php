@@ -111,6 +111,9 @@ function paginateDocument(container, parties) {
 
         var totalPages = pageEls.length;
         pageEls.forEach(function(pageEl, idx) {
+            // Remove old wizard-injected page-break initials before moving children
+            pageEl.querySelectorAll('.corex-page-break').forEach(function(el) { el.remove(); });
+
             var pageDiv = document.createElement('div');
             pageDiv.className = 'corex-a4-page';
             while (pageEl.firstChild) pageDiv.appendChild(pageEl.firstChild);
