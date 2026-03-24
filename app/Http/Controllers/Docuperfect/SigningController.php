@@ -1728,7 +1728,7 @@ class SigningController extends Controller
             $wkhtmltopdf = trim(shell_exec('which wkhtmltopdf 2>/dev/null') ?? '');
             if ($wkhtmltopdf && file_exists($wkhtmltopdf)) {
                 $command = sprintf(
-                    'XDG_RUNTIME_DIR=/tmp %s --quiet --no-stop-slow-scripts --page-size A4 --margin-top 10mm --margin-right 12mm --margin-bottom 15mm --margin-left 12mm --encoding UTF-8 --print-media-type %s %s 2>&1',
+                    'XDG_RUNTIME_DIR=/tmp %s --quiet --no-stop-slow-scripts --page-size A4 --margin-top 10mm --margin-right 12mm --margin-bottom 15mm --margin-left 12mm --encoding UTF-8 --print-media-type --footer-center "Page [page] of [topage]" --footer-font-size 9 --footer-spacing 5 %s %s 2>&1',
                     escapeshellarg($wkhtmltopdf),
                     escapeshellarg($htmlPath),
                     escapeshellarg($pdfPath)
@@ -1975,6 +1975,130 @@ p, li, div {
 }
 .corex-disclosure-table tr {
     page-break-inside: avoid;
+}
+/* === wkhtmltopdf compatibility (older WebKit — no CSS vars, limited flexbox/grid) === */
+/* Replace CSS variable references with literal values */
+.corex-header {
+    border-bottom-color: #0d9488 !important;
+}
+.corex-signature-section {
+    border-top-color: #0d9488 !important;
+}
+/* Header layout — table-based fallback for wkhtmltopdf (no reliable flexbox) */
+.corex-header {
+    display: table !important;
+    width: 100% !important;
+    table-layout: fixed !important;
+}
+.corex-header-left {
+    display: table-cell !important;
+    vertical-align: middle !important;
+    width: 70% !important;
+}
+.corex-header-left > img,
+.corex-header-logo {
+    display: inline-block !important;
+    vertical-align: middle !important;
+    margin-right: 14px !important;
+}
+.corex-header-left > div {
+    display: inline-block !important;
+    vertical-align: middle !important;
+}
+.corex-header-right {
+    display: table-cell !important;
+    vertical-align: middle !important;
+    text-align: right !important;
+    width: 30% !important;
+}
+/* Company details — ensure line breaks between items */
+.corex-header-details {
+    display: block !important;
+    white-space: normal !important;
+    line-height: 1.6 !important;
+}
+/* Signature grid — float-based fallback (wkhtmltopdf has no CSS grid) */
+.corex-signature-grid {
+    display: block !important;
+    overflow: hidden !important;
+}
+.corex-signature-grid > .corex-signature-block,
+.corex-signature-grid > div {
+    display: block !important;
+    float: left !important;
+    width: 48% !important;
+    margin-right: 2% !important;
+    margin-bottom: 12px !important;
+    box-sizing: border-box !important;
+}
+.corex-signature-grid > .corex-signature-block:nth-child(2n),
+.corex-signature-grid > div:nth-child(2n) {
+    margin-right: 0 !important;
+}
+/* Initials row — float-based fallback */
+.corex-initials-row,
+.corex-page-initials-row {
+    display: block !important;
+    overflow: hidden !important;
+    text-align: right !important;
+}
+.corex-initial-block,
+.corex-page-initials {
+    display: inline-block !important;
+    vertical-align: middle !important;
+}
+/* Signature line — block fallback */
+.corex-signature-line {
+    display: block !important;
+    height: 36px !important;
+    line-height: 36px !important;
+    vertical-align: bottom !important;
+}
+/* Waterfall and item rows — table-based fallback */
+.corex-waterfall-row,
+.corex-item-row {
+    display: table !important;
+    width: 100% !important;
+    table-layout: fixed !important;
+}
+.corex-waterfall-label,
+.corex-item-description {
+    display: table-cell !important;
+    width: 70% !important;
+}
+.corex-waterfall-amount,
+.corex-item-location {
+    display: table-cell !important;
+    width: 30% !important;
+    text-align: right !important;
+}
+/* Footer — table-based fallback */
+.corex-footer {
+    display: table !important;
+    width: 100% !important;
+}
+.corex-footer > * {
+    display: table-cell !important;
+    vertical-align: middle !important;
+}
+/* Condition toggles — inline-block fallback */
+.corex-condition-toggle {
+    display: block !important;
+    overflow: hidden !important;
+}
+.corex-condition-option {
+    display: inline-block !important;
+    vertical-align: middle !important;
+    margin-right: 6px !important;
+}
+/* Inline-flex fields — inline-block fallback */
+.corex-field {
+    display: inline-block !important;
+    vertical-align: baseline !important;
+}
+/* Remove @page bottom-center (wkhtmltopdf uses its own footer, not CSS counters) */
+@page {
+    margin: 10mm 12mm 15mm 12mm;
 }
 /* === Interactive element cleanup (hide for PDF) === */
 {$cleanupCss}
