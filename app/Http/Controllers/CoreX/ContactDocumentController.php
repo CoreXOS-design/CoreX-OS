@@ -4,9 +4,8 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
-use App\Models\ContactDocument;
+use App\Models\Document;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class ContactDocumentController extends Controller
@@ -14,7 +13,9 @@ class ContactDocumentController extends Controller
     public function store(Request $request, Contact $contact)
     {
         $request->validate([
-            'file' => 'required|file|max:20480', // 20MB max
+            'file' => 'required|file|max:20480',
+            'document_type_id' => 'nullable|exists:document_types,id',
+            'property_id' => 'nullable|exists:properties,id',
         ]);
 
         $file = $request->file('file');
@@ -25,36 +26,73 @@ class ContactDocumentController extends Controller
             'local'
         );
 
-        $contact->documents()->create([
-            'uploaded_by_user_id' => auth()->id(),
-            'original_name'       => $file->getClientOriginalName(),
-            'storage_path'        => $path,
-            'mime_type'           => $file->getMimeType(),
-            'size'                => $file->getSize(),
+        $doc = Document::create([
+            'original_name'    => $file->getClientOriginalName(),
+            'storage_path'     => $path,
+            'disk'             => 'local',
+            'mime_type'        => $file->getMimeType(),
+            'size'             => $file->getSize(),
+            'document_type_id' => $request->input('document_type_id') ?: null,
+            'source_type'      => 'upload',
+            'uploaded_by'      => auth()->id(),
         ]);
+
+        // Attach to contact
+        $doc->contacts()->attach($contact->id);
+
+        // Attach to property if selected
+        if ($request->filled('property_id')) {
+            $doc->properties()->attach($request->input('property_id'));
+        }
 
         return redirect()->route('corex.contacts.show', $contact)
             ->with('success', 'File uploaded.')
             ->withFragment('tab-drive');
     }
 
-    public function download(Contact $contact, ContactDocument $document)
+    public function download(Contact $contact, Document $document)
     {
-        abort_unless($document->contact_id === $contact->id, 404);
-        abort_unless(Storage::disk('local')->exists($document->storage_path), 404);
+        abort_unless($document->contacts()->where('contacts.id', $contact->id)->exists(), 404);
 
-        return Storage::disk('local')->download($document->storage_path, $document->original_name);
+        return $document->downloadResponse();
     }
 
-    public function destroy(Contact $contact, ContactDocument $document)
+    public function destroy(Contact $contact, Document $document)
     {
-        abort_unless($document->contact_id === $contact->id, 404);
+        abort_unless($document->contacts()->where('contacts.id', $contact->id)->exists(), 404);
 
-        Storage::disk('local')->delete($document->storage_path);
-        $document->delete();
+        // Detach from this contact
+        $document->contacts()->detach($contact->id);
+
+        // If no contacts or properties remain linked, soft-delete the document
+        if ($document->contacts()->count() === 0 && $document->properties()->count() === 0) {
+            $document->delete();
+        }
 
         return redirect()->route('corex.contacts.show', $contact)
-            ->with('success', 'File deleted.')
+            ->with('success', 'File removed.')
+            ->withFragment('tab-drive');
+    }
+
+    public function updateTag(Request $request, Contact $contact, Document $document)
+    {
+        abort_unless($document->contacts()->where('contacts.id', $contact->id)->exists(), 404);
+
+        $request->validate([
+            'document_type_id' => 'nullable|exists:document_types,id',
+            'property_id' => 'nullable|exists:properties,id',
+        ]);
+
+        $document->update([
+            'document_type_id' => $request->input('document_type_id') ?: null,
+        ]);
+
+        // Manage property pivot
+        $newPropertyId = $request->input('property_id') ?: null;
+        $document->properties()->sync($newPropertyId ? [$newPropertyId] : []);
+
+        return redirect()->route('corex.contacts.show', $contact)
+            ->with('success', 'Document tagged.')
             ->withFragment('tab-drive');
     }
 }

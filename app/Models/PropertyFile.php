@@ -11,7 +11,8 @@ class PropertyFile extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['property_id', 'user_id', 'name', 'path', 'size', 'mime_type'];
+    protected $fillable = ['property_id', 'user_id', 'name', 'path', 'size', 'mime_type',
+        'document_type_id', 'contact_id', 'source_type'];
 
     protected $casts = ['size' => 'integer'];
 
@@ -23,6 +24,16 @@ class PropertyFile extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function documentType(): BelongsTo
+    {
+        return $this->belongsTo(DocumentType::class);
+    }
+
+    public function contact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class);
     }
 
     public function url(): string

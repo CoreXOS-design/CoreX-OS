@@ -10,7 +10,6 @@ use App\Models\ContactTag;
 use App\Models\ContactType;
 use App\Models\Designation;
 use App\Models\PropertySettingItem;
-use App\Models\Docuperfect\DocumentType;
 use App\Models\Docuperfect\NamedField;
 use App\Models\PerformanceSetting;
 use App\Models\Rental\RentalDocumentType;
@@ -49,7 +48,6 @@ class SettingsController extends Controller
         }
 
         // Feature Settings tab: Docuperfect
-        $data['docTypes']    = DocumentType::orderBy('sort_order')->orderBy('name')->get();
         $data['namedFields'] = NamedField::orderBy('sort_order')->orderBy('name')->get();
 
         // Feature Settings tab: Rentals

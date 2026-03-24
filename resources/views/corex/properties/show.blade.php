@@ -322,8 +322,8 @@
                 @if(!$isNew && $tab['key'] === 'notes' && $property->notes->count())
                 <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);color:var(--brand-icon,#0ea5e9);">{{ $property->notes->count() }}</span>
                 @endif
-                @if(!$isNew && $tab['key'] === 'drive' && $property->files->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);color:var(--brand-icon,#0ea5e9);">{{ $property->files->count() }}</span>
+                @if(!$isNew && $tab['key'] === 'drive' && $allDriveDocs->count())
+                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);color:var(--brand-icon,#0ea5e9);">{{ $allDriveDocs->count() }}</span>
                 @endif
                 @if(!$isNew && $tab['key'] === 'core-matches' && $coreMatches->count())
                 <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);color:var(--brand-icon,#0ea5e9);">{{ $coreMatches->count() }}</span>
@@ -1696,67 +1696,94 @@
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload File</h3>
                 <form method="POST" action="{{ route('corex.properties.files.store', $property) }}"
-                      enctype="multipart/form-data" class="flex items-center gap-3 flex-wrap">
+                      enctype="multipart/form-data" class="space-y-3">
                     @csrf
-                    <label class="flex-1 flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
-                           style="border-color:var(--border-hover); color:var(--text-secondary); min-width:200px;"
-                           onmouseover="this.style.borderColor='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.borderColor='var(--border-hover)'">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" /></svg>
-                        <span id="drive-label">Select a file (max 50 MB)</span>
-                        <input type="file" name="file" class="hidden"
-                               onchange="document.getElementById('drive-label').textContent = this.files[0].name; document.getElementById('drive-submit').classList.remove('hidden');">
-                    </label>
-                    <button id="drive-submit" type="submit"
-                            class="hidden px-4 py-2 rounded-md text-sm font-semibold text-white"
-                            style="background:var(--brand-button,#0ea5e9);">
-                        Upload
-                    </button>
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <label class="flex-1 flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
+                               style="border-color:var(--border-hover); color:var(--text-secondary); min-width:200px;"
+                               onmouseover="this.style.borderColor='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.borderColor='var(--border-hover)'">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" /></svg>
+                            <span id="drive-label">Select a file (max 50 MB)</span>
+                            <input type="file" name="file" class="hidden"
+                                   onchange="document.getElementById('drive-label').textContent = this.files[0].name; document.getElementById('drive-submit').classList.remove('hidden');">
+                        </label>
+                        <button id="drive-submit" type="submit"
+                                class="hidden px-4 py-2 rounded-md text-sm font-semibold text-white"
+                                style="background:var(--brand-button,#0ea5e9);">
+                            Upload
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <select name="document_type_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+                            <option value="">Document Type (optional)</option>
+                            @foreach($documentTypes as $dt)
+                            <option value="{{ $dt->id }}">{{ $dt->label }}</option>
+                            @endforeach
+                        </select>
+                        <select name="contact_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+                            <option value="">Link to Contact (optional)</option>
+                            @foreach($property->contacts as $c)
+                            <option value="{{ $c->id }}">{{ $c->name }}{{ $c->type ? ' ('.$c->type->name.')' : '' }}</option>
+                            @endforeach
+                        </select>
+                    </div>
                 </form>
             </div>
 
-            {{-- Files list --}}
+            {{-- Grouped files list --}}
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">
-                    Files ({{ $property->files->count() }})
+                    Files ({{ $allDriveDocs->count() }})
                 </h3>
-                @forelse($property->files as $file)
-                <div class="flex items-center gap-4 p-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);">
-                    {{-- File icon --}}
-                    @php
-                    $mime = $file->mime_type ?? '';
-                    $icon = str_contains($mime,'pdf') ? '#ef4444' : (str_contains($mime,'image') ? '#0ea5e9' : '#94a3b8');
-                    @endphp
-                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
-                         style="background:{{ $icon }}22;">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="{{ $icon }}" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+
+                @if($allDriveDocs->isNotEmpty())
+                @php
+                    // Group: contact-linked vs property-only using Document model's contacts pivot
+                    $contactDocs = collect();
+                    $propertyOnlyDocs = collect();
+                    foreach ($allDriveDocs as $driveDoc) {
+                        $grouping = $driveDoc->documentType->grouping ?? 'shared';
+                        $firstContact = $driveDoc->contacts->first();
+                        if ($firstContact && in_array($grouping, ['contact', 'shared'])) {
+                            $contactDocs->push($driveDoc);
+                        } else {
+                            $propertyOnlyDocs->push($driveDoc);
+                        }
+                    }
+                    $byContact = $contactDocs->groupBy(fn($d) => $d->contacts->first()?->id);
+                @endphp
+
+                {{-- Contact groups --}}
+                @foreach($byContact as $contactId => $docs)
+                @php $linkedContact = $docs->first()->contacts->first(); @endphp
+                <div class="mb-3" style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                    <div class="px-4 py-2.5 flex items-center gap-2" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 opacity-50"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                        <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $linkedContact?->name ?? ($linkedContact?->first_name ? $linkedContact->first_name.' '.$linkedContact->last_name : 'Unknown Contact') }}</span>
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium truncate" style="color:var(--text-primary);">{{ $file->name }}</div>
-                        <div class="text-xs mt-0.5" style="color:var(--text-muted);">
-                            {{ $file->formattedSize() }} · {{ $file->user?->name ?? 'Unknown' }} · {{ $file->created_at->format('d M Y') }}
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2 flex-shrink-0">
-                        <a href="{{ $file->url() }}" target="_blank"
-                           class="text-xs font-semibold no-underline px-3 py-1.5 rounded-md transition-colors"
-                           style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);"
-                           onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent)'">
-                            Download
-                        </a>
-                        @if(auth()->id() === $file->user_id || in_array(auth()->user()->effectiveRole(), ['super_admin', 'admin']))
-                        <form method="POST" action="{{ route('corex.properties.files.destroy', [$property, $file]) }}"
-                              onsubmit="return confirm('Delete this file?')">
-                            @csrf @method('DELETE')
-                            <button type="submit" class="text-xs font-semibold text-red-500 hover:text-red-600 px-3 py-1.5 rounded-md hover:bg-red-500/10 transition-colors">Delete</button>
-                        </form>
-                        @endif
-                    </div>
+                    @foreach($docs as $doc)
+                    @include('corex.properties._drive-row', ['doc' => $doc, 'property' => $property, 'documentTypes' => $documentTypes])
+                    @endforeach
                 </div>
-                @empty
+                @endforeach
+
+                {{-- Property Documents group --}}
+                @if($propertyOnlyDocs->isNotEmpty())
+                <div class="mb-3" style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                    <div class="px-4 py-2.5" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <span class="text-xs font-semibold" style="color:var(--text-muted);">Property Documents</span>
+                    </div>
+                    @foreach($propertyOnlyDocs as $doc)
+                    @include('corex.properties._drive-row', ['doc' => $doc, 'property' => $property, 'documentTypes' => $documentTypes])
+                    @endforeach
+                </div>
+                @endif
+
+                @else
                 <div class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
                     <div class="text-sm" style="color:var(--text-secondary);">No files uploaded yet.</div>
                 </div>
-                @endforelse
+                @endif
             </div>
         @endif {{-- /!$isNew drive --}}
         </div>

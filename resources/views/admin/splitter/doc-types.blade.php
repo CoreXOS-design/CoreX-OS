@@ -2,20 +2,34 @@
 
 @section('corex-content')
 
+@php $isSettings = ($context ?? 'splitter') === 'settings'; @endphp
+
 <div class="mb-6">
     <div class="flex items-center justify-between">
         <div>
-            <h1 class="text-2xl font-bold text-gray-800">Splitter Document Types</h1>
-            <p class="text-sm text-gray-500 mt-1">Manage the label types used in the PDF Pack Splitter review page.</p>
+            <h1 class="text-2xl font-bold text-gray-800">Document Types</h1>
+            <p class="text-sm text-gray-500 mt-1">{{ $isSettings ? 'Manage document categories used across CoreX' : 'Manage the label types used in the PDF Pack Splitter review page.' }}</p>
         </div>
+        @if($isSettings)
+        <a href="{{ route('corex.settings') }}"
+           class="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs font-medium rounded hover:bg-gray-300">
+            &larr; Back to Settings
+        </a>
+        @else
         <a href="{{ route('tools.pdf_splitter.index') }}"
            class="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs font-medium rounded hover:bg-gray-300">
             Back to Splitter
         </a>
+        @endif
     </div>
 </div>
 
 {{-- Flash messages handled by global toast system --}}
+
+@php
+    $storeRoute = $isSettings ? route('admin.settings.document-types.store') : route('admin.splitter.doc-types.store');
+    $bulkSaveRoute = $isSettings ? route('admin.settings.document-types.bulk-save') : route('admin.splitter.doc-types.bulk-save');
+@endphp
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -23,7 +37,7 @@
     <div class="lg:col-span-1">
         <div class="bg-white rounded-xl shadow p-4">
             <h2 class="text-sm font-semibold text-gray-700 mb-3">Add New Type</h2>
-            <form method="POST" action="{{ route('admin.splitter.doc-types.store') }}" class="space-y-2">
+            <form method="POST" action="{{ $storeRoute }}" class="space-y-2">
                 @csrf
                 <div>
                     <label class="block text-xs text-gray-500 mb-1">Label</label>
@@ -44,7 +58,7 @@
 
     {{-- RIGHT: Existing Types --}}
     <div class="lg:col-span-2">
-        <form method="POST" action="{{ route('admin.splitter.doc-types.bulk-save') }}" id="bulkForm">
+        <form method="POST" action="{{ $bulkSaveRoute }}" id="bulkForm">
             @csrf
 
             <div class="mb-3 flex items-center justify-between">
@@ -92,13 +106,8 @@
                                         </select>
                                     </td>
                                     <td class="px-3 py-2 text-right">
-                                        <form method="POST" action="{{ route('admin.splitter.doc-types.destroy', $t) }}"
-                                              onsubmit="return confirm('Delete \'{{ $t->label }}\'?')" class="inline">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="text-red-400 hover:text-red-600 text-xs font-medium"
-                                                    title="Delete">&times;</button>
-                                        </form>
+                                        <button type="button" onclick="deleteDocType('{{ route('admin.splitter.doc-types.destroy', $t) }}', '{{ addslashes($t->label) }}')"
+                                                class="text-red-400 hover:text-red-600 text-xs font-medium" title="Delete">&times;</button>
                                     </td>
                                 </tr>
                             @endforeach
@@ -109,5 +118,20 @@
         </form>
     </div>
 </div>
+
+{{-- Hidden delete form (outside bulkForm to avoid nested form conflict) --}}
+<form id="deleteDocTypeForm" method="POST" action="" style="display:none;">
+    @csrf
+    @method('DELETE')
+</form>
+
+<script>
+function deleteDocType(url, label) {
+    if (!confirm('Delete \'' + label + '\'?')) return;
+    var form = document.getElementById('deleteDocTypeForm');
+    form.action = url;
+    form.submit();
+}
+</script>
 
 @endsection

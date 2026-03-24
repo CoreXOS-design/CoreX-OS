@@ -9,16 +9,28 @@ class DocumentType extends Model
 {
     use SoftDeletes;
 
-    protected $table = 'docuperfect_document_types';
+    protected $table = 'document_types';
 
     protected $fillable = [
-        'name',
+        'slug',
+        'label',
         'sort_order',
+        'is_active',
+        'grouping',
     ];
 
     protected $casts = [
         'sort_order' => 'integer',
+        'is_active'  => 'boolean',
     ];
+
+    /**
+     * Backward-compat accessor: views referencing $dt->name get the label.
+     */
+    public function getNameAttribute(): string
+    {
+        return $this->label;
+    }
 
     public function templates()
     {

@@ -13,6 +13,7 @@ class ContactDocument extends Model
     protected $fillable = [
         'contact_id', 'uploaded_by_user_id',
         'original_name', 'storage_path', 'mime_type', 'size',
+        'document_type_id', 'property_id', 'source_type',
     ];
 
     protected $casts = ['size' => 'integer'];
@@ -25,6 +26,16 @@ class ContactDocument extends Model
     public function uploadedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploaded_by_user_id');
+    }
+
+    public function documentType(): BelongsTo
+    {
+        return $this->belongsTo(DocumentType::class);
+    }
+
+    public function property(): BelongsTo
+    {
+        return $this->belongsTo(Property::class);
     }
 
     public function getHumanSizeAttribute(): string

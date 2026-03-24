@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\ContactMatch;
+use App\Models\DocumentType;
 use App\Models\Property;
 use App\Models\PropertyAdTemplate;
 use App\Models\PropertySettingItem;
@@ -108,7 +109,7 @@ class PropertyController extends Controller
     public function show(Property $property)
     {
         $this->authorizeProperty($property);
-        $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type']);
+        $property->load(['agent', 'branch', 'notes.user', 'files.user', 'documents.uploader', 'documents.documentType', 'documents.contacts', 'contacts.type']);
 
         $settingItems = [
             'categories'   => PropertySettingItem::group('category')->get(),
@@ -150,8 +151,13 @@ class PropertyController extends Controller
             })
             ->values();
 
+        $documentTypes = DocumentType::active()->ordered()->get();
+
+        // Property drive uses unified documents table
+        $allDriveDocs = $property->documents;
+
         return view('corex.properties.show', compact(
-            'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches'
+            'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'documentTypes', 'allDriveDocs'
         ));
     }
 
@@ -278,13 +284,16 @@ class PropertyController extends Controller
         if ($request->hasFile('drive_files')) {
             foreach ($request->file('drive_files') as $file) {
                 $path = $file->store("properties/{$property->id}/files", 'public');
-                $property->files()->create([
-                    'user_id'   => auth()->id(),
-                    'name'      => $file->getClientOriginalName(),
-                    'path'      => $path,
-                    'size'      => $file->getSize(),
-                    'mime_type' => $file->getMimeType(),
+                $doc = \App\Models\Document::create([
+                    'original_name'  => $file->getClientOriginalName(),
+                    'storage_path'   => $path,
+                    'disk'           => 'public',
+                    'mime_type'      => $file->getMimeType(),
+                    'size'           => $file->getSize(),
+                    'source_type'    => 'upload',
+                    'uploaded_by'    => auth()->id(),
                 ]);
+                $doc->properties()->attach($property->id);
             }
         }
 

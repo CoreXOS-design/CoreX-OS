@@ -14,6 +14,12 @@
                 <option value="active" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="archived" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
             </select>
+            <select name="category" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All categories</option>
+                <option value="sales" {{ request('category') === 'sales' ? 'selected' : '' }}>Sales</option>
+                <option value="rentals" {{ request('category') === 'rentals' ? 'selected' : '' }}>Rentals</option>
+                <option value="none" {{ request('category') === 'none' ? 'selected' : '' }}>Uncategorized</option>
+            </select>
             <select name="type" onchange="this.form.submit()" class="list-header-filter">
                 <option value="">All types</option>
                 <option value="sales" {{ request('type') === 'sales' ? 'selected' : '' }}>Sales</option>
@@ -53,7 +59,7 @@
     @if($templates->isEmpty())
         <div class="rounded-md p-6 text-center mt-4" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="text-sm" style="color: var(--text-muted);">
-                @if(request('search') || request('document_type') || request('visibility'))
+                @if(request('search') || request('document_type') || request('visibility') || request('category'))
                     No templates match your search.
                 @elseif($showArchived)
                     No archived templates.
@@ -92,11 +98,16 @@
                      onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border)'">
                     <div class="flex items-start justify-between mb-1">
                         <div class="font-semibold text-sm leading-tight" style="color: var(--text-primary);">{{ $tpl->name }}</div>
-                        @if($tpl->documentType)
-                        <span class="ds-badge ds-badge-info text-[10px] ml-2 flex-shrink-0">{{ $tpl->documentType->name }}</span>
-                        @elseif($tpl->template_type)
-                        <span class="ds-badge ds-badge-info text-[10px] ml-2 flex-shrink-0">{{ $tpl->template_type }}</span>
-                        @endif
+                        <div class="flex items-center gap-1 ml-2 flex-shrink-0">
+                            @if($tpl->category === 'sales')
+                            <span class="ds-badge text-[10px]" style="background: rgba(249,115,22,0.15); color: #ea580c;">Sales</span>
+                            @elseif($tpl->category === 'rentals')
+                            <span class="ds-badge text-[10px]" style="background: rgba(59,130,246,0.15); color: #2563eb;">Rentals</span>
+                            @endif
+                            @if($tpl->documentType)
+                            <span class="ds-badge text-[10px]" style="background: rgba(107,114,128,0.15); color: #6b7280;">{{ $tpl->documentType->name }}</span>
+                            @endif
+                        </div>
                     </div>
                     <div class="text-xs mb-1 flex flex-wrap items-center gap-1" style="color: var(--text-muted);">
                         @if($tpl->is_global)
@@ -197,11 +208,18 @@
                                     @endif
                                 </td>
                                 <td class="px-4 py-2">
-                                    @if($tpl->documentType)
-                                    <span class="ds-badge ds-badge-info text-[10px]">{{ $tpl->documentType->name }}</span>
-                                    @elseif($tpl->template_type)
-                                    <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->template_type }}</span>
-                                    @endif
+                                    <div class="flex items-center gap-1 flex-wrap">
+                                        @if($tpl->category === 'sales')
+                                        <span class="ds-badge text-[10px]" style="background: rgba(249,115,22,0.15); color: #ea580c;">Sales</span>
+                                        @elseif($tpl->category === 'rentals')
+                                        <span class="ds-badge text-[10px]" style="background: rgba(59,130,246,0.15); color: #2563eb;">Rentals</span>
+                                        @endif
+                                        @if($tpl->documentType)
+                                        <span class="ds-badge text-[10px]" style="background: rgba(107,114,128,0.15); color: #6b7280;">{{ $tpl->documentType->name }}</span>
+                                        @elseif($tpl->template_type)
+                                        <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->template_type }}</span>
+                                        @endif
+                                    </div>
                                 </td>
                                 <td class="px-4 py-2 text-xs" style="color: var(--text-secondary);">
                                     @if($tpl->is_global)

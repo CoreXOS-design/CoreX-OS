@@ -1651,7 +1651,10 @@ class SignatureService
         // 4. Link document to contacts via pivot (for FICA tracking / compliance)
         $this->linkDocumentToContacts($template, $pdfPaths);
 
-        // 5. Extract lease data if this is a lease/rental document
+        // 5. Auto-file signed document to Contact Drive and Property Drive
+        $this->autoFileSignedDocument($template, $pdfPaths);
+
+        // 6. Extract lease data if this is a lease/rental document
         if ($this->isLeaseDocument($template)) {
             $this->createLeaseRecord($template);
         }
@@ -1703,6 +1706,61 @@ class SignatureService
                     'updated_at' => now(),
                 ]);
             }
+        }
+    }
+
+    /**
+     * Auto-file signed document to Contact Drive and Property Drive.
+     * Creates ONE Document record, links to all signing contacts and property via pivots.
+     */
+    private function autoFileSignedDocument(SignatureTemplate $template, ?array $pdfPaths): void
+    {
+        if (!$pdfPaths || empty($pdfPaths['client'])) return;
+
+        $document = $template->document;
+        if (!$document) return;
+
+        $docTemplate = $document->template;
+        $documentTypeId = $docTemplate?->document_type_id;
+        $propertyId = $document->property_id;
+        $pdfPath = $pdfPaths['client'];
+        $docName = ($document->name ?? 'Signed Document') . ' (Signed).pdf';
+
+        // Avoid duplicate filings
+        $existing = \App\Models\Document::where('storage_path', $pdfPath)
+            ->where('source_type', 'esign')
+            ->first();
+
+        if ($existing) return;
+
+        // Create ONE unified document record
+        $filedDoc = \App\Models\Document::create([
+            'original_name'    => $docName,
+            'storage_path'     => $pdfPath,
+            'disk'             => 'local',
+            'mime_type'        => 'application/pdf',
+            'size'             => 0,
+            'document_type_id' => $documentTypeId,
+            'source_type'      => 'esign',
+            'source_id'        => $template->id,
+            'uploaded_by'      => $template->created_by,
+        ]);
+
+        // Link to all signing contacts via pivot (with party_role)
+        foreach ($template->requests as $request) {
+            if (!$request->signer_email || $request->party_role === 'agent') continue;
+
+            $contact = \App\Models\Contact::where('email', $request->signer_email)->first();
+            if (!$contact) continue;
+
+            $filedDoc->contacts()->syncWithoutDetaching([
+                $contact->id => ['party_role' => $request->party_role],
+            ]);
+        }
+
+        // Link to property via pivot
+        if ($propertyId) {
+            $filedDoc->properties()->syncWithoutDetaching([$propertyId]);
         }
     }
 

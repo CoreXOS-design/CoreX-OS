@@ -634,71 +634,6 @@
             {{-- DOCUMENTS section --}}
             <div x-show="featureSection === 'documents'" class="space-y-6">
 
-                {{-- Document Types --}}
-                <div>
-                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Document Types</h3>
-                    <div class="p-4 rounded-md mb-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Document Type</div>
-                        <form method="POST" action="{{ route('docuperfect.settings.types.store') }}"
-                              class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                            @csrf
-                            <div class="md:col-span-7">
-                                <input name="name" required placeholder="e.g. Mandates"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div class="md:col-span-3">
-                                <input name="sort_order" type="number" step="1" min="0" placeholder="Sort order"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div class="md:col-span-2">
-                                <button class="w-full corex-btn-primary text-sm">Add</button>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                        <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
-                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Current Types</div>
-                            <div class="text-xs" style="color:var(--text-muted);">{{ count($docTypes) }} total</div>
-                        </div>
-                        @forelse($docTypes as $type)
-                        <div class="p-4" style="border-bottom:1px solid var(--border);">
-                            <form method="POST" action="{{ route('docuperfect.settings.types.update', $type->id) }}"
-                                  class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                                @csrf @method('PUT')
-                                <div class="md:col-span-7">
-                                    <input name="name" value="{{ $type->name }}" required
-                                           class="w-full rounded-md px-3 py-2 text-sm"
-                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                </div>
-                                <div class="md:col-span-3">
-                                    <input name="sort_order" type="number" step="1" min="0" value="{{ (int)$type->sort_order }}"
-                                           class="w-full rounded-md px-3 py-2 text-sm"
-                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                </div>
-                                <div class="md:col-span-2">
-                                    <button class="w-full corex-btn-primary text-sm">Save</button>
-                                </div>
-                            </form>
-                            <div class="flex items-center gap-4 mt-2">
-                                <span class="text-xs" style="color:var(--text-muted);">{{ $type->templates()->count() }} template{{ $type->templates()->count() !== 1 ? 's' : '' }}</span>
-                                <form method="POST" action="{{ route('docuperfect.settings.types.destroy', $type->id) }}"
-                                      onsubmit="return confirm('Delete this document type?');">
-                                    @csrf @method('DELETE')
-                                    <button class="text-xs font-semibold text-red-600 hover:text-red-700"
-                                            {{ $type->templates()->count() > 0 ? 'disabled title=Cannot delete — templates assigned' : '' }}>
-                                        Delete
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                        @empty
-                        <div class="p-5 text-sm" style="color:var(--text-muted);">No document types yet.</div>
-                        @endforelse
-                    </div>
-                </div>
-
                 {{-- Named Fields --}}
                 <div>
                     <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Named Fields</h3>
@@ -1716,7 +1651,7 @@
                     </div>
                 </div>
 
-                {{-- P24 Suburbs + quick links --}}
+                {{-- P24 Suburbs + Document Types --}}
                 <div class="space-y-2">
                     <a href="{{ route('admin.p24-suburbs.index') }}"
                        class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
@@ -1727,6 +1662,19 @@
                         <div class="flex-1">
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">P24 Suburbs</div>
                             <div class="text-xs" style="color:var(--text-secondary);">Manage Property24 suburb mappings</div>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                    </a>
+
+                    <a href="{{ route('admin.settings.document-types.index') }}"
+                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-white/5"
+                       style="border:1px solid var(--border);">
+                        <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background:rgba(0,180,216,0.12);">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00b4d8" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Document Types</div>
+                            <div class="text-xs" style="color:var(--text-secondary);">Manage document categories for filing and compliance</div>
                         </div>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
                     </a>

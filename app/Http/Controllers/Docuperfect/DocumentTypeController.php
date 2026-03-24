@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Docuperfect;
 use App\Http\Controllers\Controller;
 use App\Models\Docuperfect\DocumentType;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class DocumentTypeController extends Controller
 {
@@ -15,7 +16,7 @@ class DocumentTypeController extends Controller
             abort(403);
         }
 
-        $types = DocumentType::orderBy('sort_order')->orderBy('name')->get();
+        $types = DocumentType::orderBy('sort_order')->orderBy('label')->get();
 
         return view('docuperfect.settings.types', compact('types'));
     }
@@ -32,12 +33,17 @@ class DocumentTypeController extends Controller
             'sort_order' => 'nullable|integer|min:0',
         ]);
 
+        $label = $request->input('name');
+        $slug = Str::slug($label, '_');
+
         DocumentType::create([
-            'name' => $request->input('name'),
+            'label' => $label,
+            'slug' => $slug,
             'sort_order' => $request->input('sort_order') ?? ((int) DocumentType::max('sort_order') + 10),
+            'is_active' => true,
         ]);
 
-        return back()->with('status', "Document type \"{$request->input('name')}\" created.");
+        return back()->with('status', "Document type \"{$label}\" created.");
     }
 
     public function update(Request $request, $id)
@@ -55,7 +61,7 @@ class DocumentTypeController extends Controller
         ]);
 
         $type->update([
-            'name' => $request->input('name'),
+            'label' => $request->input('name'),
             'sort_order' => $request->input('sort_order', 0),
         ]);
 
@@ -90,7 +96,7 @@ class DocumentTypeController extends Controller
 
         $request->validate([
             'order' => 'required|array',
-            'order.*' => 'integer|exists:docuperfect_document_types,id',
+            'order.*' => 'integer|exists:document_types,id',
         ]);
 
         foreach ($request->input('order') as $index => $id) {

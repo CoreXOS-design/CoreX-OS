@@ -1462,11 +1462,15 @@ class ESignWizardController extends Controller
         if ($template->document_type_id) {
             $template->loadMissing('documentType');
             $dtName = $template->documentType->name ?? '';
-            // Map DocuPerfect DocumentType names to RentalDocumentType slugs
+            // Map unified DocumentType labels to RentalDocumentType slugs
             $dtNameMap = [
-                'Mandates' => 'mandate', 'OTPs' => 'other', 'Addendums' => 'addendum',
-                'Condition Reports' => 'inspection_report', 'FICA' => 'disclosure',
-                'Rental Agreements' => 'lease_agreement', 'Other' => 'other',
+                'Mandate' => 'mandate', 'Mandates' => 'mandate',
+                'Offer to Purchase' => 'other', 'OTPs' => 'other',
+                'Addendum' => 'addendum', 'Addendums' => 'addendum',
+                'Condition Report' => 'inspection_report', 'Condition Reports' => 'inspection_report',
+                'FICA' => 'disclosure',
+                'Rental Agreement' => 'lease_agreement', 'Rental Agreements' => 'lease_agreement',
+                'Other' => 'other',
             ];
             $resolvedDocType = $dtNameMap[$dtName] ?? strtolower(str_replace(' ', '_', $dtName));
         }

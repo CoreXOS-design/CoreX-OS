@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactTag;
 use App\Models\ContactType;
+use App\Models\DocumentType;
 use App\Models\PropertySettingItem;
 use App\Models\User;
 use App\Services\PermissionService;
@@ -82,13 +83,28 @@ class ContactController extends Controller
 
     public function show(Contact $contact)
     {
-        $contact->load(['type', 'createdBy', 'contactNotes.user', 'documents.uploadedBy', 'properties', 'matches.createdBy', 'tags']);
+        $contact->load(['type', 'createdBy', 'contactNotes.user', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
         $contactTypes     = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $matchCategories  = PropertySettingItem::group('category')->get();
         $matchTypes       = PropertySettingItem::group('property_type')->where('active', true)->get();
+        $documentTypes    = DocumentType::active()->ordered()->get();
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes'));
+        // Group documents by property for the Drive tab
+        $allDocs = $contact->documents;
+        $driveLinkedGroups = [];
+        $driveUnlinkedDocs = collect();
+        foreach ($allDocs as $doc) {
+            $propId = $doc->properties->first()?->id;
+            if ($propId) {
+                $driveLinkedGroups[$propId][] = $doc;
+            } else {
+                $driveUnlinkedDocs->push($doc);
+            }
+        }
+        $drivePropertyMap = $contact->properties->keyBy('id');
+
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap'));
     }
 
     public function checkDuplicate(Request $request)

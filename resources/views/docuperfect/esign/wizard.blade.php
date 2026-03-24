@@ -97,6 +97,25 @@
 
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Select Template</h3>
 
+                {{-- Category filter buttons --}}
+                <div class="flex items-center gap-2 mb-3">
+                    <button @click="categoryFilter = 'all'"
+                            class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150"
+                            :class="categoryFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
+                        All
+                    </button>
+                    <button @click="categoryFilter = 'sales'"
+                            class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150"
+                            :class="categoryFilter === 'sales' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
+                        Sales
+                    </button>
+                    <button @click="categoryFilter = 'rentals'"
+                            class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150"
+                            :class="categoryFilter === 'rentals' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
+                        Rentals
+                    </button>
+                </div>
+
                 <input type="text" x-model="templateSearch" placeholder="Search templates..."
                        class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm mb-4" />
 
@@ -120,10 +139,13 @@
                                         :class="selectedTemplateId === t.id
                                             ? 'border-blue-500 bg-blue-50'
                                             : 'border-gray-200 hover:border-gray-300 bg-white'">
-                                    <div class="font-medium text-gray-900 text-sm flex items-center">
+                                    <div class="font-medium text-gray-900 text-sm flex items-center flex-wrap gap-1">
                                         <span x-text="t.name"></span>
-                                        <span x-show="t.render_type === 'web'" class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 ml-2">Web</span>
-                                        <span x-show="!t.render_type || t.render_type === 'pdf'" class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 ml-2">PDF</span>
+                                        <span x-show="t.render_type === 'web'" class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-600">Web</span>
+                                        <span x-show="!t.render_type || t.render_type === 'pdf'" class="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">PDF</span>
+                                        <span x-show="t.category === 'sales'" class="text-[10px] px-1.5 py-0.5 rounded font-medium" style="background: rgba(249,115,22,0.15); color: #ea580c;">Sales</span>
+                                        <span x-show="t.category === 'rentals'" class="text-[10px] px-1.5 py-0.5 rounded font-medium" style="background: rgba(59,130,246,0.15); color: #2563eb;">Rentals</span>
+                                        <span x-show="t.document_type?.label || t.document_type?.name" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium" x-text="t.document_type?.label || t.document_type?.name"></span>
                                     </div>
                                     <div class="text-xs text-gray-500 mt-0.5">
                                         <span x-text="t.page_count + ' page' + (t.page_count !== 1 ? 's' : '')"></span>
@@ -1194,7 +1216,7 @@ function esignWizard() {
     });
 
     // Build template groups from document types
-    function buildTemplateGroups(templates, search) {
+    function buildTemplateGroups(templates, search, categoryFilter) {
         const types = {};
         const typeLabels = {
             'rental': 'Rental',
@@ -1204,6 +1226,11 @@ function esignWizard() {
         };
 
         templates.forEach(t => {
+            // Apply category filter (client-side, no server round-trip)
+            if (categoryFilter && categoryFilter !== 'all') {
+                if (t.category && t.category !== categoryFilter) return;
+            }
+
             const type = (t.template_type || t.document_type?.name || 'other').toLowerCase();
             if (!types[type]) {
                 types[type] = { type, label: typeLabels[type] || type.charAt(0).toUpperCase() + type.slice(1), templates: [], open: true };
@@ -1314,6 +1341,7 @@ function esignWizard() {
         // Step 1: Templates
         allTemplates: serverTemplates,
         templateSearch: '',
+        categoryFilter: 'all',
         selectedTemplateId: serverTemplate?.id || null,
         templateName: serverTemplate?.name || '',
         documentName: serverStepData?.document_name || '',
@@ -1640,7 +1668,7 @@ function esignWizard() {
 
         // ---- Template grouping ----
         get templateGroups() {
-            return buildTemplateGroups(this.allTemplates || [], this.templateSearch);
+            return buildTemplateGroups(this.allTemplates || [], this.templateSearch, this.categoryFilter);
         },
 
         get filteredClauses() {

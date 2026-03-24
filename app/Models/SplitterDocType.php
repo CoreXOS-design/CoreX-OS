@@ -10,7 +10,7 @@ class SplitterDocType extends Model
     use SoftDeletes;
 
 
-    protected $table = 'splitter_doc_types';
+    protected $table = 'document_types';
 
     protected $fillable = ['slug', 'label', 'sort_order', 'is_active'];
 

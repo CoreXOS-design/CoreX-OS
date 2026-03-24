@@ -115,9 +115,17 @@ class Property extends Model
         return $this->hasMany(PropertyNote::class)->latest();
     }
 
+    /** @deprecated Use documents() instead. Kept for backward compat during transition. */
     public function files(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(PropertyFile::class)->latest();
+    }
+
+    public function documents(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(Document::class, 'document_properties')
+            ->withTimestamps()
+            ->latest('documents.created_at');
     }
 
     public function contacts(): BelongsToMany

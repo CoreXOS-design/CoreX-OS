@@ -55,9 +55,18 @@ class Contact extends Model
         return $this->hasMany(ContactNote::class)->latest();
     }
 
-    public function documents(): HasMany
+    /** @deprecated Use documents() instead. Kept for backward compat during transition. */
+    public function legacyDocuments(): HasMany
     {
         return $this->hasMany(ContactDocument::class)->latest();
+    }
+
+    public function documents(): BelongsToMany
+    {
+        return $this->belongsToMany(Document::class, 'document_contacts')
+            ->withPivot('party_role')
+            ->withTimestamps()
+            ->latest('documents.created_at');
     }
 
     /**

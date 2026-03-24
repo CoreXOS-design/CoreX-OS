@@ -17,6 +17,7 @@ class Template extends Model
         'name',
         'template_type',
         'document_type_id',
+        'category',
         'page_count',
         'fields_json',
         'is_global',

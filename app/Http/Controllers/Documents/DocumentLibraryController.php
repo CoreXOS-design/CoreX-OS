@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Documents;
 
 use App\Http\Controllers\Controller;
 use App\Models\DocumentLibraryItem;
-use App\Models\DocumentType;
+use App\Models\DocumentLibraryType;
 use App\Models\Presentation;
 use App\Models\PresentationDocumentLibraryItem;
 use App\Models\User;
@@ -48,7 +48,7 @@ class DocumentLibraryController extends Controller
 
         $docTypes = DocumentLibraryItem::select('doc_type')->distinct()->orderBy('doc_type')->pluck('doc_type');
 
-        $documentTypes = DocumentType::orderBy('sort_order')->orderBy('label')->get();
+        $documentTypes = DocumentLibraryType::orderBy('sort_order')->orderBy('label')->get();
 
         // Already-attached IDs for this presentation (to show checkmarks)
         $attachedIds = [];
@@ -150,13 +150,13 @@ class DocumentLibraryController extends Controller
 
         $key = Str::slug($request->input('label'), '_');
 
-        if (DocumentType::where('key', $key)->exists()) {
+        if (DocumentLibraryType::where('key', $key)->exists()) {
             return redirect()->back()->with('error', 'A document type with that name already exists.');
         }
 
-        $maxSort = DocumentType::max('sort_order') ?? 0;
+        $maxSort = DocumentLibraryType::max('sort_order') ?? 0;
 
-        DocumentType::create([
+        DocumentLibraryType::create([
             'key'        => $key,
             'label'      => trim($request->input('label')),
             'sort_order' => $maxSort + 1,
@@ -165,7 +165,7 @@ class DocumentLibraryController extends Controller
         return redirect()->back()->with('success', 'Document type added.');
     }
 
-    public function updateType(Request $request, DocumentType $documentType)
+    public function updateType(Request $request, DocumentLibraryType $documentType)
     {
         $request->validate([
             'label' => 'required|string|max:100',
@@ -178,7 +178,7 @@ class DocumentLibraryController extends Controller
         return redirect()->back()->with('success', 'Document type updated.');
     }
 
-    public function destroyType(DocumentType $documentType)
+    public function destroyType(DocumentLibraryType $documentType)
     {
         $inUse = DocumentLibraryItem::where('doc_type', $documentType->key)->exists();
 

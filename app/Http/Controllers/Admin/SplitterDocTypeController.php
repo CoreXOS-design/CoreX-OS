@@ -12,8 +12,9 @@ class SplitterDocTypeController extends Controller
     public function index()
     {
         $types = SplitterDocType::orderBy('sort_order')->get();
+        $context = request()->routeIs('admin.settings.*') ? 'settings' : 'splitter';
 
-        return view('admin.splitter.doc-types', compact('types'));
+        return view('admin.splitter.doc-types', compact('types', 'context'));
     }
 
     public function store(Request $request)
@@ -69,7 +70,7 @@ class SplitterDocTypeController extends Controller
     {
         $request->validate([
             'types'              => 'required|array',
-            'types.*.id'         => 'required|integer|exists:splitter_doc_types,id',
+            'types.*.id'         => 'required|integer|exists:document_types,id',
             'types.*.label'      => 'required|string|max:100',
             'types.*.sort_order' => 'required|integer|min:0',
             'types.*.is_active'  => 'required',

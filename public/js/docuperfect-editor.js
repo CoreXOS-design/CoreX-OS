@@ -1806,8 +1806,11 @@
             var globEl  = document.getElementById('dpGlobal');
             var docTypeEl = document.getElementById('dpDocumentType');
 
+            var catEl   = document.getElementById('dpCategory');
+
             if (nameEl) body.name = nameEl.value;
             if (typeEl) body.template_type = typeEl.value;
+            if (catEl) body.category = catEl.value || null;
             if (globEl) body.is_global = globEl.checked;
             var esignEl = document.getElementById('dpEsign');
             if (esignEl) body.is_esign = esignEl.checked;

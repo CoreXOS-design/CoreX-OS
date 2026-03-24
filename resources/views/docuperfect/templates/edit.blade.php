@@ -27,10 +27,27 @@
 
         {{-- Template metadata editor --}}
         <div class="ds-status-card p-4 space-y-3">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                     <label class="ds-label block mb-1">Template Name</label>
                     <input type="text" id="dpTemplateName" value="{{ $template->name }}" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="ds-label block mb-1">Category</label>
+                    <select id="dpCategory" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
+                        <option value="">Select category...</option>
+                        <option value="sales" {{ ($template->category ?? '') === 'sales' ? 'selected' : '' }}>Sales</option>
+                        <option value="rentals" {{ ($template->category ?? '') === 'rentals' ? 'selected' : '' }}>Rentals</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="ds-label block mb-1">Document Type</label>
+                    <select id="dpDocumentType" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
+                        <option value="">Select document type...</option>
+                        @foreach($documentTypes as $dt)
+                        <option value="{{ $dt->id }}" {{ $template->document_type_id == $dt->id ? 'selected' : '' }}>{{ $dt->name }}</option>
+                        @endforeach
+                    </select>
                 </div>
                 <div>
                     <label class="ds-label block mb-1">Type</label>
@@ -38,15 +55,6 @@
                         <option value="sales" {{ $template->template_type === 'sales' ? 'selected' : '' }}>Sales</option>
                         <option value="rental" {{ $template->template_type === 'rental' ? 'selected' : '' }}>Rental</option>
                         <option value="compliance" {{ $template->template_type === 'compliance' ? 'selected' : '' }}>Compliance</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="ds-label block mb-1">Document Type</label>
-                    <select id="dpDocumentType" class="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2 text-sm">
-                        <option value="">— None —</option>
-                        @foreach($documentTypes as $dt)
-                        <option value="{{ $dt->id }}" {{ $template->document_type_id == $dt->id ? 'selected' : '' }}>{{ $dt->name }}</option>
-                        @endforeach
                     </select>
                 </div>
                 <div>
@@ -117,6 +125,7 @@
         csrfToken: @json(csrf_token()),
         templateName: @json($template->name),
         templateType: @json($template->template_type),
+        category: @json($template->category),
         documentTypeId: @json($template->document_type_id),
         namedFields: @json($namedFields),
         systemFields: @json($systemFields ?? []),

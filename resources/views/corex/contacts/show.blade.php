@@ -682,6 +682,20 @@
                         <input x-ref="fileInput" type="file" name="file" class="hidden"
                                @change="$el.closest('form').querySelector('.file-name').textContent = $el.files[0]?.name ?? ''">
                     </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <select name="document_type_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+                            <option value="">Document Type (optional)</option>
+                            @foreach($documentTypes as $dt)
+                            <option value="{{ $dt->id }}">{{ $dt->label }}</option>
+                            @endforeach
+                        </select>
+                        <select name="property_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+                            <option value="">Link to Property (optional)</option>
+                            @foreach($contact->properties as $prop)
+                            <option value="{{ $prop->id }}">{{ trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id }}</option>
+                            @endforeach
+                        </select>
+                    </div>
                     <div class="flex items-center justify-between gap-3">
                         <span class="file-name text-xs truncate" style="color:var(--text-muted);"></span>
                         <button type="submit" class="corex-btn-primary text-sm flex-shrink-0">Upload</button>
@@ -689,47 +703,33 @@
                 </form>
             </div>
 
-            {{-- Files list --}}
+            {{-- Grouped file list --}}
             @if($contact->documents->isNotEmpty())
-            <div style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
-                <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
-                    <div class="text-sm font-semibold" style="color:var(--text-primary);">Files</div>
-                    <div class="text-xs" style="color:var(--text-muted);">{{ $contact->documents->count() }} file{{ $contact->documents->count() !== 1 ? 's' : '' }}</div>
-                </div>
-                @foreach($contact->documents as $doc)
-                <div class="px-4 py-3 flex items-center gap-3" style="border-bottom:1px solid var(--border);">
-                    {{-- File icon --}}
-                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
-                         style="background:rgba({{ $doc->isImage() ? '99,102,241' : '0,180,216' }},0.12);">
-                        @if($doc->isImage())
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#818cf8" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>
-                        @else
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                        @endif
+                <div class="text-xs" style="color:var(--text-muted);">{{ $contact->documents->count() }} file{{ $contact->documents->count() !== 1 ? 's' : '' }}</div>
+
+                @foreach($driveLinkedGroups as $propId => $docs)
+                @php $prop = $drivePropertyMap->get($propId); @endphp
+                <div style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                    <div class="px-4 py-2.5 flex items-center gap-2" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 opacity-50"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
+                        <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $prop ? (trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id) : 'Unknown Property' }}</span>
                     </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium truncate" style="color:var(--text-primary);">{{ $doc->original_name }}</div>
-                        <div class="text-xs flex gap-2 mt-0.5" style="color:var(--text-muted);">
-                            <span>{{ $doc->human_size }}</span>
-                            <span>·</span>
-                            <span>{{ $doc->created_at->format('d M Y H:i') }}</span>
-                            @if($doc->uploadedBy)
-                            <span>· by {{ $doc->uploadedBy->name }}</span>
-                            @endif
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-3 flex-shrink-0">
-                        <a href="{{ route('corex.contacts.documents.download', [$contact, $doc]) }}"
-                           class="text-xs font-semibold no-underline" style="color:var(--brand-icon, #0ea5e9);">Download</a>
-                        <form method="POST" action="{{ route('corex.contacts.documents.destroy', [$contact, $doc]) }}"
-                              onsubmit="return confirm('Delete {{ addslashes($doc->original_name) }}?');">
-                            @csrf @method('DELETE')
-                            <button type="submit" class="text-xs font-semibold text-red-600 hover:text-red-700">Delete</button>
-                        </form>
-                    </div>
+                    @foreach($docs as $doc)
+                    @include('corex.contacts._drive-row', ['doc' => $doc, 'contact' => $contact, 'documentTypes' => $documentTypes])
+                    @endforeach
                 </div>
                 @endforeach
-            </div>
+
+                @if($driveUnlinkedDocs->isNotEmpty())
+                <div style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                    <div class="px-4 py-2.5" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <span class="text-xs font-semibold" style="color:var(--text-muted);">Not Property-Linked</span>
+                    </div>
+                    @foreach($driveUnlinkedDocs as $doc)
+                    @include('corex.contacts._drive-row', ['doc' => $doc, 'contact' => $contact, 'documentTypes' => $documentTypes])
+                    @endforeach
+                </div>
+                @endif
             @else
             <div class="py-10 text-center" style="color:var(--text-muted);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
