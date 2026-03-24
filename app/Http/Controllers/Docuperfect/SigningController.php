@@ -1033,6 +1033,20 @@ class SigningController extends Controller
             $webData['signatures'] = array_merge($existingSigs, $signatures);
         }
 
+        // Separate initials into signed_initials so review/print can restore them
+        $partyRole = $signingRequest->party_role;
+        $initials = [];
+        foreach ($signatures as $key => $value) {
+            if (str_contains($key, '-init-')) {
+                $initials[$key] = $value;
+            }
+        }
+        if (!empty($initials)) {
+            $existingInitials = $webData['signed_initials'] ?? [];
+            $existingInitials[$partyRole] = $initials;
+            $webData['signed_initials'] = $existingInitials;
+        }
+
         // Embed this signer's signatures and ceremony values into merged_html
         if (!empty($webData['merged_html']) && !empty($signatures)) {
             $sigController = app(SignatureController::class);
