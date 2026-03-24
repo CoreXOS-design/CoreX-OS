@@ -1631,7 +1631,7 @@ function externalSign() {
          * Single source of truth for both the top progress bar and bottom floating bar.
          */
         _computeWebCounts() {
-            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            const container = this.$refs.webDocContent || null;
             let total = 0;
             let incomplete = 0;
 
