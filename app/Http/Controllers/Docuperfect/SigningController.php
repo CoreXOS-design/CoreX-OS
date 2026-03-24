@@ -1839,9 +1839,14 @@ class SigningController extends Controller
     }
 }
 
-/* === PDF: basic resets (no typography — corex-document.css handles that) === */
+/* === PDF: basic resets === */
 body { margin: 0; padding: 0; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+/* === PDF: scale down to fit content (10.5pt → 9.5pt ≈ 10% reduction) === */
+.corex-document-wrapper, .corex-page, .page {
+    font-size: 9.5pt;
+}
 
 /* === PDF: screen → print container resets === */
 .corex-document-wrapper {
