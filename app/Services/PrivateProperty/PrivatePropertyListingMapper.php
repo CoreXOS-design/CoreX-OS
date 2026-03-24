@@ -322,29 +322,29 @@ class PrivatePropertyListingMapper
         }
 
         $priceType = strtolower($property->rental_price_type ?? '');
-        // PP enum values use spaces: "Per Month", "Per Sqm", etc.
+        // PP .NET enum: Monthly, PerSquareMeter, Daily, Weekly, Annually
         $map = [
-            'per month'        => 'Per Month',
-            'per_month'        => 'Per Month',
-            'monthly'          => 'Per Month',
-            'per sqm'          => 'Per Sqm',
-            'per_sqm'          => 'Per Sqm',
-            'persqm'           => 'Per Sqm',
-            'per m2'           => 'Per Sqm',
-            'per square meter' => 'Per Sqm',
-            'per day'          => 'Per Day',
-            'per_day'          => 'Per Day',
-            'daily'            => 'Per Day',
-            'per week'         => 'Per Week',
-            'per_week'         => 'Per Week',
-            'weekly'           => 'Per Week',
-            'per year'         => 'Per Year',
-            'per_year'         => 'Per Year',
-            'yearly'           => 'Per Year',
-            'annual'           => 'Per Year',
+            'per month'        => 'Monthly',
+            'per_month'        => 'Monthly',
+            'monthly'          => 'Monthly',
+            'per sqm'          => 'PerSquareMeter',
+            'per_sqm'          => 'PerSquareMeter',
+            'persqm'           => 'PerSquareMeter',
+            'per m2'           => 'PerSquareMeter',
+            'per square meter' => 'PerSquareMeter',
+            'per day'          => 'Daily',
+            'per_day'          => 'Daily',
+            'daily'            => 'Daily',
+            'per week'         => 'Weekly',
+            'per_week'         => 'Weekly',
+            'weekly'           => 'Weekly',
+            'per year'         => 'Annually',
+            'per_year'         => 'Annually',
+            'yearly'           => 'Annually',
+            'annual'           => 'Annually',
         ];
 
-        return $map[$priceType] ?? 'Per Month';
+        return $map[$priceType] ?? 'Monthly';
     }
 
     /**
