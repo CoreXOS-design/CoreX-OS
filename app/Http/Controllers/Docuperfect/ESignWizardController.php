@@ -495,19 +495,16 @@ class ESignWizardController extends Controller
 
                     // Agent is always first recipient (added by JS), so just add linked contacts
                     foreach ($prop->contacts as $contact) {
-                        // Use pivot role as-is; fall back to contact_type name, then template default
-                        $pivotRole = strtolower(trim($contact->pivot->role ?? ''));
-                        if (empty($pivotRole)) {
-                            $contactType = DB::table('contact_types')->where('id', $contact->contact_type_id)->value('name');
-                            $pivotRole = strtolower(trim($contactType ?? ''));
-                        }
-                        if (empty($pivotRole)) {
-                            $pivotRole = $defaultOwnerRole;
+                        // Role comes from the contact's contact_type (source of truth)
+                        $contactType = DB::table('contact_types')->where('id', $contact->contact_type_id)->value('name');
+                        $recipientRole = strtolower(trim($contactType ?? ''));
+                        if (empty($recipientRole)) {
+                            $recipientRole = $defaultOwnerRole;
                         }
 
                         $recipients[] = [
                             'order'       => count($recipients) + 1,
-                            'role'        => $pivotRole,
+                            'role'        => $recipientRole,
                             'name'        => $contact->first_name . ' ' . $contact->last_name,
                             'first_name'  => $contact->first_name ?? '',
                             'last_name'   => $contact->last_name ?? '',

@@ -2586,6 +2586,11 @@ function esignWizard() {
             r._searchOpen = false;
             r._searchQuery = contact.full_name;
 
+            // Set role from the contact's contact_type
+            if (contact.contact_type) {
+                r.role = contact.contact_type.toLowerCase();
+            }
+
             // Store bank details for WebTemplateDataService
             r.bank_name = contact.bank_name || '';
             r.bank_account_name = contact.bank_account_name || '';
