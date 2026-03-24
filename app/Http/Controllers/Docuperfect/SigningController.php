@@ -1845,7 +1845,7 @@ html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
 /* === PDF: scale text to fit content in fewer pages === */
 .corex-document-wrapper {
-    font-size: 90%;
+    font-size: 85%;
 }
 
 /* === PDF: screen → print container resets === */
