@@ -1831,7 +1831,7 @@ class SigningController extends Controller
 /* === PDF: page setup === */
 @page {
     size: A4;
-    margin: 12mm 8mm 12mm 8mm;
+    margin: 12mm 12mm 12mm 12mm;
     @bottom-center {
         content: "Page " counter(page) " of " counter(pages);
         font-size: 9pt;
@@ -1843,9 +1843,9 @@ class SigningController extends Controller
 body { margin: 0; padding: 0; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-/* === PDF: scale down to fit content (10.5pt → 9.5pt ≈ 10% reduction) === */
-.corex-document-wrapper, .corex-page, .page {
-    font-size: 9.5pt;
+/* === PDF: scale text to fit content in fewer pages === */
+.corex-document-wrapper {
+    font-size: 90%;
 }
 
 /* === PDF: screen → print container resets === */
