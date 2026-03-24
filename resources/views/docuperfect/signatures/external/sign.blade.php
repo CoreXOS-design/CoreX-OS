@@ -372,7 +372,7 @@
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-sm font-medium text-slate-700">Signing Progress</span>
                     <span class="text-sm text-slate-500">
-                        <span x-text="signedCount"></span> / <span x-text="totalRequired"></span> markers completed
+                        <span x-text="signedCount"></span> / <span x-text="totalRequired"></span> <span x-text="isWebTemplate ? 'items completed' : 'markers completed'"></span>
                     </span>
                 </div>
                 <div class="w-full bg-slate-200 rounded-full h-2.5">
@@ -1282,7 +1282,7 @@ function externalSign() {
         webSigCtx: null,
         webInitialElements: [],
         webInitialSigData: null,
-        webIncompleteCount: 99,
+        webIncompleteCount: 0,
         showInitialApplyAll: false,
         pendingInitialSigData: null,
         pendingInitialBlockId: null,
@@ -1401,12 +1401,8 @@ function externalSign() {
                     }
                 });
 
-                // Update counters
+                // Track sig block count (totalRequired/signedCount set by updateIncompleteCount)
                 self.webTotalSigBlocksCount = myCount;
-                if (myCount > 0) {
-                    self.totalRequired = myCount;
-                    self.signedCount = 0;
-                }
 
                 // Add the corex-signing-view class for CSS
                 const pageContainer = container.closest('.relative') || container.parentElement;
@@ -1423,8 +1419,8 @@ function externalSign() {
                 attempts++;
                 if (tryInit() || attempts > 20) {
                     clearInterval(interval);
-                    // Don't call updateIncompleteCount here — ceremony fields and initials
-                    // may not be ready yet. The delayed call after all init is complete handles it.
+                    // Recompute counts after elements are interactive — ensures top/bottom agree
+                    setTimeout(() => this.updateIncompleteCount(), 100);
                 }
             }, 200);
         },
@@ -1552,16 +1548,15 @@ function externalSign() {
                 }
             });
 
-            // Add initials to the total required count
+            // Track initial count (totalRequired/signedCount set by updateIncompleteCount)
             if (myCount > 0) {
                 this.webTotalSigBlocksCount = (this.webTotalSigBlocksCount || 0) + myCount;
-                this.totalRequired = this.webTotalSigBlocksCount;
             }
         },
 
         /**
          * Compute all incomplete items for the web template signing flow.
-         * Returns array of {el, label} for each incomplete item.
+         * Returns array of {el, label} for each incomplete item, sorted in document order.
          */
         _computeIncompleteItems() {
             const items = [];
@@ -1597,7 +1592,6 @@ function externalSign() {
             if (this.totalDisclosureRows > 0) {
                 const answered = Object.keys(this.webDisclosureAnswers).filter(k => k.startsWith('disclosure_row_')).length;
                 if (answered < this.totalDisclosureRows) {
-                    // Find first unanswered radio group
                     if (container) {
                         const allRadioGroups = container.querySelectorAll('input[type="radio"][name^="disclosure_row_"]');
                         const answeredNames = new Set();
@@ -1605,29 +1599,91 @@ function externalSign() {
                         allRadioGroups.forEach(r => {
                             if (!answeredNames.has(r.name) && !items.find(i => i.el && i.el.name === r.name)) {
                                 items.push({ el: r.closest('tr') || r, label: 'Disclosure item' });
-                                answeredNames.add(r.name); // avoid duplicates
+                                answeredNames.add(r.name);
                             }
                         });
                     }
                 }
             }
 
-            // 5. Consent checkbox
+            // 5. Consent checkbox (always last)
             if (!this.webConsented) {
                 const consentEl = document.getElementById('consent-checkbox-label');
                 items.push({ el: consentEl, label: 'Consent' });
             }
 
+            // Sort by document order so "Go to next" follows reading order, consent always last
+            items.sort((a, b) => {
+                if (a.label === 'Consent') return 1;
+                if (b.label === 'Consent') return -1;
+                if (!a.el || !b.el) return 0;
+                const pos = a.el.compareDocumentPosition(b.el);
+                if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+                if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+                return 0;
+            });
+
             return items;
         },
 
         /**
-         * Update the webIncompleteCount reactive property.
+         * Compute total and incomplete counts for all interactive items (web templates).
+         * Single source of truth for both the top progress bar and bottom floating bar.
+         */
+        _computeWebCounts() {
+            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            let total = 0;
+            let incomplete = 0;
+
+            // 1. Signature blocks (mine — marked with .web-sig-interactive)
+            if (container) {
+                container.querySelectorAll('.web-sig-interactive').forEach(el => {
+                    total++;
+                    if (el.getAttribute('data-signed') !== 'true') incomplete++;
+                });
+            }
+
+            // 2. Initial blocks (mine)
+            (this.webInitialElements || []).forEach(entry => {
+                if (entry.isMine) {
+                    total++;
+                    if (!entry.signed) incomplete++;
+                }
+            });
+
+            // 3. Ceremony fields (mine — inputs with data-ceremony-field)
+            if (container) {
+                container.querySelectorAll('input[data-ceremony-field="true"]').forEach(inp => {
+                    total++;
+                    if (!inp.value || !inp.value.trim()) incomplete++;
+                });
+            }
+
+            // 4. Disclosure rows
+            if (this.totalDisclosureRows > 0) {
+                total += this.totalDisclosureRows;
+                const answered = Object.keys(this.webDisclosureAnswers).filter(k => k.startsWith('disclosure_row_')).length;
+                incomplete += (this.totalDisclosureRows - answered);
+            }
+
+            // 5. Consent
+            total++;
+            if (!this.webConsented) incomplete++;
+
+            return { total, incomplete };
+        },
+
+        /**
+         * Update the webIncompleteCount reactive property and sync top progress bar.
+         * For web templates, this is the SINGLE source of truth for all counters.
          */
         updateIncompleteCount() {
-            const items = this._computeIncompleteItems();
-            // Don't count consent in the "items remaining" number since it's always last
-            this.webIncompleteCount = items.filter(i => i.label !== 'Consent').length + (this.webConsented ? 0 : 1);
+            if (this.isWebTemplate) {
+                const { total, incomplete } = this._computeWebCounts();
+                this.webIncompleteCount = incomplete;
+                this.totalRequired = total;
+                this.signedCount = total - incomplete;
+            }
         },
 
         /**
@@ -2831,10 +2887,8 @@ function externalSign() {
                 }
             }
 
-            // Update signed count
-            this.signedCount = Object.keys(this.webSignatures).length;
-
             this.showWebSigCapture = false;
+            // updateIncompleteCount is the single source of truth for all counters
             this.updateIncompleteCount();
 
             // For initials: offer apply-to-all prompt if there are remaining unsigned initials
@@ -2868,9 +2922,9 @@ function externalSign() {
                 entry.el.style.background = 'rgba(16,185,129,0.06)';
                 entry.el.style.cursor = 'default';
             });
-            this.signedCount = Object.keys(this.webSignatures).length;
             this.showInitialApplyAll = false;
             this.pendingInitialSigData = null;
+            // updateIncompleteCount is the single source of truth for all counters
             this.updateIncompleteCount();
             this.showNotification('Initial applied to all page breaks.', 'info');
         },
