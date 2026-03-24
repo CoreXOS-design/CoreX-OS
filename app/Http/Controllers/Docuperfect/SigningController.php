@@ -1770,101 +1770,62 @@ class SigningController extends Controller
             exec($command . ' > /dev/null 2>&1 &');
         }
 
-        // Poll for completion by watching the log file (proven to be created by the bat)
-        // Then verify PDF exists
-        $timeout = 30;
-        $pollStart = time();
+        // Wait for bat to complete — command takes ~5s from CLI
+        sleep(8);
+
+        // Try to find the PDF
+        clearstatcache();
         $pdfReady = false;
+        $normalizedOutput = str_replace('/', DIRECTORY_SEPARATOR, $pdfPath);
 
-        // Normalise pdfPath to native separators for consistent file checks
-        $pdfPathNative = str_replace('/', DIRECTORY_SEPARATOR, $pdfPath);
+        if (file_exists($normalizedOutput) && filesize($normalizedOutput) > 0) {
+            $pdfPath = $normalizedOutput;
+            $pdfReady = true;
+        }
 
-        while ((time() - $pollStart) < $timeout) {
+        if (!$pdfReady) {
+            // Second attempt after extra wait
+            sleep(5);
             clearstatcache();
-
-            // Strategy 1: Check log file — bat writes stdout here on completion
-            if (file_exists($logPath) && filesize($logPath) > 0) {
-                $logContent = file_get_contents($logPath);
-                Log::info('PDF bat completed', ['log' => $logContent]);
-
-                if (str_contains($logContent, '"success":true')) {
-                    // Give filesystem a moment to flush
-                    usleep(500000);
-                    clearstatcache();
-
-                    if (file_exists($pdfPathNative) && filesize($pdfPathNative) > 0) {
-                        $pdfReady = true;
-                        break;
-                    }
-
-                    // Try the original path format too
-                    if (file_exists($pdfPath) && filesize($pdfPath) > 0) {
-                        $pdfPathNative = $pdfPath;
-                        $pdfReady = true;
-                        break;
-                    }
-
-                    // Wait one more second and retry
-                    usleep(1000000);
-                    clearstatcache();
-                    if (file_exists($pdfPathNative) && filesize($pdfPathNative) > 0) {
-                        $pdfReady = true;
-                        break;
-                    }
-
-                    // Log says success but no PDF — report and break
-                    Log::error('PDF log says success but file not found', [
-                        'pdfPath' => $pdfPath,
-                        'pdfPathNative' => $pdfPathNative,
-                        'dir_listing' => glob($tempDir . DIRECTORY_SEPARATOR . 'doc_' . $documentId . '_*'),
-                    ]);
-                    break;
-                }
-
-                // Log exists but no success marker — process errored
-                Log::error('PDF bat completed with error', ['log' => $logContent]);
-                break;
+            if (file_exists($normalizedOutput) && filesize($normalizedOutput) > 0) {
+                $pdfPath = $normalizedOutput;
+                $pdfReady = true;
             }
+        }
 
-            // Strategy 2: Direct PDF file check (in case log isn't written)
-            if (file_exists($pdfPathNative) && filesize($pdfPathNative) > 0) {
-                $handle = fopen($pdfPathNative, 'rb');
-                if ($handle) {
-                    $header = fread($handle, 4);
-                    fclose($handle);
-                    if ($header === '%PDF') {
-                        usleep(500000);
-                        $pdfReady = true;
-                        break;
-                    }
-                }
+        if (!$pdfReady) {
+            // Last resort — scan the directory
+            $pattern = dirname($normalizedOutput) . DIRECTORY_SEPARATOR . 'doc_' . $documentId . '_*.pdf';
+            $found = glob($pattern);
+            if (!empty($found)) {
+                $pdfPath = $found[0];
+                $pdfReady = true;
+                Log::info('PDF found via glob', ['path' => $pdfPath]);
             }
-
-            usleep(500000); // 500ms between polls
         }
 
         // Clean up temp files
         @unlink($htmlPath);
-        @unlink($logPath);
+        @unlink($logPath ?? '');
+        @unlink($batPath ?? '');
 
         if (!$pdfReady) {
-            Log::error('PDF generation timed out or failed', [
+            Log::error('PDF not found after generation', [
                 'doc_id' => $documentId,
-                'seconds' => time() - $startTime,
-                'pdf_path' => $pdfPathNative,
-                'pdf_exists' => file_exists($pdfPathNative),
-                'log_exists' => file_exists($logPath),
+                'expected' => $normalizedOutput,
+                'glob_results' => glob(dirname($normalizedOutput) . DIRECTORY_SEPARATOR . 'doc_*'),
             ]);
-            throw new \RuntimeException('PDF generation failed');
+            throw new \RuntimeException('PDF generation failed — file not found');
         }
 
         Log::info('PDF generation complete', [
             'doc_id' => $documentId,
             'seconds' => time() - $startTime,
-            'pdf_size' => filesize($pdfPathNative),
+            'path' => $pdfPath,
+            'size' => filesize($pdfPath),
         ]);
 
-        return $pdfPathNative;
+        return $pdfPath;
     }
 
     /**
