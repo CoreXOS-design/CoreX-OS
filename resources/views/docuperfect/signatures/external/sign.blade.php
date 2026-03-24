@@ -1430,7 +1430,7 @@ function externalSign() {
          * Adapted from agent sign.blade.php — filters to current signer's party only.
          */
         _makeCeremonyFieldsEditable() {
-            const container = this.$refs.webDocContent || this.$el.querySelector('[x-html="webTemplateHtml"]');
+            const container = this.$refs.webDocContent || null;
             if (!container) return;
 
             const ceremonyTypes = ['location', 'day', 'month', 'year', 'time', 'am_pm'];
@@ -1560,7 +1560,7 @@ function externalSign() {
          */
         _computeIncompleteItems() {
             const items = [];
-            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            const container = this.$refs.webDocContent || null;
 
             // 1. Unsigned signature elements
             if (container) {
@@ -1785,7 +1785,7 @@ function externalSign() {
 
         // ── Web template field editing ──
         initWebTemplateFields() {
-            const container = this.$el.querySelector('[x-html="webTemplateHtml"]');
+            const container = this.$refs.webDocContent || null;
             if (!container) return;
 
             // Small delay to ensure x-html has rendered
@@ -1819,7 +1819,7 @@ function externalSign() {
 
         // Collect web template field values from inputs
         collectWebFieldValues() {
-            const container = this.$el.querySelector('[x-html="webTemplateHtml"]');
+            const container = this.$refs.webDocContent || null;
             if (!container) return {};
             const values = {};
             container.querySelectorAll('input.field-editable[data-field]').forEach(input => {
@@ -2418,7 +2418,7 @@ function externalSign() {
         },
 
         processWebDisclosureChecklists() {
-            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            const container = this.$refs.webDocContent || null;
             if (!container) return;
 
             setTimeout(() => {
@@ -2460,7 +2460,7 @@ function externalSign() {
          * Signer can flag individual clauses with a concern — does NOT block signing.
          */
         _initClauseFlagging() {
-            const container = this.$refs.webDocContent || this.$el.querySelector('[x-html="webTemplateHtml"]');
+            const container = this.$refs.webDocContent || null;
             if (!container) return;
 
             const self = this;
@@ -2537,7 +2537,7 @@ function externalSign() {
          * and inject radio button inputs into each data row.
          */
         _processDisclosureTable() {
-            const container = this.$refs.webDocContent || this.$el.querySelector('[x-html="webTemplateHtml"]');
+            const container = this.$refs.webDocContent || null;
             if (!container) return;
 
             const self = this;
@@ -2888,7 +2888,7 @@ function externalSign() {
                 }
             } else {
                 // Update the signature element in the document via data-sig-id
-                const container = this.$refs.webDocContent || this.$el.querySelector('[x-html="webTemplateHtml"]');
+                const container = this.$refs.webDocContent || null;
                 if (container) {
                     const block = container.querySelector('[data-sig-id="' + sigId + '"]');
                     if (block) {
@@ -2951,7 +2951,7 @@ function externalSign() {
 
         // Collect web field values from inline inputs
         collectWebFieldValuesAll() {
-            const container = this.$el ? this.$el.querySelector('[x-html="webTemplateHtml"]') : null;
+            const container = this.$refs.webDocContent || null;
             if (!container) return {};
             const values = {};
             container.querySelectorAll('input.field-editable[data-field]').forEach(input => {
