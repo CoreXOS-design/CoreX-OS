@@ -1383,6 +1383,8 @@ class ESignWizardController extends Controller
                 $baseRole = preg_replace('/_\d+$/', '', $role);
                 $recipientsByRole[$baseRole][] = $r;
             }
+            // Always include agent from authenticated user — recipients step doesn't have an agent entry
+            $recipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
             $viewData['recipients_by_role'] = $recipientsByRole;
             $viewData['is_candidate_flow'] = $isCandidateFlow;
             if ($isCandidateFlow) {
@@ -3363,6 +3365,8 @@ class ESignWizardController extends Controller
                 $baseRole = preg_replace('/_\d+$/', '', $role);
                 $recipientsByRole[$baseRole][] = $r;
             }
+            // Always include agent from authenticated user — recipients step doesn't have an agent entry
+            $recipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
             $viewData['recipients_by_role'] = $recipientsByRole;
 
             $fullHtml = view($template->blade_view, $viewData)->render();
@@ -3525,6 +3529,8 @@ class ESignWizardController extends Controller
                 $baseRole = preg_replace('/_\d+$/', '', $role);
                 $recipientsByRole[$baseRole][] = $r;
             }
+            // Always include agent from authenticated user — recipients step doesn't have an agent entry
+            $recipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
             $viewData['recipients_by_role'] = $recipientsByRole;
 
             $fullHtml = view($template->blade_view, $viewData)->render();

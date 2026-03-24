@@ -922,21 +922,57 @@
         <div class="space-y-4">
 
             {{-- Step 1: Download --}}
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6" x-data="{ dlLoading: false, dlError: false, dlDone: false }">
                 <h2 class="text-lg font-semibold text-slate-800 mb-2">Step 1: Download the Document</h2>
                 <p class="text-sm text-slate-500 mb-4">
-                    Download the document, print it, and sign in all marked positions by hand.
+                    Download and print the document. Sign in all marked positions by hand.
                 </p>
-                <a href="{{ route('signatures.external.print', $token) }}"
-                   target="_blank"
+                <a href="{{ route('signing.download-pdf', $token) }}"
+                   x-show="!dlLoading"
+                   @click.prevent="dlLoading = true; dlError = false;
+                       fetch($el.href).then(r => {
+                           if (!r.ok) throw new Error();
+                           return r.blob();
+                       }).then(blob => {
+                           const url = URL.createObjectURL(blob);
+                           const a = document.createElement('a');
+                           a.href = url;
+                           a.download = '{{ preg_replace('/[^A-Za-z0-9_\-]/', '_', $document->name ?? 'Document') }}_{{ now()->format('Y-m-d') }}.pdf';
+                           a.click();
+                           URL.revokeObjectURL(url);
+                           dlLoading = false;
+                           dlDone = true;
+                       }).catch(() => {
+                           dlLoading = false;
+                           dlError = true;
+                       })"
                    class="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-colors"
                    style="background:#0b2a4a;"
                    onmouseover="this.style.background='#163d63'" onmouseout="this.style.background='#0b2a4a'">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
-                    Open Document for Printing
+                    Download Document
                 </a>
+                <div x-show="dlLoading" class="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white opacity-75 cursor-wait"
+                     style="background:#0b2a4a;">
+                    <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    Generating PDF…
+                </div>
+                <div x-show="dlDone && !dlError" x-cloak class="mt-2 text-xs text-green-600 flex items-center gap-1">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                    Downloaded
+                </div>
+                <div x-show="dlError" x-cloak class="mt-3 rounded-lg bg-red-50 border border-red-200 p-3">
+                    <p class="text-sm text-red-700">PDF generation failed. Use the print option below as an alternative.</p>
+                    <a href="{{ route('signatures.external.print', $token) }}" target="_blank"
+                       class="inline-flex items-center gap-1 mt-2 text-sm font-medium text-red-700 underline hover:text-red-900">
+                        Open printable version
+                    </a>
+                </div>
             </div>
 
             {{-- Step 2: Upload --}}
