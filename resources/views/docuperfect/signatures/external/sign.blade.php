@@ -875,6 +875,31 @@
                 </div>
             </div>
 
+            {{-- Apply initial to all pages modal --}}
+            <div x-show="showInitialApplyAll" x-cloak x-transition.opacity
+                 class="fixed inset-0 z-[60] flex items-center justify-center"
+                 style="background:rgba(0,0,0,0.5);">
+                <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 space-y-4" @click.stop>
+                    <h3 class="text-lg font-semibold text-slate-800">Apply to All Pages?</h3>
+                    <p class="text-sm text-slate-600">
+                        Would you like to apply this initial to all
+                        <span class="font-semibold" x-text="(webInitialElements || []).filter(e => e.isMine && !e.signed).length"></span>
+                        remaining page<span x-show="(webInitialElements || []).filter(e => e.isMine && !e.signed).length !== 1">s</span>?
+                    </p>
+                    <div class="flex items-center justify-end gap-3 pt-2">
+                        <button @click="declineInitialApplyAll()"
+                                class="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-800 font-medium">
+                            No, Just This One
+                        </button>
+                        <button @click="applyInitialToAll()"
+                                class="rounded-lg px-6 py-2.5 text-sm font-semibold text-white transition-colors"
+                                style="background:#0b2a4a;">
+                            Yes, Apply to All
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             {{-- Text input modal --}}
             <div x-show="showTextModal" x-cloak x-transition.opacity
                  class="fixed inset-0 z-50 flex items-center justify-center"
@@ -1258,6 +1283,9 @@ function externalSign() {
         webInitialElements: [],
         webInitialSigData: null,
         webIncompleteCount: 99,
+        showInitialApplyAll: false,
+        pendingInitialSigData: null,
+        pendingInitialBlockId: null,
 
         // Section-by-section signing
         hasSections: {{ !empty($sections) ? 'true' : 'false' }},
@@ -2786,34 +2814,52 @@ function externalSign() {
             this.showWebSigCapture = false;
             this.updateIncompleteCount();
 
-            // Check if this was a signature (not initial) and offer apply-to-all
+            // Check if this was an initial and offer apply-to-all prompt
             const sigId = this.currentWebSigBlockId;
             const isInitial = sigId && sigId.includes('-init-');
             if (isInitial) {
-                // Check for remaining unsigned initials and offer apply-to-all
-                const unsignedInitials = this.webInitialElements.filter(e => e.isMine && !e.signed);
+                const unsignedInitials = (this.webInitialElements || []).filter(e => e.isMine && !e.signed);
                 if (unsignedInitials.length > 0 && !this.webInitialSigData) {
-                    this.webInitialSigData = sigData;
-                    // Auto-apply to all remaining initials
-                    unsignedInitials.forEach(entry => {
-                        entry.signed = true;
-                        entry.sigData = sigData;
-                        this.webSignatures[entry.initKey] = sigData;
-                        entry.el.innerHTML = '<img src="' + sigData + '" style="max-height:26px;margin:auto;display:block;object-fit:contain;" alt="Initial">';
-                        entry.el.classList.add('initial-signed');
-                        entry.el.style.border = '2px solid #10b981';
-                        entry.el.style.background = 'rgba(16,185,129,0.06)';
-                        entry.el.style.cursor = 'default';
-                    });
-                    this.signedCount = Object.keys(this.webSignatures).length;
-                    this.updateIncompleteCount();
-                    this.showNotification('Initial applied to all page breaks.', 'info');
+                    // Show confirmation prompt before applying to all
+                    this.pendingInitialSigData = sigData;
+                    this.pendingInitialBlockId = sigId;
+                    this.showInitialApplyAll = true;
                 } else {
                     this.showNotification('Initial applied.', 'info');
                 }
             } else {
                 this.showNotification('Signature applied.', 'info');
             }
+        },
+
+        // Apply initial to all remaining unsigned initial blocks
+        applyInitialToAll() {
+            const sigData = this.pendingInitialSigData;
+            if (!sigData) { this.showInitialApplyAll = false; return; }
+            this.webInitialSigData = sigData;
+            const unsignedInitials = (this.webInitialElements || []).filter(e => e.isMine && !e.signed);
+            unsignedInitials.forEach(entry => {
+                entry.signed = true;
+                entry.sigData = sigData;
+                this.webSignatures[entry.initKey] = sigData;
+                entry.el.innerHTML = '<img src="' + sigData + '" style="max-height:26px;margin:auto;display:block;object-fit:contain;" alt="Initial">';
+                entry.el.classList.add('initial-signed');
+                entry.el.style.border = '2px solid #10b981';
+                entry.el.style.background = 'rgba(16,185,129,0.06)';
+                entry.el.style.cursor = 'default';
+            });
+            this.signedCount = Object.keys(this.webSignatures).length;
+            this.showInitialApplyAll = false;
+            this.pendingInitialSigData = null;
+            this.updateIncompleteCount();
+            this.showNotification('Initial applied to all page breaks.', 'info');
+        },
+
+        // Decline apply-to-all — keep only the one that was just signed
+        declineInitialApplyAll() {
+            this.showInitialApplyAll = false;
+            this.pendingInitialSigData = null;
+            this.showNotification('Initial applied.', 'info');
         },
 
         // Collect web field values from inline inputs
@@ -2838,7 +2884,21 @@ function externalSign() {
                     this.showNotification('Please complete all disclosure items before signing. (' + answeredRows + ' of ' + this.totalDisclosureRows + ' answered)', 'warning');
                     return;
                 }
-                this.showNotification('Please complete all required signatures.', 'warning');
+                // Show specific counts for what's remaining
+                const items = this._computeIncompleteItems();
+                const sigs = items.filter(i => i.label === 'Signature').length;
+                const inits = items.filter(i => i.label === 'Page Initial').length;
+                const ceremony = items.filter(i => !['Signature', 'Page Initial', 'Consent', 'Disclosure item'].includes(i.label)).length;
+                const parts = [];
+                if (sigs > 0) parts.push(sigs + ' signature' + (sigs > 1 ? 's' : ''));
+                if (inits > 0) parts.push(inits + ' initial' + (inits > 1 ? 's' : ''));
+                if (ceremony > 0) parts.push('signing location');
+                if (parts.length > 0) {
+                    this.showNotification(parts.join(', ') + ' remaining. Complete all before submitting.', 'warning');
+                    this.scrollToNextIncomplete();
+                } else {
+                    this.showNotification('Please complete all required fields.', 'warning');
+                }
                 return;
             }
 
