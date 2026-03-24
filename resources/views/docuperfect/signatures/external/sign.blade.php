@@ -407,7 +407,7 @@
 
                 {{-- Web template: render HTML directly — document elements are the interactive surface --}}
                 <template x-if="isWebTemplate">
-                    <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0;">
+                    <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
                         <div x-ref="pageContainer"
                              style="position:relative; max-width:100%; margin:0 auto;">
                             <div x-ref="webDocContent" x-html="webTemplateHtml"></div>

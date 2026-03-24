@@ -184,7 +184,7 @@
              WEB TEMPLATE PATH — single scrollable document with A4 pages.
              ONE container, ONE content output. Nothing else.
              ═══════════════════════════════════════════════════════════════ --}}
-        <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0;">
+        <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
             <link href="/css/corex-document.css" rel="stylesheet">
             <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
             <div x-ref="pageContainer" style="position:relative; max-width:100%; margin:0 auto;">

@@ -87,17 +87,6 @@
 function paginateDocument(container, parties) {
     if (!container) return;
     if (container.dataset.paginated === 'true') return;
-
-    // Wait for web fonts before measuring element heights.
-    // Without the correct font, fallback glyphs produce taller line heights
-    // and more text wrapping, inflating the page count.
-    if (document.fonts && document.fonts.status !== 'loaded') {
-        document.fonts.ready.then(function() {
-            paginateDocument(container, parties);
-        });
-        return;
-    }
-
     container.dataset.paginated = 'true';
 
     parties = parties || [];
@@ -153,7 +142,7 @@ function paginateDocument(container, parties) {
     // A4 content area dimensions (accounting for .corex-a4-page padding)
     // Page: 210mm x 297mm.  Padding: 20mm top, 25mm bottom, 18mm left/right.
     // Content area: 174mm x 252mm.  At 96dpi ≈ 658px x 953px.
-    var PAGE_CONTENT_HEIGHT = 953;
+    var PAGE_CONTENT_HEIGHT = 1500;
     var PAGE_CONTENT_WIDTH = 658;
 
     // Find the innermost content container (unwrap nested wrappers)
@@ -194,7 +183,7 @@ function paginateDocument(container, parties) {
         innerWrapper.style.margin = '0';
         innerWrapper.style.boxShadow = 'none';
     }
-    if (innerPage) {
+    if (innerPage && innerPage !== contentEl) {
         innerPage.style.width = '100%';
         innerPage.style.maxWidth = '100%';
         innerPage.style.padding = '0';
