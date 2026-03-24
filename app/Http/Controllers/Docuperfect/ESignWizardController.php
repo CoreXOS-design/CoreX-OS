@@ -92,6 +92,12 @@ class ESignWizardController extends Controller
             ->orderBy('updated_at', 'desc')
             ->get();
 
+        $contactTypes = DB::table('contact_types')
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
         return view('docuperfect.esign.wizard', [
             'templates'     => $templates,
             'webPacks'      => $webPacks,
@@ -108,6 +114,7 @@ class ESignWizardController extends Controller
             'isWebTemplate' => false,
             'templateId'    => null,
             'flowId'        => null,
+            'contactTypes'  => $contactTypes,
         ]);
     }
 
