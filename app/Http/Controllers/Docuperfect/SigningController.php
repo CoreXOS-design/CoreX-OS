@@ -1843,16 +1843,9 @@ class SigningController extends Controller
 body { margin: 0; padding: 0; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-/* === PDF: scale entire document to fit content in fewer pages === */
+/* === PDF: scale + screen → print container resets === */
 .corex-document-wrapper {
-    transform: scale(0.85);
-    transform-origin: top center;
-    width: 117.6%; /* 1/0.85 to fill the page width */
-    margin: 0 auto;
-}
-
-/* === PDF: screen → print container resets === */
-.corex-document-wrapper {
+    zoom: 0.85;
     max-width: 100% !important;
     background: transparent !important;
     padding: 0 !important;
