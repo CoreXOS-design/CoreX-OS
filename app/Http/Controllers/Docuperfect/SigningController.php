@@ -1770,9 +1770,19 @@ class SigningController extends Controller
         $timeout = 30;
         $pollStart = time();
         $pdfReady = false;
+        $loopCount = 0;
 
         while ((time() - $pollStart) < $timeout) {
             clearstatcache(true, $pdfPath);
+
+            if ($loopCount === 0) {
+                Log::info('PDF polling started', [
+                    'polling_for' => $pdfPath,
+                    'dir_contents' => glob(dirname($pdfPath) . '/doc_*'),
+                ]);
+            }
+            $loopCount++;
+
             if (file_exists($pdfPath) && filesize($pdfPath) > 0) {
                 // Verify it starts with %PDF (valid PDF header)
                 $handle = fopen($pdfPath, 'rb');
