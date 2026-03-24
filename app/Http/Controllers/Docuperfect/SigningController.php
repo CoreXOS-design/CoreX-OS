@@ -1749,74 +1749,39 @@ class SigningController extends Controller
 
         $startTime = time();
 
-        // Fire the process without waiting — exec() hangs on Windows because
-        // Puppeteer spawns Chrome child processes that don't exit cleanly
         $logPath = $tempDir . DIRECTORY_SEPARATOR . 'pdf_gen_' . $documentId . '.log';
-        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            // Write a temp batch file to avoid Windows cmd quoting hell
-            $batPath = $tempDir . DIRECTORY_SEPARATOR . 'pdf_gen_' . $documentId . '_' . time() . '.bat';
-            $batLogPath = str_replace('/', '\\', $logPath);
-            $batContent = '@echo off' . "\r\n"
-                . $command . ' > "' . $batLogPath . '" 2>&1' . "\r\n"
-                . 'del "%~f0"' . "\r\n";
-            file_put_contents($batPath, $batContent);
 
-            // Fire async via WScript.Shell — popen('start /B...') is unreliable from PHP
-            $batPathWin = str_replace('/', '\\', $batPath);
-            $wshCommand = 'cmd /c start /B "" cmd /c "' . $batPathWin . '"';
-            Log::info('PDF firing bat', ['wsh_command' => $wshCommand, 'bat_path' => $batPathWin]);
-            pclose(popen($wshCommand, 'r'));
-        } else {
-            exec($command . ' > /dev/null 2>&1 &');
-        }
+        // Synchronous call with output redirected to file
+        // Output redirect prevents PHP from waiting for Chrome child processes
+        $fullCommand = $command . ' > ' . escapeshellarg(str_replace('/', DIRECTORY_SEPARATOR, $logPath)) . ' 2>&1';
 
-        // Wait for bat to complete — command takes ~5s from CLI
-        sleep(8);
+        Log::info('PDF executing', ['command' => $fullCommand]);
 
-        // Try to find the PDF
+        // shell_exec with output redirect — PHP waits for the main process
+        // but Chrome children detach on their own
+        $result = shell_exec($fullCommand);
+
+        // Read the log to check result
+        $logContent = file_exists($logPath) ? file_get_contents($logPath) : '';
+        @unlink($logPath);
+
+        Log::info('PDF execution done', [
+            'doc_id' => $documentId,
+            'seconds' => time() - $startTime,
+            'log' => substr($logContent, 0, 500),
+        ]);
+
+        // Check if PDF was created
         clearstatcache();
-        $pdfReady = false;
         $normalizedOutput = str_replace('/', DIRECTORY_SEPARATOR, $pdfPath);
 
-        if (file_exists($normalizedOutput) && filesize($normalizedOutput) > 0) {
-            $pdfPath = $normalizedOutput;
-            $pdfReady = true;
+        if (!file_exists($normalizedOutput) || filesize($normalizedOutput) === 0) {
+            @unlink($htmlPath);
+            throw new \RuntimeException('PDF not generated. Log: ' . substr($logContent, 0, 200));
         }
 
-        if (!$pdfReady) {
-            // Second attempt after extra wait
-            sleep(5);
-            clearstatcache();
-            if (file_exists($normalizedOutput) && filesize($normalizedOutput) > 0) {
-                $pdfPath = $normalizedOutput;
-                $pdfReady = true;
-            }
-        }
-
-        if (!$pdfReady) {
-            // Last resort — scan the directory
-            $pattern = dirname($normalizedOutput) . DIRECTORY_SEPARATOR . 'doc_' . $documentId . '_*.pdf';
-            $found = glob($pattern);
-            if (!empty($found)) {
-                $pdfPath = $found[0];
-                $pdfReady = true;
-                Log::info('PDF found via glob', ['path' => $pdfPath]);
-            }
-        }
-
-        // Clean up temp files
+        $pdfPath = $normalizedOutput;
         @unlink($htmlPath);
-        @unlink($logPath ?? '');
-        @unlink($batPath ?? '');
-
-        if (!$pdfReady) {
-            Log::error('PDF not found after generation', [
-                'doc_id' => $documentId,
-                'expected' => $normalizedOutput,
-                'glob_results' => glob(dirname($normalizedOutput) . DIRECTORY_SEPARATOR . 'doc_*'),
-            ]);
-            throw new \RuntimeException('PDF generation failed — file not found');
-        }
 
         Log::info('PDF generation complete', [
             'doc_id' => $documentId,
