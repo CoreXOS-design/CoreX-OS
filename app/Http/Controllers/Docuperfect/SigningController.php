@@ -1639,6 +1639,247 @@ class SigningController extends Controller
     }
 
     /**
+     * Generate and download a proper PDF for web template documents via Puppeteer.
+     * Uses html-to-pdf.mjs to produce A4-formatted PDF with correct margins.
+     */
+    public function downloadWebPdf($token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with(['template.document.template'])
+            ->firstOrFail();
+
+        if ($signingRequest->isExpired()) {
+            return redirect()->route('signatures.external', $token)
+                ->with('error', 'Signing link has expired.');
+        }
+
+        $signatureTemplate = $signingRequest->template;
+        $document = $signatureTemplate->document;
+        $webTemplateData = $document->web_template_data ?? [];
+        $mergedHtml = $webTemplateData['merged_html'] ?? '';
+
+        if (empty($mergedHtml)) {
+            abort(404, 'Document content not available for PDF generation.');
+        }
+
+        $outputPath = $this->generatePdfFromHtml($mergedHtml, $document->id);
+
+        if (!$outputPath || !file_exists($outputPath)) {
+            Log::error('downloadWebPdf — PDF generation failed', ['document_id' => $document->id]);
+            return back()->with('error', 'PDF generation failed. Please use browser print instead.');
+        }
+
+        $docName = $document->name ?? 'Document';
+        $safeDocName = preg_replace('/[^A-Za-z0-9_\-]/', '_', $docName);
+        $filename = $safeDocName . '_' . date('Y-m-d') . '.pdf';
+
+        return response()->download($outputPath, $filename)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Generate a PDF from merged HTML using Puppeteer html-to-pdf.mjs.
+     *
+     * @return string|null Path to generated PDF, or null on failure
+     */
+    private function generatePdfFromHtml(string $mergedHtml, int $documentId): ?string
+    {
+        $tempDir = storage_path('app/temp');
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        $timestamp = time();
+        $htmlPath = $tempDir . '/doc_' . $documentId . '_' . $timestamp . '.html';
+        $pdfPath = $tempDir . '/doc_' . $documentId . '_' . $timestamp . '.pdf';
+
+        // Wrap merged_html in a full HTML document shell matching WebTemplatePdfService::wrapHtml()
+        $fullHtml = $this->wrapHtmlForPdf($mergedHtml);
+        file_put_contents($htmlPath, $fullHtml);
+
+        // Build command — same pattern as WebTemplatePdfService::runPuppeteerFlatten()
+        $scriptPath = base_path('scripts/html-to-pdf.mjs');
+        $browserPath = env('PUPPETEER_BROWSER_PATH', '');
+        $isWindows = DIRECTORY_SEPARATOR === '\\';
+
+        $scriptArg = escapeshellarg(str_replace('\\', '/', $scriptPath));
+        $htmlArg = escapeshellarg(str_replace('\\', '/', $htmlPath));
+        $outArg = escapeshellarg(str_replace('\\', '/', $pdfPath));
+
+        $envPrefix = '';
+        if (!$isWindows) {
+            $envPrefix = 'HOME=/tmp';
+            if ($browserPath) {
+                $envPrefix .= sprintf(' PUPPETEER_BROWSER_PATH=%s', escapeshellarg($browserPath));
+            }
+            $envPrefix .= ' ';
+        }
+
+        $command = sprintf('%snode %s %s %s 2>&1', $envPrefix, $scriptArg, $htmlArg, $outArg);
+        $output = shell_exec($command);
+
+        // Clean up temp HTML
+        @unlink($htmlPath);
+
+        if (!file_exists($pdfPath)) {
+            Log::error('generatePdfFromHtml — PDF not generated', [
+                'command' => $command,
+                'output' => $output ?: 'unknown error',
+            ]);
+            return null;
+        }
+
+        // Parse JSON output for logging
+        if ($output) {
+            $lines = explode("\n", trim($output));
+            foreach ($lines as $line) {
+                $decoded = json_decode(trim($line), true);
+                if ($decoded && !empty($decoded['success'])) {
+                    Log::info('generatePdfFromHtml — success', [
+                        'document_id' => $documentId,
+                        'pdf_size' => filesize($pdfPath),
+                    ]);
+                    break;
+                }
+            }
+        }
+
+        return $pdfPath;
+    }
+
+    /**
+     * Wrap merged HTML in a full document shell for Puppeteer PDF generation.
+     * Mirrors WebTemplatePdfService::wrapHtml() structure with additional
+     * CSS for clean PDF output (no interactive UI elements).
+     */
+    private function wrapHtmlForPdf(string $mergedHtml): string
+    {
+        // If it already has a DOCTYPE or <html> tag, inject PDF-specific styles
+        if (preg_match('/<!DOCTYPE|<html/i', $mergedHtml)) {
+            // Insert PDF cleanup styles before </head>
+            $pdfStyles = '<style>' . $this->getPdfCleanupCss() . '</style>';
+            if (preg_match('/<\/head>/i', $mergedHtml)) {
+                return preg_replace('/<\/head>/i', $pdfStyles . '</head>', $mergedHtml, 1);
+            }
+            return $mergedHtml;
+        }
+
+        $cleanupCss = $this->getPdfCleanupCss();
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        @page {
+            size: A4;
+            margin: 15mm 18mm 20mm 18mm;
+        }
+        body {
+            font-family: 'Plus Jakarta Sans', Arial, Helvetica, sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #000;
+            margin: 0;
+            padding: 0;
+        }
+        /* Ensure page breaks work */
+        .page-break, [style*="page-break"] {
+            page-break-after: always;
+        }
+        /* A4 page styling for Puppeteer print rendering */
+        .corex-a4-page {
+            page-break-after: always;
+            min-height: auto;
+        }
+        .corex-a4-page:last-child {
+            page-break-after: avoid;
+        }
+        .corex-page-gap {
+            display: none;
+        }
+        /* Kill inner container styling */
+        .corex-document-wrapper,
+        .corex-page {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-height: auto !important;
+            box-shadow: none !important;
+            background: transparent !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            border-radius: 0 !important;
+        }
+        /* Table styling */
+        table { border-collapse: collapse; width: 100%; }
+        table td, table th { padding: 4px 8px; vertical-align: top; }
+        /* Ensure images print in colour */
+        img, .web-sig-signed-img {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        {$cleanupCss}
+    </style>
+</head>
+<body>
+{$mergedHtml}
+</body>
+</html>
+HTML;
+    }
+
+    /**
+     * CSS rules to hide interactive UI elements from PDF output.
+     */
+    private function getPdfCleanupCss(): string
+    {
+        return <<<'CSS'
+/* Hide interactive signing UI elements */
+.web-sig-prompt { display: none !important; }
+.init-prompt { display: none !important; }
+.web-sig-interactive {
+    border: 1px solid #94a3b8 !important;
+    background: transparent !important;
+    min-height: 28pt;
+}
+.web-sig-signed-img {
+    display: block;
+    max-height: 50px;
+    object-fit: contain;
+}
+/* Hide marker overlays, toolbars, panels */
+[class*="marker-overlay"],
+[class*="sig-marker"],
+.signature-toolbar,
+.signing-panel,
+.print-toolbar,
+.clause-flag-icon,
+.clause-flag-comment {
+    display: none !important;
+}
+/* Radio placeholders */
+.corex-radio-placeholder {
+    display: inline-block;
+    font-size: 14pt;
+    line-height: 1;
+}
+/* Hide input borders — show values only */
+.field-editable,
+input[data-ceremony-field="true"] {
+    border: none !important;
+    background: transparent !important;
+    outline: none !important;
+    padding: 0 !important;
+    font: inherit !important;
+    color: inherit !important;
+}
+CSS;
+    }
+
+    /**
      * Decline to sign (external).
      */
     public function decline(Request $request, $token)

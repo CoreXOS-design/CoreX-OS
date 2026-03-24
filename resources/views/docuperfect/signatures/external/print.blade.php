@@ -236,6 +236,10 @@
             <a href="{{ route('signatures.external', $token) }}" class="print-btn print-btn-secondary">
                 &larr; Back to Signing
             </a>
+            <a href="{{ route('signing.download-pdf', $token) }}" class="print-btn print-btn-secondary" style="gap:6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download PDF
+            </a>
             <button onclick="window.print()" class="print-btn print-btn-primary">
                 Print / Save as PDF
             </button>
