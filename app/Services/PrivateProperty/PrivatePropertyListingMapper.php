@@ -213,8 +213,19 @@ class PrivatePropertyListingMapper
             'LandArea'     => (string) (int) ($property->erf_size_m2 ?? 0),
         ];
 
+        // PP requires category-specific type attribute:
+        // Residential → HomeType, Commercial → BusinessType, Farms → FarmType, Land → LandType
+        $category = strtolower($property->category ?? 'residential');
         if ($property->property_type) {
-            $map['HomeType'] = $this->mapPropertyType($property->property_type);
+            if ($category === 'commercial') {
+                $map['BusinessType'] = $this->mapBusinessType($property->property_type);
+            } elseif (in_array($category, ['farm', 'farms', 'agricultural'])) {
+                $map['FarmType'] = $this->mapFarmType($property->property_type);
+            } elseif ($category === 'land') {
+                $map['LandType'] = $this->mapLandType($property->property_type);
+            } else {
+                $map['HomeType'] = $this->mapPropertyType($property->property_type);
+            }
         }
         if ($property->rates_taxes) {
             $map['Rates'] = (string) (int) $property->rates_taxes;
@@ -287,6 +298,57 @@ class PrivatePropertyListingMapper
         ];
 
         return $map[strtolower($type ?? '')] ?? 'House';
+    }
+
+    private function mapBusinessType(?string $type): string
+    {
+        $map = [
+            'commercial'     => 'Commercial',
+            'office'         => 'Office',
+            'retail'         => 'Retail',
+            'industrial'     => 'Industrial',
+            'warehouse'      => 'Warehouse',
+            'factory'        => 'Factory',
+            'shop'           => 'Shop',
+            'restaurant'     => 'Restaurant',
+            'hotel'          => 'Hotel',
+            'mixed use'      => 'MixedUse',
+            'other'          => 'Other',
+        ];
+
+        return $map[strtolower($type ?? '')] ?? 'Commercial';
+    }
+
+    private function mapFarmType(?string $type): string
+    {
+        $map = [
+            'farm'            => 'Farm',
+            'smallholding'    => 'SmallHolding',
+            'small holding'   => 'SmallHolding',
+            'agricultural'    => 'Farm',
+            'game farm'       => 'GameFarm',
+            'wine farm'       => 'WineFarm',
+            'equestrian'      => 'Equestrian',
+            'other'           => 'Other',
+        ];
+
+        return $map[strtolower($type ?? '')] ?? 'Farm';
+    }
+
+    private function mapLandType(?string $type): string
+    {
+        $map = [
+            'vacant_land'     => 'VacantLand',
+            'vacant land'     => 'VacantLand',
+            'land'            => 'VacantLand',
+            'residential'     => 'ResidentialLand',
+            'commercial'      => 'CommercialLand',
+            'industrial'      => 'IndustrialLand',
+            'agricultural'    => 'AgriculturalLand',
+            'other'           => 'Other',
+        ];
+
+        return $map[strtolower($type ?? '')] ?? 'VacantLand';
     }
 
     /**
