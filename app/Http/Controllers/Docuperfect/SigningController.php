@@ -1723,39 +1723,7 @@ class SigningController extends Controller
 
         $startTime = time();
 
-        // Use wkhtmltopdf on Linux (reliable on ARM64), Puppeteer on Windows
-        if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN') {
-            $wkhtmltopdf = trim(shell_exec('which wkhtmltopdf 2>/dev/null') ?? '');
-            if ($wkhtmltopdf && file_exists($wkhtmltopdf)) {
-                $command = sprintf(
-                    'XDG_RUNTIME_DIR=/tmp %s --quiet --no-stop-slow-scripts --page-size A4 --margin-top 10mm --margin-right 12mm --margin-bottom 15mm --margin-left 12mm --encoding UTF-8 --print-media-type --footer-center "Page [page] of [topage]" --footer-font-size 9 --footer-spacing 5 %s %s 2>&1',
-                    escapeshellarg($wkhtmltopdf),
-                    escapeshellarg($htmlPath),
-                    escapeshellarg($pdfPath)
-                );
-
-                Log::info('PDF via wkhtmltopdf', ['doc_id' => $documentId, 'command' => $command]);
-
-                $output = shell_exec($command);
-
-                clearstatcache();
-                if (file_exists($pdfPath) && filesize($pdfPath) > 0) {
-                    Log::info('PDF generated via wkhtmltopdf', [
-                        'doc_id' => $documentId,
-                        'seconds' => time() - $startTime,
-                        'size' => filesize($pdfPath),
-                    ]);
-                    @unlink($htmlPath);
-                    return $pdfPath;
-                }
-
-                Log::warning('wkhtmltopdf failed, falling back to Puppeteer', [
-                    'output' => $output,
-                ]);
-            }
-        }
-
-        // Puppeteer fallback — primary on Windows, fallback on Linux
+        // Puppeteer (Chromium) — primary PDF generator on all platforms
         // Build command — same pattern as WebTemplatePdfService::runPuppeteerFlatten()
         $scriptPath = base_path('scripts/html-to-pdf.mjs');
         $browserPath = env('PUPPETEER_BROWSER_PATH', '');
