@@ -91,6 +91,11 @@ function paginateDocument(container, parties) {
 
     parties = parties || [];
 
+    // Remove all pre-existing server-side initial elements and page-break markers.
+    // Client-side pagination will create fresh initials at the correct page boundaries.
+    container.querySelectorAll('[data-marker-type="initial"]').forEach(function(el) { el.remove(); });
+    container.querySelectorAll('.corex-page-break').forEach(function(el) { el.remove(); });
+
     // ── Strategy 1: Paged templates (multiple .corex-page divs) ──
     var wrapper = container.querySelector('.corex-document-wrapper');
     var searchIn = wrapper || container;
@@ -111,9 +116,6 @@ function paginateDocument(container, parties) {
 
         var totalPages = pageEls.length;
         pageEls.forEach(function(pageEl, idx) {
-            // Remove old wizard-injected page-break initials before moving children
-            pageEl.querySelectorAll('.corex-page-break').forEach(function(el) { el.remove(); });
-
             var pageDiv = document.createElement('div');
             pageDiv.className = 'corex-a4-page';
             while (pageEl.firstChild) pageDiv.appendChild(pageEl.firstChild);
@@ -160,9 +162,6 @@ function paginateDocument(container, parties) {
     Array.from(container.querySelectorAll('style, link[rel="stylesheet"]')).forEach(function(el) {
         styleEls.push(el.cloneNode(true));
     });
-
-    // Remove any legacy .corex-page-break markers (from old server-side injection)
-    contentEl.querySelectorAll('.corex-page-break').forEach(function(el) { el.remove(); });
 
     // Get all direct children to measure
     var children = Array.from(contentEl.children);
