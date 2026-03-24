@@ -119,7 +119,7 @@
         <x-slot name="center">
             <h2 class="text-sm font-semibold text-gray-700 truncate">
                 Sign Document — {{ $document->name }}
-                <span class="text-gray-400 font-normal">(<span x-text="signedCount"></span> / <span x-text="totalAgent"></span> markers)</span>
+                <span class="text-gray-400 font-normal">(<span x-text="totalAgent - incompleteCount"></span> / <span x-text="totalAgent"></span> items)</span>
             </h2>
         </x-slot>
         <x-slot name="right">
@@ -144,13 +144,13 @@
                 Agent Signing Progress
             </span>
             <span class="text-sm text-slate-500">
-                <span x-text="signedCount"></span> / <span x-text="totalAgent"></span> markers completed
+                <span x-text="totalAgent - incompleteCount"></span> / <span x-text="totalAgent"></span> items completed
             </span>
         </div>
         <div class="w-full bg-slate-200 rounded h-2">
             <div class="h-2 rounded transition-all duration-500"
                  style="background:var(--brand-button, #0ea5e9);"
-                 :style="'width:' + (totalAgent > 0 ? Math.round((signedCount / totalAgent) * 100) : 0) + '%;background:var(--brand-button, #0ea5e9);'"></div>
+                 :style="'width:' + (totalAgent > 0 ? Math.round(((totalAgent - incompleteCount) / totalAgent) * 100) : 0) + '%;background:var(--brand-button, #0ea5e9);'"></div>
         </div>
     </div>
 
@@ -722,12 +722,6 @@ function signDocument() {
                 self.webSigTotal = agentCount;
                 self.webSigSigned = 0;
 
-                // Also update marker totals for the progress bar
-                if (agentCount > 0) {
-                    self.totalAgent = agentCount;
-                    self.signedCount = 0;
-                }
-
                 // Make "Thus done and signed" ceremony fields editable for the agent's blocks
                 self._makeCeremonyFieldsEditable(container);
 
@@ -742,6 +736,8 @@ function signDocument() {
                 attempts++;
                 if (tryInit() || attempts > 20) {
                     clearInterval(interval);
+                    // Recompute counts after all interactive setup completes
+                    setTimeout(() => this._updateIncompleteCount(), 100);
                 }
             }, 200);
         },
@@ -813,10 +809,9 @@ function signDocument() {
                 }
             });
 
-            // Add initial count to the total agent items
+            // Track initial count (totalAgent set by _updateIncompleteCount)
             if (agentInitialCount > 0) {
                 this.webSigTotal = (this.webSigTotal || 0) + agentInitialCount;
-                this.totalAgent = (this.totalAgent || 0) + agentInitialCount;
             }
         },
 
@@ -1038,10 +1033,62 @@ function signDocument() {
         },
 
         /**
-         * Update the incompleteCount reactive property.
+         * Compute total and incomplete counts for all interactive items.
+         * Single source of truth for top bar, bottom bar, and completion gate.
+         */
+        _computeAllCounts() {
+            const container = this.$refs.webDocContent;
+            let total = 0;
+            let incomplete = 0;
+
+            if (this.isWebTemplate) {
+                // 1. Signature blocks (mine)
+                this.webSigElements.forEach(entry => {
+                    if (entry.isMine) {
+                        total++;
+                        if (!entry.signed) incomplete++;
+                    }
+                });
+                // 2. Initial blocks (mine)
+                (this.webInitialElements || []).forEach(entry => {
+                    if (entry.isMine) {
+                        total++;
+                        if (!entry.signed) incomplete++;
+                    }
+                });
+                // 3. Ceremony fields (agent's — inputs with data-ceremony-field)
+                if (container) {
+                    container.querySelectorAll('input[data-ceremony-field="true"]').forEach(inp => {
+                        total++;
+                        if (!inp.value || !inp.value.trim()) incomplete++;
+                    });
+                    // Also check am_pm buttons
+                    container.querySelectorAll('button[data-ceremony-field="true"]').forEach(btn => {
+                        total++;
+                        if (!btn.textContent || !btn.textContent.trim()) incomplete++;
+                    });
+                }
+            } else {
+                // PDF marker-based: count agent's unsigned markers
+                this.markers.forEach(m => {
+                    if (m.assigned_party === 'agent') {
+                        total++;
+                        if (!m.signed) incomplete++;
+                    }
+                });
+            }
+
+            return { total, incomplete };
+        },
+
+        /**
+         * Update incompleteCount and totalAgent from single computation.
+         * This is the SINGLE source of truth for all counters.
          */
         _updateIncompleteCount() {
-            this.incompleteCount = this._computeIncompleteItems().length;
+            const { total, incomplete } = this._computeAllCounts();
+            this.totalAgent = total;
+            this.incompleteCount = incomplete;
         },
 
         /**
@@ -1431,12 +1478,7 @@ function signDocument() {
                 // Also set data attribute on DOM element for robust checking
                 entry.el.setAttribute('data-signed', 'true');
 
-                // Update counts
                 this.webSigSigned++;
-                this.signedCount = this.webSigSigned;
-
-                console.log('INITIAL_SIGNED', entry.initKey, 'entry.signed=', entry.signed, 'data-signed=', entry.el.dataset.signed, 'incomplete count now:', this._computeIncompleteItems().length);
-
                 this.showSignModal = false;
 
                 // Offer apply-to-all for remaining agent initials
@@ -1466,10 +1508,7 @@ function signDocument() {
                 entry.el.setAttribute('data-signed', 'true');
                 entry.el.innerHTML = '<img src="' + signatureData + '" class="web-sig-signed-img" alt="Signature">';
 
-                // Update counts
                 this.webSigSigned++;
-                this.signedCount = this.webSigSigned;
-
                 this.showSignModal = false;
 
                 // Offer apply-to-all for remaining agent sig elements
@@ -1538,8 +1577,7 @@ function signDocument() {
                     marker.signature_data = signatureData;
                     marker.signature_type = signatureType;
 
-                    // Update counts
-                    this.signedCount = data.signed_count;
+                    // Update all counts from single computation
                     this._updateIncompleteCount();
                     return true;
                 } else {
@@ -1586,7 +1624,6 @@ function signDocument() {
                         }
                     }
                     this._pendingInitialApplyAll = false;
-                    this.signedCount = this.webSigSigned;
                 } else {
                     // Web template: apply to all remaining agent sig elements
                     const remaining = this.webSigElements.filter(e => e.isMine && !e.signed);
@@ -1608,7 +1645,6 @@ function signDocument() {
                             console.error('APPLY_ALL: Failed to apply signature to', entry.sigKey, err);
                         }
                     }
-                    this.signedCount = this.webSigSigned;
                 }
             } else {
                 const remainingSignatures = this.markers.filter(m =>
