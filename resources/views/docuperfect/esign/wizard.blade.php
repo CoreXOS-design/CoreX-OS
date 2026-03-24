@@ -2586,11 +2586,6 @@ function esignWizard() {
             r._searchOpen = false;
             r._searchQuery = contact.full_name;
 
-            // Map non-signing roles to proper signing roles
-            if (r.role === 'spouse' || r.role === 'owner') {
-                r.role = this.isSalesContext ? 'seller' : 'landlord';
-            }
-
             // Store bank details for WebTemplateDataService
             r.bank_name = contact.bank_name || '';
             r.bank_account_name = contact.bank_account_name || '';

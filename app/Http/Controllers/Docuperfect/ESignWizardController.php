@@ -495,13 +495,14 @@ class ESignWizardController extends Controller
 
                     // Agent is always first recipient (added by JS), so just add linked contacts
                     foreach ($prop->contacts as $contact) {
-                        $pivotRole = $contact->pivot->role ?? $defaultOwnerRole;
-                        // Map generic roles to match template field prefixes
-                        // 'spouse' linked to a property is a co-owner — map to seller/landlord
-                        if ($template->isSalesDocument($propertySource) && in_array($pivotRole, ['landlord', 'owner', 'lessor', 'spouse'])) {
-                            $pivotRole = 'seller';
-                        } elseif (!$template->isSalesDocument($propertySource) && in_array($pivotRole, ['owner', 'seller', 'spouse'])) {
-                            $pivotRole = 'landlord';
+                        // Use pivot role as-is; fall back to contact_type name, then template default
+                        $pivotRole = strtolower(trim($contact->pivot->role ?? ''));
+                        if (empty($pivotRole)) {
+                            $contactType = DB::table('contact_types')->where('id', $contact->contact_type_id)->value('name');
+                            $pivotRole = strtolower(trim($contactType ?? ''));
+                        }
+                        if (empty($pivotRole)) {
+                            $pivotRole = $defaultOwnerRole;
                         }
 
                         $recipients[] = [
@@ -530,20 +531,6 @@ class ESignWizardController extends Controller
         // Update stepData recipients so autoFillFields can see auto-populated contacts
         if (!empty($recipients)) {
             $stepData['recipients'] = ['recipients' => $recipients];
-        }
-
-        // Normalize non-signing roles (spouse, owner) to proper signing roles
-        // Runs on ALL recipients regardless of how they were loaded (auto-populate, manual, step navigation)
-        if (!empty($stepData['recipients']['recipients'])) {
-            $propSource = $stepData['property']['_property_source'] ?? null;
-            $isSales = $template->isSalesDocument($propSource);
-            foreach ($stepData['recipients']['recipients'] as &$recipient) {
-                $role = $recipient['role'] ?? '';
-                if (in_array($role, ['spouse', 'owner'])) {
-                    $recipient['role'] = $isSales ? 'seller' : 'landlord';
-                }
-            }
-            unset($recipient);
         }
 
         // Auto-fill fields from wizard step data (property, recipients, details)
