@@ -103,25 +103,77 @@
             color: #1e293b;
         }
 
-        /* Print styles — hide everything except the document */
+        /* Print styles — hide UI, fit document to print area */
         @media print {
-            body {
-                background: white !important;
-                margin: 0;
-                padding: 0;
-            }
-            .download-action-bar {
-                display: none !important;
-            }
-            .download-document-area {
-                max-width: 100% !important;
-                margin: 0 !important;
-                box-shadow: none !important;
-                border-radius: 0 !important;
-            }
+            /* Page setup */
             @page {
                 size: A4;
                 margin: 18mm 20mm;
+            }
+
+            /* Hide all UI elements */
+            .download-action-bar,
+            .btn-print, .btn-download, .btn-back {
+                display: none !important;
+            }
+
+            /* Reset body */
+            body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
+            /* Strip decorative card styling from outer wrapper */
+            .download-document-area {
+                max-width: 100% !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                border: none !important;
+                overflow: visible !important;
+            }
+
+            /* Scale document content to fit print width */
+            .corex-document-wrapper {
+                zoom: 0.82 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow: hidden !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+
+            /* Strip page wrapper screen styling */
+            .corex-page, .page {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-height: auto !important;
+                box-shadow: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border: none !important;
+                border-radius: 0 !important;
+            }
+
+            /* Prevent orphaned signature blocks */
+            .corex-signature-section,
+            .corex-ceremony-section,
+            [class*="thus-done"],
+            [class*="signature-block"] {
+                page-break-inside: avoid !important;
+            }
+
+            .corex-clause, .corex-clause-indent-1,
+            .corex-clause-indent-2, .corex-clause-indent-3,
+            .corex-table tr, .corex-disclosure-table tr {
+                page-break-inside: avoid !important;
+            }
+
+            .corex-h1, .corex-h2, .corex-h3 {
+                page-break-after: avoid !important;
             }
         }
     </style>
@@ -145,7 +197,7 @@
         Back to E-Sign
     </a>
 
-    <button type="button" onclick="window.print()" class="btn-print">
+    <button type="button" onclick="document.title='{{ addslashes($document->name ?? 'Document') }}'; window.print();" class="btn-print">
         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
         Print
     </button>
