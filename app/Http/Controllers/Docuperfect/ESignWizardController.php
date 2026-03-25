@@ -3757,6 +3757,37 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * Generate and download a PDF for a download-only document.
+     * Uses SigningController::generatePdfFromHtml() for consistent rendering.
+     */
+    public function downloadDocumentPdf(Request $request, $documentId)
+    {
+        set_time_limit(120);
+
+        $user = $request->user();
+        $document = Document::where('owner_id', $user->id)->findOrFail($documentId);
+        $mergedHtml = $document->web_template_data['merged_html'] ?? '';
+
+        if (empty($mergedHtml)) {
+            abort(404, 'Document content not available for PDF generation.');
+        }
+
+        $signingController = app(SigningController::class);
+        $outputPath = $signingController->generatePdfFromHtml($mergedHtml, $document->id);
+
+        if (!$outputPath || !file_exists($outputPath) || filesize($outputPath) === 0) {
+            @unlink($outputPath);
+            abort(500, 'PDF generation failed.');
+        }
+
+        $docName = $document->name ?? 'Document';
+        $safeDocName = preg_replace('/[^A-Za-z0-9_\-]/', '_', $docName);
+        $filename = $safeDocName . '_' . date('Y-m-d') . '.pdf';
+
+        return response()->download($outputPath, $filename)->deleteFileAfterSend(true);
+    }
+
+    /**
      * Show wet-ink confirmation page with print/download instructions.
      */
     public function wetInkConfirmation(Request $request, $flowId)

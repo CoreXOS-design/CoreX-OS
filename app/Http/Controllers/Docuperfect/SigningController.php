@@ -1706,7 +1706,7 @@ class SigningController extends Controller
      *
      * @return string|null Path to generated PDF, or null on failure
      */
-    private function generatePdfFromHtml(string $mergedHtml, int $documentId): ?string
+    public function generatePdfFromHtml(string $mergedHtml, int $documentId): ?string
     {
         $tempDir = storage_path('app/temp');
         if (!is_dir($tempDir)) {
