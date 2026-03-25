@@ -127,16 +127,7 @@ class CheckLeaseExpiry extends Command
                 daysLeft: $daysLeft,
             ));
 
-            // Send email for urgent/expired alerts
-            if (in_array($level, ['urgent', 'expired'])) {
-                Mail::to($owner->email)->send(new LeaseExpirationMail(
-                    agentName: $owner->name,
-                    propertyAddress: $lease->property_address ?? 'Unknown property',
-                    tenantName: $lease->tenant_name ?? 'Unknown tenant',
-                    daysRemaining: $daysLeft,
-                    leaseEndDate: $lease->lease_end_date,
-                ));
-            }
+            // No email to agents — lease expiry handled via in-app notification only (LeaseExpirationAlert above)
 
             // Cache to prevent duplicate alerts for 7 days
             Cache::put($cacheKey, true, now()->addDays(7));

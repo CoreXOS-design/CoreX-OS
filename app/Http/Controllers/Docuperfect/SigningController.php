@@ -2349,16 +2349,12 @@ CSS;
             $template->loadMissing(['document', 'creator']);
             $agent = $template->creator;
 
-            if ($agent && $agent->email) {
-                Mail::raw(
-                    "{$signingRequest->signer_name} has rejected section \"{$sectionLabel}\" on document \"{$template->document->name}\".\n\n" .
-                    "Reason: {$reason}\n\n" .
-                    "Please review and take action.",
-                    function ($message) use ($agent, $template) {
-                        $message->to($agent->email)
-                            ->subject("Section Rejected — {$template->document->name}");
-                    }
-                );
+            if ($agent) {
+                $reviewUrl = url("/docuperfect/documents/{$template->document_id}/signatures/review");
+                $agent->notify(\App\Notifications\SignatureActivityNotification::sectionRejected(
+                    $signingRequest->signer_name, $template->document->name ?? 'Document',
+                    $template->document_id, $reviewUrl,
+                ));
             }
         } catch (\Exception $e) {
             Log::error('Failed to send section rejection notification', ['error' => $e->getMessage()]);

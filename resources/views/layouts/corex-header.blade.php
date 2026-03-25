@@ -22,12 +22,67 @@
         </button>
 
         {{-- Notifications --}}
-        <button type="button" class="corex-btn-icon" title="Notifications">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
-            </svg>
-            <span class="badge"></span>
-        </button>
+        <div x-data="notificationBell()" x-init="load()" class="corex-notification-wrap" style="position:relative;">
+            <button type="button" class="corex-btn-icon" title="Notifications" @click="toggle()">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+                </svg>
+                <span class="badge" x-show="unreadCount > 0" x-text="unreadCount > 9 ? '9+' : unreadCount"
+                      style="position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;background:#00d4aa;color:#0f172a;font-size:10px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;line-height:1;"></span>
+            </button>
+            <div x-show="open" x-cloak @click.outside="open=false"
+                 style="position:absolute;top:100%;right:0;margin-top:8px;width:340px;max-height:400px;overflow-y:auto;background:#1e293b;border:1px solid #334155;border-radius:3px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;">
+                <div style="padding:10px 14px;border-bottom:1px solid #334155;display:flex;align-items:center;justify-content:space-between;">
+                    <span style="font-size:12px;font-weight:600;color:#f1f5f9;">Notifications</span>
+                    <button x-show="unreadCount > 0" @click.stop="markAllRead()" style="font-size:11px;color:#00d4aa;background:none;border:none;cursor:pointer;">Mark all read</button>
+                </div>
+                <template x-if="items.length === 0">
+                    <div style="padding:24px 14px;text-align:center;font-size:12px;color:#64748b;">No notifications</div>
+                </template>
+                <template x-for="item in items" :key="item.id">
+                    <a :href="item.data?.url || '#'" @click="markRead(item.id)"
+                       style="display:block;padding:10px 14px;border-bottom:1px solid #334155;text-decoration:none;transition:background 0.1s;"
+                       :style="item.read_at ? '' : 'background:rgba(0,212,170,0.04);'"
+                       onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=this.dataset.bg"
+                       :data-bg="item.read_at ? '' : 'rgba(0,212,170,0.04)'">
+                        <div style="font-size:12px;color:#e2e8f0;line-height:1.4;" x-text="item.data?.message || 'Notification'"></div>
+                        <div style="font-size:10px;color:#475569;margin-top:3px;" x-text="timeAgo(item.created_at)"></div>
+                    </a>
+                </template>
+            </div>
+        </div>
+        <script>
+        function notificationBell() {
+            return {
+                open: false,
+                items: [],
+                unreadCount: 0,
+                toggle() { this.open = !this.open; if (this.open) this.load(); },
+                load() {
+                    fetch('/api/notifications', { headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' } })
+                        .then(r => r.ok ? r.json() : { items: [], unread: 0 })
+                        .then(d => { this.items = d.items || []; this.unreadCount = d.unread || 0; })
+                        .catch(() => {});
+                },
+                markRead(id) {
+                    fetch('/api/notifications/' + id + '/read', { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' } })
+                        .then(() => { this.items = this.items.map(i => i.id === id ? { ...i, read_at: new Date().toISOString() } : i); this.unreadCount = Math.max(0, this.unreadCount - 1); });
+                },
+                markAllRead() {
+                    fetch('/api/notifications/mark-all-read', { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' } })
+                        .then(() => { this.items = this.items.map(i => ({ ...i, read_at: i.read_at || new Date().toISOString() })); this.unreadCount = 0; });
+                },
+                timeAgo(dt) {
+                    if (!dt) return '';
+                    const s = Math.floor((Date.now() - new Date(dt).getTime()) / 1000);
+                    if (s < 60) return 'Just now';
+                    if (s < 3600) return Math.floor(s/60) + 'm ago';
+                    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+                    return Math.floor(s/86400) + 'd ago';
+                },
+            };
+        }
+        </script>
 
         {{-- Export Report --}}
         <button type="button" class="corex-btn-outline">

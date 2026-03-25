@@ -29,6 +29,11 @@ Route::get('/dashboard', function () {
 
 Route::middleware('auth')->group(function () {
 
+    // Notification API
+    Route::get('/api/notifications', [\App\Http\Controllers\Api\NotificationController::class, 'index']);
+    Route::post('/api/notifications/{id}/read', [\App\Http\Controllers\Api\NotificationController::class, 'markRead']);
+    Route::post('/api/notifications/mark-all-read', [\App\Http\Controllers\Api\NotificationController::class, 'markAllRead']);
+
     Route::get('/evaluation', function () {
         return view('evaluation.index');
     })->middleware('permission:access_evaluation')->name('evaluation.index');

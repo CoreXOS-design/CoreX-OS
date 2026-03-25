@@ -20,6 +20,7 @@ use App\Models\Docuperfect\SignatureZone;
 use App\Models\Docuperfect\TemplateSignatureZone;
 use App\Models\Docuperfect\WetInkInspection;
 use App\Models\User;
+use App\Notifications\SignatureActivityNotification;
 use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignaturePdfService;
 use Illuminate\Http\UploadedFile;
@@ -2442,13 +2443,10 @@ class SignatureService
             $documentName = $template->document->name ?? 'Document';
             $inspectUrl = url("/docuperfect/documents/{$template->document_id}/signatures/inspect/{$request->id}");
 
-            Mail::to($agent->email)->send(
-                new WetInkUploadedNotification(
-                    signerName: $request->signer_name,
-                    documentName: $documentName,
-                    inspectUrl: $inspectUrl,
-                )
-            );
+            // In-app notification only — no email to agents
+            $agent->notify(SignatureActivityNotification::wetInkUploaded(
+                $request->signer_name, $documentName, $template->document_id, $inspectUrl,
+            ));
         } catch (\Throwable $e) {
             Log::error('Failed to send wet ink uploaded notification', [
                 'request_id' => $request->id,
@@ -2473,15 +2471,14 @@ class SignatureService
             $documentName = $template->document->name ?? 'Document';
             $reviewUrl = url("/docuperfect/documents/{$template->document_id}/signatures/review");
 
-            Mail::to($agent->email)->send(
-                new \App\Mail\Signatures\PartySignedNotificationMail(
-                    agentName: $agent->name,
-                    partyRole: $completedParty,
-                    partyName: $request?->signer_name ?? ucfirst($completedParty),
-                    documentName: $documentName,
-                    reviewUrl: $reviewUrl,
-                )
-            );
+            // In-app notification only — no email to agents
+            $agent->notify(SignatureActivityNotification::partySigned(
+                $request?->signer_name ?? ucfirst($completedParty),
+                $completedParty,
+                $documentName,
+                $template->document_id,
+                $reviewUrl,
+            ));
         } catch (\Throwable $e) {
             Log::error('Failed to send agent approval notification', [
                 'template_id' => $template->id,
@@ -2517,20 +2514,20 @@ class SignatureService
 
             $pdfFilename = "Signed - {$documentName}.pdf";
 
-            // Notify each signer — attach client copy (no audit trail)
-            // External signers (non-agent) do NOT get a link to Nexus — only the PDF attachment
+            // Email external signers only — attach client copy (no audit trail)
             foreach ($template->requests as $request) {
                 if ($request->status !== SignatureRequest::STATUS_COMPLETED) {
                     continue;
                 }
-
-                // Only agent gets the Nexus link; external parties cannot access it
-                $signerUrl = $request->party_role === 'agent' ? $viewUrl : null;
+                // Skip agent — agents get in-app notification only
+                if ($request->party_role === 'agent') {
+                    continue;
+                }
 
                 $mail = (new SignedDocumentMail(
                     recipientName: $request->signer_name,
                     documentName: $documentName,
-                    envelopeUrl: $signerUrl,
+                    envelopeUrl: null, // External parties cannot access Nexus
                     progress: $progress,
                     pdfPath: $clientPdfPath,
                     pdfFilename: $clientPdfPath ? $pdfFilename : null,
@@ -2553,32 +2550,11 @@ class SignatureService
                 );
             }
 
-            // Notify the agent — attach internal copy (with audit trail)
+            // In-app notification to agent — no email
             if ($agent) {
-                Mail::to($agent->email)->send(
-                    new SignedDocumentMail(
-                        recipientName: $agent->name,
-                        documentName: $documentName,
-                        envelopeUrl: $viewUrl,
-                        progress: $progress,
-                        pdfPath: $internalPdfPath,
-                        pdfFilename: $internalPdfPath ? $pdfFilename : null,
-                    )
-                );
-
-                SignatureAuditLog::log(
-                    $template,
-                    SignatureAuditLog::ACTION_SIGNED_PDF_EMAILED,
-                    SignatureAuditLog::ACTOR_SYSTEM,
-                    'System',
-                    metadata: [
-                        'recipient_role' => 'agent',
-                        'recipient_name' => $agent->name,
-                        'recipient_email' => $agent->email,
-                        'pdf_attached' => $internalPdfPath !== null,
-                        'pdf_version' => 'internal',
-                    ],
-                );
+                $agent->notify(SignatureActivityNotification::documentCompleted(
+                    $documentName, $template->document_id, $viewUrl,
+                ));
             }
         } catch (\Throwable $e) {
             Log::error('Failed to send completion emails', [
@@ -2964,19 +2940,10 @@ class SignatureService
             $documentName = $template->document->name ?? 'Document';
             $reviewUrl = route('docuperfect.signatures.review', $template->document_id);
 
-            $messageMap = [
-                'detected' => "{$amendingRequest->signer_name} has added conditions to \"{$documentName}\". Review the amendments.",
-                'rejected' => "{$amendingRequest->signer_name} has rejected an amendment on \"{$documentName}\". Your mediation is required.",
-            ];
-
-            Mail::to($agentUser->email)->send(
-                new SigningRequestMail(
-                    signerName: $agentUser->name,
-                    documentName: "[Amendment] {$documentName}",
-                    signingUrl: $reviewUrl,
-                    personalMessage: $messageMap[$type] ?? $messageMap['detected'],
-                )
-            );
+            // In-app notification only — no email to agents
+            $agentUser->notify(SignatureActivityNotification::amendmentDetected(
+                $documentName, $template->document_id, $reviewUrl,
+            ));
         } catch (\Throwable $e) {
             Log::error('Failed to send agent amendment notification', [
                 'template_id' => $template->id,

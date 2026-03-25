@@ -7,6 +7,7 @@ use App\Mail\Signatures\SalesDocumentMail;
 use App\Mail\Signatures\SalesDocumentReminderMail;
 use App\Mail\Signatures\SalesDocumentReturnedMail;
 use App\Mail\Signatures\SalesDocumentAllReturnedMail;
+use App\Notifications\SignatureActivityNotification;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\SalesDocumentRecipient;
@@ -150,13 +151,11 @@ class SalesDocumentController extends Controller
             'completed_at' => now(),
         ]);
 
-        // Notify agent that all parties are done
+        // In-app notification to agent — no email
         $agent = $send->sender;
         if ($agent) {
-            Mail::to($agent->email)->send(new SalesDocumentAllReturnedMail(
-                agentName: $agent->name,
-                documentName: $send->document_name,
-                dashboardUrl: route('docuperfect.sales'),
+            $agent->notify(SignatureActivityNotification::salesDocumentAllReturned(
+                $send->document_name, $send->id, route('docuperfect.sales'),
             ));
         }
 
@@ -589,13 +588,11 @@ class SalesDocumentController extends Controller
             'completed_at' => now(),
         ]);
 
-        // Notify agent that all parties are done
+        // In-app notification to agent — no email
         $agent = $send->sender;
         if ($agent) {
-            Mail::to($agent->email)->send(new SalesDocumentAllReturnedMail(
-                agentName: $agent->name,
-                documentName: $send->document_name,
-                dashboardUrl: route('docuperfect.sales'),
+            $agent->notify(SignatureActivityNotification::salesDocumentAllReturned(
+                $send->document_name, $send->id, route('docuperfect.sales'),
             ));
         }
 
@@ -635,13 +632,9 @@ class SalesDocumentController extends Controller
             ->orderBy('signing_order')
             ->first();
 
-        Mail::to($agent->email)->send(new SalesDocumentReturnedMail(
-            agentName: $agent->name,
-            documentName: $send->document_name,
-            clientName: $justCompleted->recipient_name,
-            clientRole: $justCompleted->recipient_role,
-            nextRecipientName: $nextRecipient?->recipient_name,
-            dashboardUrl: route('docuperfect.sales'),
+        // In-app notification to agent — no email
+        $agent->notify(SignatureActivityNotification::salesDocumentReturned(
+            $justCompleted->recipient_name, $send->document_name, $send->id, route('docuperfect.sales'),
         ));
     }
 }
