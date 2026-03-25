@@ -1721,45 +1721,246 @@ class SignatureService
         $document = $template->document;
         if (!$document) return;
 
-        $docTemplate = $document->template;
-        $documentTypeId = $docTemplate?->document_type_id;
+        $webTemplateData = $document->web_template_data ?? [];
+        $templateIds = $webTemplateData['template_ids'] ?? [];
+        $mergedHtml = $webTemplateData['merged_html'] ?? '';
         $propertyId = $document->property_id;
-        $pdfPath = $pdfPaths['client'];
+
+        // Resolve signing contacts once (shared across all filed documents)
+        $contactLinks = $this->resolveSigningContacts($template);
+
+        // Pack flow: split into individual documents per template
+        if (count($templateIds) > 1 && $mergedHtml) {
+            $this->filePackDocuments($template, $document, $templateIds, $mergedHtml, $propertyId, $contactLinks, $pdfPaths);
+            return;
+        }
+
+        // Single template: file one document using the merged PDF
+        $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+    }
+
+    /**
+     * File a single document (non-pack or single-template pack).
+     */
+    private function fileSingleDocument(
+        SignatureTemplate $template,
+        $document,
+        string $pdfPath,
+        ?int $propertyId,
+        array $contactLinks,
+    ): void {
+        // Avoid duplicate filings
+        if (\App\Models\Document::where('storage_path', $pdfPath)->where('source_type', 'esign')->exists()) {
+            return;
+        }
+
+        $docTemplate = $document->template;
         $docName = ($document->name ?? 'Signed Document') . ' (Signed).pdf';
 
-        // Avoid duplicate filings
-        $existing = \App\Models\Document::where('storage_path', $pdfPath)
-            ->where('source_type', 'esign')
-            ->first();
-
-        if ($existing) return;
-
-        // Create ONE unified document record
         $filedDoc = \App\Models\Document::create([
             'original_name'    => $docName,
             'storage_path'     => $pdfPath,
             'disk'             => 'local',
             'mime_type'        => 'application/pdf',
-            'size'             => 0,
-            'document_type_id' => $documentTypeId,
+            'size'             => file_exists(storage_path("app/{$pdfPath}")) ? filesize(storage_path("app/{$pdfPath}")) : 0,
+            'document_type_id' => $docTemplate?->document_type_id,
             'source_type'      => 'esign',
             'source_id'        => $template->id,
             'uploaded_by'      => $template->created_by,
         ]);
 
-        // Link to all signing contacts via pivot (with party_role)
+        $this->linkFiledDocumentToContactsAndProperty($filedDoc, $contactLinks, $propertyId);
+
+        Log::info('Auto-filed signed document', [
+            'filed_doc_id' => $filedDoc->id,
+            'document_name' => $docName,
+            'document_type_id' => $docTemplate?->document_type_id,
+            'property_id' => $propertyId,
+            'contact_count' => count($contactLinks),
+        ]);
+    }
+
+    /**
+     * File individual documents for each template in a web pack.
+     * Splits the merged HTML, generates individual PDFs, creates one Document record per template.
+     */
+    private function filePackDocuments(
+        SignatureTemplate $template,
+        $document,
+        array $templateIds,
+        string $mergedHtml,
+        ?int $propertyId,
+        array $contactLinks,
+        array $pdfPaths,
+    ): void {
+        $htmlFragments = $this->splitMergedHtml($mergedHtml, count($templateIds));
+
+        if (count($htmlFragments) !== count($templateIds)) {
+            Log::warning('Auto-file pack: HTML fragment count does not match template_ids count, filing merged PDF as fallback', [
+                'template_id' => $template->id,
+                'template_ids' => $templateIds,
+                'fragments' => count($htmlFragments),
+                'expected' => count($templateIds),
+            ]);
+            $this->fileSingleDocument($template, $document, $pdfPaths['client'], $propertyId, $contactLinks);
+            return;
+        }
+
+        $signingController = app(\App\Http\Controllers\Docuperfect\SigningController::class);
+        $baseDir = "docuperfect/signed-documents/{$template->id}/individual";
+        $targetDir = storage_path("app/{$baseDir}");
+        if (!is_dir($targetDir)) {
+            mkdir($targetDir, 0755, true);
+        }
+
+        foreach ($templateIds as $idx => $tplId) {
+            $tpl = \App\Models\Docuperfect\Template::find($tplId);
+            if (!$tpl) continue;
+
+            $individualPdfPath = "{$baseDir}/{$tplId}_client.pdf";
+            $fullStoragePath = storage_path("app/{$individualPdfPath}");
+
+            // Dedup check
+            if (\App\Models\Document::where('storage_path', $individualPdfPath)->where('source_type', 'esign')->exists()) {
+                continue;
+            }
+
+            // Generate individual PDF from this template's HTML fragment
+            $fragmentHtml = $htmlFragments[$idx];
+            try {
+                $tempPdfPath = $signingController->generatePdfFromHtml($fragmentHtml, $document->id);
+                if ($tempPdfPath && file_exists($tempPdfPath)) {
+                    rename($tempPdfPath, $fullStoragePath);
+                } else {
+                    Log::warning('Auto-file pack: Individual PDF generation failed', [
+                        'template_id' => $template->id,
+                        'pack_template_id' => $tplId,
+                        'template_name' => $tpl->name,
+                    ]);
+                    continue;
+                }
+            } catch (\Throwable $e) {
+                Log::error('Auto-file pack: Individual PDF exception', [
+                    'template_id' => $template->id,
+                    'pack_template_id' => $tplId,
+                    'error' => $e->getMessage(),
+                ]);
+                continue;
+            }
+
+            $docName = ($tpl->name ?? 'Document') . ' (Signed).pdf';
+            $fileSize = file_exists($fullStoragePath) ? filesize($fullStoragePath) : 0;
+
+            $filedDoc = \App\Models\Document::create([
+                'original_name'    => $docName,
+                'storage_path'     => $individualPdfPath,
+                'disk'             => 'local',
+                'mime_type'        => 'application/pdf',
+                'size'             => $fileSize,
+                'document_type_id' => $tpl->document_type_id,
+                'source_type'      => 'esign',
+                'source_id'        => $template->id,
+                'uploaded_by'      => $template->created_by,
+            ]);
+
+            $this->linkFiledDocumentToContactsAndProperty($filedDoc, $contactLinks, $propertyId);
+
+            Log::info('Auto-filed individual pack document', [
+                'filed_doc_id' => $filedDoc->id,
+                'pack_template_id' => $tplId,
+                'template_name' => $tpl->name,
+                'document_type_id' => $tpl->document_type_id,
+                'property_id' => $propertyId,
+                'contact_count' => count($contactLinks),
+                'pdf_size' => $fileSize,
+            ]);
+        }
+    }
+
+    /**
+     * Split merged pack HTML into individual template fragments.
+     * Each fragment contains the style blocks + one .corex-document-wrapper div.
+     */
+    private function splitMergedHtml(string $mergedHtml, int $expectedCount): array
+    {
+        // Extract all <style> blocks (shared across all templates)
+        $styles = '';
+        if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $mergedHtml, $styleMatches)) {
+            $styles = implode("\n", $styleMatches[0]);
+        }
+
+        // Split at .corex-document-wrapper boundaries
+        // Pattern: find each <div class="corex-document-wrapper">...</div> (outermost closing)
+        $fragments = [];
+        $offset = 0;
+        $wrapperTag = '<div class="corex-document-wrapper"';
+
+        while (($pos = strpos($mergedHtml, $wrapperTag, $offset)) !== false) {
+            // Find the matching closing </div> — count nested divs
+            $depth = 0;
+            $searchPos = $pos;
+            $endPos = null;
+
+            while ($searchPos < strlen($mergedHtml)) {
+                $nextOpen = strpos($mergedHtml, '<div', $searchPos);
+                $nextClose = strpos($mergedHtml, '</div>', $searchPos);
+
+                if ($nextClose === false) break;
+
+                if ($nextOpen !== false && $nextOpen < $nextClose) {
+                    $depth++;
+                    $searchPos = $nextOpen + 4;
+                } else {
+                    $depth--;
+                    if ($depth === 0) {
+                        $endPos = $nextClose + 6; // length of '</div>'
+                        break;
+                    }
+                    $searchPos = $nextClose + 6;
+                }
+            }
+
+            if ($endPos !== null) {
+                $wrapperHtml = substr($mergedHtml, $pos, $endPos - $pos);
+                $fragments[] = $styles . "\n" . $wrapperHtml;
+                $offset = $endPos;
+            } else {
+                break;
+            }
+        }
+
+        return $fragments;
+    }
+
+    /**
+     * Resolve signing contacts from signature requests (excluding agent).
+     * Returns array of [contact_id => party_role] for linking.
+     */
+    private function resolveSigningContacts(SignatureTemplate $template): array
+    {
+        $links = [];
         foreach ($template->requests as $request) {
             if (!$request->signer_email || $request->party_role === 'agent') continue;
 
             $contact = \App\Models\Contact::where('email', $request->signer_email)->first();
             if (!$contact) continue;
 
+            $links[$contact->id] = $request->party_role;
+        }
+        return $links;
+    }
+
+    /**
+     * Link a filed Document to contacts and property via pivots.
+     */
+    private function linkFiledDocumentToContactsAndProperty(\App\Models\Document $filedDoc, array $contactLinks, ?int $propertyId): void
+    {
+        foreach ($contactLinks as $contactId => $partyRole) {
             $filedDoc->contacts()->syncWithoutDetaching([
-                $contact->id => ['party_role' => $request->party_role],
+                $contactId => ['party_role' => $partyRole],
             ]);
         }
 
-        // Link to property via pivot
         if ($propertyId) {
             $filedDoc->properties()->syncWithoutDetaching([$propertyId]);
         }
