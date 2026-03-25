@@ -1831,7 +1831,7 @@ class SigningController extends Controller
 /* === PDF: page setup === */
 @page {
     size: A4;
-    margin: 12mm 12mm 12mm 12mm;
+    margin: 10mm;
     @bottom-center {
         content: "Page " counter(page) " of " counter(pages);
         font-size: 9pt;
@@ -1845,7 +1845,7 @@ html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
 /* === PDF: scale + screen → print container resets === */
 .corex-document-wrapper {
-    zoom: 0.85;
+    zoom: 0.82;
     max-width: 100% !important;
     background: transparent !important;
     padding: 0 !important;
@@ -1877,8 +1877,11 @@ html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .corex-h1, .corex-h2, .corex-h3, .corex-section-heading {
     page-break-after: avoid;
 }
-.corex-signature-section, .corex-signature-grid, .corex-signature-block {
-    page-break-inside: avoid;
+.corex-signature-section, .corex-signature-grid, .corex-signature-block,
+.corex-ceremony-section,
+[class*="thus-done"],
+[class*="signature-block"] {
+    page-break-inside: avoid !important;
 }
 .corex-header, .corex-title-banner {
     page-break-inside: avoid;
