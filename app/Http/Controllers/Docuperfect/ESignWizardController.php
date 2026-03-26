@@ -19,8 +19,10 @@ use App\Models\Rental\RentalProperty;
 use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignatureService;
 
+use App\Models\FicaSubmission;
 use App\Services\WebTemplateDataService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -1647,6 +1649,34 @@ class ESignWizardController extends Controller
                 $skipEmail = !empty($matchedSetup['skipEmail'] ?? false);
                 $email = $matchedSetup['email'] ?? $r['email'] ?? '';
                 $signingAction = $matchedSetup['action'] ?? 'send_after';
+                $ficaRequired = !empty($matchedSetup['fica_required'] ?? false);
+                $contactId = !empty($r['_contact_id']) ? (int) $r['_contact_id'] : null;
+
+                // Auto-create FICA submission if required and contact has none approved
+                $ficaSubId = null;
+                if ($ficaRequired && $contactId) {
+                    $hasApprovedFica = FicaSubmission::where('contact_id', $contactId)
+                        ->whereIn('status', ['submitted', 'under_review', 'agent_approved', 'approved'])
+                        ->exists();
+                    if (! $hasApprovedFica) {
+                        $existingDraft = FicaSubmission::where('contact_id', $contactId)
+                            ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved'])
+                            ->first();
+                        if ($existingDraft) {
+                            $ficaSubId = $existingDraft->id;
+                        } else {
+                            $ficaSub = FicaSubmission::create([
+                                'contact_id'       => $contactId,
+                                'agency_id'        => $user->effectiveAgencyId(),
+                                'requested_by'     => $user->id,
+                                'token'            => Str::random(64),
+                                'token_expires_at' => now()->addDays(14),
+                                'status'           => 'draft',
+                            ]);
+                            $ficaSubId = $ficaSub->id;
+                        }
+                    }
+                }
 
                 $sigReq = $signatureService->createSigningRequest(
                     $sigTemplate,
@@ -1655,7 +1685,10 @@ class ESignWizardController extends Controller
                     $skipEmail ? '' : $email,
                     $r['id_number'] ?? null,
                     null,
-                    $user
+                    $user,
+                    $ficaRequired,
+                    $contactId,
+                    $ficaSubId
                 );
 
                 // Mark as deferred if "sign_later" was selected and party has no details

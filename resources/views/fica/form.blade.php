@@ -83,6 +83,9 @@
 
         <form method="POST" action="{{ route('fica.submit', $token) }}" @submit.prevent="submitForm" id="ficaForm">
             @csrf
+            @if(!empty($returnUrl))
+                <input type="hidden" name="return_url" value="{{ $returnUrl }}">
+            @endif
 
             {{-- ═══════════ SECTION 1 — ENTITY TYPE ═══════════ --}}
             <div class="fica-card">

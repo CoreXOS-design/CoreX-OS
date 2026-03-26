@@ -13,19 +13,21 @@ class FicaPublicController extends Controller
     /**
      * Show the FICA form to the recipient (token-based, no auth).
      */
-    public function form(string $token)
+    public function form(Request $request, string $token)
     {
         $submission = $this->resolveSubmission($token);
 
+        $returnUrl = $request->query('return_url', '');
+
         // Already submitted — show confirmation
         if (in_array($submission->status, ['submitted', 'under_review', 'approved'])) {
-            return redirect()->route('fica.confirmation', $token);
+            return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl]);
         }
 
         $contact = $submission->contact;
         $agency  = $submission->agency;
 
-        return view('fica.form', compact('submission', 'contact', 'agency', 'token'));
+        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl'));
     }
 
     /**
@@ -172,7 +174,9 @@ class FicaPublicController extends Controller
             'status'         => 'submitted',
         ]);
 
-        return redirect()->route('fica.confirmation', $token);
+        $returnUrl = $request->input('return_url', '');
+
+        return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl]);
     }
 
     /**
@@ -213,12 +217,13 @@ class FicaPublicController extends Controller
     /**
      * Thank-you page after submission.
      */
-    public function confirmation(string $token)
+    public function confirmation(Request $request, string $token)
     {
         $submission = FicaSubmission::where('token', $token)->firstOrFail();
         $agency     = $submission->agency;
+        $returnUrl  = $request->query('return_url', '');
 
-        return view('fica.confirmation', compact('submission', 'agency'));
+        return view('fica.confirmation', compact('submission', 'agency', 'returnUrl'));
     }
 
     /**

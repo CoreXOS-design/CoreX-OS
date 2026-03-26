@@ -9,6 +9,11 @@
     @vite(['resources/css/app.css'])
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f1f5f9; }
+        .conf-btn { display: inline-block; width: 100%; max-width: 320px; padding: 0.75rem 1.5rem; font-weight: 600; font-size: 0.9375rem; text-decoration: none; text-align: center; margin-bottom: 0.75rem; }
+        .conf-btn-primary { background: #0f172a; color: #fff; }
+        .conf-btn-primary:hover { background: #1e293b; }
+        .conf-btn-secondary { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
+        .conf-btn-secondary:hover { background: #e2e8f0; }
     </style>
 </head>
 <body>
@@ -26,13 +31,27 @@
 
             <h1 style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0 0 0.75rem;">FICA Form Submitted</h1>
 
-            <p style="color: #64748b; font-size: 0.9375rem; line-height: 1.7; max-width: 400px; margin: 0 auto;">
-                Thank you for completing your FICA verification form. Your submission has been received and will be reviewed by your agent.
-            </p>
+            @if(!empty($returnUrl))
+                <p style="color: #64748b; font-size: 0.9375rem; line-height: 1.7; max-width: 400px; margin: 0 auto;">
+                    Thank you for completing your FICA verification. Your submission will be reviewed by your agent. Once approved, you will be able to sign your document.
+                </p>
 
-            <p style="color: #64748b; font-size: 0.875rem; margin-top: 1.5rem;">
-                You may close this window.
-            </p>
+                <div style="margin-top: 2rem;">
+                    <a href="{{ $returnUrl }}" class="conf-btn conf-btn-primary">Return to Document</a>
+                </div>
+
+                <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem; line-height: 1.5;">
+                    If your FICA is still being reviewed, you will see a status page. You will receive an email when your document is ready to sign.
+                </p>
+            @else
+                <p style="color: #64748b; font-size: 0.9375rem; line-height: 1.7; max-width: 400px; margin: 0 auto;">
+                    Thank you for completing your FICA verification form. Your submission has been received and will be reviewed by your agent.
+                </p>
+
+                <p style="color: #64748b; font-size: 0.875rem; margin-top: 1.5rem;">
+                    You may close this window.
+                </p>
+            @endif
         </div>
     </div>
 </body>

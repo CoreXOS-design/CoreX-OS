@@ -40,6 +40,9 @@ class SignatureRequest extends Model
         'team_alerted_at',
         'authorised_by',
         'authorised_at',
+        'fica_required',
+        'contact_id',
+        'fica_submission_id',
     ];
 
     protected $casts = [
@@ -51,6 +54,7 @@ class SignatureRequest extends Model
         'reviewed_at' => 'datetime',
         'team_alerted_at' => 'datetime',
         'authorised_at' => 'datetime',
+        'fica_required' => 'boolean',
     ];
 
     // Status constants
@@ -79,6 +83,16 @@ class SignatureRequest extends Model
     public function sender()
     {
         return $this->belongsTo(User::class, 'sent_by');
+    }
+
+    public function contact()
+    {
+        return $this->belongsTo(\App\Models\Contact::class);
+    }
+
+    public function ficaSubmission()
+    {
+        return $this->belongsTo(\App\Models\FicaSubmission::class);
     }
 
     public function reviewer()

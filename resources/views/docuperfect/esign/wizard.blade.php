@@ -901,6 +901,12 @@
                                                    class="rounded">
                                             <span class="text-gray-600 text-xs">Exclude from email — will sign in person or via primary recipient</span>
                                         </label>
+                                        <label class="flex items-center gap-2 mt-2 text-sm">
+                                            <input type="checkbox"
+                                                   x-model="r.fica_required"
+                                                   class="rounded" style="accent-color: #0d9488;">
+                                            <span class="text-gray-600 text-xs">FICA verification required before signing</span>
+                                        </label>
                                     </div>
                                 </template>
                             </div>
@@ -1626,6 +1632,7 @@ function esignWizard() {
                 // Restore skipEmail and overridden email from signing_setup step data
                 const saved = serverStepData?.signing_setup?.[i] || {};
                 if (!r.hasOwnProperty('skipEmail')) r.skipEmail = saved.skipEmail || false;
+                if (!r.hasOwnProperty('fica_required')) r.fica_required = saved.fica_required ?? true;
                 if (saved.email && saved.email !== r.email) r.email = saved.email;
             });
 
@@ -2452,6 +2459,7 @@ function esignWizard() {
                         name: this.recipients[i]?.name || '',
                         email: this.recipients[i]?.email || '',
                         skipEmail: this.recipients[i]?.skipEmail || false,
+                        fica_required: this.recipients[i]?.fica_required || false,
                     })),
                 };
                 default: return {};

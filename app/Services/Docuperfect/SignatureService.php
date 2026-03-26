@@ -816,7 +816,10 @@ class SignatureService
         string $signerEmail,
         ?string $signerIdNumber = null,
         ?string $message = null,
-        ?User $sentBy = null
+        ?User $sentBy = null,
+        bool $ficaRequired = false,
+        ?int $contactId = null,
+        ?int $ficaSubmissionId = null
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -838,6 +841,9 @@ class SignatureService
             'status' => SignatureRequest::STATUS_WAITING,
             'sent_by' => $sentBy?->id,
             'message' => $message,
+            'fica_required' => $ficaRequired,
+            'contact_id' => $contactId,
+            'fica_submission_id' => $ficaSubmissionId,
         ]);
 
         SignatureAuditLog::log(

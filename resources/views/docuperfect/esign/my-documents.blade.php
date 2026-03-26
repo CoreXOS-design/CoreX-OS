@@ -259,12 +259,28 @@
                                                 {{ $req->signer_name }}
                                                 — {{ $req->status === 'viewed' ? 'viewed' : ($req->status === 'partially_signed' ? 'signing' : 'sent') }}
                                             </span>
+                                            @if($req->fica_required && $req->contact_id)
+                                                @php $ficaDone = \App\Models\FicaSubmission::where('contact_id', $req->contact_id)->where('status', 'approved')->exists(); @endphp
+                                                @if($ficaDone)
+                                                    <span class="ml-1 text-emerald-500 font-medium">FICA OK</span>
+                                                @else
+                                                    <a href="{{ $req->fica_submission_id ? route('compliance.fica.show', $req->fica_submission_id) : '#' }}" class="ml-1 text-amber-500 font-medium hover:text-amber-700">Awaiting FICA</a>
+                                                @endif
+                                            @endif
                                         </div>
                                     @elseif($req->status === 'waiting')
                                         <span class="mt-0.5" style="color: var(--text-muted);">&#128274;</span>
                                         <div>
                                             <span class="capitalize" style="color: var(--text-muted);">{{ $req->party_role ?? 'Party' }}</span>
                                             <span style="color: var(--text-muted);">waiting</span>
+                                            @if($req->fica_required && $req->contact_id)
+                                                @php $ficaDone = \App\Models\FicaSubmission::where('contact_id', $req->contact_id)->where('status', 'approved')->exists(); @endphp
+                                                @if($ficaDone)
+                                                    <span class="ml-1 text-emerald-500 font-medium">FICA OK</span>
+                                                @else
+                                                    <a href="{{ $req->fica_submission_id ? route('compliance.fica.show', $req->fica_submission_id) : '#' }}" class="ml-1 text-amber-500 font-medium hover:text-amber-700">Awaiting FICA</a>
+                                                @endif
+                                            @endif
                                         </div>
                                     @endif
                                 </div>

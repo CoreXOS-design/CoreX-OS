@@ -9,6 +9,7 @@ use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
+use App\Models\FicaSubmission;
 use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\WebTemplateFieldPartyMap;
@@ -88,6 +89,46 @@ class SigningController extends Controller
             }
             if (!session("esign_consent_{$signingRequest->id}")) {
                 return redirect()->route('signatures.external.showConsent', ['token' => $token]);
+            }
+        }
+
+        // FICA gate — external signers must have submitted FICA before signing
+        if ($signingRequest->fica_required && $signingRequest->contact_id) {
+            $ficaApproved = FicaSubmission::where('contact_id', $signingRequest->contact_id)
+                ->whereIn('status', ['submitted', 'under_review', 'agent_approved', 'approved'])
+                ->exists();
+
+            if (! $ficaApproved) {
+                $ficaSub = $signingRequest->fica_submission_id
+                    ? FicaSubmission::find($signingRequest->fica_submission_id)
+                    : FicaSubmission::where('contact_id', $signingRequest->contact_id)
+                        ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved'])
+                        ->first();
+
+                $signingUrl = route('signatures.external', $token);
+                $ficaUrl = $ficaSub
+                    ? route('fica.form', $ficaSub->token) . '?return_url=' . urlencode($signingUrl)
+                    : null;
+
+                // Determine FICA status for gate display
+                $ficaStatus = 'none';
+                if ($ficaSub) {
+                    $ficaStatus = in_array($ficaSub->status, ['submitted', 'under_review', 'agent_approved'])
+                        ? 'pending_review'
+                        : 'needs_form';
+                }
+
+                $branding = $this->getAgencyBranding($signingRequest);
+
+                return view('docuperfect.signatures.external.fica-gate', [
+                    'request'     => $signingRequest,
+                    'ficaUrl'     => $ficaUrl,
+                    'ficaStatus'  => $ficaStatus,
+                    'signingUrl'  => $signingUrl,
+                    'agencyName'  => $branding['name'],
+                    'agencyLogo'  => $branding['logo'],
+                    'agencyColor' => $branding['color'],
+                ]);
             }
         }
 

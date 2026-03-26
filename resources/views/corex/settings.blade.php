@@ -376,7 +376,7 @@
                             </label>
                             @endforeach
                         </div>
-                        <button type="submit" class="px-4 py-1.5 text-xs font-semibold rounded-md transition-all" style="background:var(--brand); color:#fff;">Save Compliance Officers</button>
+                        <button type="submit" class="px-4 py-1.5 text-xs font-semibold rounded-md transition-all" style="background:var(--brand-button, #0ea5e9); color:#fff;">Save Compliance Officers</button>
                     </form>
                 </div>
             </div>
