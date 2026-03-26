@@ -297,7 +297,7 @@
                             ];
                         })->values()->toArray();
                     @endphp
-                    <div class="relative" style="max-width:100%; margin:0 auto;"
+                    <div class="relative" style="width:210mm; max-width:100%; margin:0 auto;"
                          x-ref="pageContainer"
                          x-init="pageLoaded = true; $nextTick(() => paginateDocument(document.getElementById('webDocContent'), {{ Js::from($setupParties) }}))"
                          @dragover.prevent="$event.dataTransfer.dropEffect = 'copy'"

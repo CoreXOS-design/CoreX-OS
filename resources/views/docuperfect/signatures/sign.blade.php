@@ -187,12 +187,13 @@
         <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
             <link href="/css/corex-document.css" rel="stylesheet">
             <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-            <div x-ref="pageContainer" class="relative" style="max-width:100%; margin:0 auto;">
+            <div x-ref="pageContainer" class="relative" style="width:210mm; max-width:100%; margin:0 auto;">
                 <div x-ref="webDocContent">{!! $webTemplateHtml !!}</div>
 
                 {{-- Floating signature markers — same as PDF path but for web templates.
                      Markers come from zones drawn in setup (expanded into DB markers).
-                     Positioned with absolute % values relative to the paginated container. --}}
+                     Positioned with absolute % values relative to the paginated container.
+                     Container width locked to 210mm (A4) to match setup coordinate system. --}}
                 <template x-for="marker in markers" :key="'wm-' + marker.id">
                     <div class="absolute flex items-center justify-center select-none transition-all duration-200"
                          :id="'marker-' + marker.id"

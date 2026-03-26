@@ -409,11 +409,12 @@
                 <template x-if="isWebTemplate">
                     <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
                         <div x-ref="pageContainer" class="relative"
-                             style="max-width:100%; margin:0 auto;">
+                             style="width:210mm; max-width:100%; margin:0 auto;">
                             <div x-ref="webDocContent" x-html="webTemplateHtml"></div>
 
                             {{-- Floating signature markers — from zones drawn in setup.
-                                 Positioned with absolute % values relative to the paginated container. --}}
+                                 Positioned with absolute % values relative to the paginated container.
+                                 Container width locked to 210mm (A4) to match setup coordinate system. --}}
                             <template x-for="marker in markers" :key="'wm-' + marker.id">
                                 <div x-show="!hasFlattened || (marker.is_mine && !marker.signed)"
                                      class="absolute flex items-center justify-center select-none transition-all duration-200"
