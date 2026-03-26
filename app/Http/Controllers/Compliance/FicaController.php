@@ -22,15 +22,47 @@ class FicaController extends Controller
      */
     public function index(Request $request)
     {
-        $agencyId = Auth::user()->effectiveAgencyId();
-        $isCO = Auth::user()->isComplianceOfficer();
+        $user = Auth::user();
+        $agencyId = $user->effectiveAgencyId();
+        $isCO = $user->isComplianceOfficer();
+        $isAdmin = $user->isOwnerRole() || $user->hasPermission('manage_compliance');
+        $canSeeAll = $isCO || $isAdmin;
+        $tab = $request->query('tab', $canSeeAll ? 'all' : 'submitted');
 
-        $query = FicaSubmission::with(['contact', 'requestedBy', 'verifiedBy', 'agentVerifiedBy', 'coVerifiedBy'])
-            ->where('agency_id', $agencyId)
+        // Base query scoped by role
+        $baseQuery = FicaSubmission::where('agency_id', $agencyId);
+        if (! $canSeeAll) {
+            $baseQuery->where('requested_by', $user->id);
+        }
+
+        // Counts (per status)
+        $countBase = (clone $baseQuery);
+        $counts = [
+            'all'                    => (clone $countBase)->count(),
+            'submitted'              => (clone $countBase)->where('status', 'submitted')->count(),
+            'agent_approved'         => (clone $countBase)->where('status', 'agent_approved')->count(),
+            'approved'               => (clone $countBase)->where('status', 'approved')->count(),
+            'corrections_requested'  => (clone $countBase)->where('status', 'corrections_requested')->count(),
+            'rejected'               => (clone $countBase)->where('status', 'rejected')->count(),
+        ];
+        // CO queue count (always agency-wide for COs)
+        $coQueueCount = $isCO
+            ? FicaSubmission::where('agency_id', $agencyId)->where('status', 'agent_approved')->count()
+            : 0;
+
+        // Build filtered query
+        $query = (clone $baseQuery)
+            ->with(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy'])
             ->latest();
 
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        if ($tab === 'co_queue') {
+            // CO queue: always agency-wide, only agent_approved
+            $query = FicaSubmission::where('agency_id', $agencyId)
+                ->where('status', 'agent_approved')
+                ->with(['contact', 'requestedBy', 'agentVerifiedBy'])
+                ->oldest('agent_verified_at');
+        } elseif ($tab !== 'all') {
+            $query->where('status', $tab);
         }
 
         if ($search = $request->query('search')) {
@@ -45,15 +77,19 @@ class FicaController extends Controller
 
         $submissions = $query->paginate(20)->withQueryString();
 
-        $counts = [
-            'all'            => FicaSubmission::where('agency_id', $agencyId)->count(),
-            'submitted'      => FicaSubmission::where('agency_id', $agencyId)->where('status', 'submitted')->count(),
-            'agent_approved' => FicaSubmission::where('agency_id', $agencyId)->where('status', 'agent_approved')->count(),
-            'approved'       => FicaSubmission::where('agency_id', $agencyId)->where('status', 'approved')->count(),
-            'pending'        => FicaSubmission::where('agency_id', $agencyId)->whereIn('status', ['draft', 'corrections_requested'])->count(),
-        ];
+        // CO queue stats
+        $coQueueStats = null;
+        if ($isCO && $coQueueCount > 0) {
+            $oldest = FicaSubmission::where('agency_id', $agencyId)
+                ->where('status', 'agent_approved')
+                ->min('agent_verified_at');
+            $coQueueStats = [
+                'count'       => $coQueueCount,
+                'oldest_days' => $oldest ? (int) now()->diffInDays($oldest) : 0,
+            ];
+        }
 
-        return view('compliance.fica.index', compact('submissions', 'counts', 'isCO'));
+        return view('compliance.fica.index', compact('submissions', 'counts', 'isCO', 'isAdmin', 'canSeeAll', 'tab', 'coQueueCount', 'coQueueStats'));
     }
 
     /**
