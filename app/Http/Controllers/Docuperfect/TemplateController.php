@@ -722,8 +722,49 @@ class TemplateController extends Controller
                 fn($s) => !in_array($s['type'] ?? '', ['company_header', 'title'])
             ));
 
+            // Enrich CDS JSON inline_signature sections with multi-party assignments
+            // from field_mappings when available (field_mappings override CDS section parties)
+            $sigMappingParties = $this->extractSigPartiesFromMappings($fieldMappings);
+            if (!empty($sigMappingParties)) {
+                $sigIdx = 0;
+                foreach ($filteredCds['sections'] as &$section) {
+                    if (($section['type'] ?? '') === 'inline_signature') {
+                        if (isset($sigMappingParties[$sigIdx])) {
+                            $section['parties'] = array_map(
+                                fn($role) => ['role' => $role, 'label' => ucfirst(str_replace('_', ' ', $role))],
+                                $sigMappingParties[$sigIdx]
+                            );
+                        }
+                        $sigIdx++;
+                    }
+                }
+                unset($section);
+            }
+
             $renderer = app(CdsRendererService::class);
             $rawHtml = $renderer->render($filteredCds);
+
+            // Replace CDS inline signature sections with Blade signature-line includes.
+            // Each corex-signature-block within an inline section becomes a per-party include.
+            $html = preg_replace_callback(
+                '/<div\s+class="corex-signature-section"[^>]*>.*?<\/div>\s*<\/div>\s*<\/div>/s',
+                function ($m) {
+                    // Extract all data-marker-party values from the section
+                    $parties = [];
+                    if (preg_match_all('/data-marker-party="([^"]*)"/', $m[0], $pMatches)) {
+                        $parties = array_unique($pMatches[1]);
+                    }
+                    if (!empty($parties)) {
+                        $includes = [];
+                        foreach ($parties as $p) {
+                            $includes[] = '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($p) . '\'])';
+                        }
+                        return implode("\n", $includes);
+                    }
+                    return '@include("docuperfect.web-templates.components.signature-line")';
+                },
+                $rawHtml
+            );
 
             // Replace marker-based signature/initial placeholders (preserving party param)
             $html = preg_replace_callback(
@@ -738,7 +779,7 @@ class TemplateController extends Controller
                     }
                     return '@include("docuperfect.web-templates.components.signature-line")';
                 },
-                $rawHtml
+                $html
             );
             $html = preg_replace_callback(
                 '/<span\s+class="corex-field"[^>]*data-marker-type="initial"[^>]*>.*?<\/span>/s',
@@ -847,19 +888,28 @@ BLADE;
             function ($matches) use ($mappings, $namedFields) {
                 $span = $matches[0];
 
-                // Signature tags → @include component (preserve party from mappings)
+                // Signature tags → @include component (preserve ALL parties from mappings)
                 if (str_contains($span, 'doc-tag-sig')) {
-                    $party = $this->extractPartyFromTagSpan($span, $mappings);
-                    if ($party) {
-                        return '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                    $parties = $this->extractPartiesFromTagSpan($span, $mappings);
+                    if (!empty($parties)) {
+                        // Emit one signature-line per assigned party so all sign at this position
+                        $includes = [];
+                        foreach ($parties as $p) {
+                            $includes[] = '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($p) . '\'])';
+                        }
+                        return implode("\n", $includes);
                     }
                     return '@include("docuperfect.web-templates.components.signature-line")';
                 }
-                // Initial tags → @include component (preserve party from mappings)
+                // Initial tags → @include component (preserve ALL parties from mappings)
                 if (str_contains($span, 'doc-tag-ini')) {
-                    $party = $this->extractPartyFromTagSpan($span, $mappings);
-                    if ($party) {
-                        return '@include("docuperfect.web-templates.components.initials-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                    $parties = $this->extractPartiesFromTagSpan($span, $mappings);
+                    if (!empty($parties)) {
+                        $includes = [];
+                        foreach ($parties as $p) {
+                            $includes[] = '@include("docuperfect.web-templates.components.initials-line", [\'party\' => \'' . addslashes($p) . '\'])';
+                        }
+                        return implode("\n", $includes);
                     }
                     return '@include("docuperfect.web-templates.components.initials-line")';
                 }
@@ -895,29 +945,81 @@ BLADE;
      * The CDS builder stores party assignments in mappings[tagId].parties = ['Seller'].
      * Returns lowercase party name (e.g. 'seller') or null if not assigned.
      */
-    private function extractPartyFromTagSpan(string $span, array $mappings): ?string
+    /**
+     * Extract ALL assigned parties from a tag span's mapping.
+     * Returns an array of resolved party role strings (e.g. ['seller', 'agent']).
+     */
+    private function extractPartiesFromTagSpan(string $span, array $mappings): array
     {
         if (!preg_match('/data-tag-id="([^"]*)"/', $span, $idMatch)) {
-            return null;
+            return [];
         }
         $tagId = $idMatch[1];
         $mapping = $mappings[$tagId] ?? null;
-        if (!$mapping || empty($mapping['parties'])) {
-            return null;
+        if (!$mapping || empty($mapping['parties']) || !is_array($mapping['parties'])) {
+            return [];
         }
-        $party = is_array($mapping['parties']) ? ($mapping['parties'][0] ?? null) : null;
-        if (!$party) {
-            return null;
-        }
-        // Resolve generic party names to concrete roles
-        $party = strtolower($party);
+
         $resolveMap = [
             'owner_party' => 'seller',
             'acquiring_party' => 'buyer',
             'lessor' => 'landlord',
             'lessee' => 'tenant',
         ];
-        return $resolveMap[$party] ?? $party;
+
+        $resolved = [];
+        foreach ($mapping['parties'] as $party) {
+            if (!$party) continue;
+            $p = strtolower($party);
+            $resolved[] = $resolveMap[$p] ?? $p;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Extract a single party from a tag span (backward compat — uses first party).
+     */
+    private function extractPartyFromTagSpan(string $span, array $mappings): ?string
+    {
+        $parties = $this->extractPartiesFromTagSpan($span, $mappings);
+        return $parties[0] ?? null;
+    }
+
+    /**
+     * Extract resolved party arrays from field_mappings for signature-type tags.
+     * Returns indexed array: [0 => ['seller', 'agent'], 1 => ['agent', 'seller'], ...].
+     * Used to enrich CDS JSON inline_signature sections with correct multi-party assignments.
+     */
+    private function extractSigPartiesFromMappings(array $fieldMappings): array
+    {
+        $resolveMap = [
+            'owner_party' => 'seller',
+            'acquiring_party' => 'buyer',
+            'lessor' => 'landlord',
+            'lessee' => 'tenant',
+        ];
+
+        $result = [];
+        foreach ($fieldMappings as $mapping) {
+            $parties = $mapping['parties'] ?? [];
+            if (empty($parties) || !is_array($parties)) {
+                continue;
+            }
+            // Check if this mapping is for a signature-type tag
+            // (has parties array — only sig/initial tags have party assignments)
+            $resolved = [];
+            foreach ($parties as $p) {
+                if (!$p) continue;
+                $lower = strtolower($p);
+                $resolved[] = $resolveMap[$lower] ?? $lower;
+            }
+            if (!empty($resolved)) {
+                $result[] = $resolved;
+            }
+        }
+
+        return $result;
     }
 
     /**
