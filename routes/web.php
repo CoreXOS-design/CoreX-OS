@@ -545,7 +545,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/', [CoreXDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard');
 
     Route::get('/documents', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'documents')->middleware('permission:access_docuperfect')->name('corex.documents');
-    Route::get('/compliance', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'compliance')->middleware('permission:access_compliance')->name('corex.compliance');
+    // ── Compliance / FICA ──
+    Route::middleware('permission:access_compliance')->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Compliance\FicaController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
+        Route::get('/{submission}', [\App\Http\Controllers\Compliance\FicaController::class, 'show'])->name('show');
+        Route::post('/{submission}/approve', [\App\Http\Controllers\Compliance\FicaController::class, 'approve'])->name('approve');
+        Route::post('/{submission}/reject', [\App\Http\Controllers\Compliance\FicaController::class, 'reject'])->name('reject');
+        Route::post('/{submission}/request-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'requestCorrections'])->name('request-corrections');
+    });
+
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
     Route::get('/training', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'training')->middleware('permission:access_training')->name('corex.training');
     Route::get('/communication', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'communication')->middleware('permission:access_communication')->name('corex.communication');
@@ -1268,6 +1278,14 @@ Route::middleware(['auth', 'permission:access_prospecting'])->prefix('prospectin
     Route::post('/{listing}/feedback', [\App\Http\Controllers\ProspectingController::class, 'feedback'])->name('feedback');
     Route::post('/{listing}/release', [\App\Http\Controllers\ProspectingController::class, 'release'])->name('release');
     Route::get('/{listing}', [\App\Http\Controllers\ProspectingController::class, 'show'])->name('show');
+});
+
+// ===== FICA PUBLIC FORM (no auth, token-based) =====
+Route::prefix('fica')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\Compliance\FicaPublicController::class, 'form'])->name('fica.form');
+    Route::post('/{token}', [\App\Http\Controllers\Compliance\FicaPublicController::class, 'submit'])->name('fica.submit');
+    Route::post('/{token}/upload', [\App\Http\Controllers\Compliance\FicaPublicController::class, 'uploadDocument'])->name('fica.upload');
+    Route::get('/{token}/confirmation', [\App\Http\Controllers\Compliance\FicaPublicController::class, 'confirmation'])->name('fica.confirmation');
 });
 
 // Portal capture ingest endpoint (outside presentation prefix — extension posts here)

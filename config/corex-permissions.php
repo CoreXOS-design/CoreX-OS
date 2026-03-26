@@ -109,6 +109,9 @@ return [
         ['key' => 'view_compliance_reports', 'label' => 'View Compliance Reports',         'section' => 'compliance',       'type' => 'access',  'module' => 'compliance',       'sort_order' => 3],
         ['key' => 'compliance.view',         'label' => 'View',                            'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 10],
         ['key' => 'compliance.manage',       'label' => 'Manage',                          'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 11],
+        ['key' => 'compliance.fica.send',    'label' => 'Send FICA Requests',              'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 12],
+        ['key' => 'compliance.fica.review',  'label' => 'Review FICA Submissions',         'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 13],
+        ['key' => 'compliance.fica.approve', 'label' => 'Approve/Reject FICA',             'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 14],
 
         // ── Supervision ──
         ['key' => 'access_supervision',      'label' => 'Access Supervision',              'section' => 'supervision',      'type' => 'access',  'module' => 'supervision',      'sort_order' => 1],
