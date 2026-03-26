@@ -35,64 +35,132 @@ class FicaPublicController extends Controller
     {
         $submission = $this->resolveSubmission($token);
 
-        $validated = $request->validate([
-            // Section 1 — Personal details
-            'full_name'           => 'required|string|max:255',
-            'id_number'           => 'required|string|max:50',
-            'date_of_birth'       => 'required|date',
-            'nationality'         => 'required|string|max:100',
-            'residential_address' => 'required|string|max:1000',
-            'postal_address'      => 'nullable|string|max:1000',
-            'phone'               => 'required|string|max:30',
-            'email'               => 'required|email|max:255',
+        $entityType = $request->input('entity_type');
 
-            // Section 2 — Source of funds
-            'payment_method'      => 'required|string|max:2000',
-            'cash_over_50k'       => 'required|in:yes,no',
-            'source_of_income'    => 'required|string|max:2000',
-            'occupation'          => 'required|string|max:255',
-            'employer'            => 'nullable|string|max:255',
+        $rules = [
+            // Section 1 — Entity type
+            'entity_type' => 'required|in:natural,company,trust,partnership',
 
-            // Section 3 — Purpose
-            'transaction_purpose' => 'required|string|max:255',
-            'purpose_other'       => 'nullable|string|max:500',
+            // Section 2 — Person completing form
+            'personal.full_name'           => 'required|string|max:255',
+            'personal.id_number'           => 'required|string|max:50',
+            'personal.sa_citizen'          => 'required|in:yes,no',
+            'personal.residential_address' => 'required|string|max:2000',
+            'personal.phone'              => 'required|string|max:30',
+            'personal.email'              => 'required|email|max:255',
+            'personal.tax_number'         => 'nullable|string|max:50',
 
-            // Section 4 — Entity type
-            'entity_type'         => 'required|in:natural,company,trust,partnership',
+            // Section 6 — Service & payment
+            'service.transaction_purpose' => 'required|string|max:100',
+            'service.purpose_other'       => 'nullable|string|max:500',
+            'service.payment_method'      => 'required|string|max:2000',
+            'service.cash_over_50k'       => 'required|in:yes,no',
 
-            // Entity sub-fields (conditionally required via form logic)
-            'company_name'            => 'nullable|string|max:255',
-            'company_reg_number'      => 'nullable|string|max:100',
-            'company_address'         => 'nullable|string|max:1000',
-            'directors'               => 'nullable|array',
-            'directors.*.name'        => 'nullable|string|max:255',
-            'directors.*.id_number'   => 'nullable|string|max:50',
+            // Section 7 — PEP
+            'pep.foreign_pep'              => 'nullable|array',
+            'pep.foreign_pep.*'            => 'string|max:50',
+            'pep.domestic_pep'             => 'nullable|array',
+            'pep.domestic_pep.*'           => 'string|max:50',
+            'pep.is_family_associate'      => 'required|in:yes,no',
+            'pep.family_associate_details' => 'nullable|required_if:pep.is_family_associate,yes|string|max:2000',
+            'pep.source_of_wealth'         => 'nullable|string|max:2000',
 
-            'trust_name'              => 'nullable|string|max:255',
-            'trust_number'            => 'nullable|string|max:100',
-            'trustees'                => 'nullable|array',
-            'trustees.*.name'         => 'nullable|string|max:255',
-            'trustees.*.id_number'    => 'nullable|string|max:50',
-            'beneficiaries'           => 'nullable|array',
-            'beneficiaries.*.name'    => 'nullable|string|max:255',
-            'beneficiaries.*.id_number' => 'nullable|string|max:50',
+            // Section 9 — Declaration & signature
+            'declaration.signed_at_location' => 'required|string|max:255',
+            'signature_data'                 => 'required|string',
+        ];
 
-            'partnership_name'        => 'nullable|string|max:255',
-            'partners'                => 'nullable|array',
-            'partners.*.name'         => 'nullable|string|max:255',
-            'partners.*.id_number'    => 'nullable|string|max:50',
-            'authority_reference'     => 'nullable|string|max:255',
+        // Section 3 — Company/CC
+        if ($entityType === 'company') {
+            $rules += [
+                'entity.company_name'                  => 'required|string|max:255',
+                'entity.company_reg_number'            => 'required|string|max:100',
+                'entity.company_sa_presence'            => 'required|string|max:2000',
+                'entity.company_stock_exchange'         => 'nullable|string|max:255',
+                'entity.company_tax_number'             => 'nullable|string|max:50',
+                'entity.company_vat_number'             => 'nullable|string|max:50',
+                'entity.company_address'                => 'required|string|max:2000',
+                'entity.company_authority_source'       => 'required|string|max:2000',
+                'entity.company_business_description'   => 'required|string|max:2000',
+                'entity.company_ownership_structure'    => 'required|string|max:2000',
+                'entity.beneficial_owner_method'        => 'required|in:method_1,method_2,method_3',
+                'entity.beneficial_owners'              => 'required|array|min:1',
+                'entity.beneficial_owners.*.name'       => 'required|string|max:255',
+                'entity.beneficial_owners.*.id_number'  => 'required|string|max:50',
+                'entity.beneficial_owners.*.address'    => 'required|string|max:2000',
+                'entity.beneficial_owners.*.phone'      => 'nullable|string|max:30',
+                'entity.beneficial_owners.*.email'      => 'nullable|string|max:255',
+            ];
+        }
 
-            // Section 5 — PEP
-            'pep_domestic'        => 'required|in:yes,no',
-            'pep_foreign'         => 'required|in:yes,no',
-            'pep_family'          => 'required|in:yes,no',
-            'pep_associate'       => 'required|in:yes,no',
-            'pep_details'         => 'nullable|string|max:2000',
+        // Section 3 — Trust
+        if ($entityType === 'trust') {
+            $rules += [
+                'entity.trust_name'                => 'required|string|max:255',
+                'entity.trust_master_ref'          => 'required|string|max:100',
+                'entity.trust_sa_presence'         => 'required|string|max:2000',
+                'entity.trust_master_court'        => 'required|string|max:255',
+                'entity.trust_tax_number'          => 'nullable|string|max:50',
+                'entity.trust_vat_number'          => 'nullable|string|max:50',
+                'entity.trust_authority_source'    => 'required|string|max:2000',
+                'entity.trust_purpose'             => 'required|string|max:2000',
+                'entity.donor_name'                => 'required|string|max:255',
+                'entity.donor_id_number'           => 'required|string|max:50',
+                'entity.donor_address'             => 'required|string|max:2000',
+                'entity.has_named_beneficiaries'   => 'required|in:yes,no',
+                'entity.beneficiary_determination' => 'nullable|required_if:entity.has_named_beneficiaries,no|string|max:2000',
+                'entity.trustees'                  => 'required|array|min:1',
+                'entity.trustees.*.name'           => 'required|string|max:255',
+                'entity.trustees.*.id_number'      => 'required|string|max:50',
+                'entity.trustees.*.address'        => 'required|string|max:2000',
+                'entity.beneficiaries'             => 'nullable|array',
+                'entity.beneficiaries.*.name'      => 'nullable|string|max:255',
+                'entity.beneficiaries.*.id_number' => 'nullable|string|max:50',
+                'entity.beneficiaries.*.address'   => 'nullable|string|max:2000',
+            ];
+        }
 
-            // Section 7 — Signature
-            'signature_data'      => 'required|string',
-        ]);
+        // Section 3 — Partnership
+        if ($entityType === 'partnership') {
+            $rules += [
+                'entity.partnership_name'                => 'required|string|max:255',
+                'entity.partnership_sa_presence'          => 'required|string|max:2000',
+                'entity.partnership_authority_source'     => 'required|string|max:2000',
+                'entity.partnership_business_description' => 'required|string|max:2000',
+                'entity.is_professional_partnership'      => 'required|in:yes,no',
+                'entity.executive_partners'              => 'nullable|required_if:entity.is_professional_partnership,yes|string|max:2000',
+                'entity.partnership_ownership_structure'  => 'required|string|max:2000',
+                'entity.partnership_tax_number'           => 'nullable|string|max:50',
+                'entity.partnership_vat_number'           => 'nullable|string|max:50',
+                'entity.partners'                        => 'required|array|min:1',
+                'entity.partners.*.name'                 => 'required|string|max:255',
+                'entity.partners.*.id_number'            => 'required|string|max:50',
+                'entity.partners.*.address'              => 'required|string|max:2000',
+                'entity.partners.*.phone'                => 'nullable|string|max:30',
+                'entity.partners.*.email'                => 'nullable|string|max:255',
+            ];
+        }
+
+        // Section 4/5 — Principal & Representative (natural person only)
+        if ($entityType === 'natural') {
+            $rules += [
+                'principal.acting_on_behalf'    => 'required|in:yes,no',
+                'principal.full_name'           => 'nullable|required_if:principal.acting_on_behalf,yes|string|max:255',
+                'principal.id_number'           => 'nullable|required_if:principal.acting_on_behalf,yes|string|max:50',
+                'principal.sa_citizen'          => 'nullable|required_if:principal.acting_on_behalf,yes|in:yes,no',
+                'principal.residential_address' => 'nullable|required_if:principal.acting_on_behalf,yes|string|max:2000',
+                'principal.phone'               => 'nullable|required_if:principal.acting_on_behalf,yes|string|max:30',
+                'principal.email'               => 'nullable|required_if:principal.acting_on_behalf,yes|email|max:255',
+                'principal.tax_number'          => 'nullable|string|max:50',
+                'principal.authority_source'    => 'nullable|required_if:principal.acting_on_behalf,yes|string|max:2000',
+                'representative.has_representative' => 'required|in:yes,no',
+                'representative.full_name'          => 'nullable|required_if:representative.has_representative,yes|string|max:255',
+                'representative.id_number'          => 'nullable|required_if:representative.has_representative,yes|string|max:50',
+                'representative.authority_source'   => 'nullable|required_if:representative.has_representative,yes|string|max:2000',
+            ];
+        }
+
+        $validated = $request->validate($rules);
 
         $submission->update([
             'entity_type'    => $validated['entity_type'],
@@ -114,7 +182,7 @@ class FicaPublicController extends Controller
 
         $request->validate([
             'file'          => 'required|file|max:10240|mimes:pdf,jpg,jpeg,png,heic',
-            'document_type' => 'required|string|in:id_copy,proof_of_address,authority,bank_statement,tax_clearance,company_registration,trust_deed,other',
+            'document_type' => 'required|string|max:50',
         ]);
 
         $file = $request->file('file');

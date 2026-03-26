@@ -24,113 +24,197 @@
         <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">{{ session('success') }}</div>
     @endif
 
+    @php
+        $data = $submission->form_data ?? [];
+        $personal = $data['personal'] ?? [];
+        $entity = $data['entity'] ?? [];
+        $service = $data['service'] ?? [];
+        $pepData = $data['pep'] ?? [];
+        $principalData = $data['principal'] ?? [];
+        $repData = $data['representative'] ?? [];
+        $declData = $data['declaration'] ?? [];
+    @endphp
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {{-- LEFT PANEL: Submitted Data --}}
         <div class="lg:col-span-2 space-y-4">
-            @php $data = $submission->form_data ?? []; @endphp
 
-            {{-- Personal Details --}}
+            {{-- Person Completing Form --}}
             <div class="bg-white border border-slate-200 p-5">
-                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Personal Details</h3>
+                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Person Completing Form</h3>
                 <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                    <div><dt class="text-slate-400 text-xs">Full Name</dt><dd class="text-slate-900 font-medium">{{ $data['full_name'] ?? '—' }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">ID / Passport</dt><dd class="text-slate-900 font-medium">{{ $data['id_number'] ?? '—' }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Date of Birth</dt><dd class="text-slate-900">{{ $data['date_of_birth'] ?? '—' }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Nationality</dt><dd class="text-slate-900">{{ $data['nationality'] ?? '—' }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Phone</dt><dd class="text-slate-900">{{ $data['phone'] ?? '—' }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Email</dt><dd class="text-slate-900">{{ $data['email'] ?? '—' }}</dd></div>
-                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Residential Address</dt><dd class="text-slate-900">{{ $data['residential_address'] ?? '—' }}</dd></div>
-                    @if(!empty($data['postal_address']))
-                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Postal Address</dt><dd class="text-slate-900">{{ $data['postal_address'] }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Full Name</dt><dd class="text-slate-900 font-medium">{{ $personal['full_name'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">ID / Passport</dt><dd class="text-slate-900 font-medium">{{ $personal['id_number'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">SA Citizen/Resident</dt><dd class="text-slate-900">{{ ucfirst($personal['sa_citizen'] ?? '—') }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Phone</dt><dd class="text-slate-900">{{ $personal['phone'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Email</dt><dd class="text-slate-900">{{ $personal['email'] ?? '—' }}</dd></div>
+                    @if(!empty($personal['tax_number']))
+                    <div><dt class="text-slate-400 text-xs">Tax Number</dt><dd class="text-slate-900">{{ $personal['tax_number'] }}</dd></div>
                     @endif
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Residential Address</dt><dd class="text-slate-900">{{ $personal['residential_address'] ?? '—' }}</dd></div>
                 </dl>
             </div>
 
-            {{-- Source of Funds --}}
+            {{-- Entity Details --}}
+            @if($submission->entity_type !== 'natural')
             <div class="bg-white border border-slate-200 p-5">
-                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Source of Funds</h3>
+                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">
+                    {{ ['company' => 'Company / CC', 'trust' => 'Trust', 'partnership' => 'Partnership'][$submission->entity_type] ?? 'Entity' }} Details
+                </h3>
+
+                @if($submission->entity_type === 'company')
                 <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Payment Method</dt><dd class="text-slate-900">{{ $data['payment_method'] ?? '—' }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Cash Over R50,000</dt><dd class="text-slate-900 font-semibold {{ ($data['cash_over_50k'] ?? '') === 'yes' ? 'text-red-600' : '' }}">{{ ucfirst($data['cash_over_50k'] ?? '—') }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Occupation</dt><dd class="text-slate-900">{{ $data['occupation'] ?? '—' }}</dd></div>
-                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Source of Income</dt><dd class="text-slate-900">{{ $data['source_of_income'] ?? '—' }}</dd></div>
-                    @if(!empty($data['employer']))
-                    <div><dt class="text-slate-400 text-xs">Employer</dt><dd class="text-slate-900">{{ $data['employer'] }}</dd></div>
-                    @endif
+                    <div><dt class="text-slate-400 text-xs">Company Name</dt><dd class="text-slate-900 font-medium">{{ $entity['company_name'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Registration No</dt><dd class="text-slate-900">{{ $entity['company_reg_number'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">SA Presence</dt><dd class="text-slate-900">{{ $entity['company_sa_presence'] ?? '—' }}</dd></div>
+                    @if(!empty($entity['company_stock_exchange']))<div><dt class="text-slate-400 text-xs">Stock Exchange</dt><dd class="text-slate-900">{{ $entity['company_stock_exchange'] }}</dd></div>@endif
+                    @if(!empty($entity['company_tax_number']))<div><dt class="text-slate-400 text-xs">Tax Number</dt><dd class="text-slate-900">{{ $entity['company_tax_number'] }}</dd></div>@endif
+                    @if(!empty($entity['company_vat_number']))<div><dt class="text-slate-400 text-xs">VAT</dt><dd class="text-slate-900">{{ $entity['company_vat_number'] }}</dd></div>@endif
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Registered Address</dt><dd class="text-slate-900">{{ $entity['company_address'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Authority to Act</dt><dd class="text-slate-900">{{ $entity['company_authority_source'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Business Description</dt><dd class="text-slate-900">{{ $entity['company_business_description'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Ownership Structure</dt><dd class="text-slate-900">{{ $entity['company_ownership_structure'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">BO Method</dt><dd class="text-slate-900">{{ str_replace('_', ' ', ucfirst($entity['beneficial_owner_method'] ?? '—')) }}</dd></div>
+                </dl>
+                @if(!empty($entity['beneficial_owners']))
+                    <div class="mt-3 pt-3 border-t border-slate-100">
+                        <p class="text-xs font-semibold text-slate-700 mb-2">Beneficial Owners:</p>
+                        @foreach($entity['beneficial_owners'] as $bo)
+                        <div class="text-xs text-slate-600 mb-1">{{ $bo['name'] ?? '' }} — ID: {{ $bo['id_number'] ?? '' }} — {{ $bo['address'] ?? '' }}</div>
+                        @endforeach
+                    </div>
+                @endif
+                @endif
+
+                @if($submission->entity_type === 'trust')
+                <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                    <div><dt class="text-slate-400 text-xs">Trust Name</dt><dd class="text-slate-900 font-medium">{{ $entity['trust_name'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Master's Ref</dt><dd class="text-slate-900">{{ $entity['trust_master_ref'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Master of High Court</dt><dd class="text-slate-900">{{ $entity['trust_master_court'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">SA Presence</dt><dd class="text-slate-900">{{ $entity['trust_sa_presence'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Authority to Act</dt><dd class="text-slate-900">{{ $entity['trust_authority_source'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Trust Purpose</dt><dd class="text-slate-900">{{ $entity['trust_purpose'] ?? '—' }}</dd></div>
+                </dl>
+                <div class="mt-3 pt-3 border-t border-slate-100 text-xs">
+                    <p class="font-semibold text-slate-700 mb-1">Donor: {{ $entity['donor_name'] ?? '' }} — ID: {{ $entity['donor_id_number'] ?? '' }}</p>
+                    <p class="text-slate-600">{{ $entity['donor_address'] ?? '' }}</p>
+                </div>
+                @if(!empty($entity['trustees']))
+                    <div class="mt-2 pt-2 border-t border-slate-100">
+                        <p class="text-xs font-semibold text-slate-700 mb-1">Trustees:</p>
+                        @foreach($entity['trustees'] as $tr)
+                        <div class="text-xs text-slate-600 mb-1">{{ $tr['name'] ?? '' }} — ID: {{ $tr['id_number'] ?? '' }} — {{ $tr['address'] ?? '' }}</div>
+                        @endforeach
+                    </div>
+                @endif
+                @if(!empty($entity['beneficiaries']))
+                    <div class="mt-2 pt-2 border-t border-slate-100">
+                        <p class="text-xs font-semibold text-slate-700 mb-1">Beneficiaries:</p>
+                        @foreach($entity['beneficiaries'] as $bn)
+                        <div class="text-xs text-slate-600 mb-1">{{ $bn['name'] ?? '' }} — ID: {{ $bn['id_number'] ?? '' }}</div>
+                        @endforeach
+                    </div>
+                @elseif(!empty($entity['beneficiary_determination']))
+                    <div class="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-600">Beneficiary determination: {{ $entity['beneficiary_determination'] }}</div>
+                @endif
+                @endif
+
+                @if($submission->entity_type === 'partnership')
+                <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                    <div><dt class="text-slate-400 text-xs">Partnership Name</dt><dd class="text-slate-900 font-medium">{{ $entity['partnership_name'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Professional</dt><dd class="text-slate-900">{{ ucfirst($entity['is_professional_partnership'] ?? '—') }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">SA Presence</dt><dd class="text-slate-900">{{ $entity['partnership_sa_presence'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Authority to Act</dt><dd class="text-slate-900">{{ $entity['partnership_authority_source'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Business Description</dt><dd class="text-slate-900">{{ $entity['partnership_business_description'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Ownership Structure</dt><dd class="text-slate-900">{{ $entity['partnership_ownership_structure'] ?? '—' }}</dd></div>
+                </dl>
+                @if(!empty($entity['partners']))
+                    <div class="mt-3 pt-3 border-t border-slate-100">
+                        <p class="text-xs font-semibold text-slate-700 mb-1">Partners:</p>
+                        @foreach($entity['partners'] as $pt)
+                        <div class="text-xs text-slate-600 mb-1">{{ $pt['name'] ?? '' }} — ID: {{ $pt['id_number'] ?? '' }} — {{ $pt['address'] ?? '' }}</div>
+                        @endforeach
+                    </div>
+                @endif
+                @endif
+            </div>
+            @endif
+
+            {{-- Principal & Representative --}}
+            @if($submission->entity_type === 'natural' && ($principalData['acting_on_behalf'] ?? '') === 'yes')
+            <div class="bg-white border border-slate-200 p-5">
+                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Principal (Acting on Behalf)</h3>
+                <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                    <div><dt class="text-slate-400 text-xs">Full Name</dt><dd class="text-slate-900 font-medium">{{ $principalData['full_name'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">ID / Passport</dt><dd class="text-slate-900">{{ $principalData['id_number'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">SA Citizen</dt><dd class="text-slate-900">{{ ucfirst($principalData['sa_citizen'] ?? '—') }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Phone</dt><dd class="text-slate-900">{{ $principalData['phone'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Address</dt><dd class="text-slate-900">{{ $principalData['residential_address'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Authority Source</dt><dd class="text-slate-900">{{ $principalData['authority_source'] ?? '—' }}</dd></div>
                 </dl>
             </div>
+            @endif
 
-            {{-- Purpose & Entity --}}
+            @if($submission->entity_type === 'natural' && ($repData['has_representative'] ?? '') === 'yes')
             <div class="bg-white border border-slate-200 p-5">
-                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Transaction & Entity</h3>
+                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Representative</h3>
                 <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                    <div><dt class="text-slate-400 text-xs">Purpose</dt><dd class="text-slate-900">{{ $data['transaction_purpose'] ?? '—' }}{{ !empty($data['purpose_other']) ? ': ' . $data['purpose_other'] : '' }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Entity Type</dt><dd class="text-slate-900 capitalize">{{ $submission->entity_type }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Full Name</dt><dd class="text-slate-900 font-medium">{{ $repData['full_name'] ?? '—' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">ID / Passport</dt><dd class="text-slate-900">{{ $repData['id_number'] ?? '—' }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Authority Source</dt><dd class="text-slate-900">{{ $repData['authority_source'] ?? '—' }}</dd></div>
                 </dl>
+            </div>
+            @endif
 
-                @if($submission->entity_type === 'company' && (!empty($data['company_name']) || !empty($data['directors'])))
-                    <div class="mt-3 pt-3 border-t border-slate-100 text-sm">
-                        <p class="font-semibold text-slate-700 mb-1">Company: {{ $data['company_name'] ?? '' }} ({{ $data['company_reg_number'] ?? '' }})</p>
-                        <p class="text-slate-600 text-xs">{{ $data['company_address'] ?? '' }}</p>
-                        @if(!empty($data['directors']))
-                            <p class="font-semibold text-slate-700 mt-2 mb-1 text-xs">Directors:</p>
-                            @foreach($data['directors'] as $dir)
-                                <p class="text-slate-600 text-xs">{{ $dir['name'] ?? '' }} — {{ $dir['id_number'] ?? '' }}</p>
-                            @endforeach
-                        @endif
-                    </div>
-                @endif
-
-                @if($submission->entity_type === 'trust' && (!empty($data['trust_name']) || !empty($data['trustees'])))
-                    <div class="mt-3 pt-3 border-t border-slate-100 text-sm">
-                        <p class="font-semibold text-slate-700 mb-1">Trust: {{ $data['trust_name'] ?? '' }} ({{ $data['trust_number'] ?? '' }})</p>
-                        @if(!empty($data['trustees']))
-                            <p class="font-semibold text-slate-700 mt-2 mb-1 text-xs">Trustees:</p>
-                            @foreach($data['trustees'] as $tr)
-                                <p class="text-slate-600 text-xs">{{ $tr['name'] ?? '' }} — {{ $tr['id_number'] ?? '' }}</p>
-                            @endforeach
-                        @endif
-                        @if(!empty($data['beneficiaries']))
-                            <p class="font-semibold text-slate-700 mt-2 mb-1 text-xs">Beneficiaries:</p>
-                            @foreach($data['beneficiaries'] as $bn)
-                                <p class="text-slate-600 text-xs">{{ $bn['name'] ?? '' }} — {{ $bn['id_number'] ?? '' }}</p>
-                            @endforeach
-                        @endif
-                    </div>
-                @endif
-
-                @if($submission->entity_type === 'partnership' && (!empty($data['partnership_name']) || !empty($data['partners'])))
-                    <div class="mt-3 pt-3 border-t border-slate-100 text-sm">
-                        <p class="font-semibold text-slate-700 mb-1">Partnership: {{ $data['partnership_name'] ?? '' }}</p>
-                        @if(!empty($data['partners']))
-                            <p class="font-semibold text-slate-700 mt-2 mb-1 text-xs">Partners:</p>
-                            @foreach($data['partners'] as $pt)
-                                <p class="text-slate-600 text-xs">{{ $pt['name'] ?? '' }} — {{ $pt['id_number'] ?? '' }}</p>
-                            @endforeach
-                        @endif
-                        @if(!empty($data['authority_reference']))
-                            <p class="text-xs text-slate-500 mt-1">Authority ref: {{ $data['authority_reference'] }}</p>
-                        @endif
-                    </div>
-                @endif
+            {{-- Service & Payment --}}
+            <div class="bg-white border border-slate-200 p-5">
+                <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Service & Payment</h3>
+                <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                    <div><dt class="text-slate-400 text-xs">Purpose</dt><dd class="text-slate-900">{{ $service['transaction_purpose'] ?? '—' }}{{ !empty($service['purpose_other']) ? ': ' . $service['purpose_other'] : '' }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Cash Over R50,000</dt><dd class="text-slate-900 font-semibold {{ ($service['cash_over_50k'] ?? '') === 'yes' ? 'text-red-600' : '' }}">{{ ucfirst($service['cash_over_50k'] ?? '—') }}</dd></div>
+                    <div class="col-span-2"><dt class="text-slate-400 text-xs">Payment Method</dt><dd class="text-slate-900">{{ $service['payment_method'] ?? '—' }}</dd></div>
+                </dl>
             </div>
 
             {{-- PEP --}}
             <div class="bg-white border border-slate-200 p-5">
                 <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Politically Exposed Person</h3>
                 @php
-                    $pepYes = ($data['pep_domestic'] ?? '') === 'yes' || ($data['pep_foreign'] ?? '') === 'yes' || ($data['pep_family'] ?? '') === 'yes' || ($data['pep_associate'] ?? '') === 'yes';
+                    $foreignPep = $pepData['foreign_pep'] ?? [];
+                    $domesticPep = $pepData['domestic_pep'] ?? [];
+                    $hasPep = !empty($foreignPep) || !empty($domesticPep) || ($pepData['is_family_associate'] ?? '') === 'yes';
                 @endphp
+
+                @if(!empty($foreignPep))
+                <div class="mb-2">
+                    <p class="text-xs font-semibold text-red-600">Foreign PEP:</p>
+                    @foreach($foreignPep as $pos)
+                    <span class="inline-block px-2 py-0.5 bg-red-50 text-red-700 text-xs mr-1 mb-1">{{ str_replace('_', ' ', ucfirst($pos)) }}</span>
+                    @endforeach
+                </div>
+                @endif
+
+                @if(!empty($domesticPep))
+                <div class="mb-2">
+                    <p class="text-xs font-semibold text-red-600">Domestic PEP:</p>
+                    @foreach($domesticPep as $pos)
+                    <span class="inline-block px-2 py-0.5 bg-red-50 text-red-700 text-xs mr-1 mb-1">{{ str_replace('_', ' ', ucfirst($pos)) }}</span>
+                    @endforeach
+                </div>
+                @endif
+
                 <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                    <div><dt class="text-slate-400 text-xs">Domestic PEP</dt><dd class="{{ ($data['pep_domestic'] ?? '') === 'yes' ? 'text-red-600 font-semibold' : 'text-slate-900' }}">{{ ucfirst($data['pep_domestic'] ?? '—') }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Foreign PEP</dt><dd class="{{ ($data['pep_foreign'] ?? '') === 'yes' ? 'text-red-600 font-semibold' : 'text-slate-900' }}">{{ ucfirst($data['pep_foreign'] ?? '—') }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Family of PEP</dt><dd class="{{ ($data['pep_family'] ?? '') === 'yes' ? 'text-red-600 font-semibold' : 'text-slate-900' }}">{{ ucfirst($data['pep_family'] ?? '—') }}</dd></div>
-                    <div><dt class="text-slate-400 text-xs">Associate of PEP</dt><dd class="{{ ($data['pep_associate'] ?? '') === 'yes' ? 'text-red-600 font-semibold' : 'text-slate-900' }}">{{ ucfirst($data['pep_associate'] ?? '—') }}</dd></div>
+                    <div><dt class="text-slate-400 text-xs">Family/Associate</dt><dd class="{{ ($pepData['is_family_associate'] ?? '') === 'yes' ? 'text-red-600 font-semibold' : 'text-slate-900' }}">{{ ucfirst($pepData['is_family_associate'] ?? '—') }}</dd></div>
                 </dl>
-                @if($pepYes && !empty($data['pep_details']))
-                    <div class="mt-3 p-3 bg-red-50 border border-red-200 text-red-800 text-sm">
-                        <strong>PEP Details:</strong> {{ $data['pep_details'] }}
-                    </div>
+
+                @if(!empty($pepData['family_associate_details']))
+                <div class="mt-2 p-2 bg-red-50 border border-red-200 text-red-800 text-xs">{{ $pepData['family_associate_details'] }}</div>
+                @endif
+                @if(!empty($pepData['source_of_wealth']))
+                <div class="mt-2 text-sm"><dt class="text-slate-400 text-xs">Source of Wealth</dt><dd class="text-slate-900">{{ $pepData['source_of_wealth'] }}</dd></div>
+                @endif
+                @if(!$hasPep)
+                <p class="text-emerald-600 text-sm font-medium">No PEP indicators</p>
                 @endif
             </div>
 
@@ -156,7 +240,9 @@
             <div class="bg-white border border-slate-200 p-5">
                 <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Electronic Signature</h3>
                 <img src="{{ $submission->signature_data }}" alt="Recipient Signature" style="max-height: 120px; border: 1px solid #e2e8f0; padding: 0.5rem; background: #fff;">
-                <p class="text-xs text-slate-400 mt-1">Signed at: {{ $submission->signed_at?->format('d M Y H:i') }}</p>
+                <p class="text-xs text-slate-400 mt-1">
+                    Signed at: {{ $declData['signed_at_location'] ?? '' }} — {{ $submission->signed_at?->format('d M Y H:i') }}
+                </p>
             </div>
             @endif
         </div>
@@ -164,15 +250,64 @@
         {{-- RIGHT PANEL: Verification --}}
         <div class="space-y-4">
             @if(in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']))
-                {{-- Verification Checklist --}}
+                {{-- Section 10 — Staff Verification Checklist --}}
                 <div class="bg-white border border-slate-200 p-5">
                     <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-teal-500">Verification Checklist</h3>
-                    <div class="space-y-2">
-                        <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="checklist.id_verified" class="mt-0.5"> <span>Identity document verified</span></label>
-                        <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="checklist.address_verified" class="mt-0.5"> <span>Address proof verified (&lt; 3 months)</span></label>
-                        <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="checklist.source_verified" class="mt-0.5"> <span>Source of funds verified</span></label>
-                        <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="checklist.authority_verified" class="mt-0.5"> <span>Authority document verified (if applicable)</span></label>
-                        <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="checklist.pep_screened" class="mt-0.5"> <span>PEP screening completed</span></label>
+                    <div class="space-y-3 text-sm">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Identity document(s) proving IDENTITY provided?</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.identity_docs" value="yes"> <span class="text-xs">Yes</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.identity_docs" value="no"> <span class="text-xs">No</span></label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Document(s) proving ADDRESS provided?</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.address_docs" value="yes"> <span class="text-xs">Yes</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.address_docs" value="no"> <span class="text-xs">No</span></label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Document proving AUTHORITY provided?</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.authority_docs" value="yes"> <span class="text-xs">Yes</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.authority_docs" value="no"> <span class="text-xs">No</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.authority_docs" value="na"> <span class="text-xs">N/A</span></label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Document DELEGATING authority provided?</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.delegating_docs" value="yes"> <span class="text-xs">Yes</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.delegating_docs" value="no"> <span class="text-xs">No</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.delegating_docs" value="na"> <span class="text-xs">N/A</span></label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Is the client a VIP in terms of FICA compliance?</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.is_vip" value="yes"> <span class="text-xs">Yes</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.is_vip" value="no"> <span class="text-xs">No</span></label>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Is there anything suspicious or unusual to note?</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.suspicious" value="yes"> <span class="text-xs">Yes</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.suspicious" value="no"> <span class="text-xs">No</span></label>
+                            </div>
+                            <div x-show="checklist.suspicious === 'yes'" x-cloak class="mt-1">
+                                <textarea x-model="checklist.suspicious_details" rows="2" class="w-full px-2 py-1 border border-slate-300 text-xs focus:outline-none focus:border-teal-500" placeholder="Details..."></textarea>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Is the proposed transaction consistent with our knowledge of the client?</label>
+                            <div class="flex gap-3">
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.consistent" value="yes"> <span class="text-xs">Yes</span></label>
+                                <label class="flex items-center gap-1"><input type="radio" x-model="checklist.consistent" value="no"> <span class="text-xs">No</span></label>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -194,15 +329,20 @@
                         <div>
                             <label class="block text-xs font-semibold text-slate-700 mb-1">Verification Method *</label>
                             <div class="space-y-1 text-sm">
-                                <label class="flex items-center gap-2"><input type="checkbox" name="verification_method[]" value="physically_met"> Physically met with client</label>
                                 <label class="flex items-center gap-2"><input type="checkbox" name="verification_method[]" value="whatsapp_video"> WhatsApp video call</label>
-                                <label class="flex items-center gap-2"><input type="checkbox" name="verification_method[]" value="video_call_id"> Video call with ID and newspaper</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" name="verification_method[]" value="physically_met"> Physically met with client</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" name="verification_method[]" value="video_call_id"> Video call with identity document and newspaper</label>
                                 <label class="flex items-center gap-2"><input type="checkbox" name="verification_method[]" value="certified_copies"> Certified copies received</label>
                             </div>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 mb-1">Verifying Employee</label>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Outstanding Requirements</label>
+                            <textarea name="outstanding_requirements" rows="2" class="w-full px-3 py-2 border border-slate-300 text-sm focus:outline-none focus:border-teal-500" placeholder="Any outstanding items..."></textarea>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Employee Name</label>
                             <input type="text" value="{{ auth()->user()->name }}" class="w-full px-3 py-2 border border-slate-200 text-sm bg-slate-50" readonly>
                         </div>
 
@@ -277,11 +417,14 @@
     function ficaReview() {
         return {
             checklist: {
-                id_verified: false,
-                address_verified: false,
-                source_verified: false,
-                authority_verified: false,
-                pep_screened: false,
+                identity_docs: '',
+                address_docs: '',
+                authority_docs: '',
+                delegating_docs: '',
+                is_vip: '',
+                suspicious: '',
+                suspicious_details: '',
+                consistent: '',
             }
         };
     }
