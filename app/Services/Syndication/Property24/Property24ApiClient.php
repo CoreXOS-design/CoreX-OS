@@ -171,11 +171,7 @@ class Property24ApiClient
                 ];
             }
 
-            $errorMessage = $responseData['message']
-                ?? $responseData['Message']
-                ?? $responseData['title']
-                ?? $responseData['raw']
-                ?? "HTTP {$statusCode}";
+            $errorMessage = $this->extractErrorMessage($responseData, $statusCode);
 
             $this->log('error', "P24 {$action} failed: {$errorMessage}", [
                 'property_id' => $propertyId,
@@ -202,6 +198,34 @@ class Property24ApiClient
 
             return ['success' => false, 'message' => $error, 'data' => []];
         }
+    }
+
+    private function extractErrorMessage(array $data, int $statusCode): string
+    {
+        if (!empty($data['message'])) return $data['message'];
+        if (!empty($data['Message'])) return $data['Message'];
+        if (!empty($data['title'])) return $data['title'];
+
+        // P24 v53 returns validation errors as arrays
+        if (!empty($data['errors']) && is_array($data['errors'])) {
+            $parts = [];
+            foreach ($data['errors'] as $field => $messages) {
+                if (is_array($messages)) {
+                    $parts[] = $field . ': ' . implode(', ', $messages);
+                } else {
+                    $parts[] = is_string($messages) ? $messages : json_encode($messages);
+                }
+            }
+            if ($parts) return 'Validation errors — ' . implode('; ', $parts);
+        }
+        if (!empty($data['Errors'])) {
+            $errs = is_array($data['Errors']) ? json_encode($data['Errors']) : $data['Errors'];
+            return 'API errors: ' . $errs;
+        }
+
+        if (!empty($data['raw']) && strlen($data['raw']) < 500) return $data['raw'];
+
+        return "HTTP {$statusCode} — check P24 syndication log for full response";
     }
 
     private function logToDb(?int $propertyId, string $action, ?array $request, mixed $response, ?int $statusCode): void

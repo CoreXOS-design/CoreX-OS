@@ -19,7 +19,6 @@ class Property24ListingMapper
 
         $listing = [
             'agencyId'          => $agencyId,
-            'contactAgentIds'   => [$property->agent_id ? (int) $property->agent_id : $agencyId],
             'listingType'       => $this->mapListingType($property->listing_type ?? $property->mandate_type),
             'status'            => 'NewListing',
             'price'             => (float) ($property->price ?? 0),
@@ -29,31 +28,8 @@ class Property24ListingMapper
                                    ?? now()->addYear()->format('Y-m-d\TH:i:s'),
             'description'       => $property->description ?? '',
             'descriptionHeader' => $property->headline ?? $property->title ?? '',
-            'propertyInfo'      => [
-                'suburbId'       => $suburbId,
-                'propertyTypeId' => $propertyTypeId,
-                'streetNumber'   => $property->street_number ?? '',
-                'streetName'     => $property->street_name ?? $this->parseStreetName($property->address),
-                'standNumber'    => $property->stand_number ?? '',
-                'sourceReference' => 'CoreX-' . $property->id,
-                'showLocation'   => ($property->latitude && $property->longitude),
-                'erf'            => ($property->erf_size_m2 ? ['measurement' => 'SquareMetres', 'size' => (float) $property->erf_size_m2] : null),
-                'floorArea'      => ($property->size_m2 ? ['measurement' => 'SquareMetres', 'size' => (float) $property->size_m2] : null),
-                'floorNumber'    => $property->floor_number ? (int) $property->floor_number : null,
-                'municipalRatesAndTaxes' => ($property->rates_taxes ? ['amount' => (float) $property->rates_taxes, 'period' => 'Monthly'] : null),
-                'monthlyLevy'    => ($property->levy ? ['amount' => (float) $property->levy, 'period' => 'Monthly'] : null),
-                'specialLevy'    => $property->special_levy ? (float) $property->special_levy : null,
-            ],
-            'propertyFeatures'  => [
-                'bedrooms'        => $property->beds ? (float) $property->beds : null,
-                'bathrooms'       => $property->baths ? ['full' => (int) $property->baths] : null,
-                'garages'         => (float) ($property->garages ?? 0),
-                'garden'          => false,
-                'pool'            => false,
-                'flatlet'         => false,
-                'petsAllowed'     => null,
-                'furnishedStatus' => null,
-            ],
+            'propertyInfo'      => $this->buildPropertyInfo($property, $suburbId, $propertyTypeId),
+            'propertyFeatures'  => $this->buildPropertyFeatures($property),
         ];
 
         if ($property->latitude && $property->longitude) {
@@ -69,17 +45,58 @@ class Property24ListingMapper
         }
 
         if ($this->mapListingType($property->listing_type ?? $property->mandate_type) === 'Rental') {
-            $listing['rentalInfo'] = [
-                'depositRequirementsComments' => $property->deposit_amount
-                    ? 'Deposit: R ' . number_format((float) $property->deposit_amount, 0, '.', ' ')
-                    : null,
-                'leasePeriod' => $property->lease_period ?? '12 Months',
-            ];
+            $rentalInfo = ['leasePeriod' => $property->lease_period ?? '12 Months'];
+            if ($property->deposit_amount) {
+                $rentalInfo['depositRequirementsComments'] = 'Deposit: R ' . number_format((float) $property->deposit_amount, 0, '.', ' ');
+            }
+            $listing['rentalInfo'] = $rentalInfo;
         }
 
-        $listing['photos'] = $includePhotos ? $this->buildPhotos($property) : null;
+        if ($includePhotos) {
+            $photos = $this->buildPhotos($property);
+            if (!empty($photos)) {
+                $listing['photos'] = $photos;
+            }
+        }
 
         return $listing;
+    }
+
+    private function buildPropertyInfo(Property $property, ?int $suburbId, ?int $propertyTypeId): array
+    {
+        $info = [
+            'suburbId'        => $suburbId,
+            'propertyTypeId'  => $propertyTypeId,
+            'streetNumber'    => $property->street_number ?? '',
+            'streetName'      => $property->street_name ?? $this->parseStreetName($property->address),
+            'sourceReference' => 'CoreX-' . $property->id,
+            'showLocation'    => (bool) ($property->latitude && $property->longitude),
+        ];
+
+        if ($property->stand_number) $info['standNumber'] = $property->stand_number;
+        if ($property->erf_size_m2) $info['erf'] = ['measurement' => 'SquareMetres', 'size' => (float) $property->erf_size_m2];
+        if ($property->size_m2) $info['floorArea'] = ['measurement' => 'SquareMetres', 'size' => (float) $property->size_m2];
+        if ($property->floor_number) $info['floorNumber'] = (int) $property->floor_number;
+        if ($property->rates_taxes) $info['municipalRatesAndTaxes'] = ['amount' => (float) $property->rates_taxes, 'period' => 'Monthly'];
+        if ($property->levy) $info['monthlyLevy'] = ['amount' => (float) $property->levy, 'period' => 'Monthly'];
+        if ($property->special_levy) $info['specialLevy'] = (float) $property->special_levy;
+
+        return $info;
+    }
+
+    private function buildPropertyFeatures(Property $property): array
+    {
+        $features = [
+            'garages' => (int) ($property->garages ?? 0),
+            'garden'  => false,
+            'pool'    => false,
+            'flatlet' => false,
+        ];
+
+        if ($property->beds) $features['bedrooms'] = (int) $property->beds;
+        if ($property->baths) $features['bathrooms'] = ['full' => (int) $property->baths];
+
+        return $features;
     }
 
     public function validate(array $payload): array
