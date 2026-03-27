@@ -434,6 +434,7 @@
                                 'lastError'       => $property->p24_last_error ?? '',
                                 'activatedAt'     => $property->p24_activated_at ? $property->p24_activated_at->format('d M Y H:i') : '',
                                 'csrfToken'       => csrf_token(),
+                                'missingFields'   => $p24MissingFields ?? [],
                             ];
                         @endphp
                         <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-3 mt-2">
@@ -466,10 +467,23 @@
                                 <template x-if="status === 'error'"><span style="color:#ef4444;" x-text="'Error: ' + lastError"></span></template>
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
+                            {{-- Missing fields warning --}}
+                            <div x-show="enabled && missingFields.length > 0" x-cloak
+                                 class="rounded-md px-3 py-2.5 space-y-1.5"
+                                 style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+                                <p class="text-[11px] font-semibold" style="color:#f59e0b;">Cannot submit — missing required fields:</p>
+                                <ul class="space-y-0.5 m-0 pl-3" style="list-style:disc;">
+                                    <template x-for="(f, idx) in missingFields" :key="idx">
+                                        <li class="text-[11px]" style="color:#f59e0b;" x-text="f.label"></li>
+                                    </template>
+                                </ul>
+                            </div>
+
                             <div x-show="enabled" x-cloak class="flex flex-wrap gap-2">
-                                <button type="button" @click.stop="submitListing()" :disabled="loading"
-                                        class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity hover:opacity-85"
-                                        style="background:#3b82f6; color:#fff;">
+                                <button type="button" @click.stop="submitListing()" :disabled="loading || missingFields.length > 0"
+                                        class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        :style="missingFields.length > 0 ? 'background:#374151; color:#6b7280; cursor:not-allowed;' : 'background:#3b82f6; color:#fff;'"
+                                        :class="missingFields.length === 0 ? 'hover:opacity-85' : ''">
                                     <svg x-show="!loading" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
                                     <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
                                     <span x-text="loading ? 'Submitting...' : 'Submit to P24'"></span>
@@ -3407,6 +3421,7 @@ function p24Syndication(config) {
         propertyId: config.propertyId, enabled: config.enabled, status: config.status || '',
         p24Ref: config.p24Ref || '', lastSubmitted: config.lastSubmitted || '',
         lastError: config.lastError || '', csrfToken: config.csrfToken,
+        missingFields: config.missingFields || [],
         loading: false, message: '', messageType: 'success', debugErrors: [], showDebug: false,
         statusLabel() {
             const labels = {'':'Disabled','pending':'Pending','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};

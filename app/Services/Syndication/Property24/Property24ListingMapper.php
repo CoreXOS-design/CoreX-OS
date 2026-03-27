@@ -19,6 +19,7 @@ class Property24ListingMapper
 
         $listing = [
             'agencyId'          => $agencyId,
+            'contactAgentIds'   => $this->resolveContactAgentIds($property, $agencyId),
             'listingType'       => $this->mapListingType($property->listing_type ?? $property->mandate_type),
             'status'            => 'NewListing',
             'price'             => (float) ($property->price ?? 0),
@@ -87,10 +88,12 @@ class Property24ListingMapper
     private function buildPropertyFeatures(Property $property): array
     {
         $features = [
-            'garages' => (int) ($property->garages ?? 0),
-            'garden'  => false,
-            'pool'    => false,
-            'flatlet' => false,
+            'garages'         => (int) ($property->garages ?? 0),
+            'garden'          => false,
+            'pool'            => false,
+            'flatlet'         => false,
+            'petsAllowed'     => false,
+            'furnishedStatus' => 'Unfurnished',
         ];
 
         if ($property->beds) $features['bedrooms'] = (int) $property->beds;
@@ -184,6 +187,13 @@ class Property24ListingMapper
             'office', 'retail'              => 22,
             default                         => null,
         };
+    }
+
+    private function resolveContactAgentIds(Property $property, int $agencyId): array
+    {
+        // P24 expects their own agent IDs. Until agent mapping is built,
+        // send the agency ID which P24 accepts as the agency-level contact.
+        return [$agencyId];
     }
 
     private function mapListingType(?string $type): string

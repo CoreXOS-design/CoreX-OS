@@ -12,6 +12,7 @@ use App\Models\PropertySettingItem;
 use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
+use App\Services\Syndication\Property24\Property24ListingMapper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -157,12 +158,17 @@ class PropertyController extends Controller
             ? app(PrivatePropertyListingMapper::class)->checkReadiness($property)
             : [];
 
+        // P24 feed readiness check for syndication panel
+        $p24MissingFields = $property->exists
+            ? app(Property24ListingMapper::class)->checkReadiness($property)
+            : [];
+
         // Drive tab: all documents linked to this property
         $allDriveDocs = $property->documents()->with(['documentType', 'contacts'])->get();
         $documentTypes = DocumentType::ordered()->get();
 
         return view('corex.properties.show', compact(
-            'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields',
+            'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields',
             'allDriveDocs', 'documentTypes'
         ));
     }
