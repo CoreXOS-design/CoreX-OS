@@ -567,6 +567,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('commission.confirm');
     Route::post('/commission/{entry}/pay', [\App\Http\Controllers\Commission\CommissionController::class, 'pay'])
         ->name('commission.pay');
+    Route::get('/revenue-share/calculator', [\App\Http\Controllers\Commission\RevenueShareController::class, 'calculator'])
+        ->name('revenue-share.calculator');
 
     Route::get('/documents', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'documents')->middleware('permission:access_docuperfect')->name('corex.documents');
     // ── Compliance / FICA ──
