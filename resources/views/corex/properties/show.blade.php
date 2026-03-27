@@ -434,6 +434,7 @@
                                 'lastError'       => $property->p24_last_error ?? '',
                                 'activatedAt'     => $property->p24_activated_at ? $property->p24_activated_at->format('d M Y H:i') : '',
                                 'csrfToken'       => csrf_token(),
+                                'isSandbox'       => (bool) config('services.property24_syndication.sandbox'),
                                 'missingFields'   => $p24MissingFields ?? [],
                             ];
                         @endphp
@@ -461,7 +462,7 @@
                                 </div>
                             </div>
                             <div x-show="status && status !== ''" x-cloak class="text-[11px] px-1" style="color:var(--text-secondary);">
-                                <template x-if="p24Ref"><span>P24 Ref: <strong x-text="p24Ref" style="color:var(--text-primary);"></strong> &mdash; <span x-text="statusLabel()"></span></span></template>
+                                <template x-if="p24Ref"><span>P24 Ref: <a :href="p24ListingUrl()" target="_blank" class="font-semibold no-underline" style="color:#3b82f6;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" x-text="p24Ref"></a> &mdash; <span x-text="statusLabel()"></span></span></template>
                                 <template x-if="!p24Ref && status === 'submitted'"><span>Submitted, awaiting activation...</span></template>
                                 <template x-if="!p24Ref && status === 'pending'"><span>Ready to submit</span></template>
                                 <template x-if="status === 'error'"><span style="color:#ef4444;" x-text="'Error: ' + lastError"></span></template>
@@ -3420,7 +3421,7 @@ function p24Syndication(config) {
     return {
         propertyId: config.propertyId, enabled: config.enabled, status: config.status || '',
         p24Ref: config.p24Ref || '', lastSubmitted: config.lastSubmitted || '',
-        lastError: config.lastError || '', csrfToken: config.csrfToken,
+        lastError: config.lastError || '', csrfToken: config.csrfToken, isSandbox: config.isSandbox ?? true,
         missingFields: config.missingFields || [],
         loading: false, message: '', messageType: 'success', debugErrors: [], showDebug: false,
         statusLabel() {
@@ -3432,6 +3433,10 @@ function p24Syndication(config) {
             const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:#f59e0b;','submitted':'background:rgba(245,158,11,0.12);color:#f59e0b;','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:#ef4444;','rejected':'background:rgba(239,68,68,0.12);color:#ef4444;','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
             if (!this.enabled && !this.status) return styles[''];
             return styles[this.status] || styles[''];
+        },
+        p24ListingUrl() {
+            const domain = this.isSandbox ? 'www.exdev.property24-test.com' : 'www.property24.com';
+            return 'https://' + domain + '/property-for-sale/listing-' + this.p24Ref;
         },
         showMessage(msg, type = 'success') { this.message = msg; this.messageType = type; setTimeout(() => { this.message = ''; }, 5000); },
         async toggleEnabled() {
