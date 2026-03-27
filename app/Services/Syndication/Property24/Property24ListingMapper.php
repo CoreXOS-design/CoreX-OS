@@ -166,26 +166,25 @@ class Property24ListingMapper
         return null;
     }
 
+    /**
+     * Map CoreX property type to P24 propertyTypeId.
+     * IDs sourced from GET /listing/v53/property-types on ExDev:
+     *   4 = House, 5 = Apartment/Flat, 6 = Townhouse,
+     *   8 = Vacant Land/Plot, 10 = Farm, 11 = Commercial, 12 = Industrial
+     */
     private function resolvePropertyTypeId(?string $type): ?int
     {
         if (empty($type)) return null;
         return match (strtolower(trim($type))) {
-            'house'                         => 4,
-            'apartment', 'flat'             => 9,
-            'townhouse'                     => 6,
-            'duplex'                        => 30,
-            'simplex'                       => 31,
-            'cluster'                       => 29,
-            'freestanding', 'free standing' => 4,
-            'penthouse'                     => 32,
-            'garden cottage', 'cottage'     => 33,
-            'farm'                          => 7,
-            'smallholding', 'small holding' => 5,
-            'vacant land', 'land'           => 3,
-            'commercial'                    => 22,
-            'industrial'                    => 8,
-            'office', 'retail'              => 22,
-            default                         => null,
+            'house', 'freestanding', 'free standing'            => 4,
+            'apartment', 'flat', 'penthouse'                    => 5,
+            'townhouse', 'duplex', 'simplex', 'cluster'        => 6,
+            'vacant land', 'land', 'plot'                       => 8,
+            'farm', 'smallholding', 'small holding'             => 10,
+            'commercial', 'office', 'retail'                    => 11,
+            'industrial'                                        => 12,
+            'garden cottage', 'cottage'                         => 4,
+            default                                             => 4,
         };
     }
 
