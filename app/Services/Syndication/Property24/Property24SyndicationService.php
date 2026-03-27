@@ -252,23 +252,44 @@ class Property24SyndicationService
      */
     private function uploadAgentPhotoIfAvailable(User $user, int $p24AgentId): void
     {
-        if (empty($user->agent_photo_path)) return;
-
-        // Convert Storage::url() path to disk path
-        $photoPath = $user->agent_photo_path;
-        if (str_contains($photoPath, '/storage/')) {
-            $photoPath = substr($photoPath, strpos($photoPath, '/storage/') + 9);
-        }
-
-        if (!Storage::disk('public')->exists($photoPath)) {
-            $this->log('warning', "Agent #{$user->id} photo not found on disk: {$photoPath}");
+        if (empty($user->agent_photo_path)) {
+            $this->log('info', "Agent #{$user->id} has no photo in CoreX — skipping P24 upload");
             return;
         }
 
-        $bytes = Storage::disk('public')->get($photoPath);
-        if (empty($bytes)) return;
+        $photoPath = $user->agent_photo_path;
+        $bytes = null;
+        $mime = 'image/jpeg';
 
-        $mime = Storage::disk('public')->mimeType($photoPath) ?: 'image/jpeg';
+        // Try reading from public disk first (works on server)
+        if (Storage::disk('public')->exists($photoPath)) {
+            $bytes = Storage::disk('public')->get($photoPath);
+            $mime = Storage::disk('public')->mimeType($photoPath) ?: 'image/jpeg';
+        } else {
+            // Fallback: try fetching from the public URL (works for local dev pointing at server)
+            $imageBaseUrl = config('services.property24_syndication.image_base_url') ?: config('app.url');
+            $url = rtrim($imageBaseUrl, '/') . '/storage/' . ltrim($photoPath, '/');
+
+            $this->log('info', "Agent photo not on local disk, trying URL: {$url}");
+
+            try {
+                $response = \Illuminate\Support\Facades\Http::timeout(15)->get($url);
+                if ($response->successful()) {
+                    $bytes = $response->body();
+                    $contentType = $response->header('Content-Type');
+                    if ($contentType && str_starts_with($contentType, 'image/')) {
+                        $mime = $contentType;
+                    }
+                }
+            } catch (\Exception $e) {
+                $this->log('warning', "Failed to download agent photo from URL: {$e->getMessage()}");
+            }
+        }
+
+        if (empty($bytes)) {
+            $this->log('warning', "Agent #{$user->id} photo could not be read: {$photoPath}");
+            return;
+        }
 
         $imageData = [
             'bytes'           => base64_encode($bytes),
