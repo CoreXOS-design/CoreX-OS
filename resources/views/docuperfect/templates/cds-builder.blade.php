@@ -164,13 +164,13 @@
         <div class="w-[30%] h-full overflow-y-auto bg-white border-l border-gray-200" id="link-pane">
             <div class="p-4">
 
-                {{-- ===== SIGNING PARTIES (collapsible) ===== --}}
+                {{-- ===== SIGNATURE BLOCK PARTIES (collapsible) ===== --}}
                 <div class="mb-4 border border-gray-200 rounded-lg overflow-hidden">
                     {{-- Collapsed header --}}
                     <button type="button" @click="partiesExpanded = !partiesExpanded"
                             class="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
                         <span class="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
-                            <span>&#128101;</span> Signing Parties
+                            <span>&#128101;</span> Signature Block Parties
                             <span class="text-gray-400" x-text="'(' + signingParties.length + ')'"></span>
                         </span>
                         <span class="text-xs text-gray-500" x-text="partiesExpanded ? 'Done &#9650;' : 'Manage &#9660;'"></span>
@@ -231,7 +231,7 @@
                                 </template>
                             </div>
 
-                            <p class="text-[10px] text-gray-400 pt-1">Saved for your agency</p>
+                            <p class="text-[10px] text-gray-400 pt-1">Agency-wide list of party names used on signature and initial blocks</p>
                         </div>
                     </div>
                 </div>
@@ -317,9 +317,9 @@
                             <span class="text-xs text-gray-700">Eligible for E-Signature</span>
                         </div>
 
-                        {{-- Signing Parties --}}
+                        {{-- Document Signing Roles --}}
                         <div>
-                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Signing Parties</label>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Document Signing Roles</label>
                             <p class="text-[10px] text-gray-400 mb-2">Select which parties must sign this document</p>
                             <div class="space-y-1.5">
                                 <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
