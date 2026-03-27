@@ -556,6 +556,12 @@ use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerControll
 Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/', [CoreXDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard');
 
+    // ── Agent Portal ──
+    Route::get('/my-portal', [\App\Http\Controllers\Agent\AgentPortalController::class, 'index'])
+        ->name('agent.portal');
+    Route::post('/my-portal/upload', [\App\Http\Controllers\Agent\AgentPortalController::class, 'uploadDocument'])
+        ->name('agent.portal.upload');
+
     // ── Commission Engine ──
     Route::get('/my-earnings', [\App\Http\Controllers\Commission\CommissionController::class, 'dashboard'])
         ->name('commission.dashboard');
