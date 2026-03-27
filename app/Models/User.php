@@ -5,6 +5,8 @@ namespace App\Models;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Notifications\Notifiable;
@@ -195,6 +197,59 @@ class User extends Authenticatable
     public function marketingPosts(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(PropertyMarketingPost::class);
+    }
+
+    // ── Commission Engine Relationships ──
+
+    public function sponsorship(): HasOne
+    {
+        return $this->hasOne(AgentSponsorship::class, 'agent_user_id');
+    }
+
+    public function sponsoredAgents(): HasMany
+    {
+        return $this->hasMany(AgentSponsorship::class, 'sponsor_user_id');
+    }
+
+    public function capPeriods(): HasMany
+    {
+        return $this->hasMany(AgentCapPeriod::class);
+    }
+
+    public function currentCapPeriod(): ?AgentCapPeriod
+    {
+        return AgentCapPeriod::forUser($this->id)
+            ->current()
+            ->first();
+    }
+
+    public function commissionEntries(): HasMany
+    {
+        return $this->hasMany(CommissionLedger::class);
+    }
+
+    public function revenueShareReceived(): HasMany
+    {
+        return $this->hasMany(RevenueShareLedger::class, 'receiving_agent_id');
+    }
+
+    public function mentorAssignment(): HasOne
+    {
+        return $this->hasOne(AgentMentor::class, 'mentee_user_id');
+    }
+
+    public function isCapped(): bool
+    {
+        $period = $this->currentCapPeriod();
+
+        return $period ? $period->checkCap() : false;
+    }
+
+    public function isMentee(): bool
+    {
+        return AgentMentor::where('mentee_user_id', $this->id)
+            ->where('is_active', true)
+            ->exists();
     }
 
 }

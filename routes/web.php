@@ -591,6 +591,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/settings/preview-header', [CoreXSettingsController::class, 'previewHeader'])->middleware('permission:access_settings')->name('corex.settings.preview-header');
     Route::get('/settings/preview-signature', [CoreXSettingsController::class, 'previewSignature'])->middleware('permission:access_settings')->name('corex.settings.preview-signature');
 
+    // Commission & Revenue Share Settings
+    Route::get('/settings/commission', [\App\Http\Controllers\Commission\CommissionSettingsController::class, 'edit'])
+        ->middleware('permission:access_settings')->name('corex.settings.commission');
+    Route::post('/settings/commission', [\App\Http\Controllers\Commission\CommissionSettingsController::class, 'update'])
+        ->middleware('permission:access_settings')->name('corex.settings.commission.update');
+
     // Role Manager
     Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware('permission:access_role_manager')->name('corex.role-manager');
     Route::post('/role-manager/permissions', [CoreXRoleManagerController::class, 'savePermissions'])
