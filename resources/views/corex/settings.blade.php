@@ -999,7 +999,7 @@
                         <form method="POST" action="{{ route('corex.settings.contact-types.store') }}"
                               class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                             @csrf
-                            <div class="md:col-span-6">
+                            <div class="md:col-span-4">
                                 <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
                                 <input name="name" required placeholder="e.g. Buyer, Seller, Tenant"
                                        class="w-full rounded-md px-3 py-2 text-sm"
@@ -1011,11 +1011,23 @@
                                        class="w-full h-9 rounded-md cursor-pointer border"
                                        style="border-color:var(--border); background:var(--surface);">
                             </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort order</label>
+                            <div class="md:col-span-1">
+                                <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort</label>
                                 <input name="sort_order" type="number" step="1" min="0" placeholder="0"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div class="md:col-span-3">
+                                <label class="block text-xs mb-1" style="color:var(--text-muted);">E-Sign Role</label>
+                                <select name="esign_role"
+                                        class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="">(none)</option>
+                                    <option value="seller">Seller</option>
+                                    <option value="buyer">Buyer</option>
+                                    <option value="lessor">Lessor</option>
+                                    <option value="lessee">Lessee</option>
+                                </select>
                             </div>
                             <div class="md:col-span-2">
                                 <button class="w-full corex-btn-primary text-sm">Add</button>
@@ -1039,6 +1051,9 @@
                                         <span class="w-4 h-4 rounded-full flex-shrink-0"
                                               style="background-color: {{ $cType->color }}"></span>
                                         <span class="text-sm font-medium" style="color:var(--text-primary);">{{ $cType->name }}</span>
+                                        @if($cType->esign_role)
+                                            <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background:rgba(13,148,136,0.12); color:#0d9488;">{{ ucfirst($cType->esign_role) }}</span>
+                                        @endif
                                         <span class="text-xs" style="color:var(--text-muted);">{{ $cType->contacts()->count() }} contact{{ $cType->contacts()->count() !== 1 ? 's' : '' }}</span>
                                     </div>
                                     <div class="flex items-center gap-3">
@@ -1060,25 +1075,37 @@
                                     <form method="POST" action="{{ route('corex.settings.contact-types.update', $cType) }}"
                                           class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                                         @csrf @method('PUT')
-                                        <div class="md:col-span-6">
+                                        <div class="md:col-span-4">
                                             <label class="block text-xs mb-1" style="color:var(--text-muted);">Name</label>
                                             <input name="name" value="{{ $cType->name }}" required
                                                    class="w-full rounded-md px-3 py-2 text-sm"
                                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
-                                        <div class="md:col-span-2">
+                                        <div class="md:col-span-1">
                                             <label class="block text-xs mb-1" style="color:var(--text-muted);">Color</label>
                                             <input type="color" name="color" value="{{ $cType->color }}"
                                                    class="w-full h-9 rounded-md cursor-pointer border"
                                                    style="border-color:var(--border); background:var(--surface);">
                                         </div>
-                                        <div class="md:col-span-2">
-                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort order</label>
+                                        <div class="md:col-span-1">
+                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">Sort</label>
                                             <input name="sort_order" type="number" step="1" min="0" value="{{ (int)$cType->sort_order }}"
                                                    class="w-full rounded-md px-3 py-2 text-sm"
                                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
-                                        <div class="md:col-span-2 flex gap-2">
+                                        <div class="md:col-span-3">
+                                            <label class="block text-xs mb-1" style="color:var(--text-muted);">E-Sign Role</label>
+                                            <select name="esign_role"
+                                                    class="w-full rounded-md px-3 py-2 text-sm"
+                                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <option value="" {{ empty($cType->esign_role) ? 'selected' : '' }}>(none)</option>
+                                                <option value="seller" {{ $cType->esign_role === 'seller' ? 'selected' : '' }}>Seller</option>
+                                                <option value="buyer" {{ $cType->esign_role === 'buyer' ? 'selected' : '' }}>Buyer</option>
+                                                <option value="lessor" {{ $cType->esign_role === 'lessor' ? 'selected' : '' }}>Lessor</option>
+                                                <option value="lessee" {{ $cType->esign_role === 'lessee' ? 'selected' : '' }}>Lessee</option>
+                                            </select>
+                                        </div>
+                                        <div class="md:col-span-3 flex gap-2">
                                             <button type="submit" class="flex-1 corex-btn-primary text-sm">Save</button>
                                             <button type="button" @click="editCTId = null"
                                                     class="flex-1 text-sm rounded-md"

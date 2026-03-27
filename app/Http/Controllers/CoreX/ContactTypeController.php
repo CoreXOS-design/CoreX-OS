@@ -14,6 +14,7 @@ class ContactTypeController extends Controller
             'name'       => 'required|string|max:100',
             'color'      => 'nullable|string|max:7',
             'sort_order' => 'nullable|integer|min:0',
+            'esign_role' => 'nullable|string|in:seller,buyer,lessor,lessee',
         ]);
 
         $data['color']      = $data['color'] ?? '#6366f1';
@@ -30,6 +31,7 @@ class ContactTypeController extends Controller
             'name'       => 'required|string|max:100',
             'color'      => 'nullable|string|max:7',
             'sort_order' => 'nullable|integer|min:0',
+            'esign_role' => 'nullable|string|in:seller,buyer,lessor,lessee',
         ]);
 
         $contactType->update($data);
