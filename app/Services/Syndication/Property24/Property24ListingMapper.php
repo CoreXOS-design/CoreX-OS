@@ -137,20 +137,51 @@ class Property24ListingMapper
 
         foreach ($images as $imagePath) {
             if (empty($imagePath)) continue;
-            $diskPath = str_starts_with($imagePath, 'properties/') ? 'public/' . $imagePath : $imagePath;
-            if (!Storage::exists($diskPath)) continue;
-            $bytes = Storage::get($diskPath);
-            if (empty($bytes)) continue;
 
-            $photos[] = [
-                'bytes'           => base64_encode($bytes),
-                'mimeContentType' => Storage::mimeType($diskPath) ?: 'image/jpeg',
-                'caption'         => null,
-                'isFloorPlan'     => false,
-            ];
+            // Images are stored as URLs via Storage::url(), e.g. "/storage/properties/16/file.jpg"
+            // Convert URL back to disk path on the 'public' disk
+            $diskPath = $this->urlToDiskPath($imagePath);
+
+            if ($diskPath && Storage::disk('public')->exists($diskPath)) {
+                $bytes = Storage::disk('public')->get($diskPath);
+                if (empty($bytes)) continue;
+
+                $photos[] = [
+                    'bytes'           => base64_encode($bytes),
+                    'mimeContentType' => Storage::disk('public')->mimeType($diskPath) ?: 'image/jpeg',
+                    'caption'         => null,
+                    'isFloorPlan'     => false,
+                ];
+            }
         }
 
         return $photos;
+    }
+
+    /**
+     * Convert a Storage::url() path back to a disk-relative path.
+     * e.g. "/storage/properties/16/file.jpg" => "properties/16/file.jpg"
+     * or "https://domain.com/storage/properties/16/file.jpg" => "properties/16/file.jpg"
+     */
+    private function urlToDiskPath(string $url): ?string
+    {
+        // Strip domain if full URL
+        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+            $parsed = parse_url($url);
+            $url = $parsed['path'] ?? $url;
+        }
+
+        // Strip the /storage/ prefix that Storage::url() adds
+        if (str_contains($url, '/storage/')) {
+            return substr($url, strpos($url, '/storage/') + 9); // 9 = strlen('/storage/')
+        }
+
+        // If it's already a relative path like "properties/16/file.jpg"
+        if (str_starts_with($url, 'properties/')) {
+            return $url;
+        }
+
+        return null;
     }
 
     private function resolveSuburbId(Property $property): ?int
