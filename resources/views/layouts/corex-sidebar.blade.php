@@ -45,7 +45,8 @@
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
         'admin.tv-messages*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
-        'tools.commission', 'tools.cma', 'tools.history.*'
+        'tools.commission', 'tools.cma', 'tools.history.*',
+        'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
     )) {
         $activeGroup = 'agency-tracker';
     } elseif (request()->routeIs('evaluation.*')) {
@@ -121,6 +122,17 @@
             <span>Dashboard</span>
         </a>
         @endpermission
+
+        {{-- ═══════════════════════════════════════════
+             MY EARNINGS
+             ═══════════════════════════════════════════ --}}
+        <a href="{{ route('commission.dashboard') }}"
+           class="corex-nav-item {{ request()->routeIs('commission.dashboard') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
+            </svg>
+            <span>My Earnings</span>
+        </a>
 
         {{-- ═══════════════════════════════════════════
              AGENCY TRACKER (expandable group)
@@ -237,6 +249,13 @@
                 <a href="{{ route('admin.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('admin.tv-messages*') ? 'active' : '' }}">TV Messages</a>
                 @endpermission
                 @endpermission
+
+                {{-- Commission Management (admin/owner only) --}}
+                @if($isOwner || $effectiveRole === 'super_admin')
+                <div class="corex-nav-sublabel">Commission</div>
+                <a href="{{ route('commission.principal') }}" class="corex-nav-subitem {{ request()->routeIs('commission.principal') ? 'active' : '' }}">Commission Overview</a>
+                <a href="{{ route('commission.index') }}" class="corex-nav-subitem {{ request()->routeIs('commission.index') ? 'active' : '' }}">Commission Management</a>
+                @endif
 
                 {{-- Tools (all roles within AT) --}}
                 @permission('access_calculators')

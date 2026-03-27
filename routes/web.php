@@ -556,6 +556,18 @@ use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerControll
 Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/', [CoreXDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard');
 
+    // ── Commission Engine ──
+    Route::get('/my-earnings', [\App\Http\Controllers\Commission\CommissionController::class, 'dashboard'])
+        ->name('commission.dashboard');
+    Route::get('/commission', [\App\Http\Controllers\Commission\CommissionController::class, 'index'])
+        ->name('commission.index');
+    Route::get('/commission/principal', [\App\Http\Controllers\Commission\CommissionController::class, 'principalDashboard'])
+        ->name('commission.principal');
+    Route::post('/commission/{entry}/confirm', [\App\Http\Controllers\Commission\CommissionController::class, 'confirm'])
+        ->name('commission.confirm');
+    Route::post('/commission/{entry}/pay', [\App\Http\Controllers\Commission\CommissionController::class, 'pay'])
+        ->name('commission.pay');
+
     Route::get('/documents', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'documents')->middleware('permission:access_docuperfect')->name('corex.documents');
     // ── Compliance / FICA ──
     Route::get('/compliance/rmcp', [\App\Http\Controllers\Compliance\FicaController::class, 'rmcp'])->middleware('permission:access_compliance')->name('compliance.rmcp');
