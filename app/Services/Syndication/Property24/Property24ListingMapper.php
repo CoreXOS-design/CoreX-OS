@@ -92,7 +92,7 @@ class Property24ListingMapper
             'garden'          => false,
             'pool'            => false,
             'flatlet'         => false,
-            'petsAllowed'     => false,
+            'petsAllowed'     => 'No',
             'furnishedStatus' => 'Unfurnished',
         ];
 
