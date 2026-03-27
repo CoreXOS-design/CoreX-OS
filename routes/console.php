@@ -58,3 +58,6 @@ Schedule::command('targets:carry-forward')->monthlyOn(1, '00:05')->withoutOverla
 
 // Private Property activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinutes()->withoutOverlapping();
+
+// Property24 ExDev activation polling — runs every 15 minutes
+Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();

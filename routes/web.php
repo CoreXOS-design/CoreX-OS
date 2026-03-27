@@ -649,6 +649,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/syndication/agent/register',        [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'registerAgent'])->name('syndication.agent.register');
         Route::post('/syndication/agent/deactivate',      [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'deactivateAgent'])->name('syndication.agent.deactivate');
         Route::post('/syndication/agent/image',           [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'uploadAgentImage'])->name('syndication.agent.image');
+        // Property24 ExDev Syndication
+        Route::post('/{property}/p24-syndication/toggle',     [\App\Http\Controllers\Property24\P24SyndicationController::class, 'toggle'])->name('p24-syndication.toggle');
+        Route::post('/{property}/p24-syndication/submit',     [\App\Http\Controllers\Property24\P24SyndicationController::class, 'submit'])->name('p24-syndication.submit');
+        Route::post('/{property}/p24-syndication/deactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'deactivate'])->name('p24-syndication.deactivate');
+        Route::post('/{property}/p24-syndication/reactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'reactivate'])->name('p24-syndication.reactivate');
+        Route::get('/{property}/p24-syndication/status',      [\App\Http\Controllers\Property24\P24SyndicationController::class, 'status'])->name('p24-syndication.status');
+        Route::get('/{property}/p24-syndication/readiness',   [\App\Http\Controllers\Property24\P24SyndicationController::class, 'readiness'])->name('p24-syndication.readiness');
     });
 
     // Ad Template Builder

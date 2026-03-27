@@ -127,6 +127,14 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        'property24' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/property24.log'),
+            'level' => 'debug',
+            'days' => 30,
+            'replace_placeholders' => true,
+        ],
+
         'private_property' => [
             'driver' => 'single',
             'path' => storage_path('logs/private_property.log'),

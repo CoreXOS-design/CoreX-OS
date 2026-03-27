@@ -422,6 +422,77 @@
                                 </ul>
                             </div>
                         </div>
+
+                        {{-- Property24 Syndication Panel --}}
+                        @php
+                            $p24Config = [
+                                'propertyId'      => $property->id,
+                                'enabled'         => (bool) $property->p24_syndication_enabled,
+                                'status'          => $property->p24_syndication_status ?? '',
+                                'p24Ref'          => $property->p24_ref ?? '',
+                                'lastSubmitted'   => $property->p24_last_submitted_at ? $property->p24_last_submitted_at->format('d M Y H:i') : '',
+                                'lastError'       => $property->p24_last_error ?? '',
+                                'activatedAt'     => $property->p24_activated_at ? $property->p24_activated_at->format('d M Y H:i') : '',
+                                'csrfToken'       => csrf_token(),
+                            ];
+                        @endphp
+                        <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-3 mt-2">
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
+                                 style="background:var(--surface-2); border:1px solid var(--border);"
+                                 @click="toggleEnabled()"
+                                 :style="enabled ? 'background:rgba(59,130,246,0.06); border-color:rgba(59,130,246,0.25);' : 'background:var(--surface-2); border-color:var(--border);'">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:#3b82f6' : 'color:var(--text-muted)'">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
+                                    </svg>
+                                    <span class="text-xs font-semibold" style="color:var(--text-primary);">Property24</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                                         :style="enabled ? 'background:#3b82f6' : 'background:var(--surface-3,#374151)'"
+                                         role="switch" :aria-checked="enabled">
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                              style="background:#fff; margin-top:2px;"
+                                              :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                    </div>
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
+                                          :style="statusBadgeStyle()" x-text="statusLabel()"></span>
+                                </div>
+                            </div>
+                            <div x-show="status && status !== ''" x-cloak class="text-[11px] px-1" style="color:var(--text-secondary);">
+                                <template x-if="p24Ref"><span>P24 Ref: <strong x-text="p24Ref" style="color:var(--text-primary);"></strong> &mdash; <span x-text="statusLabel()"></span></span></template>
+                                <template x-if="!p24Ref && status === 'submitted'"><span>Submitted, awaiting activation...</span></template>
+                                <template x-if="!p24Ref && status === 'pending'"><span>Ready to submit</span></template>
+                                <template x-if="status === 'error'"><span style="color:#ef4444;" x-text="'Error: ' + lastError"></span></template>
+                                <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
+                            </div>
+                            <div x-show="enabled" x-cloak class="flex flex-wrap gap-2">
+                                <button type="button" @click.stop="submitListing()" :disabled="loading"
+                                        class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity hover:opacity-85"
+                                        style="background:#3b82f6; color:#fff;">
+                                    <svg x-show="!loading" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                                    <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                    <span x-text="loading ? 'Submitting...' : 'Submit to P24'"></span>
+                                </button>
+                                <button type="button" x-show="status === 'deactivated'" @click.stop="reactivateListing()" :disabled="loading"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold" style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);">Reactivate</button>
+                                <button type="button" x-show="status === 'submitted' || status === 'active'" @click.stop="deactivateListing()" :disabled="loading"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold" style="background:rgba(239,68,68,0.10); color:#ef4444; border:1px solid rgba(239,68,68,0.25);">Deactivate</button>
+                            </div>
+                            <div x-show="lastSubmitted" x-cloak class="text-[10px]" style="color:var(--text-muted);">Last submitted: <span x-text="lastSubmitted"></span></div>
+                            <div x-show="message && messageType === 'success'" x-cloak x-transition class="px-3 py-2 rounded-md text-[11px] font-medium" style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);" x-text="message"></div>
+                            <div x-show="showDebug && debugErrors.length > 0" x-cloak x-transition class="rounded-md space-y-2" style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); padding:10px 12px;">
+                                <div class="flex items-center justify-between">
+                                    <p class="text-[11px] font-bold" style="color:#ef4444;">Submission Failed</p>
+                                    <button type="button" @click.stop="showDebug = false; debugErrors = []" class="text-[10px] px-1.5 py-0.5 rounded" style="color:var(--text-muted); background:var(--surface-2);">Dismiss</button>
+                                </div>
+                                <ul class="space-y-1 m-0 pl-3" style="list-style:disc;">
+                                    <template x-for="(err, i) in debugErrors" :key="i">
+                                        <li class="text-[11px] break-words" style="color:#f87171; word-break:break-word;" x-text="err"></li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -3327,6 +3398,64 @@ function ppSyndication(config) {
                     }),
                 });
             } catch (e) { /* silent save */ }
+        },
+    };
+}
+
+function p24Syndication(config) {
+    return {
+        propertyId: config.propertyId, enabled: config.enabled, status: config.status || '',
+        p24Ref: config.p24Ref || '', lastSubmitted: config.lastSubmitted || '',
+        lastError: config.lastError || '', csrfToken: config.csrfToken,
+        loading: false, message: '', messageType: 'success', debugErrors: [], showDebug: false,
+        statusLabel() {
+            const labels = {'':'Disabled','pending':'Pending','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
+            if (!this.enabled && !this.status) return 'Disabled';
+            return labels[this.status] || 'Disabled';
+        },
+        statusBadgeStyle() {
+            const styles = {'':'background:var(--surface-2);color:var(--text-muted);','pending':'background:rgba(245,158,11,0.12);color:#f59e0b;','submitted':'background:rgba(245,158,11,0.12);color:#f59e0b;','active':'background:rgba(59,130,246,0.12);color:#3b82f6;','error':'background:rgba(239,68,68,0.12);color:#ef4444;','rejected':'background:rgba(239,68,68,0.12);color:#ef4444;','deactivated':'background:var(--surface-2);color:var(--text-muted);'};
+            if (!this.enabled && !this.status) return styles[''];
+            return styles[this.status] || styles[''];
+        },
+        showMessage(msg, type = 'success') { this.message = msg; this.messageType = type; setTimeout(() => { this.message = ''; }, 5000); },
+        async toggleEnabled() {
+            this.loading = true;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/toggle`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' } });
+                const data = await res.json();
+                if (data.success) { this.enabled = data.p24_syndication_enabled; this.status = data.p24_syndication_status || ''; this.showMessage(this.enabled ? 'P24 syndication enabled' : 'P24 syndication disabled'); }
+                else { this.showMessage(data.message || 'Toggle failed', 'error'); }
+            } catch (e) { this.showMessage('Network error', 'error'); } finally { this.loading = false; }
+        },
+        async submitListing() {
+            this.loading = true; this.debugErrors = []; this.showDebug = false;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({}) });
+                const data = await res.json();
+                if (data.success) { this.status = data.p24_syndication_status || 'submitted'; this.p24Ref = data.p24_ref || this.p24Ref; this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }); this.lastError = ''; this.debugErrors = []; this.showDebug = false; this.showMessage(data.message || 'Submitted to P24'); }
+                else { this.status = data.p24_syndication_status || 'error'; this.lastError = data.message || 'Submission failed'; this.debugErrors = []; if (data.errors && data.errors.length > 0) { data.errors.forEach(e => this.debugErrors.push(typeof e === 'string' ? e : e.label || JSON.stringify(e))); } if (data.message) { this.debugErrors.push(data.message); } this.showDebug = true; }
+            } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; } finally { this.loading = false; }
+        },
+        async deactivateListing() {
+            if (!confirm('Deactivate this listing on Property24?')) return;
+            this.loading = true;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/deactivate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' } });
+                const data = await res.json();
+                if (data.success) { this.status = data.p24_syndication_status || 'deactivated'; this.showMessage('Listing deactivated on P24'); }
+                else { this.showMessage(data.message || 'Deactivation failed', 'error'); }
+            } catch (e) { this.showMessage('Network error', 'error'); } finally { this.loading = false; }
+        },
+        async reactivateListing() {
+            if (!confirm('Reactivate this listing on Property24?')) return;
+            this.loading = true;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/reactivate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' } });
+                const data = await res.json();
+                if (data.success) { this.status = data.p24_syndication_status || 'submitted'; this.showMessage('Listing reactivated on P24'); }
+                else { this.debugErrors = [data.message || 'Reactivation failed']; this.showDebug = true; }
+            } catch (e) { this.showMessage('Network error', 'error'); } finally { this.loading = false; }
         },
     };
 }

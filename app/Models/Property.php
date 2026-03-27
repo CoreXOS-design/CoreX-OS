@@ -100,6 +100,14 @@ class Property extends Model
         'pp_hide_complex_name',
         'pp_hide_unit_number',
         'rental_price_type',
+        'p24_syndication_enabled',
+        'p24_syndication_status',
+        'p24_ref',
+        'p24_last_submitted_at',
+        'p24_activated_at',
+        'p24_last_error',
+        'p24_images_last_synced_at',
+        'p24_listing_last_synced_at',
     ];
 
     protected $casts = [
@@ -146,6 +154,11 @@ class Property extends Model
         'pp_hide_street_number'     => 'boolean',
         'pp_hide_complex_name'      => 'boolean',
         'pp_hide_unit_number'       => 'boolean',
+        'p24_syndication_enabled'     => 'boolean',
+        'p24_last_submitted_at'       => 'datetime',
+        'p24_activated_at'            => 'datetime',
+        'p24_images_last_synced_at'   => 'datetime',
+        'p24_listing_last_synced_at'  => 'datetime',
     ];
 
     protected static function boot(): void
