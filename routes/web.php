@@ -601,6 +601,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     Route::get('/documents', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'documents')->middleware('permission:access_docuperfect')->name('corex.documents');
     // ── Compliance / FICA ──
+    Route::get('/compliance/agents', [\App\Http\Controllers\Compliance\AgentComplianceController::class, 'dashboard'])
+        ->name('compliance.agents');
     Route::get('/compliance/rmcp', [\App\Http\Controllers\Compliance\FicaController::class, 'rmcp'])->middleware('permission:access_compliance')->name('compliance.rmcp');
     Route::middleware('permission:access_compliance')->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
