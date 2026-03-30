@@ -1125,11 +1125,13 @@
                                 <template x-for="feat in featureCategories[featureCategoryTab].features" :key="feat">
                                     <button type="button"
                                             @click="toggleGlobalFeature(featureCategoryTab, feat)"
-                                            class="text-xs px-2.5 py-1 rounded-full transition-colors"
+                                            class="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full transition-colors"
                                             :style="features[featureCategoryTab] && features[featureCategoryTab].includes(feat)
                                                 ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);'
-                                                : 'background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);'"
-                                            x-text="feat">
+                                                : 'background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);'">
+                                        <span x-text="feat"></span>
+                                        <svg x-show="features[featureCategoryTab] && features[featureCategoryTab].includes(feat)"
+                                             xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                                     </button>
                                 </template>
                             </div>
@@ -1147,9 +1149,13 @@
                         <div class="flex flex-wrap gap-1.5 rounded-md p-3 min-h-[44px]" style="border:1px solid var(--border); background:var(--surface-2);">
                             <span x-show="allFeaturesFlat.length === 0" class="text-xs italic" style="color:var(--text-muted);">No features selected yet</span>
                             <template x-for="feat in allFeaturesFlat" :key="feat">
-                                <span class="text-xs px-2.5 py-1 rounded-full font-medium"
-                                      style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);"
-                                      x-text="feat"></span>
+                                <button type="button"
+                                        @click="removeFeatureByName(feat)"
+                                        class="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium transition-opacity hover:opacity-75 cursor-pointer"
+                                        style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+                                    <span x-text="feat"></span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
                             </template>
                         </div>
                     </div>
@@ -3138,6 +3144,22 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths)
         toggleGlobalFeature(catKey, feat) {
             const arr = this.features[catKey]; const i = arr.indexOf(feat);
             if (i >= 0) arr.splice(i, 1); else arr.push(feat);
+        },
+        removeFeatureByName(feat) {
+            // Remove from global feature categories
+            for (const [catKey, arr] of Object.entries(this.features)) {
+                const i = arr.indexOf(feat);
+                if (i >= 0) { arr.splice(i, 1); return; }
+            }
+            // Remove from space features
+            for (const sp of this.spaces) {
+                let i = (sp.featuresAll || []).indexOf(feat);
+                if (i >= 0) { sp.featuresAll.splice(i, 1); return; }
+                for (const u of (sp.units || [])) {
+                    i = (u.features || []).indexOf(feat);
+                    if (i >= 0) { u.features.splice(i, 1); return; }
+                }
+            }
         },
         getSpaceFeatures(type)    { return _SPACE_FEATURES[type] || _DEFAULT_SPACE_FEATURES; },
         getSpaceIconSvg(type)     { return _SPACE_SVG[type] || _SPACE_SVG['_default']; },
