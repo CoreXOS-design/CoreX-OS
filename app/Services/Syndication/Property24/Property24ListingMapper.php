@@ -21,7 +21,7 @@ class Property24ListingMapper
             'agencyId'          => $agencyId,
             'contactAgentIds'   => $this->resolveContactAgentIds($property, $agencyId),
             'listingType'       => $this->mapListingType($property->listing_type ?? $property->mandate_type),
-            'status'            => 'NewListing',
+            'status'            => $this->mapPropertyStatus($property),
             'price'             => (float) ($property->price ?? 0),
             'isPOA'             => (bool) $property->price_on_application,
             'listingVisibility' => 'Public',
@@ -42,7 +42,10 @@ class Property24ListingMapper
 
         if ($property->p24_ref) {
             $listing['listingNumber'] = (int) $property->p24_ref;
-            $listing['status'] = 'Active';
+            // Only override to Active if property is still on market
+            if ($listing['status'] === 'NewListing') {
+                $listing['status'] = 'Active';
+            }
         }
 
         // Complex info
@@ -408,6 +411,55 @@ class Property24ListingMapper
         }
 
         return $showdays;
+    }
+
+    /**
+     * Map CoreX property status to P24 ListingStatus enum.
+     * P24 statuses: NewListing, Active, Rented, Withdrawn, BackOnMarket,
+     *               Expired, Extended, RaisedPrice, ReducedPrice,
+     *               Cancelled, Pending, Sold, CancelledSale
+     */
+    private function mapPropertyStatus(Property $property): string
+    {
+        return self::getP24Status($property->status, $property->p24_ref);
+    }
+
+    /**
+     * Static helper: convert CoreX status string to P24 ListingStatus.
+     * Used by both the mapper and the observer.
+     */
+    public static function getP24Status(?string $corexStatus, ?string $p24Ref = null): string
+    {
+        // Normalize: lowercase, strip bullets, replace underscores with spaces
+        $status = strtolower(str_replace(['•', '_'], ['', ' '], trim($corexStatus ?? '')));
+        $status = preg_replace('/\s+/', ' ', $status); // collapse multiple spaces
+
+        return match (true) {
+            str_contains($status, 'sold')              => 'Sold',
+            str_contains($status, 'rented')            => 'Rented',
+            str_contains($status, 'withdrawn')
+                || str_contains($status, 'unavailable') => 'Withdrawn',
+            str_contains($status, 'under offer')
+                || str_contains($status, 'pending')     => 'Pending',
+            str_contains($status, 'back on market')     => 'BackOnMarket',
+            str_contains($status, 'reduced')            => 'ReducedPrice',
+            str_contains($status, 'raised')             => 'RaisedPrice',
+            str_contains($status, 'expired')            => 'Expired',
+            str_contains($status, 'cancelled')
+                || str_contains($status, 'archived')    => 'Cancelled',
+            str_contains($status, 'draft')              => 'Withdrawn',
+            str_contains($status, 'auction')            => 'Active',
+            $p24Ref !== null                            => 'Active',
+            default                                     => 'NewListing',
+        };
+    }
+
+    /**
+     * Check if a P24 status is a terminal/off-market status.
+     */
+    public static function isTerminalStatus(string $p24Status): bool
+    {
+        return in_array($p24Status, ['Sold', 'Rented', 'Withdrawn', 'Expired', 'Cancelled']);
     }
 
     private function mapListingType(?string $type): string

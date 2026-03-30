@@ -12,8 +12,8 @@ return new class extends Migration
                 'Residential', 'Commercial', 'Industrial', 'Retirement', 'Holiday', 'Project',
             ],
             'property_status' => [
-                'Sales Listing', 'For Sale', 'For Sale • Reduced Price', 'For Sale • Pending',
-                'For Sale • Back on Market', 'For Sale • Raised Price', 'Sold', 'Under Offer',
+                'Sales Listing', 'For Sale', 'Reduced Price', 'Pending',
+                'Back on Market', 'Raised Price', 'Sold', 'Under Offer',
                 'On Show', 'On Auction', 'Draft', 'Withdrawn', 'Unavailable', 'Archived',
             ],
             'mandate_type' => [
@@ -52,7 +52,7 @@ return new class extends Migration
     {
         $groups = [
             'category'        => ['Residential', 'Commercial', 'Industrial', 'Retirement', 'Holiday', 'Project'],
-            'property_status' => ['Sales Listing', 'For Sale', 'For Sale • Reduced Price', 'For Sale • Pending', 'For Sale • Back on Market', 'For Sale • Raised Price', 'Sold', 'Under Offer', 'On Show', 'On Auction', 'Draft', 'Withdrawn', 'Unavailable', 'Archived'],
+            'property_status' => ['Sales Listing', 'For Sale', 'Reduced Price', 'Pending', 'Back on Market', 'Raised Price', 'Sold', 'Under Offer', 'On Show', 'On Auction', 'Draft', 'Withdrawn', 'Unavailable', 'Archived'],
             'mandate_type'    => ['Open', 'Joint', 'Sole', 'Dual'],
         ];
 
