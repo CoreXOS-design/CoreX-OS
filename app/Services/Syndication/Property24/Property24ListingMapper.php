@@ -45,12 +45,41 @@ class Property24ListingMapper
             $listing['status'] = 'Active';
         }
 
+        // Complex info
+        if ($property->complex_name || $property->unit_number) {
+            $listing['complexInfo'] = [
+                'complexName' => $property->complex_name ?? null,
+                'unitNumber'  => $property->unit_number ?? null,
+            ];
+        }
+
+        // Rental info
         if ($this->mapListingType($property->listing_type ?? $property->mandate_type) === 'Rental') {
             $rentalInfo = ['leasePeriod' => $property->lease_period ?? '12 Months'];
             if ($property->deposit_amount) {
                 $rentalInfo['depositRequirementsComments'] = 'Deposit: R ' . number_format((float) $property->deposit_amount, 0, '.', ' ');
             }
             $listing['rentalInfo'] = $rentalInfo;
+        }
+
+        // Commercial info
+        if (in_array(strtolower($property->property_type ?? ''), ['commercial', 'industrial', 'office', 'retail'])) {
+            $commercial = [];
+            if ($property->gross_price) $commercial['grossPrice'] = (float) $property->gross_price;
+            if ($property->net_price) $commercial['netPrice'] = (float) $property->net_price;
+            if ($property->lease_start_date) $commercial['availabilityDate'] = $property->lease_start_date->format('Y-m-d');
+            if (!empty($commercial)) $listing['commercialInfo'] = $commercial;
+        }
+
+        // Occupation date
+        if ($property->lease_start_date) {
+            $listing['occupationDate'] = $property->lease_start_date->format('Y-m-d\TH:i:s');
+        }
+
+        // Showdays
+        $showdays = $this->buildShowdays($property);
+        if (!empty($showdays)) {
+            $listing['showDays'] = $showdays;
         }
 
         if ($includePhotos) {
@@ -87,17 +116,105 @@ class Property24ListingMapper
 
     private function buildPropertyFeatures(Property $property): array
     {
+        $feats = $property->features_json ?? [];
+        $spaces = $property->spaces_json ?? [];
+        $hasFeature = fn(string ...$names) => !empty(array_intersect(array_map('strtolower', $feats), array_map('strtolower', $names)));
+        $countSpaces = fn(string $type) => collect($spaces)->where('type', $type)->sum(fn($s) => (float) ($s['count'] ?? 1));
+
         $features = [
             'garages'         => (float) ($property->garages ?? 0),
-            'garden'          => false,
-            'pool'            => false,
-            'flatlet'         => false,
-            'petsAllowed'     => 'No',
-            'furnishedStatus' => 'No',
+            'garden'          => $hasFeature('Garden', 'Landscaped', 'Garden Services') || $countSpaces('Garden') > 0,
+            'pool'            => $hasFeature('Pool', 'Communal Pool', 'Indoor Pool', 'Splash Pool') || $countSpaces('Pool') > 0,
+            'flatlet'         => $hasFeature('Flatlet') || $countSpaces('Flatlet') > 0,
+            'petsAllowed'     => $hasFeature('Pet Friendly', 'Pets Allowed') ? 'Yes' : ($hasFeature('Pets Not Allowed') ? 'No' : null),
+            'furnishedStatus' => $hasFeature('Furnished') ? 'Yes' : ($hasFeature('Unfurnished') ? 'No' : null),
         ];
 
         if ($property->beds) $features['bedrooms'] = (float) $property->beds;
         if ($property->baths) $features['bathrooms'] = ['bathrooms' => (float) $property->baths];
+
+        // Parking details from spaces/features
+        $parkingSpaces = $countSpaces('Parking');
+        if ($parkingSpaces > 0 || $hasFeature('Carport', 'Secure Parking', 'Street Parking', 'Underground Parking', 'Visitors Parking')) {
+            $features['parking'] = [
+                'parkingSpaces'        => $parkingSpaces > 0 ? (int) $parkingSpaces : null,
+                'carport'              => $hasFeature('Carport'),
+                'secureParking'        => $hasFeature('Secure Parking'),
+                'onStreetParking'      => $hasFeature('Street Parking'),
+                'undergroundParking'   => $hasFeature('Underground Parking'),
+                'visitorsParking'      => $hasFeature('Visitors Parking'),
+                'shadeNetCoveredParking' => $hasFeature('Shade Net Covered Parking'),
+                'doubleParking'        => $hasFeature('Double Parking'),
+                'singleParking'        => $hasFeature('Single Parking'),
+                'tandemParking'        => $hasFeature('Tandem Parking'),
+                'tripleParking'        => $hasFeature('Triple Parking'),
+            ];
+        }
+
+        // Studies / offices
+        $studies = $countSpaces('Study') + $countSpaces('Office');
+        if ($studies > 0) $features['studies'] = (int) $studies;
+
+        // Reception rooms (lounge + dining)
+        $reception = $countSpaces('Lounge') + $countSpaces('Dining Room') + $countSpaces('TV Room');
+        if ($reception > 0) $features['receptionRooms'] = (int) $reception;
+
+        // Domestic rooms
+        $domestic = $countSpaces('Domestic Room');
+        if ($domestic > 0) $features['domesticRooms'] = (int) $domestic;
+
+        // Domestic bathrooms
+        $domesticBaths = $countSpaces('Domestic Bathroom');
+        if ($domesticBaths > 0) $features['domesticBathrooms'] = (float) $domesticBaths;
+
+        // Outside toilets
+        $outsideToilets = $countSpaces('Outside Toilet');
+        if ($outsideToilets > 0) $features['outsideToilets'] = (int) $outsideToilets;
+
+        // Second house / outbuildings
+        $features['secondHouse'] = $countSpaces('Flatlet') > 0 || $countSpaces('Wendy House') > 0;
+
+        // Standalone building
+        if ($hasFeature('Standalone')) $features['hasStandaloneBuilding'] = true;
+
+        // Wheelchair accessible
+        if ($hasFeature('Wheelchair Friendly')) $features['isWheelchairAccessible'] = true;
+
+        // Generator
+        if ($hasFeature('Generator')) $features['hasGenerator'] = true;
+
+        // Backup water
+        if ($hasFeature('Backup Water', 'Water Tank', 'Borehole')) $features['hasBackupWater'] = true;
+
+        // Internet access
+        if ($hasFeature('ADSL', 'Fibre', 'Fast Internet', 'Satellite Internet', 'Wi-Fi')) {
+            $features['internetAccess'] = [
+                'adsl'      => $hasFeature('ADSL'),
+                'fibre'     => $hasFeature('Fibre', 'Fast Internet'),
+                'satellite' => $hasFeature('Satellite Internet', 'Satellite Dish'),
+            ];
+        }
+
+        // Sustainability
+        if ($hasFeature('Solar Panel', 'Solar Geyser', 'Gas Geyser', 'Water Tank', 'Borehole', 'Backup Battery', 'Inverter')) {
+            $features['sustainabilityInfo'] = [
+                'solarPanels'             => $hasFeature('Solar Panel', 'Solar Heating'),
+                'solarGeyser'             => $hasFeature('Solar Geyser'),
+                'gasGeyser'               => $hasFeature('Gas Geyser'),
+                'waterTank'               => $hasFeature('Water Tank'),
+                'borehole'                => $hasFeature('Borehole'),
+                'backupBatteryOrInverter' => $hasFeature('Backup Battery', 'Inverter'),
+            ];
+        }
+
+        // Kitchens
+        $kitchens = $countSpaces('Kitchen');
+        if ($kitchens > 0) {
+            $features['kitchens'] = [
+                'kitchens'   => (int) $kitchens,
+                'dishwasher' => $hasFeature('Dishwasher'),
+            ];
+        }
 
         return $features;
     }
@@ -252,6 +369,21 @@ class Property24ListingMapper
         }
 
         return $ids;
+    }
+
+    private function buildShowdays(Property $property): array
+    {
+        $showdays = [];
+        $active = $property->activeShowdays ?? $property->showdays()->where('active', true)->where('end_date', '>=', now())->get();
+
+        foreach ($active as $s) {
+            $showdays[] = [
+                'startDate' => $s->start_date->format('Y-m-d\TH:i:s'),
+                'endDate'   => $s->end_date->format('Y-m-d\TH:i:s'),
+            ];
+        }
+
+        return $showdays;
     }
 
     private function mapListingType(?string $type): string
