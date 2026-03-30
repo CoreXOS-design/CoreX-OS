@@ -117,17 +117,18 @@ class Property24ListingMapper
     private function buildPropertyFeatures(Property $property): array
     {
         $feats = $property->features_json ?? [];
-        $spaces = $property->spaces_json ?? [];
+        $spacesData = $property->spaces_json ?? [];
+        $spacesList = $spacesData['spaces'] ?? (isset($spacesData[0]) ? $spacesData : []);
         $hasFeature = fn(string ...$names) => !empty(array_intersect(array_map('strtolower', $feats), array_map('strtolower', $names)));
-        $countSpaces = fn(string $type) => collect($spaces)->where('type', $type)->sum(fn($s) => (float) ($s['count'] ?? 1));
+        $countSpaces = fn(string $type) => collect($spacesList)->where('type', $type)->sum(fn($s) => (float) ($s['count'] ?? 1));
 
         $features = [
             'garages'         => (float) ($property->garages ?? 0),
             'garden'          => $hasFeature('Garden', 'Landscaped', 'Garden Services') || $countSpaces('Garden') > 0,
             'pool'            => $hasFeature('Pool', 'Communal Pool', 'Indoor Pool', 'Splash Pool') || $countSpaces('Pool') > 0,
             'flatlet'         => $hasFeature('Flatlet') || $countSpaces('Flatlet') > 0,
-            'petsAllowed'     => $hasFeature('Pet Friendly', 'Pets Allowed') ? 'Yes' : ($hasFeature('Pets Not Allowed') ? 'No' : null),
-            'furnishedStatus' => $hasFeature('Furnished') ? 'Yes' : ($hasFeature('Unfurnished') ? 'No' : null),
+            'petsAllowed'     => $hasFeature('Pet Friendly', 'Pets Allowed') ? 'Yes' : ($hasFeature('Pets Not Allowed') ? 'No' : 'DontKnow'),
+            'furnishedStatus' => $hasFeature('Furnished') ? 'Yes' : ($hasFeature('Unfurnished') ? 'No' : 'No'),
         ];
 
         if ($property->beds) $features['bedrooms'] = (float) $property->beds;
