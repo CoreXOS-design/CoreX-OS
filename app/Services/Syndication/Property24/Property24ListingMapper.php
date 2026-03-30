@@ -217,6 +217,29 @@ class Property24ListingMapper
             ];
         }
 
+        // Outside areas (balcony, courtyard, patio, veranda, etc.)
+        $patios = $countSpaces('Patio') + $countSpaces('Veranda') + $countSpaces('Lapa') + $countSpaces('Courtyard');
+        if ($patios > 0 || $hasFeature('Balcony', 'Courtyard')) {
+            $features['outsideArea'] = [
+                'outsideAreas' => (int) max($patios, 1),
+                'balcony'      => $hasFeature('Balcony'),
+                'courtyard'    => $hasFeature('Courtyard') || $countSpaces('Courtyard') > 0,
+                'roofArea'     => false,
+            ];
+        }
+
+        // Number of floors
+        if ($hasFeature('Single Storey')) $features['numberOfFloors'] = 1;
+
+        // Public transport
+        if ($hasFeature('Near Bus Service', 'Near Train Service')) {
+            $features['publicTransport'] = [
+                'nearbyBusService'         => $hasFeature('Near Bus Service'),
+                'nearbyMinibusTaxiService' => false,
+                'nearbyTrainService'       => $hasFeature('Near Train Service'),
+            ];
+        }
+
         return $features;
     }
 
