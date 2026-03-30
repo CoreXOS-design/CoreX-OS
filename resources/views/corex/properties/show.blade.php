@@ -466,6 +466,7 @@
                                           :style="statusBadgeStyle()" x-text="statusLabel()"></span>
                                 </div>
                             </div>
+                            {{-- Status line --}}
                             <div x-show="status && status !== ''" x-cloak class="text-[11px] px-1" style="color:var(--text-secondary);">
                                 <template x-if="p24Ref"><span>P24 Ref: <strong x-text="p24Ref" style="color:var(--text-primary);"></strong> &mdash; <span x-text="statusLabel()"></span></span></template>
                                 <template x-if="!p24Ref && status === 'submitted'"><span>Submitted, awaiting activation...</span></template>
@@ -473,18 +474,9 @@
                                 <template x-if="status === 'error'"><span style="color:#ef4444;" x-text="'Error: ' + lastError"></span></template>
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
-                            {{-- View on P24 link --}}
-                            <div x-show="p24Ref && (status === 'active' || status === 'submitted')" x-cloak class="px-1">
-                                <a :href="p24ListingUrl()" target="_blank"
-                                   class="inline-flex items-center gap-1.5 text-[11px] font-semibold no-underline"
-                                   style="color:#3b82f6;"
-                                   onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                                    View on Property24
-                                </a>
-                            </div>
+
                             {{-- Missing fields warning --}}
-                            <div x-show="enabled && missingFields.length > 0" x-cloak
+                            <div x-show="enabled && !p24Ref && missingFields.length > 0" x-cloak
                                  class="rounded-md px-3 py-2.5 space-y-1.5"
                                  style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
                                 <p class="text-[11px] font-semibold" style="color:#f59e0b;">Cannot submit — missing required fields:</p>
@@ -495,8 +487,11 @@
                                 </ul>
                             </div>
 
-                            <div x-show="enabled" x-cloak class="flex flex-wrap gap-2">
-                                <button type="button" @click.stop="submitListing()" :disabled="loading || missingFields.length > 0"
+                            {{-- Submit button — only shown before first successful submission --}}
+                            <div x-show="enabled && !p24Ref && status !== 'active' && status !== 'submitted'" x-cloak class="flex flex-wrap gap-2">
+                                <button type="button"
+                                        @click.stop="submitListing()"
+                                        :disabled="loading || missingFields.length > 0"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
                                         :style="missingFields.length > 0 ? 'background:#374151; color:#6b7280; cursor:not-allowed;' : 'background:#3b82f6; color:#fff;'"
                                         :class="missingFields.length === 0 ? 'hover:opacity-85' : ''">
@@ -504,18 +499,62 @@
                                     <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
                                     <span x-text="loading ? 'Submitting...' : 'Submit to P24'"></span>
                                 </button>
+                                {{-- Reactivate (for deactivated, no ref yet edge case) --}}
                                 <button type="button" x-show="status === 'deactivated'" @click.stop="reactivateListing()" :disabled="loading"
-                                        class="px-3 py-2 rounded-md text-xs font-semibold" style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);">Reactivate</button>
-                                <button type="button" x-show="status === 'submitted' || status === 'active'" @click.stop="refreshListing()" :disabled="loading"
-                                        class="px-3 py-2 rounded-md text-xs font-semibold" style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);">
+                                        class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                    Reactivate
+                                </button>
+                            </div>
+
+                            {{-- Active listing actions: View · Refresh · Deactivate --}}
+                            <div x-show="enabled && p24Ref && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
+                                <a :href="p24ListingUrl()" target="_blank"
+                                   class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
+                                   style="background:#3b82f6; color:#fff;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                    View on P24
+                                </a>
+                                <button type="button" @click.stop="refreshListing()" :disabled="loading"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
                                 </button>
-                                <button type="button" x-show="status === 'submitted' || status === 'active'" @click.stop="deactivateListing()" :disabled="loading"
-                                        class="px-3 py-2 rounded-md text-xs font-semibold" style="background:rgba(239,68,68,0.10); color:#ef4444; border:1px solid rgba(239,68,68,0.25);">Deactivate</button>
+                                <button type="button" @click.stop="deactivateListing()" :disabled="loading"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(239,68,68,0.10); color:#ef4444; border:1px solid rgba(239,68,68,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                    Deactivate
+                                </button>
                             </div>
-                            <div x-show="lastSubmitted" x-cloak class="text-[10px]" style="color:var(--text-muted);">Last submitted: <span x-text="lastSubmitted"></span></div>
-                            <div x-show="message && messageType === 'success'" x-cloak x-transition class="px-3 py-2 rounded-md text-[11px] font-medium" style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);" x-text="message"></div>
-                            <div x-show="showDebug && debugErrors.length > 0" x-cloak x-transition class="rounded-md space-y-2" style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); padding:10px 12px;">
+
+                            {{-- Deactivated listing actions: Reactivate --}}
+                            <div x-show="enabled && p24Ref && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
+                                <button type="button" @click.stop="reactivateListing()" :disabled="loading"
+                                        class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                    Reactivate
+                                </button>
+                            </div>
+
+                            {{-- Last submitted timestamp --}}
+                            <div x-show="lastSubmitted" x-cloak class="text-[10px]" style="color:var(--text-muted);">
+                                Last submitted: <span x-text="lastSubmitted"></span>
+                            </div>
+
+                            {{-- Toast message --}}
+                            <div x-show="message && messageType === 'success'" x-cloak x-transition
+                                 class="px-3 py-2 rounded-md text-[11px] font-medium"
+                                 style="background:rgba(59,130,246,0.10); color:#3b82f6; border:1px solid rgba(59,130,246,0.25);"
+                                 x-text="message"></div>
+
+                            {{-- Error panel --}}
+                            <div x-show="showDebug && debugErrors.length > 0" x-cloak x-transition
+                                 class="rounded-md space-y-2"
+                                 style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); padding:10px 12px;">
                                 <div class="flex items-center justify-between">
                                     <p class="text-[11px] font-bold" style="color:#ef4444;">Submission Failed</p>
                                     <button type="button" @click.stop="showDebug = false; debugErrors = []" class="text-[10px] px-1.5 py-0.5 rounded" style="color:var(--text-muted); background:var(--surface-2);">Dismiss</button>
