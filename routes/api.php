@@ -3,6 +3,7 @@
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use App\Http\Controllers\Api\CommandCenterApiController;
 use App\Http\Controllers\Api\ProspectingApiController;
 use App\Http\Controllers\Api\PropertyPullController;
 use App\Http\Controllers\FaultReportController;
@@ -64,4 +65,25 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/properties/pull-from-portal', [PropertyPullController::class, 'pullFromPortal']);
     Route::get('/properties/{propertyId}/pull-status', [PropertyPullController::class, 'pullStatus']);
+
+    // ── Command Center ────────────────────────────────────────────
+    Route::prefix('command-center')->group(function () {
+        Route::get('/dashboard', [CommandCenterApiController::class, 'dashboard']);
+
+        Route::get('/calendar', [CommandCenterApiController::class, 'calendarIndex']);
+        Route::post('/calendar', [CommandCenterApiController::class, 'calendarStore']);
+        Route::post('/calendar/{calendarEvent}/complete', [CommandCenterApiController::class, 'calendarComplete']);
+        Route::post('/calendar/{calendarEvent}/dismiss', [CommandCenterApiController::class, 'calendarDismiss']);
+
+        Route::get('/tasks', [CommandCenterApiController::class, 'tasksIndex']);
+        Route::post('/tasks', [CommandCenterApiController::class, 'tasksStore']);
+        Route::post('/tasks/{task}/complete', [CommandCenterApiController::class, 'tasksComplete']);
+        Route::patch('/tasks/{task}/status', [CommandCenterApiController::class, 'tasksUpdateStatus']);
+
+        Route::post('/resolve-task/{task}', [CommandCenterApiController::class, 'resolveTask']);
+        Route::post('/resolve-event/{calendarEvent}', [CommandCenterApiController::class, 'resolveEvent']);
+
+        Route::get('/user-settings', [CommandCenterApiController::class, 'settingsIndex']);
+        Route::put('/user-settings', [CommandCenterApiController::class, 'settingsUpdate']);
+    });
 });
