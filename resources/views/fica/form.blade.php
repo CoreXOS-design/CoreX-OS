@@ -721,12 +721,12 @@
             entityType: '',
 
             personal: {
-                full_name: @json($contact->full_name ?? ''),
-                id_number: @json($contact->id_number ?? ''),
+                full_name: '',
+                id_number: '',
                 sa_citizen: '',
-                residential_address: @json($contact->address ?? ''),
-                phone: @json($contact->phone ?? ''),
-                email: @json($contact->email ?? ''),
+                residential_address: '',
+                phone: '',
+                email: '',
                 tax_number: '',
             },
 
