@@ -177,6 +177,75 @@ Route::prefix('admin/p24')->middleware(['auth', 'permission:manage_p24'])->group
     Route::post('/import', [\App\Http\Controllers\Admin\P24Controller::class, 'runImport'])->name('admin.p24.import');
 });
 
+// ===== DEPOSIT INTEREST CALCULATOR =====
+Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:access_deposit_calculator'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'index'])->name('deposit-interest-calculator.index');
+    Route::get('/calculate', fn () => redirect()->route('deposit-interest-calculator.index'));
+    Route::post('/calculate', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'calculate'])->name('deposit-interest-calculator.calculate');
+    Route::get('/download-pdf', fn () => redirect()->route('deposit-interest-calculator.index'));
+    Route::post('/download-pdf', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'downloadPdf'])->name('deposit-interest-calculator.download-pdf');
+    Route::get('/download-tenant-pdf', fn () => redirect()->route('deposit-interest-calculator.index'));
+    Route::post('/download-tenant-pdf', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'downloadTenantPdf'])->name('deposit-interest-calculator.download-tenant-pdf');
+    Route::get('/save', fn () => redirect()->route('deposit-interest-calculator.index'));
+    Route::post('/save', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'save'])->name('deposit-interest-calculator.save');
+    Route::get('/history', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'history'])->name('deposit-interest-calculator.history')->middleware('permission:access_deposit_calc_history');
+    Route::get('/history/{calculation}', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'show'])->name('deposit-interest-calculator.show')->middleware('permission:access_deposit_calc_history');
+    Route::delete('/history/{calculation}', [\App\Http\Controllers\DepositInterestCalculatorController::class, 'destroy'])->name('deposit-interest-calculator.destroy')->middleware('permission:access_deposit_calc_history');
+});
+
+// ===== DEAL REGISTER V2 — PIPELINE SETUP =====
+Route::prefix('deals-v2/pipeline-setup')->middleware(['auth', 'permission:deals_v2.manage_pipeline'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'index'])->name('deals-v2.pipeline.index');
+    Route::get('/create', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'create'])->name('deals-v2.pipeline.create');
+    Route::post('/', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'store'])->name('deals-v2.pipeline.store');
+    Route::get('/{template}/edit', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'edit'])->name('deals-v2.pipeline.edit');
+    Route::put('/{template}', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'update'])->name('deals-v2.pipeline.update');
+    Route::delete('/{template}', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'destroy'])->name('deals-v2.pipeline.destroy');
+    Route::post('/{template}/duplicate', [\App\Http\Controllers\DealV2\DealPipelineSetupController::class, 'duplicate'])->name('deals-v2.pipeline.duplicate');
+
+    // Step AJAX endpoints
+    Route::post('/{template}/steps', [\App\Http\Controllers\DealV2\DealPipelineStepController::class, 'store'])->name('deals-v2.pipeline.steps.store');
+    Route::put('/steps/{step}', [\App\Http\Controllers\DealV2\DealPipelineStepController::class, 'update'])->name('deals-v2.pipeline.steps.update');
+    Route::delete('/steps/{step}', [\App\Http\Controllers\DealV2\DealPipelineStepController::class, 'destroy'])->name('deals-v2.pipeline.steps.destroy');
+    Route::post('/{template}/steps/reorder', [\App\Http\Controllers\DealV2\DealPipelineStepController::class, 'reorder'])->name('deals-v2.pipeline.steps.reorder');
+});
+
+// ===== DEAL REGISTER V2 =====
+Route::prefix('deals-v2')->middleware(['auth'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'index'])->name('deals-v2.index')->middleware('permission:deals_v2.view');
+    Route::get('/create', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'create'])->name('deals-v2.create')->middleware('permission:deals_v2.create');
+    Route::post('/', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'store'])->name('deals-v2.store')->middleware('permission:deals_v2.create');
+    Route::get('/search/properties', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchProperties'])->name('deals-v2.search.properties');
+    Route::get('/search/contacts', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchContacts'])->name('deals-v2.search.contacts');
+    Route::get('/search/deals', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'searchDeals'])->name('deals-v2.search.deals');
+    Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'getPropertyContacts'])->name('deals-v2.search.property-contacts');
+    Route::get('/{deal}/edit', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'edit'])->name('deals-v2.edit')->middleware('permission:deals_v2.edit');
+    Route::put('/{deal}', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'update'])->name('deals-v2.update')->middleware('permission:deals_v2.edit');
+    Route::delete('/{deal}', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'destroy'])->name('deals-v2.destroy')->middleware('permission:deals_v2.archive');
+    Route::get('/{deal}', [\App\Http\Controllers\DealV2\DealV2Controller::class, 'show'])->name('deals-v2.show')->middleware('permission:deals_v2.view');
+
+    // Step actions
+    Route::post('/steps/{step}/complete', [\App\Http\Controllers\DealV2\DealStepController::class, 'complete'])->name('deals-v2.steps.complete')->middleware('permission:deals_v2.edit');
+    Route::post('/steps/{step}/approve', [\App\Http\Controllers\DealV2\DealStepController::class, 'approve'])->name('deals-v2.steps.approve');
+    Route::post('/steps/{step}/reject', [\App\Http\Controllers\DealV2\DealStepController::class, 'reject'])->name('deals-v2.steps.reject');
+    Route::post('/steps/{step}/upload', [\App\Http\Controllers\DealV2\DealStepController::class, 'uploadDocument'])->name('deals-v2.steps.upload')->middleware('permission:deals_v2.edit');
+    Route::post('/steps/{step}/override-date', [\App\Http\Controllers\DealV2\DealStepController::class, 'overrideDueDate'])->name('deals-v2.steps.override-date')->middleware('permission:deals_v2.override_dates');
+
+    // Settlement
+    Route::get('/{deal}/settlement', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'settle'])->name('deals-v2.settlement.index')->middleware('permission:deals_v2.edit');
+    Route::post('/{deal}/settlement', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'saveSettlement'])->name('deals-v2.settlement.save')->middleware('permission:deals_v2.edit');
+    Route::get('/{deal}/settlement/print', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'printSettlement'])->name('deals-v2.settlement.print')->middleware('permission:deals_v2.view');
+    Route::get('/{deal}/settlement/payslip/{user}', [\App\Http\Controllers\DealV2\DealV2SettlementController::class, 'printAgentPayslip'])->name('deals-v2.settlement.payslip')->middleware('permission:deals_v2.view');
+});
+
+// ===== DEPOSIT TRUST INTEREST =====
+Route::prefix('admin/deposit-trust-interest')->middleware(['auth', 'permission:access_trust_interest'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'index'])->name('admin.deposit-trust-interest.index');
+    Route::post('/', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'store'])->name('admin.deposit-trust-interest.store');
+    Route::put('/{record}', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'update'])->name('admin.deposit-trust-interest.update');
+    Route::delete('/{record}', [\App\Http\Controllers\Admin\DepositTrustInterestController::class, 'destroy'])->name('admin.deposit-trust-interest.destroy');
+});
+
 // ===== KNOWLEDGE BASE =====
 Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowledge_base'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\KnowledgeController::class, 'index'])->name('admin.knowledge.index');

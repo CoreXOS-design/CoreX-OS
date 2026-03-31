@@ -698,6 +698,11 @@ class ESignWizardController extends Controller
         $stepData = $flow->step_data ?? [];
         $stepData[$stepKey] = $data;
 
+        // Sort recipients by SA signing convention when saving step 3
+        if ($stepKey === 'recipients' && !empty($data['recipients'])) {
+            $stepData['recipients']['recipients'] = $this->sortRecipientsBySigningOrder($data['recipients']);
+        }
+
         // For step 5 (fill_review): merge field values and party overrides back into the main fields array
         if ($stepKey === 'fill_review') {
             $fields = $stepData['fields'] ?? [];
@@ -856,13 +861,57 @@ class ESignWizardController extends Controller
 
         $results = [];
 
+        // Build a proper street address from available property fields
+        $buildAddress = function ($p): string {
+            $parts = [];
+
+            if (!empty($p->unit_number)) {
+                $parts[] = 'Unit ' . $p->unit_number;
+            }
+            if (!empty($p->complex_name)) {
+                $parts[] = $p->complex_name;
+            }
+
+            // Prefer street_number + street_name, fall back to address field
+            $street = '';
+            if (!empty($p->street_number) && !empty($p->street_name)) {
+                $street = $p->street_number . ' ' . $p->street_name;
+            } elseif (!empty($p->street_name)) {
+                $street = $p->street_name;
+            } elseif (!empty($p->address)) {
+                $street = $p->address;
+            }
+            if ($street) {
+                $parts[] = $street;
+            }
+
+            if (!empty($p->suburb)) {
+                $parts[] = $p->suburb;
+            }
+
+            if (empty($parts)) {
+                return $p->title ?? 'Unknown Property';
+            }
+
+            return implode(', ', $parts);
+        };
+
         // 1. Search main properties table
         $properties = Property::where(function ($query) use ($q) {
             $query->where('address', 'like', "%{$q}%")
                 ->orWhere('suburb', 'like', "%{$q}%")
                 ->orWhere('title', 'like', "%{$q}%")
                 ->orWhere('property_number', 'like', "%{$q}%")
-                ->orWhere('complex_name', 'like', "%{$q}%");
+                ->orWhere('complex_name', 'like', "%{$q}%")
+                ->orWhere('unit_number', 'like', "%{$q}%");
+
+            // These columns exist on staging/production but may not on local
+            if (\Illuminate\Support\Facades\Schema::hasColumn('properties', 'street_name')) {
+                $query->orWhere('street_name', 'like', "%{$q}%");
+            }
+            if (\Illuminate\Support\Facades\Schema::hasColumn('properties', 'street_number')) {
+                $query->orWhere('street_number', 'like', "%{$q}%");
+            }
         })
             ->limit(10)
             ->get();
@@ -874,10 +923,12 @@ class ESignWizardController extends Controller
                 ->orWherePivot('role', 'landlord')
                 ->first();
 
+            $resolvedAddress = $buildAddress($p);
+
             $results[] = [
                 'id'                => $p->id,
                 'source'            => 'properties',
-                'address'           => $p->address ?: $p->title,
+                'address'           => $resolvedAddress,
                 'suburb'            => $p->suburb ?? '',
                 'erf_no'            => $p->property_number ?? '',
                 'complex_name'      => $p->complex_name ?? '',
@@ -894,7 +945,7 @@ class ESignWizardController extends Controller
                 'lessor_id'         => $lessor?->id,
                 'beds'              => $p->beds,
                 'baths'             => $p->baths,
-                'display'           => trim(($p->address ?: $p->title) . ', ' . ($p->suburb ?? ''), ', '),
+                'display'           => $resolvedAddress,
             ];
         }
 
@@ -909,11 +960,15 @@ class ESignWizardController extends Controller
             ->get();
 
         foreach ($rentalProps as $rp) {
-            // Avoid duplicating if already found in properties by address match
+            $rpAddr = $rp->full_address ?: $rp->address_line_1;
+            if (!empty($rp->suburb) && $rpAddr && !str_contains($rpAddr, $rp->suburb)) {
+                $rpAddr .= ', ' . $rp->suburb;
+            }
+
             $results[] = [
                 'id'                => $rp->id,
                 'source'            => 'rental_properties',
-                'address'           => $rp->full_address ?: $rp->address_line_1,
+                'address'           => $rpAddr,
                 'suburb'            => $rp->suburb ?? '',
                 'erf_no'            => '',
                 'complex_name'      => '',
@@ -929,7 +984,7 @@ class ESignWizardController extends Controller
                 'lessor_id'         => null,
                 'beds'              => null,
                 'baths'             => null,
-                'display'           => $rp->full_address ?: $rp->address_line_1,
+                'display'           => $rpAddr,
             ];
         }
 
@@ -1284,6 +1339,8 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        // Sort recipients by SA signing convention: Agent → Tenant/Buyer → Landlord/Seller → Witness
+        $recipients = $this->sortRecipientsBySigningOrder($recipients);
         // Support both old format (array of entries) and new format ({delivery_mode, parties: [...]})
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
@@ -2748,6 +2805,38 @@ class ESignWizardController extends Controller
         return $field;
     }
 
+    /**
+     * Sort recipients by signing order: Agent → Acquiring party → Owner party → Witness.
+     * In SA practice, tenant/buyer always signs before landlord/seller.
+     */
+    private function sortRecipientsBySigningOrder(array $recipients): array
+    {
+        $rolePriority = [
+            'agent' => 1,
+            // Acquiring party signs first among external parties
+            'tenant' => 10, 'lessee' => 10, 'buyer' => 10, 'purchaser' => 10, 'co_buyer' => 10,
+            // Owner party signs after acquiring party
+            'landlord' => 20, 'lessor' => 20, 'seller' => 20, 'owner' => 20, 'co_seller' => 20, 'spouse' => 20,
+            // Witnesses always last
+            'witness' => 90,
+        ];
+
+        usort($recipients, function ($a, $b) use ($rolePriority) {
+            $roleA = strtolower(trim($a['role'] ?? 'other'));
+            $roleB = strtolower(trim($b['role'] ?? 'other'));
+            $priorityA = $rolePriority[$roleA] ?? 50;
+            $priorityB = $rolePriority[$roleB] ?? 50;
+            return $priorityA <=> $priorityB;
+        });
+
+        foreach ($recipients as $i => &$r) {
+            $r['signing_order'] = $i + 1;
+        }
+        unset($r);
+
+        return $recipients;
+    }
+
     private function stepKey(int $step): string
     {
         return match ($step) {
@@ -3590,6 +3679,7 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        $recipients = $this->sortRecipientsBySigningOrder($recipients);
         $signingSetupRaw = $stepData['signing_setup'] ?? [];
         $signingSetup = isset($signingSetupRaw['parties']) ? $signingSetupRaw['parties'] : $signingSetupRaw;
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';

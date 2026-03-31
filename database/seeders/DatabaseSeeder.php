@@ -37,6 +37,8 @@ class DatabaseSeeder extends Seeder
             MultiDemoSeeder::class,
             DemoSeeder::class,
             RichDemoSeeder::class,
+            DepositTrustInterestSeeder::class,
+            DealPipelineTemplateSeeder::class,
         ]);
     }
 }

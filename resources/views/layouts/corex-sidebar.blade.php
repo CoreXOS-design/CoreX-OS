@@ -647,6 +647,47 @@
         @endif
         @endpermission
 
+        {{-- Trust Interest Register (admin) --}}
+        @permission('access_trust_interest')
+        @if(\Illuminate\Support\Facades\Route::has('admin.deposit-trust-interest.index'))
+        <a href="{{ route('admin.deposit-trust-interest.index') }}" class="corex-nav-item {{ request()->routeIs('admin.deposit-trust-interest.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 17a5 5 0 0 0 10 0c0-2.76-2.24-5-5-5s-5 2.24-5 5Z"/>
+                <path d="M7 17v-2"/>
+                <path d="M12 17a5 5 0 0 0 10 0c0-2.76-2.24-5-5-5s-5 2.24-5 5Z"/>
+                <path d="M17 17v-2"/>
+                <path d="M7 7h10"/>
+                <path d="M12 3v4"/>
+            </svg>
+            <span>Trust Interest Register</span>
+        </a>
+        @endif
+        @endpermission
+
+        {{-- Deposit Interest Calculator (BM + Admin) --}}
+        @permission('access_deposit_calculator')
+        @if(\Illuminate\Support\Facades\Route::has('deposit-interest-calculator.index'))
+        <a href="{{ route('deposit-interest-calculator.index') }}" class="corex-nav-item {{ request()->routeIs('deposit-interest-calculator.index') || request()->routeIs('deposit-interest-calculator.calculate') || request()->routeIs('deposit-interest-calculator.show') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+            <span>Deposit Interest Calc</span>
+        </a>
+        @endif
+        @endpermission
+
+        {{-- Calculation History (BM + Admin) --}}
+        @permission('access_deposit_calc_history')
+        @if(\Illuminate\Support\Facades\Route::has('deposit-interest-calculator.history'))
+        <a href="{{ route('deposit-interest-calculator.history') }}" class="corex-nav-item {{ request()->routeIs('deposit-interest-calculator.history') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+            </svg>
+            <span>Calculation History</span>
+        </a>
+        @endif
+        @endpermission
+
         {{-- PDF Splitter --}}
         @permission('access_pdf_splitter')
         @if(\Illuminate\Support\Facades\Route::has('tools.pdf_splitter.index'))
@@ -749,6 +790,42 @@
             @endif
         </a>
         @endif
+
+        {{-- Deal Register V2 --}}
+        @permission('access_deal_register_v2')
+        @if(\Illuminate\Support\Facades\Route::has('deals-v2.index'))
+        <a href="{{ route('deals-v2.index') }}" class="corex-nav-item {{ request()->routeIs('deals-v2.index') || request()->routeIs('deals-v2.show') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            <span>Deal Register V2</span>
+        </a>
+        @endif
+        @endpermission
+
+        {{-- New Deal V2 --}}
+        @permission('deals_v2.create')
+        @if(\Illuminate\Support\Facades\Route::has('deals-v2.create'))
+        <a href="{{ route('deals-v2.create') }}" class="corex-nav-item {{ request()->routeIs('deals-v2.create') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            <span>New Deal</span>
+        </a>
+        @endif
+        @endpermission
+
+        {{-- Pipeline Setup (Deal V2 — admin/BM) --}}
+        @permission('deals_v2.manage_pipeline')
+        @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
+        <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-nav-item {{ request()->routeIs('deals-v2.pipeline.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
+            </svg>
+            <span>Pipeline Setup</span>
+        </a>
+        @endif
+        @endpermission
 
         {{-- Settings --}}
         @permission('access_settings')

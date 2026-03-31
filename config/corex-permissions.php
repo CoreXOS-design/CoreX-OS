@@ -254,6 +254,11 @@ return [
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
 
+        // ── Deposit Trust Interest ──
+        ['key' => 'access_trust_interest',       'label' => 'Access Trust Interest Register', 'section' => 'trust-interest', 'type' => 'access',  'module' => 'trust_interest',   'sort_order' => 1],
+        ['key' => 'access_deposit_calculator',   'label' => 'Access Deposit Interest Calculator', 'section' => 'trust-interest', 'type' => 'access',  'module' => 'trust_interest',   'sort_order' => 2],
+        ['key' => 'access_deposit_calc_history', 'label' => 'Access Calculation History',        'section' => 'trust-interest', 'type' => 'access',  'module' => 'trust_interest',   'sort_order' => 3],
+
         // ── PDF Splitter ──
         ['key' => 'access_pdf_splitter',         'label' => 'Access PDF Splitter',         'section' => 'pdf-splitter',     'type' => 'access',  'module' => 'pdf_splitter',     'sort_order' => 1],
 
@@ -269,6 +274,15 @@ return [
         ['key' => 'run_finance_audit',           'label' => 'Run Finance Audit',           'section' => 'finance-engine',   'type' => 'access',  'module' => 'finance',          'sort_order' => 3],
         ['key' => 'finance.view',                'label' => 'View',                        'section' => 'finance-engine',   'type' => 'action',  'module' => 'finance',          'sort_order' => 10],
         ['key' => 'finance.manage',              'label' => 'Manage',                      'section' => 'finance-engine',   'type' => 'action',  'module' => 'finance',          'sort_order' => 11],
+
+        // ── Deal Register V2 ──
+        ['key' => 'access_deal_register_v2',     'label' => 'Access Deal Register V2',     'section' => 'deals-v2',         'type' => 'access',  'module' => 'deals_v2',         'sort_order' => 1],
+        ['key' => 'deals_v2.view',               'label' => 'View',                        'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 10],
+        ['key' => 'deals_v2.create',             'label' => 'Create',                      'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 11],
+        ['key' => 'deals_v2.edit',               'label' => 'Edit',                        'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 12],
+        ['key' => 'deals_v2.archive',            'label' => 'Archive',                     'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 13],
+        ['key' => 'deals_v2.manage_pipeline',    'label' => 'Manage Pipeline Templates',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 14],
+        ['key' => 'deals_v2.override_dates',     'label' => 'Override Due Dates',          'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 15],
 
         // ── Agencies ──
         ['key' => 'access_agencies',             'label' => 'Access Agencies',             'section' => 'agencies',         'type' => 'access',  'module' => 'agencies',         'sort_order' => 1],
@@ -352,7 +366,7 @@ return [
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create', 'sales_docs.edit',
                 'access_calculators', 'access_ellie',
-                'access_pdf_splitter',
+                'access_pdf_splitter', 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'create_properties', 'publish_properties', 'delete_properties',
                 'properties.view', 'properties.create', 'properties.edit',
@@ -366,6 +380,9 @@ return [
                 'settings.view',
                 'roles.view',
                 'view_branch_stats', 'manage_branch',
+                'access_deal_register_v2',
+                'deals_v2.view', 'deals_v2.create', 'deals_v2.edit', 'deals_v2.archive',
+                'deals_v2.manage_pipeline', 'deals_v2.override_dates',
             ],
         ],
 
@@ -412,6 +429,8 @@ return [
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
                 'view_own_stats',
+                'access_deal_register_v2',
+                'deals_v2.view', 'deals_v2.create', 'deals_v2.edit',
             ],
         ],
 
