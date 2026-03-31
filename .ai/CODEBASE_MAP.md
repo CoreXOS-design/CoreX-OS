@@ -1,99 +1,490 @@
-# CoreX OS — Codebase Map
-
-Quick reference for locating key files. Always verify with `find` or `ls` before writing prompts — structure evolves.
+# CoreX OS — Codebase Map & Dependency Reference
+> **MANDATORY READ** before any code changes.
+> Every VS Code prompt MUST read this file alongside CLAUDE.md and STANDARDS.md.
+> Last updated: 2026-03-31 | Total tables: 190
+>
+> **If your change touches a table listed here, check the DEPENDENCY CHAIN
+> section for that table. If you add/rename/remove a column, every file
+> listed in the chain must be verified.**
 
 ---
 
-## Repository Root (`/hfc`)
+## CRITICAL RULES
+
+1. **NEVER add columns directly to the database.** Always create a Laravel migration file, commit it, then run it.
+2. **Every migration must be in git** before running on ANY server — local, staging, or production.
+3. **If you change a column**, check every model, controller, service, and view that reads/writes it (use the dependency chains below).
+4. **Property addresses**: ALWAYS use `Property::buildDisplayAddress()` for display and `Property::scopeSearchAddress()` for searching. NEVER use `$property->title` as an address.
+5. **Contact roles**: The `contact_types.esign_role` column maps contact types to e-sign roles. The `contact_property.role` column links contacts to properties with a role.
+6. **Commission is ALWAYS captured inc VAT**, all internal calculations are ex VAT. Use `PerformanceSetting::get('vat_rate', 15)`.
+7. **Signing order**: Tenant/Buyer signs BEFORE Landlord/Seller. Agent signs first. Enforced by `sortRecipientsBySigningOrder()`.
+
+---
+
+## REPOSITORY STRUCTURE
 
 ```
 /hfc
+├── .ai/
+│   ├── CLAUDE.md               ← Master instructions for VS Code Claude
+│   ├── STANDARDS.md            ← UX Standards (dark theme, sticky headers, etc.)
+│   ├── CODEBASE_MAP.md         ← THIS FILE — schema + dependency map
+│   └── specs/                  ← Feature specs (source of truth per module)
 ├── app/
-│   ├── Http/
-│   │   ├── Controllers/        ← All controllers
-│   │   └── Middleware/
-│   ├── Models/                 ← Eloquent models (pillar models live here)
-│   ├── Services/               ← Business logic layer
-│   │   ├── KnowledgeSearchService.php   ← Ellie KB search (hybrid cosine+structural)
-│   │   ├── P24MarketDataService.php     ← P24 market data integration
-│   │   └── ...
-│   └── ...
-├── resources/
-│   ├── views/
-│   │   ├── layouts/
-│   │   │   ├── corex-app.blade.php       ← Main authenticated layout
-│   │   │   └── corex-sidebar.blade.php   ← Sidebar navigation
-│   │   ├── listings/
-│   │   ├── contacts/
-│   │   ├── deals/
-│   │   ├── documents/          ← DocuPerfect views
-│   │   ├── presentations/
-│   │   ├── tracker/            ← Agency Tracker views
-│   │   └── ...
-│   └── js/
-├── database/
-│   ├── migrations/
-│   └── seeders/
-├── routes/
-│   └── web.php
-├── .env                        ← Credentials — NEVER commit, NEVER hardcode
-├── .env.example
-└── ...
+│   ├── Http/Controllers/
+│   │   ├── Admin/              ← Deal register V1, user mgmt, targets, daily summary
+│   │   ├── Agent/              ← Agent-facing controllers
+│   │   ├── CoreX/              ← Properties, contacts, settings, role manager, dashboard
+│   │   ├── DealV2/             ← Deal Register V2 (pipeline, steps, settlement)
+│   │   ├── Docuperfect/        ← E-sign wizard, templates, signing, importer, packs
+│   │   ├── Compliance/         ← FICA
+│   │   ├── PrivateProperty/    ← PP syndication
+│   │   └── Property24/         ← P24 syndication
+│   ├── Models/
+│   │   ├── DealV2/             ← V2 deal models (DealV2, DealStepInstance, etc.)
+│   │   ├── Docuperfect/        ← Template, Flow, SignatureTemplate, etc.
+│   │   └── [root]              ← Property, Contact, Deal (V1), User, etc.
+│   ├── Services/
+│   │   ├── DealV2/             ← DealPipelineService
+│   │   ├── Docuperfect/        ← SignatureService, CdsParser, DocumentFlattener, etc.
+│   │   ├── PrivateProperty/    ← PP SOAP client, mapper, syndication
+│   │   ├── Syndication/Property24/ ← P24 API client, mapper, syndication
+│   │   └── Finance/            ← CommissionCalculator, RollupService
+│   └── Observers/              ← PropertyObserver
+├── resources/views/
+│   ├── admin/                  ← Deal register V1, users, targets, trust interest
+│   ├── corex/                  ← Properties, contacts, settings, dashboard, role-manager
+│   ├── deals-v2/               ← Deal Register V2 (create, show, form, settlement, pipeline)
+│   ├── docuperfect/            ← E-sign wizard, templates, signing, importer
+│   ├── deposit-interest-calculator/
+│   └── layouts/                ← corex-app, corex-sidebar, corex-header
+├── database/migrations/        ← ALL schema changes (MUST be here, NEVER raw SQL)
+├── routes/web.php              ← All web routes
+└── config/corex-permissions.php ← Permission definitions
 ```
 
 ---
 
-## Key Models (Four Pillars + Supporting)
-
-| Model | Table | Notes |
-|-------|-------|-------|
-| `Property` | `properties` | Core pillar — all listings attach here |
-| `Contact` | `contacts` | Core pillar — buyers, sellers, landlords, tenants |
-| `Deal` | `deals` | Core pillar — sale/rental transaction record |
-| `User` | `users` | Core pillar (agent role) — agents, principals, admin |
-| `Listing` | `listings` | Attaches to Property + User(s) |
-| `Document` | `documents` | Attaches to Property + Contact + Deal + User |
-| `Signature` | `signatures` | Belongs to Document + Contact/User |
-| `Commission` | `commissions` | Belongs to Deal + User |
-
----
-
-## Key Services
-
-| Service | Location | Purpose |
-|---------|----------|---------|
-| `KnowledgeSearchService` | `app/Services/` | Ellie KB hybrid search |
-| `P24MarketDataService` | `app/Services/` | P24 market data for presentations |
-
----
-
-## Python AI Service
-
-- Location: `/opt/hf-ai/app.py`
-- Port: `3100`
-- Not tracked in git
-- Restart manually: `sudo systemctl restart hf-ai` (or equivalent)
-- Handles: Ellie embedding, vector search, OpenAI routing
-
----
-
-## Branch Strategy
+## BRANCH STRATEGY
 
 | Branch | Purpose | Rule |
 |--------|---------|------|
-| `main` | Production server | Only merge tested, reviewed code |
-| `HFC2402` | Johan's dev branch | Johan's feature work |
-| `andre` | Andre's dev branch | Andre's feature work |
+| `main` | Production-ready code | Only merge tested code |
+| `HFC2402` | Johan's dev branch | Feature work → merge to main |
+| `Staging` | Andre's dev branch (GitHub) | Andre's work → must merge to main |
 
-**Always:** `git diff main..HFC2402 --stat` before merging to check what's ahead.
-**Always:** Check for Andre's commits on `main` before pushing to avoid overwriting.
+**Sync process:** Fetch origin → merge other branches into yours → resolve conflicts → push → merge to main.
 
 ---
 
-## Environment Notes
+## MODULE: PROPERTIES
 
-- Local: Laragon + MySQL + PHP 8.x
-- Server: Ubuntu 91.99.130.85, MySQL, PHP 8.x, Node/Puppeteer installed
-- `npm run dev` — local HMR
-- `npm run build` — production build (run before deploying)
-- `opcache_reset()` — run after deploy to clear PHP opcode cache
+### Tables
+
+**`properties`** (49+ columns) — THE CENTRAL PROPERTY RECORD
+```
+Address columns (MULTIPLE SOURCES — use buildDisplayAddress()):
+  title           — listing headline, NOT a street address
+  address         — legacy field, often NULL on newer properties
+  street_name     — actual street name (from PP/P24 syndication)
+  street_number   — actual street number
+  suburb, city, region, district, province, town
+  complex_name, unit_number, floor_number, unit_section_block
+  property_number, stand_number
+
+Financial:
+  price, rental_amount, deposit_amount, commission_percent
+  admin_fee, marketing_fee, rates_taxes, levy, special_levy
+
+Syndication (PP):
+  pp_syndication_enabled, pp_syndication_status, pp_ref
+  pp_listing_feed_ref, pp_last_submitted_at, pp_activated_at
+  pp_exclusive_days, pp_delay_until, pp_last_error
+  pp_images_last_synced_at, pp_listing_last_synced_at
+  pp_hide_street_name, pp_hide_street_number, pp_hide_complex_name
+  pp_hide_unit_number, pp_suburb_id, pp_second_agent_id
+
+Syndication (P24):
+  p24_syndication_enabled, p24_syndication_status, p24_ref
+  p24_last_submitted_at, p24_activated_at, p24_last_error
+  p24_images_last_synced_at, p24_listing_last_synced_at
+
+Geo: latitude, longitude
+FK: agent_id → users, branch_id → branches, agency_id → agencies
+```
+
+**`contact_property`** — Links contacts to properties with roles
+```
+contact_id → contacts, property_id → properties
+role (string) — 'lessor', 'landlord', 'owner', 'tenant', etc.
+```
+
+**`property_files`** — Documents attached to properties
+```
+property_id → properties, contact_id → contacts
+document_type_id → document_types, user_id → users
+```
+
+**`rental_properties`** (legacy) — Separate rental property table
+```
+address_line_1, full_address, suburb, city
+landlord_name, landlord_email, landlord_phone
+monthly_rental
+```
+
+### Property Dependency Chain
+```
+PROPERTY TABLE CHANGED?
+├── Model: app/Models/Property.php
+│   ├── buildDisplayAddress() — uses: unit_number, complex_name, street_number, street_name, address, suburb, city
+│   ├── scopeSearchAddress() — searches: address, street_name, street_number, title, suburb, city, complex_name, unit_number, property_number
+│   └── contacts() — belongsToMany via contact_property
+├── Controllers that SEARCH properties:
+│   ├── CoreX/PropertyController.php → index() search
+│   ├── CoreX/ContactPropertyController.php → search() for linking
+│   ├── Docuperfect/ESignWizardController.php → searchProperties()
+│   └── DealV2/DealV2Controller.php → searchProperties()
+├── Controllers that READ property data:
+│   ├── CoreX/PropertyController.php → show(), edit()
+│   ├── Docuperfect/ESignWizardController.php → showStep() (step 2 property, step 4 auto-fill)
+│   ├── Docuperfect/ESignWizardController.php → prepareSigning() (propertyAddress)
+│   └── Services/WebTemplateDataService.php → resolve() (template field values)
+├── Views that DISPLAY property:
+│   ├── corex/properties/index.blade.php
+│   ├── corex/properties/show.blade.php
+│   ├── corex/contacts/show.blade.php (linked properties tab)
+│   ├── docuperfect/esign/wizard.blade.php (step 2 property selection)
+│   └── deals-v2/create.blade.php (step 1 property selection)
+└── Syndication (reads ALL property columns):
+    ├── Services/PrivateProperty/PrivatePropertyListingMapper.php
+    └── Services/Syndication/Property24/Property24ListingMapper.php
+```
+
+---
+
+## MODULE: CONTACTS
+
+### Tables
+
+**`contacts`** (26 columns)
+```
+first_name, last_name, phone, email, id_number, address, notes
+contact_type_id → contact_types
+contact_source_id → contact_sources
+created_by_user_id → users
+birthday, bank_* fields (6 columns)
+```
+
+**`contact_types`** (9 columns) — CRITICAL for e-sign role mapping
+```
+name — user-defined label (e.g. "Seller", "Landlord", "Prospect")
+esign_role — maps to e-sign system: 'seller', 'buyer', 'lessor', 'lessee', null
+color, sort_order, is_active
+```
+
+**`contact_property`** — Links contacts to properties
+```
+contact_id → contacts, property_id → properties
+role — free text: 'lessor', 'landlord', 'owner', 'tenant', etc.
+```
+
+### Contact Dependency Chain
+```
+CONTACT TABLE CHANGED?
+├── Model: app/Models/Contact.php
+│   ├── properties() — belongsToMany via contact_property
+│   ├── contactType() — belongsTo ContactType
+│   └── documents(), notes(), tags()
+├── Controllers that SEARCH contacts:
+│   ├── CoreX/ContactController.php → index() search
+│   ├── Docuperfect/ESignWizardController.php → searchContacts()
+│   └── DealV2/DealV2Controller.php → searchContacts()
+├── Controllers that READ contact data:
+│   ├── CoreX/ContactController.php → show()
+│   ├── Docuperfect/ESignWizardController.php → showStep() (recipients step)
+│   ├── Docuperfect/ESignWizardController.php → resolveContactValue()
+│   └── Services/WebTemplateDataService.php → resolve()
+├── E-Sign role resolution:
+│   ├── contact_types.esign_role → used by buildAllowedEsignRoles()
+│   ├── contact_property.role → used by searchProperties() to find lessor
+│   └── wizard.blade.php → roleMatchesTemplate(), requiredSigningRoles
+└── Views:
+    ├── corex/contacts/index.blade.php
+    ├── corex/contacts/show.blade.php
+    └── docuperfect/esign/wizard.blade.php (recipients step)
+```
+
+---
+
+## MODULE: E-SIGN / DOCUPERFECT
+
+### Tables
+
+**`docuperfect_templates`** (25 columns) — Document templates
+```
+name, template_type, render_type ('pdf' or 'web'), blade_view
+document_type_id → document_types
+fields_json, cds_json, field_mappings — field definitions
+signing_parties (JSON array — MUST be cast to array in model)
+  Values: 'owner_party', 'acquiring_party', 'agent', 'witness'
+party_mode, sections, header_display, editor_state
+is_esign, is_global, allowed_delivery_modes, security_tier
+```
+
+**`docuperfect_named_fields`** — Reusable field definitions
+```
+name, field_type, source_type, source_column, source_contact_type
+```
+
+**`docuperfect_field_groups`** — Groups of named fields
+```
+name, fields (JSON), layout, is_global
+agency_id → agencies, created_by → users
+```
+
+**`flows`** — Active e-sign wizard sessions
+```
+template_id → docuperfect_templates
+user_id → users, property_id → properties, contact_id → contacts
+step_data (JSON) — stores ALL wizard state across steps
+current_step, status
+```
+
+**`signature_templates`** — Signing sessions
+```
+document_id → docuperfect_documents
+parties_json, signing_order_json
+status, completed_at, signed_pdf_path
+```
+
+**`signature_requests`** — Per-party signing entries
+```
+signature_template_id → signature_templates
+party_role, signing_order, signer_name, signer_email
+status, token, contact_id → contacts
+```
+
+**`signature_markers`** — Signature/initial placement on pages
+```
+signature_template_id → signature_templates
+page_number, x_position, y_position, width, height
+type, assigned_party
+```
+
+### E-Sign Dependency Chain
+```
+E-SIGN FLOW:
+1. User selects template → docuperfect_templates.signing_parties
+   ├── buildAllowedEsignRoles() filters which contacts can be recipients
+   └── Template model MUST cast signing_parties to array
+
+2. User selects property → properties table
+   ├── searchProperties() uses Property::searchAddress()
+   ├── Property contacts loaded via contact_property pivot
+   └── Lessor query: $p->contacts()->where(role IN ['lessor','landlord'])
+       ⚠ BUG: orWherePivot without scoping can return wrong contact
+
+3. User adds recipients → stored in flow.step_data['recipients']
+   ├── Role from contact_types.esign_role
+   ├── roleMatchesTemplate() validates against requiredSigningRoles
+   ├── requiredSigningRoles resolves from template.signing_parties
+   └── sortRecipientsBySigningOrder() enforces tenant before landlord
+
+4. Fields resolved → resolveFieldValue() → resolveContactValue()
+   ├── Finds contact by role match in recipients
+   ├── Reads contact columns: first_name, last_name, id_number, etc.
+   └── Field groups expand via buildFieldsFromMappings()
+
+5. Document generated → prepareSigning()
+   ├── propertyAddress from stepData['property']['address']
+   ├── Must use buildDisplayAddress() value, not title
+   └── signing_parties passed to expandMarkersToIndividualParties()
+
+KEY FILES:
+  Controller: app/Http/Controllers/Docuperfect/ESignWizardController.php (4000+ lines)
+  Service: app/Services/Docuperfect/SignatureService.php
+  Service: app/Services/WebTemplateDataService.php
+  View: resources/views/docuperfect/esign/wizard.blade.php
+  View: resources/views/docuperfect/signatures/sign.blade.php
+  View: resources/views/docuperfect/signatures/external/sign.blade.php
+```
+
+---
+
+## MODULE: DEALS V1 (Live — do not modify)
+
+### Tables
+```
+deals (28 cols) — deal_no, property_value, total_commission (INC VAT)
+  listing_split_percent + selling_split_percent = 100
+  listing_external, listing_our_share_percent
+  selling_external, selling_our_share_percent
+  accepted_status: P(ending) / G(ranted) / R(egistered) / D(eclined)
+  commission_status: 'Not Paid' / 'Paid' / 'Loss'
+
+deal_user (17 cols) — pivot: side, agent_split_percent, agent_cut_percent
+  paye_method, paye_value, deductions, paid_at, sliding_* fields
+
+deal_settlements (14 cols) — overrides pivot values as "actual paid"
+  Unique: deal_id + user_id + side
+
+deal_money_lines (25 cols) — computed from deals + deal_user + deal_settlements
+  Rebuilt by DealMoneyLineRebuilder::rebuildDealId()
+  Consumed by worksheets, performance dashboards, targets
+```
+
+### V1 Commission Calculation Chain
+```
+total_commission (INC VAT)
+  → commissionExVat() = total_commission / (1 + vatRate)
+  → listingPool() = commExVat × listingSplitPct × ourSharePct
+  → sellingPool() = commExVat × sellingSplitPct × ourSharePct
+  → allocations() per side:
+      Settlement overrides → pivot splits → equal split → company remainder
+  → Per agent: allocated × cut% = gross, gross - PAYE - deductions = net
+  → DealMoneyLineRebuilder::rebuildDealId() writes to deal_money_lines
+  → RollupService::refreshPeriod() updates finance_computed_values
+  → Consumed by: worksheets, BM dashboard, agent dashboard, targets
+```
+
+---
+
+## MODULE: DEALS V2 (New — under development)
+
+### Tables
+```
+deals_v2 (32 cols) — reference, deal_type, status, property_id → properties
+  Same commission model as V1: listing/selling split, external, our_share
+  commission_status, overall_rag
+
+deal_v2_agents (17 cols) — same structure as deal_user
+deal_v2_contacts (5 cols) — deal_id, contact_id, role
+deal_v2_settlements (14 cols) — same as deal_settlements
+
+deal_pipeline_templates (10 cols) — configurable step workflows
+deal_pipeline_steps (27 cols) — step definitions with trigger chains
+deal_step_instances (38 cols) — per-deal step tracking with RAG
+deal_step_documents (7 cols) — files attached to steps
+deal_activity_log (8 cols) — chronological event log
+```
+
+### V2 does NOT feed into V1 dashboards yet.
+
+---
+
+## MODULE: USERS / AUTH
+
+### Tables
+```
+users (39 cols) — name, email, role, designation, branch_id, agency_id
+  agent_cut_percent, paye_method, paye_value — snapshotted to deal_user on deal creation
+  sliding_enabled, sliding_tier*_cut_percent
+  supervised_by → users, sponsored_by_user_id → users
+
+roles (12 cols) — is_owner flag bypasses all permission checks
+role_permissions (7 cols) — permission_key, scope (own/branch/all)
+nexus_permissions (10 cols) — permission definitions
+
+branches (21 cols) — agency_id → agencies
+```
+
+### Data Scoping Pattern
+```
+Every module uses PermissionService::getDataScope($user, 'module'):
+  'all'    → see everything
+  'branch' → see records where agent's branch_id matches
+  'own'    → see only records created by / assigned to the user
+
+Applied via scopeVisibleTo() on models.
+```
+
+---
+
+## MODULE: FINANCE / PERFORMANCE
+
+### Key flow
+```
+Deal created/updated
+  → DealMoneyLineRebuilder::rebuildDealId() — writes deal_money_lines
+  → RollupService::refreshPeriod() — updates finance_computed_values
+  → Consumed by:
+      worksheets (monthly planning vs actual)
+      admin/branch performance dashboards
+      agent dashboards
+      targets
+```
+
+### Tables
+```
+deal_money_lines — computed per-agent per-side commission breakdown
+finance_computed_values — period-level aggregated metrics
+finance_definitions — what metrics exist
+worksheets — monthly planning sheets per agent
+targets — sales/listing targets per agent
+```
+
+---
+
+## MODULE: PRESENTATIONS
+
+### Tables (13)
+```
+presentations → presentation_versions, presentation_sections
+  presentation_fields, presentation_uploads, presentation_links
+  presentation_snapshots, presentation_url_snapshots
+  presentation_articles, presentation_sold_comps
+  presentation_active_listings, presentation_listing_price_history
+  presentation_document_library_items
+```
+
+---
+
+## MODULE: PROSPECTING
+
+### Tables (7)
+```
+prospecting_listings, prospecting_searches, prospecting_claims
+prospecting_price_history
+portal_listings, portal_captures, portal_listing_observations
+```
+
+---
+
+## MODULE: DEPOSIT INTEREST CALCULATOR
+
+### Tables (2)
+```
+deposit_trust_interest — monthly trust account data (89 seeded records)
+deposit_interest_calculations — saved calculation history
+```
+
+---
+
+## MODULE: SYNDICATION
+
+### Tables
+```
+PP: properties.pp_* columns (syndication state lives ON the property)
+P24: properties.p24_* columns + p24_syndication_logs
+```
+
+---
+
+## KNOWN DATA INTEGRITY ISSUES
+
+1. **Property address fragmentation** — address data split across `title`, `address`, `street_name`, `street_number`. Always use `buildDisplayAddress()`.
+2. **contact_property.role is free text** — no enum, no validation. Values vary: 'lessor', 'landlord', 'owner', 'tenant'. Always check multiple role values.
+3. **signing_parties on templates** — some stored as JSON string, not array. Model MUST cast to array. `buildAllowedEsignRoles()` MUST handle strings defensively.
+4. **V1 deals use free-text party names** — `seller_name`, `buyer_name` on the deal record. V2 links to contact records via `deal_v2_contacts`.
+
+---
+
+## ENVIRONMENT
+
+| Environment | DB | Server | Codebase |
+|-------------|-----|--------|----------|
+| Local (Johan) | MySQL 8.4.3 via Laragon, DB: nexus_os | 127.0.0.1:8000 | HFC2402 branch |
+| Staging | MySQL, DB: hfc_staging | 91.99.130.85 /hfc-staging | Staging branch |
+| Production | MySQL, DB: nexus_os | 91.99.130.85 /hfc | main branch |
+
+**Python AI Service:** `/opt/hf-ai/app.py` on port 3100. Not git-tracked. Manual restart.

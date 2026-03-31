@@ -1445,15 +1445,41 @@ function esignWizard() {
         },
 
         // Get the list of non-agent signing roles for this template (resolved to concrete roles)
+        // MUST stay in sync with resolvedPartyRoles — any role offered as a fix button must pass validation
         get requiredSigningRoles() {
             const parties = this.templateSigningParties;
             if (!Array.isArray(parties) || parties.length === 0) return [];
             const isSales = this.isSalesContext;
             const roles = [];
+            const seen = new Set();
             parties.forEach(role => {
                 if (role === 'agent' || role === 'creator') return;
-                roles.push(resolvePartyRole(role, isSales).toLowerCase());
+                const resolved = resolvePartyRole(role, isSales).toLowerCase();
+                if (!seen.has(resolved)) {
+                    seen.add(resolved);
+                    roles.push(resolved);
+                }
             });
+
+            // Sync with resolvedPartyRoles: if template only has owner_party,
+            // also accept the acquiring party role (tenant/buyer)
+            if (roles.length === 1 && parties.includes('owner_party')) {
+                const acqRole = (isSales ? 'buyer' : 'tenant').toLowerCase();
+                if (!seen.has(acqRole)) {
+                    seen.add(acqRole);
+                    roles.push(acqRole);
+                }
+            }
+
+            // And the reverse: if template only has acquiring_party, also accept owner role
+            if (roles.length === 1 && parties.includes('acquiring_party')) {
+                const ownRole = (isSales ? 'seller' : 'landlord').toLowerCase();
+                if (!seen.has(ownRole)) {
+                    seen.add(ownRole);
+                    roles.push(ownRole);
+                }
+            }
+
             return roles;
         },
 
@@ -2745,8 +2771,10 @@ function esignWizard() {
             r._searchOpen = false;
             r._searchQuery = contact.full_name;
 
-            // Set role from the contact's contact_type
-            if (contact.contact_type) {
+            // Set role from esign_role (maps type to signing role) or contact_type name as fallback
+            if (contact.esign_role) {
+                r.role = contact.esign_role.toLowerCase();
+            } else if (contact.contact_type) {
                 r.role = contact.contact_type.toLowerCase();
             }
 

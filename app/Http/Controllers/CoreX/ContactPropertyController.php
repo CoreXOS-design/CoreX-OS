@@ -41,8 +41,21 @@ class ContactPropertyController extends Controller
             'role'        => 'nullable|string|max:50',
         ]);
 
+        // If no explicit role, derive from contact type's esign_role
+        $role = $data['role'] ?? null;
+        if (empty($role)) {
+            $esignRole = $contact->type?->esign_role;
+            $roleMap = [
+                'seller' => 'owner',
+                'lessor' => 'lessor',
+                'buyer' => 'buyer',
+                'lessee' => 'tenant',
+            ];
+            $role = $roleMap[$esignRole] ?? null;
+        }
+
         $contact->properties()->syncWithoutDetaching([
-            $data['property_id'] => ['role' => $data['role'] ?? null],
+            $data['property_id'] => ['role' => $role],
         ]);
 
         return back()->with('success', 'Property linked to contact.')->with('tab', 'properties');

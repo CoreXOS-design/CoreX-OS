@@ -19,7 +19,7 @@
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Of (address) <span class="corex-field-value" data-field="lessor_address">{{ $lessor_address ?? '' }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">ID/Passport/Registration No:  <span class="corex-field-value" data-field="lessor_id_number">{{ $lessor_id_number ?? '' }}</span></span></div>
 <div class="corex-h1">AND</div>
-<div class="corex-clause corex-clause-indent-2"><span class="corex-clause-number">1.2</span> <span class="corex-clause-text"><span class="corex-field-value" data-field="lessor_full">{{ $lessor_full ?? '' }}</span> (Lessee / tenant / Occupant)</span></div>
+<div class="corex-clause corex-clause-indent-2"><span class="corex-clause-number">1.2</span> <span class="corex-clause-text"><span class="corex-field-value" data-field="lessee_name_id">{{ $lessee_name_id ?? '' }}</span> (Lessee / tenant / Occupant)</span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">      of (address) <span class="corex-field-value" data-field="lessee_address">{{ $lessee_address ?? '' }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">ID/Passport/Registration No:   <span class="corex-field-value" data-field="lessee_id_number">{{ $lessee_id_number ?? '' }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">It is agreed that, from date of occupation, the DOMICILIUM CITANDI ET EXECUTANDI will be the property address.</span></div>
@@ -180,7 +180,7 @@
 @include("docuperfect.web-templates.components.signature-line", ['party' => 'tenant'])
 @include("docuperfect.web-templates.components.signature-line", ['party' => 'agent'])</span></div>
 
-@include("docuperfect.web-templates.components.signature-block", ["parties" => ["Lessor", "Agent", "Lessee"]])
+@include("docuperfect.web-templates.components.signature-block", ["parties" => ["Lessor", "Agent"]])
 
 </div>
 </div>

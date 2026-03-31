@@ -867,11 +867,24 @@ class ESignWizardController extends Controller
             ->get();
 
         foreach ($properties as $p) {
-            // Get linked contacts (lessor/landlord) via pivot
+            // Get linked contacts (lessor/landlord) — scoped to this property
+            // Primary: match by pivot role
             $lessor = $p->contacts()
-                ->wherePivot('role', 'lessor')
-                ->orWherePivot('role', 'landlord')
+                ->where(function ($q) {
+                    $q->where('contact_property.role', 'lessor')
+                      ->orWhere('contact_property.role', 'landlord')
+                      ->orWhere('contact_property.role', 'owner');
+                })
                 ->first();
+
+            // Fallback: match by contact_type esign_role (for NULL pivot roles)
+            if (!$lessor) {
+                $lessor = $p->contacts()
+                    ->whereHas('type', function ($q) {
+                        $q->whereIn('esign_role', ['seller', 'lessor']);
+                    })
+                    ->first();
+            }
 
             $results[] = [
                 'id'                => $p->id,
@@ -1002,6 +1015,7 @@ class ESignWizardController extends Controller
                 'id_number'           => $c->id_number ?? '',
                 'address'             => $c->address ?? '',
                 'contact_type'        => $c->type?->name ?? '',
+                'esign_role'          => $c->type?->esign_role ?? null,
                 'bank_name'           => $c->bank_name ?? '',
                 'bank_account_name'   => $c->bank_account_name ?? '',
                 'bank_account_number' => $c->bank_account_number ?? '',
@@ -1983,9 +1997,16 @@ class ESignWizardController extends Controller
      * Map template signing_parties to allowed esign_role values on contact_types.
      * Returns empty array if signing_parties is null/empty (= show all contacts, legacy fallback).
      */
-    private function buildAllowedEsignRoles(array $signingParties): array
+    private function buildAllowedEsignRoles(array|string|null $signingParties): array
     {
         if (empty($signingParties)) return [];
+
+        // Handle JSON string (legacy or un-cast data)
+        if (is_string($signingParties)) {
+            $signingParties = json_decode($signingParties, true) ?? [];
+        }
+
+        if (!is_array($signingParties)) return [];
 
         $roleMap = [
             'owner_party' => ['seller', 'lessor'],
