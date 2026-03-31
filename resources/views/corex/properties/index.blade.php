@@ -299,8 +299,30 @@
 
                 <div class="flex-1"></div>
 
+                {{-- Completeness bar --}}
+                @php
+                    $cParts = array_filter([
+                        !empty($property->title),
+                        !empty($property->price),
+                        !empty($property->property_type),
+                        !empty($property->suburb),
+                        !empty($property->description),
+                        count($property->allImages()) > 0,
+                        !empty($property->agent_id),
+                        !empty($property->status) && $property->status !== 'draft',
+                    ]);
+                    $cScore = count($cParts) > 0 ? round((count($cParts) / 8) * 100) : 0;
+                    $cColor = $cScore >= 80 ? '#22c55e' : ($cScore >= 50 ? '#f59e0b' : '#ef4444');
+                @endphp
+                <div class="flex items-center gap-2 mt-2">
+                    <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:var(--surface-3,#374151);">
+                        <div class="h-full rounded-full transition-all" style="width:{{ $cScore }}%; background:{{ $cColor }};"></div>
+                    </div>
+                    <span class="text-[10px] font-bold flex-shrink-0" style="color:{{ $cColor }};">{{ $cScore }}%</span>
+                </div>
+
                 {{-- Footer --}}
-                <div class="flex items-center justify-between mt-3 pt-2.5" style="border-top:1px solid var(--border);">
+                <div class="flex items-center justify-between mt-2.5 pt-2.5" style="border-top:1px solid var(--border);">
                     <div class="flex items-center gap-1.5 min-w-0">
                         <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">{{ strtoupper(substr($property->agent?->name ?? '?', 0, 1)) }}</span>
                         <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->agent?->name }}">{{ $property->agent?->name ?? '—' }}</span>

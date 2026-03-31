@@ -277,13 +277,23 @@ class Property24ListingMapper
     private function buildPhotos(Property $property): array
     {
         $photos = [];
+        $catData = $property->gallery_categories_json;
+
+        // Build a map of image URL → category name for captions
+        $captionMap = [];
+        if ($catData && isset($catData['categories'])) {
+            foreach ($catData['categories'] as $cat) {
+                foreach ($cat['images'] ?? [] as $img) {
+                    $captionMap[$img] = $cat['name'];
+                }
+            }
+        }
+
         $images = array_slice($property->allImages(), 0, 30);
 
         foreach ($images as $imagePath) {
             if (empty($imagePath)) continue;
 
-            // Images are stored as URLs via Storage::url(), e.g. "/storage/properties/16/file.jpg"
-            // Convert URL back to disk path on the 'public' disk
             $diskPath = $this->urlToDiskPath($imagePath);
 
             if ($diskPath && Storage::disk('public')->exists($diskPath)) {
@@ -293,7 +303,7 @@ class Property24ListingMapper
                 $photos[] = [
                     'bytes'           => base64_encode($bytes),
                     'mimeContentType' => Storage::disk('public')->mimeType($diskPath) ?: 'image/jpeg',
-                    'caption'         => null,
+                    'caption'         => $captionMap[$imagePath] ?? null,
                     'isFloorPlan'     => false,
                 ];
             }
