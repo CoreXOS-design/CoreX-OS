@@ -30,6 +30,75 @@
         @endif
     </div>
 
+    {{-- ── READINESS BAR ──────────────────────────────────────────────── --}}
+    @if(!$isNew)
+    @php
+        $readiness = [
+            'basic'   => !empty($property->title) && !empty($property->price) && !empty($property->property_type) && !empty($property->status),
+            'address' => !empty($property->suburb) && (!empty($property->street_name) || !empty($property->address)),
+            'desc'    => !empty($property->description),
+            'photos'  => count($property->allImages()) > 0,
+            'agent'   => !empty($property->agent_id),
+        ];
+        $photoCount = count($property->allImages());
+        $completeParts = array_filter($readiness);
+        $completenessScore = count($readiness) > 0 ? round((count($completeParts) / count($readiness)) * 100) : 0;
+        $scoreColor = $completenessScore >= 80 ? '#22c55e' : ($completenessScore >= 50 ? '#f59e0b' : '#ef4444');
+    @endphp
+    <div class="rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+        {{-- Progress bar --}}
+        <div class="h-1 rounded-t-md overflow-hidden" style="background:var(--surface-2);">
+            <div class="h-full rounded-t-md transition-all duration-500" style="width:{{ $completenessScore }}%; background:{{ $scoreColor }};"></div>
+        </div>
+        <div class="flex items-center gap-3 px-4 py-2 flex-wrap">
+            {{-- Score --}}
+            <span class="text-xs font-bold flex-shrink-0" style="color:{{ $scoreColor }};">{{ $completenessScore }}%</span>
+
+            {{-- Checklist --}}
+            <div class="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+                @foreach([
+                    ['key' => 'basic',   'label' => 'Basic',   'tab' => 'info'],
+                    ['key' => 'address', 'label' => 'Address', 'tab' => 'info'],
+                    ['key' => 'desc',    'label' => 'Desc',    'tab' => 'info'],
+                    ['key' => 'photos',  'label' => $photoCount > 0 ? "Photos ({$photoCount})" : 'Photos', 'tab' => 'gallery'],
+                    ['key' => 'agent',   'label' => 'Agent',   'tab' => 'info'],
+                ] as $item)
+                <button type="button" @click="activeTab = '{{ $item['tab'] }}'"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold cursor-pointer"
+                        style="{{ $readiness[$item['key']]
+                            ? 'color:#22c55e;'
+                            : 'color:#ef4444;' }}">
+                    @if($readiness[$item['key']])
+                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                    @else
+                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                    @endif
+                    {{ $item['label'] }}
+                </button>
+                @endforeach
+
+                <span class="text-[10px]" style="color:var(--border);">|</span>
+
+                {{-- Portal status --}}
+                <span class="text-[10px] font-semibold" style="color:{{ $property->isPublished() ? '#22c55e' : 'var(--text-muted)' }};">Web</span>
+                @if($property->pp_syndication_enabled)
+                <span class="text-[10px] font-semibold" style="color:{{ $property->pp_syndication_status === 'active' ? '#00d4aa' : '#f59e0b' }};">PP</span>
+                @endif
+                @if($property->p24_syndication_enabled)
+                <span class="text-[10px] font-semibold" style="color:{{ $property->p24_syndication_status === 'active' ? '#3b82f6' : '#f59e0b' }};">P24</span>
+                @endif
+            </div>
+
+            {{-- Save --}}
+            <button type="submit" form="prop-update-form"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold text-white flex-shrink-0 transition-opacity hover:opacity-90"
+                    style="background:var(--brand-button,#0ea5e9);">
+                Save
+            </button>
+        </div>
+    </div>
+    @endif
+
     {{-- Two-column layout on large screens --}}
     <div class="flex gap-5 items-start" style="min-height:0;">
 
@@ -159,13 +228,23 @@
                         Market Property
                     </a>
                     @endif
+                    <form method="POST" action="{{ route('corex.properties.duplicate', $property) }}" onsubmit="return confirm('Duplicate this property?')">
+                        @csrf
+                        <button type="submit"
+                                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs font-semibold transition-colors"
+                                style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                                onmouseover="this.style.background='var(--surface-3,#2a3a4a)'" onmouseout="this.style.background='var(--surface-2)'">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75"/></svg>
+                            Duplicate
+                        </button>
+                    </form>
                 </div>
                 @endif
             </div>
         </aside>
 
         {{-- RIGHT: tabs --}}
-        <div class="flex-1 min-w-0" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="flex-1 min-w-0" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:clip;">
 
         {{-- Mobile-only header strip --}}
         <div class="lg:hidden p-4" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
@@ -642,112 +721,149 @@
         {{-- ── OVERVIEW TAB ──────────────────────────────────────────────── --}}
         <div x-show="activeTab === 'overview'" x-cloak class="p-6 space-y-6">
 
-            <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 gap-4">
-                @foreach([
-                    ['label'=>'Price',       'value'=>$property->formattedPrice(),                        'color'=>'var(--brand-default,#0b2a4a)'],
-                    ['label'=>'Status',      'value'=>ucfirst($property->status),                         'color'=>$statusColors[$property->status] ?? '#94a3b8'],
-                    ['label'=>'Type',        'value'=>$property->property_type ? ucwords(str_replace('_',' ',$property->property_type)) : '—', 'color'=>null],
-                    ['label'=>'Category',    'value'=>$property->category ?: '—',                        'color'=>null],
-                ] as $kpi)
+            @php
+                $coverImage = ($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
+            @endphp
+            {{-- ── QUICK STATS ──────────────────────────────────────────────── --}}
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div class="rounded-md p-4 text-center" style="background:var(--surface-2); border:1px solid var(--border);">
-                    <div class="text-lg font-bold leading-tight" style="color:{{ $kpi['color'] ?? 'var(--text-primary)' }};">{{ $kpi['value'] }}</div>
-                    <div class="text-xs mt-1 font-medium" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
+                    <div class="text-lg font-bold" style="color:var(--brand-default,#0b2a4a);">{{ $property->formattedPrice() }}</div>
+                    <div class="text-[10px] font-medium mt-0.5" style="color:var(--text-muted);">Price</div>
                 </div>
-                @endforeach
+                <div class="rounded-md p-4 text-center" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="text-lg font-bold" style="color:{{ $statusColors[$property->status] ?? '#94a3b8' }};">{{ ucwords(str_replace('_',' ',$property->status ?: 'draft')) }}</div>
+                    <div class="text-[10px] font-medium mt-0.5" style="color:var(--text-muted);">Status</div>
+                </div>
+                <div class="rounded-md p-4 text-center" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="text-lg font-bold" style="color:var(--text-primary);">{{ ucwords(str_replace('_',' ',$property->property_type ?: '—')) }}</div>
+                    <div class="text-[10px] font-medium mt-0.5" style="color:var(--text-muted);">Type</div>
+                </div>
+                <div class="rounded-md p-4 text-center" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="text-lg font-bold" style="color:var(--text-primary);">{{ count($property->allImages()) }}</div>
+                    <div class="text-[10px] font-medium mt-0.5" style="color:var(--text-muted);">Photos</div>
+                </div>
             </div>
 
             <div class="grid grid-cols-3 sm:grid-cols-5 gap-3">
                 @foreach([
-                    ['label'=>'Beds',     'value'=>$property->beds],
-                    ['label'=>'Baths',    'value'=>$property->baths],
-                    ['label'=>'Garages',  'value'=>$property->garages],
-                    ['label'=>'Floor m²', 'value'=>$property->size_m2    ? number_format($property->size_m2) : '—'],
-                    ['label'=>'Erf m²',   'value'=>$property->erf_size_m2 ? number_format($property->erf_size_m2) : '—'],
+                    ['label'=>'Beds',    'value'=>$property->beds ?: '—'],
+                    ['label'=>'Baths',   'value'=>$property->baths ?: '—'],
+                    ['label'=>'Garages', 'value'=>$property->garages ?: '—'],
+                    ['label'=>'Floor',   'value'=>$property->size_m2 ? number_format($property->size_m2).' m²' : '—'],
+                    ['label'=>'Erf',     'value'=>$property->erf_size_m2 ? number_format($property->erf_size_m2).' m²' : '—'],
                 ] as $stat)
                 <div class="rounded-md p-3 text-center" style="background:var(--surface-2); border:1px solid var(--border);">
-                    <div class="text-xl font-bold" style="color:var(--text-primary);">{{ $stat['value'] }}</div>
-                    <div class="text-xs mt-0.5 font-medium" style="color:var(--text-muted);">{{ $stat['label'] }}</div>
+                    <div class="text-base font-bold" style="color:var(--text-primary);">{{ $stat['value'] }}</div>
+                    <div class="text-[10px] font-medium mt-0.5" style="color:var(--text-muted);">{{ $stat['label'] }}</div>
                 </div>
                 @endforeach
             </div>
 
-            @if($property->rates_taxes || $property->levy || $property->special_levy)
+            {{-- ── QUICK ACTIONS ─────────────────────────────────────────────── --}}
             <div>
-                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Monthly Costs</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    @if($property->rates_taxes)
-                    <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="text-xs font-medium mb-1" style="color:var(--text-muted);">Rates & Taxes</div>
-                        <div class="text-base font-bold" style="color:var(--text-primary);">R {{ number_format($property->rates_taxes) }}</div>
+                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Quick Actions</h3>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2"
+                     x-data="{ qPrice: '{{ $property->price }}', qStatus: '{{ $property->status }}', qSaving: false }">
+                    {{-- Quick price change --}}
+                    <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <label class="text-[10px] font-semibold" style="color:var(--text-muted);">Change Price</label>
+                        <input type="number" x-model="qPrice" class="w-full rounded px-2 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <button type="button" @click="qSaving=true; fetch('{{ route('corex.properties.update', $property) }}', {method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify({_method:'PUT',price:qPrice,title:'{{ addslashes($property->title) }}',suburb:'{{ addslashes($property->suburb ?? '') }}',beds:{{ $property->beds ?? 0 }},baths:{{ $property->baths ?? 0 }},garages:{{ $property->garages ?? 0 }},status:qStatus})}).then(()=>location.reload())"
+                                class="w-full text-[10px] font-semibold py-1.5 rounded" style="background:var(--brand-button,#0ea5e9); color:#fff;">
+                            Update
+                        </button>
                     </div>
-                    @endif
-                    @if($property->levy)
-                    <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="text-xs font-medium mb-1" style="color:var(--text-muted);">Levy</div>
-                        <div class="text-base font-bold" style="color:var(--text-primary);">R {{ number_format($property->levy) }}</div>
+                    {{-- Quick status change --}}
+                    <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <label class="text-[10px] font-semibold" style="color:var(--text-muted);">Change Status</label>
+                        <select x-model="qStatus" class="w-full rounded px-2 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            @foreach($settingItems['statuses'] as $item)
+                            @php $val = strtolower(str_replace(' ','_',$item->name)); @endphp
+                            <option value="{{ $val }}">{{ $item->name }}</option>
+                            @endforeach
+                        </select>
+                        <button type="button" @click="qSaving=true; fetch('{{ route('corex.properties.update', $property) }}', {method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify({_method:'PUT',status:qStatus,title:'{{ addslashes($property->title) }}',suburb:'{{ addslashes($property->suburb ?? '') }}',price:qPrice,beds:{{ $property->beds ?? 0 }},baths:{{ $property->baths ?? 0 }},garages:{{ $property->garages ?? 0 }}})}).then(()=>location.reload())"
+                                class="w-full text-[10px] font-semibold py-1.5 rounded" style="background:var(--brand-button,#0ea5e9); color:#fff;">
+                            Update
+                        </button>
                     </div>
-                    @endif
-                    @if($property->special_levy)
-                    <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="text-xs font-medium mb-1" style="color:var(--text-muted);">Special Levy</div>
-                        <div class="text-base font-bold" style="color:var(--text-primary);">R {{ number_format($property->special_levy) }}</div>
+                    {{-- Add to gallery --}}
+                    <div class="rounded-md p-3 flex flex-col items-center justify-center gap-2 cursor-pointer" style="background:var(--surface-2); border:1px solid var(--border);"
+                         @click="activeTab = 'gallery'">
+                        <svg class="w-6 h-6" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.41a2.25 2.25 0 013.182 0l2.909 2.91m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+                        <span class="text-[10px] font-semibold" style="color:var(--text-secondary);">Add Photos</span>
                     </div>
-                    @endif
+                    {{-- Edit details --}}
+                    <div class="rounded-md p-3 flex flex-col items-center justify-center gap-2 cursor-pointer" style="background:var(--surface-2); border:1px solid var(--border);"
+                         @click="activeTab = 'info'">
+                        <svg class="w-6 h-6" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/></svg>
+                        <span class="text-[10px] font-semibold" style="color:var(--text-secondary);">Edit Details</span>
+                    </div>
                 </div>
             </div>
-            @endif
 
-            @if($property->features_json && count($property->features_json))
+            {{-- ── UPCOMING SHOWDAYS ─────────────────────────────────────────── --}}
             <div>
-                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Features</h3>
-                <div class="flex flex-wrap gap-2">
-                    @foreach($property->features_json as $feat)
-                    <span class="text-xs px-3 py-1.5 rounded-full font-medium"
-                          style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
-                        {{ $feat }}
-                    </span>
+                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upcoming Showdays</h3>
+                @php $upcomingShowdays = $property->showdays()->where('active', true)->where('end_date', '>=', now())->orderBy('start_date')->take(3)->get(); @endphp
+                @if($upcomingShowdays->count())
+                <div class="space-y-2">
+                    @foreach($upcomingShowdays as $sd)
+                    <div class="flex items-center gap-3 rounded-md px-3 py-2.5" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="w-10 h-10 rounded-md flex flex-col items-center justify-center flex-shrink-0" style="background:var(--brand-icon,#0ea5e9); color:#fff;">
+                            <span class="text-xs font-bold leading-none">{{ $sd->start_date->format('d') }}</span>
+                            <span class="text-[8px] uppercase leading-none">{{ $sd->start_date->format('M') }}</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-xs font-semibold" style="color:var(--text-primary);">{{ $sd->start_date->format('l, d M Y') }}</div>
+                            <div class="text-[10px]" style="color:var(--text-muted);">{{ $sd->start_date->format('H:i') }} – {{ $sd->end_date->format('H:i') }} · {{ $sd->description }}</div>
+                        </div>
+                    </div>
+                    @endforeach
+                </div>
+                @else
+                <div class="rounded-md px-3 py-4 text-center text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);">
+                    No upcoming showdays
+                </div>
+                @endif
+            </div>
+
+            {{-- ── ACTIVITY TIMELINE ─────────────────────────────────────────── --}}
+            @if(isset($activityTimeline) && $activityTimeline->count())
+            <div>
+                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Recent Activity</h3>
+                <div class="space-y-0">
+                    @foreach($activityTimeline as $event)
+                    <div class="flex gap-3 py-2" style="border-bottom:1px solid var(--border);">
+                        <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $event['color'] }};"></div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-xs font-medium" style="color:var(--text-primary);">{{ $event['label'] }}</div>
+                            @if($event['detail'])
+                            <div class="text-[10px] truncate" style="color:var(--text-muted);">{{ $event['detail'] }}</div>
+                            @endif
+                        </div>
+                        <div class="text-[10px] flex-shrink-0" style="color:var(--text-muted);">
+                            {{ $event['date'] ? $event['date']->diffForHumans() : '' }}
+                        </div>
+                    </div>
                     @endforeach
                 </div>
             </div>
             @endif
 
-            @if($property->excerpt || $property->description)
-            <div>
-                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Description</h3>
-                @if($property->excerpt)
-                <p class="text-sm font-medium mb-2" style="color:var(--text-primary);">{{ $property->excerpt }}</p>
-                @endif
-                @if($property->description)
-                <div class="text-sm whitespace-pre-line" style="color:var(--text-secondary);">{{ $property->description }}</div>
-                @endif
-            </div>
-            @endif
-
+            {{-- ── KEY DATES ──────────────────────────────────────────────────── --}}
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                @if($property->created_at)
+                @foreach(array_filter([
+                    $property->created_at ? ['Loaded', $property->created_at->format('d M Y')] : null,
+                    $property->updated_at ? ['Modified', $property->updated_at->diffForHumans()] : null,
+                    $property->listed_date ? ['Listed', $property->listed_date->format('d M Y')] : null,
+                    $property->expiry_date ? ['Expires', $property->expiry_date->format('d M Y')] : null,
+                ]) as $d)
                 <div>
-                    <div class="text-xs font-medium mb-0.5" style="color:var(--text-muted);">Loaded</div>
-                    <div class="text-sm" style="color:var(--text-primary);">{{ $property->created_at->format('d M Y') }}</div>
+                    <div class="text-[10px] font-medium" style="color:var(--text-muted);">{{ $d[0] }}</div>
+                    <div class="text-xs font-semibold" style="color:var(--text-primary);">{{ $d[1] }}</div>
                 </div>
-                @endif
-                @if($property->updated_at)
-                <div>
-                    <div class="text-xs font-medium mb-0.5" style="color:var(--text-muted);">Modified</div>
-                    <div class="text-sm" style="color:var(--text-primary);">{{ $property->updated_at->format('d M Y H:i') }}</div>
-                </div>
-                @endif
-                @if($property->listed_date)
-                <div>
-                    <div class="text-xs font-medium mb-0.5" style="color:var(--text-muted);">Listed Date</div>
-                    <div class="text-sm" style="color:var(--text-primary);">{{ $property->listed_date->format('d M Y') }}</div>
-                </div>
-                @endif
-                @if($property->expiry_date)
-                <div>
-                    <div class="text-xs font-medium mb-0.5" style="color:var(--text-muted);">Expiry Date</div>
-                    <div class="text-sm" style="color:var(--text-primary);">{{ $property->expiry_date->format('d M Y') }}</div>
-                </div>
-                @endif
+                @endforeach
             </div>
 
         </div>
@@ -759,6 +875,17 @@
                   class="space-y-6">
                 @csrf
                 @if(!$isNew) @method('PUT') @endif
+
+                {{-- Pre-linked contact from "Create Listing" on contact page --}}
+                @if($isNew && isset($preLinkedContact) && $preLinkedContact)
+                <input type="hidden" name="pending_contact_ids[]" value="{{ $preLinkedContact->id }}">
+                <div class="rounded-md px-4 py-3 flex items-center gap-3" style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
+                    <span class="text-sm font-medium" style="color:var(--brand-icon,#0ea5e9);">
+                        Linking to: <strong>{{ $preLinkedContact->full_name }}</strong>
+                    </span>
+                </div>
+                @endif
 
                 {{-- Classification --}}
                 <div>
@@ -1921,33 +2048,10 @@
                     </div>
                 </div>
 
-                {{-- Fees & Lease Details — always visible --}}
+                {{-- Pricing & Costs --}}
                 <div>
-                    <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Fees & Lease</h3>
+                    <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Pricing & Costs</h3>
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Price Type (PP Feed)</label>
-                            <select name="rental_price_type" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— Not Set —</option>
-                                @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
-                                <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Deposit (R)</label>
-                            <input type="number" name="deposit_amount" value="{{ old('deposit_amount', $property->deposit_amount) }}"
-                                   placeholder="0.00" min="0" step="0.01"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Monthly Rental (R)</label>
-                            <input type="number" name="rental_amount" value="{{ old('rental_amount', $property->rental_amount) }}"
-                                   placeholder="0.00" min="0" step="0.01"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Commission (%)</label>
                             <input type="number" name="commission_percent" value="{{ old('commission_percent', $property->commission_percent) }}"
@@ -1968,6 +2072,38 @@
                                    placeholder="0.00" min="0" step="0.01"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Rental Details — only visible when listing type is rental --}}
+                <div x-data="{ isRental: document.querySelector('[name=listing_type]')?.value === 'Rental' }"
+                     x-init="$watch('isRental', v => {}); document.querySelector('[name=listing_type]')?.addEventListener('change', e => isRental = e.target.value === 'Rental')"
+                     x-show="isRental || '{{ strtolower($property->listing_type ?? '') }}' === 'rental'" x-cloak>
+                    <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Rental Details</h3>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Monthly Rental (R)</label>
+                            <input type="number" name="rental_amount" value="{{ old('rental_amount', $property->rental_amount) }}"
+                                   placeholder="0.00" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Deposit (R)</label>
+                            <input type="number" name="deposit_amount" value="{{ old('deposit_amount', $property->deposit_amount) }}"
+                                   placeholder="0.00" min="0" step="0.01"
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Rental Price Type</label>
+                            <select name="rental_price_type" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="">— Not Set —</option>
+                                @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
+                                <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
+                                @endforeach
+                            </select>
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Lease Start Date</label>
@@ -2054,67 +2190,157 @@
                 </form>
             </div>
 
-            {{-- Gallery grid with drag to reorder --}}
-            @php $galleryImages = $property->gallery_images_json ?? []; @endphp
+            {{-- Tag-based Gallery --}}
+            @php
+                $galleryImages = $property->gallery_images_json ?? [];
+                $galleryCats = $property->gallery_categories_json ?? null;
+                // Build tag map: image URL → category name
+                $tagMap = [];
+                if ($galleryCats && isset($galleryCats['categories'])) {
+                    foreach ($galleryCats['categories'] as $cat) {
+                        foreach ($cat['images'] ?? [] as $img) {
+                            $tagMap[$img] = $cat['name'];
+                        }
+                    }
+                }
+                // Build available tags from spaces or beds/baths columns
+                $spacesData = $property->spaces_json ?? [];
+                $spacesList = $spacesData['spaces'] ?? [];
+                if (empty($spacesList) && !empty($spacesData) && isset($spacesData[0]['type'])) {
+                    $spacesList = $spacesData;
+                }
+                $availableTags = ['Exterior'];
+                if (empty($spacesList)) {
+                    for ($i = 1; $i <= (int)($property->beds ?? 0); $i++) $availableTags[] = 'Bedroom ' . $i;
+                    for ($i = 1; $i <= (int)($property->baths ?? 0); $i++) $availableTags[] = 'Bathroom ' . $i;
+                    if (($property->garages ?? 0) > 0) $availableTags[] = 'Garage';
+                    $availableTags = array_merge($availableTags, ['Kitchen', 'Lounge']);
+                } else {
+                    foreach ($spacesList as $sp) {
+                        $type = $sp['type'] ?? ''; $count = (int)($sp['count'] ?? 1);
+                        if (in_array($type, ['Bedroom','Bathroom','Kitchen','Lounge','Dining Room','Study','Patio','Garden','Pool','Flatlet','Garage'])) {
+                            if ($count > 1) { for ($i = 1; $i <= $count; $i++) $availableTags[] = $type . ' ' . $i; }
+                            else { $availableTags[] = $type; }
+                        }
+                    }
+                }
+                $availableTags = array_merge($availableTags, ['Garden / Pool', 'Views']);
+            @endphp
 
-            <div>
-                <div class="flex items-center justify-between mb-3">
+            <div x-data="smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }})" class="space-y-4">
+
+                {{-- Header --}}
+                <div class="flex items-center justify-between">
                     <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">
-                        Gallery Images ({{ count($galleryImages) }})
+                        Gallery (<span x-text="images.length"></span> images)
                     </h3>
-                    <span class="text-xs" style="color:var(--text-muted);">Drag to reorder · Click to view/delete</span>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="toggleTagMode()"
+                                class="text-[10px] font-semibold px-2.5 py-1 rounded transition-colors"
+                                :style="tagMode ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'">
+                            <span x-text="tagMode ? 'Exit Tag Mode' : 'Tag Images'"></span>
+                        </button>
+                        <button type="button" @click="sortByCategory()"
+                                class="text-[10px] font-semibold px-2.5 py-1 rounded transition-colors"
+                                style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                            Sort by Category
+                        </button>
+                        <button type="button" @click="save()" :disabled="saving"
+                                class="text-[10px] font-semibold px-2.5 py-1 rounded transition-colors"
+                                style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
+                            <span x-text="saving ? 'Saving...' : (dirty ? 'Save' : 'Saved')"></span>
+                        </button>
+                    </div>
                 </div>
 
-                @if(count($galleryImages))
-                <div id="gallery-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2">
-                    @foreach($galleryImages as $idx => $imgUrl)
-                    <div class="gallery-item relative group rounded-md overflow-hidden cursor-grab"
-                         data-index="{{ $idx }}" style="aspect-ratio:1/1;">
-                        <img src="{{ $imgUrl }}" alt=""
-                             class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
-
-                        {{-- Overlay actions --}}
-                        <div class="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                             style="background:rgba(0,0,0,0.55);">
-                            {{-- View --}}
-                            <button type="button"
-                                    onclick="openLightbox({{ $idx }})"
-                                    class="w-7 h-7 rounded-full flex items-center justify-center text-white"
-                                    style="background:rgba(255,255,255,0.18);"
-                                    title="View">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.573-3.007-9.963-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
-                            </button>
-                            {{-- Delete --}}
-                            <form method="POST" action="{{ route('corex.properties.deleteImage', $property) }}">
-                                @csrf
-                                <input type="hidden" name="group" value="gallery_images_json">
-                                <input type="hidden" name="index" value="{{ $idx }}">
-                                <button type="submit"
-                                        onclick="return confirm('Delete this image?')"
-                                        class="w-7 h-7 rounded-full flex items-center justify-center text-white"
-                                        style="background:rgba(239,68,68,0.35);"
-                                        title="Delete">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-                                </button>
-                            </form>
-                        </div>
-
-                        {{-- Drag handle --}}
-                        <div class="absolute top-1 left-1 opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="white" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" /></svg>
+                {{-- Tag mode bar (sticky within page scroll) --}}
+                <div x-show="tagMode" x-cloak x-transition
+                     class="px-3 py-2.5 space-y-2 rounded-md" style="position:sticky; top:8px; z-index:20; background:var(--surface-2); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 30%, transparent); box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-semibold" style="color:var(--text-primary);">
+                            <span x-show="selected.length === 0">Click images to select them, then pick a tag</span>
+                            <span x-show="selected.length > 0"><span x-text="selected.length"></span> image<span x-show="selected.length > 1">s</span> selected</span>
+                        </span>
+                        <div class="flex items-center gap-2">
+                            <button type="button" @click="selectAll()" class="text-[10px] font-semibold" style="color:var(--brand-icon,#0ea5e9);">Select All</button>
+                            <button type="button" @click="selectNone()" x-show="selected.length > 0" class="text-[10px] font-semibold" style="color:var(--text-muted);">Clear</button>
                         </div>
                     </div>
-                    @endforeach
+                    <div class="flex flex-wrap gap-1.5">
+                        <template x-for="tag in availableTags" :key="tag">
+                            <button type="button" @click="tagSelected(tag)"
+                                    class="text-[10px] font-semibold px-2.5 py-1 rounded-full transition-colors"
+                                    :style="activeTag === tag ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);'"
+                                    x-text="tag"></button>
+                        </template>
+                        <button type="button" @click="tagSelected(null)"
+                                class="text-[10px] font-semibold px-2.5 py-1 rounded-full"
+                                style="background:rgba(239,68,68,0.10); color:#ef4444; border:1px solid rgba(239,68,68,0.20);">
+                            Clear Tags
+                        </button>
+                    </div>
                 </div>
 
-                <div class="mt-2 text-xs" style="color:var(--text-muted);">
-                    Drag to reorder · Changes saved automatically
+                {{-- Image grid --}}
+                {{-- Image grid --}}
+                <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2" x-show="images.length > 0">
+                    <template x-for="(img, idx) in images" :key="img + idx">
+                        <div class="gallery-item relative group rounded-md overflow-hidden"
+                             :class="tagMode ? 'cursor-pointer' : 'cursor-grab'"
+                             style="aspect-ratio:1/1;"
+                             @click="handleClick(idx)"
+                             :draggable="!tagMode"
+                             @dragstart="!tagMode && dragStart(idx, $event)"
+                             @dragover.prevent="!tagMode && dragOver(idx, $event)"
+                             @drop.prevent="!tagMode && dragDrop(idx)">
+                            <img :src="img" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
+
+                            {{-- Cover badge --}}
+                            <div x-show="idx === 0" class="absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-bold text-white" style="background:rgba(0,0,0,0.7);">COVER</div>
+
+                            {{-- Tag badge --}}
+                            <div x-show="tags[img]" class="absolute bottom-1 left-1 right-1">
+                                <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold text-white truncate max-w-full"
+                                      style="background:rgba(14,165,233,0.85);"
+                                      x-text="tags[img] || ''"></span>
+                            </div>
+
+                            {{-- Selection checkmark (tag mode) --}}
+                            <div x-show="tagMode && selected.includes(idx)" class="absolute inset-0 rounded-md" style="border:3px solid var(--brand-icon,#0ea5e9); background:rgba(14,165,233,0.15);">
+                                <div class="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center" style="background:var(--brand-icon,#0ea5e9);">
+                                    <svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                                </div>
+                            </div>
+
+                            {{-- Hover actions (normal mode only) --}}
+                            <div x-show="!tagMode" class="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button type="button" @click.stop="viewImage(idx)"
+                                        class="w-6 h-6 rounded-full flex items-center justify-center text-white"
+                                        style="background:rgba(0,0,0,0.5);">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                </button>
+                                <button type="button" @click.stop="deleteImage(idx)"
+                                        class="w-6 h-6 rounded-full flex items-center justify-center text-white"
+                                        style="background:rgba(239,68,68,0.6);">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
                 </div>
-                @else
-                <div class="rounded-md p-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
+
+                {{-- Empty state --}}
+                <div x-show="images.length === 0" class="rounded-md p-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
                     <div class="text-sm" style="color:var(--text-secondary);">No gallery images yet. Upload some above.</div>
                 </div>
-                @endif
+
+                {{-- Tip --}}
+                <div x-show="images.length > 0 && !tagMode" class="text-[10px]" style="color:var(--text-muted);">
+                    Drag to reorder · First image = cover photo · Click "Tag Images" to categorise
+                </div>
+
+                {{-- Save status --}}
+                <div x-show="saveMsg" x-cloak x-transition class="text-[11px] font-medium" :style="saveError ? 'color:#ef4444' : 'color:#22c55e'" x-text="saveMsg"></div>
             </div>
 
             {{-- Lightbox with prev/next navigation --}}
@@ -2165,88 +2391,7 @@
             </div>
         @endif {{-- /!$isNew gallery --}}
 
-            {{-- ── PORTAL AGENTS SECTION ─────────────────────────────────────── --}}
-            @if(!$isNew)
-            <div>
-                <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Portal Agents</h3>
-                <p class="text-[11px] mb-4" style="color:var(--text-muted);">These agents appear on portal listings (Property24, Private Property). Their profile photo is synced to the portals when a listing is submitted.</p>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {{-- Primary Agent --}}
-                    @if($property->agent)
-                    <div class="rounded-md p-4 flex items-start gap-4" style="background:var(--surface-2); border:1px solid var(--border);">
-                        @if($property->agent->agent_photo_path)
-                        <img src="{{ asset('storage/' . $property->agent->agent_photo_path) }}" alt="{{ $property->agent->name }}"
-                             class="w-16 h-20 rounded-md object-cover flex-shrink-0"
-                             style="border:1px solid var(--border);">
-                        @else
-                        <div class="w-16 h-20 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
-                             style="background:linear-gradient(135deg,#1e3a5f,#0ea5e9);">
-                            {{ strtoupper(substr($property->agent->name, 0, 2)) }}
-                        </div>
-                        @endif
-                        <div class="min-w-0 flex-1 space-y-1">
-                            <div class="flex items-center gap-2">
-                                <span class="text-sm font-bold truncate" style="color:var(--text-primary);">{{ $property->agent->name }}</span>
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide"
-                                      style="background:rgba(59,130,246,0.12); color:#3b82f6;">Primary</span>
-                            </div>
-                            @if($property->agent->email)
-                            <div class="text-xs truncate" style="color:var(--text-secondary);">{{ $property->agent->email }}</div>
-                            @endif
-                            @if($property->agent->cell ?? $property->agent->phone ?? null)
-                            <div class="text-xs" style="color:var(--text-secondary);">{{ $property->agent->cell ?? $property->agent->phone }}</div>
-                            @endif
-                            @if(!$property->agent->agent_photo_path)
-                            <div class="flex items-center gap-1.5 mt-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="#f59e0b" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
-                                <span class="text-[10px]" style="color:#f59e0b;">No photo — upload via Admin &gt; Users to sync to portals</span>
-                            </div>
-                            @endif
-                        </div>
-                    </div>
-                    @endif
-
-                    {{-- Second Agent (if assigned) --}}
-                    @if($property->pp_second_agent_id)
-                    @php $secondAgent = \App\Models\User::find($property->pp_second_agent_id); @endphp
-                    @if($secondAgent)
-                    <div class="rounded-md p-4 flex items-start gap-4" style="background:var(--surface-2); border:1px solid var(--border);">
-                        @if($secondAgent->agent_photo_path)
-                        <img src="{{ asset('storage/' . $secondAgent->agent_photo_path) }}" alt="{{ $secondAgent->name }}"
-                             class="w-16 h-20 rounded-md object-cover flex-shrink-0"
-                             style="border:1px solid var(--border);">
-                        @else
-                        <div class="w-16 h-20 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
-                             style="background:linear-gradient(135deg,#1e3a5f,#0ea5e9);">
-                            {{ strtoupper(substr($secondAgent->name, 0, 2)) }}
-                        </div>
-                        @endif
-                        <div class="min-w-0 flex-1 space-y-1">
-                            <div class="flex items-center gap-2">
-                                <span class="text-sm font-bold truncate" style="color:var(--text-primary);">{{ $secondAgent->name }}</span>
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide"
-                                      style="background:var(--surface-3); color:var(--text-muted);">Second</span>
-                            </div>
-                            @if($secondAgent->email)
-                            <div class="text-xs truncate" style="color:var(--text-secondary);">{{ $secondAgent->email }}</div>
-                            @endif
-                            @if($secondAgent->cell ?? $secondAgent->phone ?? null)
-                            <div class="text-xs" style="color:var(--text-secondary);">{{ $secondAgent->cell ?? $secondAgent->phone }}</div>
-                            @endif
-                            @if(!$secondAgent->agent_photo_path)
-                            <div class="flex items-center gap-1.5 mt-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="#f59e0b" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
-                                <span class="text-[10px]" style="color:#f59e0b;">No photo — upload via Admin &gt; Users</span>
-                            </div>
-                            @endif
-                        </div>
-                    </div>
-                    @endif
-                    @endif
-                </div>
-            </div>
-            @endif
+            {{-- Portal Agents section removed — agent info shown in live preview and sidebar --}}
 
         </div>
 
@@ -3250,54 +3395,129 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'ArrowRight')   lightboxNav(1);
 });
 
-// Gallery drag to reorder (SortableJS-style without external library)
-(function() {
-    const grid = document.getElementById('gallery-grid');
-    if (!grid) return;
+// Smart Gallery Manager
+// Tag-based gallery manager
+function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags) {
+    return {
+        images: initImages || [],
+        tags: initTags || {},
+        availableTags: availableTags || [],
+        propertyId, csrfToken,
+        dirty: false, saving: false, saveMsg: '', saveError: false,
+        tagMode: false,
+        selected: [],              // array of indices selected in tag mode
+        activeTag: null,
+        _dragIdx: null,
 
-    let dragging = null;
+        toggleTagMode() {
+            this.tagMode = !this.tagMode;
+            this.selected = [];
+            this.activeTag = null;
+        },
 
-    grid.addEventListener('dragstart', function(e) {
-        const item = e.target.closest('.gallery-item');
-        if (!item) return;
-        dragging = item;
-        item.style.opacity = '0.4';
-        e.dataTransfer.effectAllowed = 'move';
-    });
+        handleClick(idx) {
+            if (this.tagMode) {
+                // Toggle selection
+                const i = this.selected.indexOf(idx);
+                if (i >= 0) this.selected.splice(i, 1);
+                else this.selected.push(idx);
+            }
+            // Normal mode: no action on click (use hover buttons for view/delete)
+        },
 
-    grid.addEventListener('dragend', function(e) {
-        const item = e.target.closest('.gallery-item');
-        if (item) item.style.opacity = '1';
-        dragging = null;
-        saveOrder();
-    });
+        selectAll() { this.selected = this.images.map((_, i) => i); },
+        selectNone() { this.selected = []; },
 
-    grid.addEventListener('dragover', function(e) {
-        e.preventDefault();
-        const target = e.target.closest('.gallery-item');
-        if (!target || target === dragging) return;
-        const rect = target.getBoundingClientRect();
-        const mid  = rect.left + rect.width / 2;
-        if (e.clientX < mid) {
-            grid.insertBefore(dragging, target);
-        } else {
-            grid.insertBefore(dragging, target.nextSibling);
-        }
-    });
+        // Tag all selected images
+        tagSelected(tag) {
+            this.activeTag = tag;
+            for (const idx of this.selected) {
+                const img = this.images[idx];
+                if (tag) { this.tags[img] = tag; } else { delete this.tags[img]; }
+            }
+            this.dirty = true;
+            this.selected = [];
+            // Keep tag mode on so they can continue tagging more
+        },
 
-    function saveOrder() {
-        const items = Array.from(grid.querySelectorAll('.gallery-item'));
-        const order = items.map(i => parseInt(i.dataset.index));
-        fetch('{{ $isNew ? '' : route('corex.properties.reorderImages', $property) }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
-            },
-            body: JSON.stringify({ group: 'gallery_images_json', order: order }),
-        });
-    }
-})();
+        // Sort images by category order
+        sortByCategory() {
+            const order = {};
+            this.availableTags.forEach((t, i) => order[t] = i);
+            const tagged = this.images.filter(img => this.tags[img]);
+            const untagged = this.images.filter(img => !this.tags[img]);
+            tagged.sort((a, b) => (order[this.tags[a]] ?? 999) - (order[this.tags[b]] ?? 999));
+            this.images = [...tagged, ...untagged];
+            this.dirty = true;
+        },
+
+        // Drag to reorder
+        dragStart(idx, e) { this._dragIdx = idx; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); },
+        dragOver(idx, e) {
+            if (this._dragIdx === null || this._dragIdx === idx) return;
+            const item = this.images.splice(this._dragIdx, 1)[0];
+            this.images.splice(idx, 0, item);
+            this._dragIdx = idx;
+            this.dirty = true;
+        },
+        dragDrop(idx) { this._dragIdx = null; },
+
+        viewImage(idx) { _lbImages = [...this.images]; openLightbox(idx); },
+
+        deleteImage(idx) {
+            if (!confirm('Delete this image?')) return;
+            const img = this.images.splice(idx, 1)[0];
+            delete this.tags[img];
+            if (this.taggingIdx === idx) this.taggingIdx = null;
+            this.dirty = true;
+            // Delete from server
+            fetch(`/corex/properties/${this.propertyId}/delete-image`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ url: img }),
+            });
+            this.save();
+        },
+
+        // Build categories structure from tags for saving
+        buildCategories() {
+            const cats = {};
+            const unsorted = [];
+            for (const img of this.images) {
+                const tag = this.tags[img];
+                if (tag) {
+                    if (!cats[tag]) cats[tag] = [];
+                    cats[tag].push(img);
+                } else {
+                    unsorted.push(img);
+                }
+            }
+            return {
+                categories: Object.entries(cats).map(([name, images]) => ({ name, images })),
+                unsorted,
+            };
+        },
+
+        async save() {
+            this.saving = true; this.saveMsg = '';
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/reorder-images`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({
+                        gallery_categories_json: this.buildCategories(),
+                        gallery_images_json: this.images,
+                    }),
+                });
+                this.dirty = !res.ok;
+                this.saveMsg = res.ok ? 'Saved' : 'Failed to save';
+                this.saveError = !res.ok;
+            } catch (e) { this.saveMsg = 'Network error'; this.saveError = true; }
+            finally { this.saving = false; setTimeout(() => this.saveMsg = '', 3000); }
+        },
+    };
+}
+function galleryManager() { return {}; }
 
 // Property Address modal component
 function propertyAddress(config) {

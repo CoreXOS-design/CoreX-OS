@@ -159,23 +159,84 @@ class PropertyController extends Controller
             ? app(Property24ListingMapper::class)->checkReadiness($property)
             : [];
 
+        // Overview tab: activity timeline
+        $activityTimeline = collect();
+        // P24 syndication events
+        $activityTimeline = $activityTimeline->merge(
+            \App\Models\P24SyndicationLog::where('property_id', $property->id)
+                ->latest('created_at')->take(10)->get()
+                ->map(fn($l) => [
+                    'type' => 'p24',
+                    'icon' => 'globe',
+                    'label' => 'P24: ' . ucfirst(str_replace('_', ' ', $l->action)),
+                    'detail' => $l->status_code ? "HTTP {$l->status_code}" : '',
+                    'date' => $l->created_at,
+                    'color' => '#3b82f6',
+                ])
+        );
+        // Notes
+        $activityTimeline = $activityTimeline->merge(
+            $property->notes->take(5)->map(fn($n) => [
+                'type' => 'note',
+                'icon' => 'note',
+                'label' => 'Note by ' . ($n->user->name ?? 'Unknown'),
+                'detail' => \Illuminate\Support\Str::limit($n->body ?? $n->content ?? '', 60),
+                'date' => $n->created_at,
+                'color' => '#f59e0b',
+            ])
+        );
+        // Property created/updated/published
+        if ($property->published_at) {
+            $activityTimeline->push(['type' => 'system', 'icon' => 'check', 'label' => 'Published to website', 'detail' => '', 'date' => $property->published_at, 'color' => '#22c55e']);
+        }
+        $activityTimeline->push(['type' => 'system', 'icon' => 'plus', 'label' => 'Property created', 'detail' => '', 'date' => $property->created_at, 'color' => '#94a3b8']);
+        // Sort by date desc, take 10
+        $activityTimeline = $activityTimeline->sortByDesc('date')->take(10)->values();
+
         // Drive tab: all documents linked to this property
-        $allDriveDocs = $property->documents()->with(['documentType', 'contacts'])->get();
-        $documentTypes = DocumentType::ordered()->get();
+        try {
+            $allDriveDocs = $property->documents()->with(['documentType', 'contacts'])->get();
+            $documentTypes = DocumentType::ordered()->get();
+        } catch (\Exception $e) {
+            $allDriveDocs = collect();
+            $documentTypes = collect();
+        }
 
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields',
-            'allDriveDocs', 'documentTypes'
+            'allDriveDocs', 'documentTypes', 'activityTimeline'
         ));
     }
 
     public function create()
     {
-        $property          = new Property();
-        $property->status  = 'draft';
-        $property->beds    = 0;
-        $property->baths   = 0;
-        $property->garages = 0;
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+
+        $property           = new Property();
+        $property->status   = 'for_sale';
+        $property->listing_type = 'Sale';
+        $property->province = 'KwaZulu-Natal';
+        $property->agent_id = $user->id;
+        $property->branch_id = $user->effectiveBranchId();
+        $property->agency_id = $user->agency_id ?? null;
+        $property->beds     = 0;
+        $property->baths    = 0;
+        $property->garages  = 0;
+
+        // Pre-fill from contact if creating from a contact page
+        $preLinkedContact = null;
+        if ($contactId = request('contact_id')) {
+            $contact = \App\Models\Contact::find($contactId);
+            if ($contact) {
+                $preLinkedContact = $contact;
+                // Pre-fill address from contact if available
+                if ($contact->suburb) $property->suburb = $contact->suburb;
+                if ($contact->city) $property->city = $contact->city;
+                if ($contact->province) $property->province = $contact->province;
+                if ($contact->street_address) $property->address = $contact->street_address;
+            }
+        }
 
         $settingItems = [
             'categories'   => PropertySettingItem::group('category')->get(),
@@ -187,7 +248,7 @@ class PropertyController extends Controller
         $agents    = $this->agentList();
         $activeTab = 'info';
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact'));
     }
 
     public function store(Request $request)
@@ -464,7 +525,28 @@ class PropertyController extends Controller
         if ($newDawn)    $data['dawn_images_json']    = array_merge($property->dawn_images_json    ?? [], $newDawn);
         if ($newNoon)    $data['noon_images_json']    = array_merge($property->noon_images_json    ?? [], $newNoon);
         if ($newDusk)    $data['dusk_images_json']    = array_merge($property->dusk_images_json    ?? [], $newDusk);
-        if ($newGallery) $data['gallery_images_json'] = array_merge($property->gallery_images_json ?? [], $newGallery);
+        if ($newGallery) {
+            $data['gallery_images_json'] = array_merge($property->gallery_images_json ?? [], $newGallery);
+
+            // Auto-tag new images with category if provided (mobile app support)
+            $uploadCategory = $request->input('image_category');
+            if ($uploadCategory) {
+                $cats = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+                $found = false;
+                foreach ($cats['categories'] as &$cat) {
+                    if ($cat['name'] === $uploadCategory) {
+                        $cat['images'] = array_merge($cat['images'] ?? [], $newGallery);
+                        $found = true;
+                        break;
+                    }
+                }
+                unset($cat);
+                if (!$found) {
+                    $cats['categories'][] = ['name' => $uploadCategory, 'images' => $newGallery];
+                }
+                $data['gallery_categories_json'] = $cats;
+            }
+        }
 
         $property->update($data);
 
@@ -479,6 +561,38 @@ class PropertyController extends Controller
         $property->delete();
         return redirect()->route('corex.properties.index')
             ->with('success', 'Property listing removed.');
+    }
+
+    public function duplicate(Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $clone = $property->replicate([
+            'external_id', 'published_at', 'p24_ref', 'p24_syndication_enabled',
+            'p24_syndication_status', 'p24_last_submitted_at', 'p24_activated_at',
+            'p24_last_error', 'p24_images_last_synced_at', 'p24_listing_last_synced_at',
+            'pp_ref', 'pp_syndication_enabled', 'pp_syndication_status',
+            'pp_last_submitted_at', 'pp_activated_at', 'pp_last_error',
+            'pp_listing_feed_ref', 'pp_exclusive_days', 'pp_delay_until',
+            'pp_images_last_synced_at', 'pp_listing_last_synced_at',
+        ]);
+
+        $clone->title  = ($property->title ?? 'Property') . ' (Copy)';
+        $clone->status = 'draft';
+        $clone->price  = null;
+        $clone->unit_number = null;
+        $clone->published_at = null;
+        $clone->p24_syndication_enabled = false;
+        $clone->pp_syndication_enabled = false;
+        $clone->save();
+
+        // Copy contact links
+        foreach ($property->contacts as $contact) {
+            $clone->contacts()->attach($contact->id, ['role' => $contact->pivot->role]);
+        }
+
+        return redirect()->route('corex.properties.show', $clone)
+            ->with('success', 'Property duplicated. Update the details and save.');
     }
 
     public function deleteImage(Request $request, Property $property)
@@ -511,6 +625,17 @@ class PropertyController extends Controller
     {
         $this->authorizeProperty($property);
 
+        // Smart gallery saves both categories and flat list
+        if ($request->has('gallery_categories_json')) {
+            $property->update([
+                'gallery_categories_json' => $request->input('gallery_categories_json'),
+                'gallery_images_json'     => $request->input('gallery_images_json', []),
+            ]);
+
+            return response()->json(['ok' => true]);
+        }
+
+        // Legacy reorder (flat list by index)
         $request->validate([
             'group'  => 'required|in:gallery_images_json,dawn_images_json,noon_images_json,dusk_images_json',
             'order'  => 'required|array',

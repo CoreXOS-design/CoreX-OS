@@ -89,6 +89,17 @@
                 </div>
             </div>
 
+            {{-- Create Listing from Contact --}}
+            @if(auth()->user()->hasPermission('access_properties'))
+            <a href="{{ route('corex.properties.create') }}?contact_id={{ $contact->id }}"
+               class="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"
+               style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);"
+               onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 22%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent)'">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                Create Listing
+            </a>
+            @endif
+
             {{-- Delete button --}}
             @if(auth()->user()->hasPermission('contacts.delete'))
             <form method="POST" action="{{ route('corex.contacts.destroy', $contact) }}"
