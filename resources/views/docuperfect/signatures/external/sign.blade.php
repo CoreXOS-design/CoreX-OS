@@ -2398,6 +2398,12 @@ function externalSign() {
             }
 
             try {
+                // Include ceremony values (date, location, time) collected during signing
+                const payload = {};
+                if (this.webCeremonyValues && Object.keys(this.webCeremonyValues).length > 0) {
+                    payload.ceremony_values = this.webCeremonyValues;
+                }
+
                 const resp = await fetch('/sign/' + this.token + '/complete', {
                     method: 'POST',
                     headers: {
@@ -2405,6 +2411,7 @@ function externalSign() {
                         'Accept': 'application/json',
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                     },
+                    body: JSON.stringify(payload),
                 });
                 const data = await resp.json();
                 if (data.ok && data.redirect) {

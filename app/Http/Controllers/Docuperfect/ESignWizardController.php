@@ -700,7 +700,94 @@ class ESignWizardController extends Controller
 
         // Sort recipients by SA signing convention when saving step 3
         if ($stepKey === 'recipients' && !empty($data['recipients'])) {
-            $stepData['recipients']['recipients'] = $this->sortRecipientsBySigningOrder($data['recipients']);
+            $sorted = $this->sortRecipientsBySigningOrder($data['recipients']);
+
+            // Auto-create contact records for manually entered recipients
+            $propertyId = $stepData['property']['property_id'] ?? null;
+            $propertySource = $stepData['property']['_property_source'] ?? 'properties';
+
+            foreach ($sorted as &$r) {
+                // Skip agents and recipients that already have a contact linked
+                if (($r['role'] ?? '') === 'agent' || ($r['readonly'] ?? false)) {
+                    continue;
+                }
+                if (!empty($r['_contact_id'])) {
+                    continue;
+                }
+
+                // Must have at least a name to create a contact
+                $name = trim($r['name'] ?? '');
+                if ($name === '') {
+                    continue;
+                }
+
+                $email = trim($r['email'] ?? '');
+                $idNumber = trim($r['id_number'] ?? '');
+
+                // Check for existing contact by email or id_number (prevent duplicates)
+                $existing = null;
+                if ($email !== '') {
+                    $existing = Contact::where('email', $email)->first();
+                }
+                if (!$existing && $idNumber !== '') {
+                    $existing = Contact::where('id_number', $idNumber)->first();
+                }
+
+                if ($existing) {
+                    $r['_contact_id'] = $existing->id;
+                } else {
+                    // Split name: first space separates first_name from last_name
+                    $nameParts = explode(' ', $name, 2);
+                    $firstName = $nameParts[0];
+                    $lastName = $nameParts[1] ?? '';
+
+                    // Derive contact_type_id from recipient role via esign_role mapping
+                    $roleToEsignRole = [
+                        'tenant' => 'lessee', 'lessee' => 'lessee',
+                        'buyer' => 'buyer', 'purchaser' => 'buyer',
+                        'landlord' => 'lessor', 'lessor' => 'lessor',
+                        'seller' => 'seller', 'owner' => 'seller',
+                        'witness' => null,
+                    ];
+                    $esignRole = $roleToEsignRole[strtolower($r['role'] ?? '')] ?? null;
+                    $contactTypeId = null;
+                    if ($esignRole) {
+                        $contactTypeId = \App\Models\ContactType::where('esign_role', $esignRole)->value('id');
+                    }
+                    if (!$contactTypeId) {
+                        // Try matching by name (for witness, spouse, etc.)
+                        $contactTypeId = \App\Models\ContactType::where('name', 'like', '%' . ($r['role'] ?? '') . '%')->value('id');
+                    }
+
+                    $contact = Contact::create([
+                        'first_name' => $firstName,
+                        'last_name' => $lastName,
+                        'email' => $email ?: null,
+                        'id_number' => $idNumber ?: null,
+                        'contact_type_id' => $contactTypeId,
+                        'created_by_user_id' => $request->user()?->id,
+                    ]);
+
+                    $r['_contact_id'] = $contact->id;
+
+                    // Link contact to property if one is selected
+                    if ($propertyId && $propertySource === 'properties') {
+                        $pivotRoleMap = [
+                            'tenant' => 'tenant', 'lessee' => 'tenant',
+                            'buyer' => 'buyer',
+                            'landlord' => 'lessor', 'lessor' => 'lessor',
+                            'seller' => 'owner', 'owner' => 'owner',
+                        ];
+                        $pivotRole = $pivotRoleMap[strtolower($r['role'] ?? '')] ?? null;
+                        $contact->properties()->syncWithoutDetaching([
+                            $propertyId => ['role' => $pivotRole],
+                        ]);
+                    }
+                }
+            }
+            unset($r);
+
+            $stepData['recipients']['recipients'] = $sorted;
         }
 
         // For step 5 (fill_review): merge field values and party overrides back into the main fields array
@@ -742,9 +829,10 @@ class ESignWizardController extends Controller
                 $flow->property_id = $data['property_id'];
             }
         }
-        if ($stepKey === 'recipients' && !empty($data['recipients'])) {
-            // Link first non-agent recipient's contact_id
-            foreach ($data['recipients'] as $r) {
+        if ($stepKey === 'recipients') {
+            // Link first non-agent recipient's contact_id (use processed recipients with auto-created IDs)
+            $processedRecipients = $stepData['recipients']['recipients'] ?? $data['recipients'] ?? [];
+            foreach ($processedRecipients as $r) {
                 if (!empty($r['_contact_id']) && ($r['role'] ?? '') !== 'agent') {
                     $flow->contact_id = $r['_contact_id'];
                     break;

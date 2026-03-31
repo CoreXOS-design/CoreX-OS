@@ -1340,6 +1340,22 @@ class SigningController extends Controller
                 'user_agent' => $request->userAgent(),
             ]);
 
+            // Save ceremony values (date, location, time) if provided
+            $ceremonyValues = $request->input('ceremony_values', []);
+            if (!empty($ceremonyValues)) {
+                $document = $template->document;
+                $webData = $document->web_template_data ?? [];
+                $webData['ceremony_values'] = array_merge($webData['ceremony_values'] ?? [], $ceremonyValues);
+
+                // Embed into merged_html if present (web templates)
+                if (!empty($webData['merged_html'])) {
+                    $sigController = app(\App\Http\Controllers\Docuperfect\SignatureController::class);
+                    $webData['merged_html'] = $sigController->embedCeremonyValuesIntoHtml($webData['merged_html'], $ceremonyValues);
+                }
+
+                $document->update(['web_template_data' => $webData]);
+            }
+
             // Flatten any signer-completed fields onto the page images
             $flattener = app(DocumentFlattener::class);
             $flattener->flattenSignerFields($template, $party);
