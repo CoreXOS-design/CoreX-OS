@@ -1,8 +1,13 @@
 <?php
 
+use App\Models\FaultReport;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Session\TokenMismatchException;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -29,5 +34,77 @@ return Application::configure(basePath: dirname(__DIR__))
 
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->reportable(function (\Throwable $e) {
+            try {
+                // Skip exceptions that don't need fault tracking
+                if (
+                    $e instanceof ValidationException ||
+                    $e instanceof AuthenticationException ||
+                    $e instanceof \Illuminate\Auth\Access\AuthorizationException ||
+                    $e instanceof NotFoundHttpException ||
+                    $e instanceof TokenMismatchException
+                ) {
+                    return;
+                }
+
+                // Pre-migration safety: fail silently if table doesn't exist
+                if (!\Illuminate\Support\Facades\Schema::hasTable('fault_reports')) {
+                    return;
+                }
+
+                $exceptionClass = get_class($e);
+                $file = $e->getFile();
+                $line = $e->getLine();
+
+                // Deduplication: same exception in last 24 hours
+                $existing = FaultReport::where('exception_class', $exceptionClass)
+                    ->where('file', $file)
+                    ->where('line', $line)
+                    ->where('last_seen_at', '>=', now()->subDay())
+                    ->first();
+
+                if ($existing) {
+                    $existing->incrementOccurrence();
+                    return;
+                }
+
+                $request = request();
+                $sensitivePatterns = ['password', 'token', 'secret', 'card', 'cvv'];
+                $requestData = null;
+
+                if ($request) {
+                    $requestData = collect($request->except(['_token']))->filter(
+                        function ($value, $key) use ($sensitivePatterns) {
+                            foreach ($sensitivePatterns as $pattern) {
+                                if (stripos($key, $pattern) !== false) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        }
+                    )->toArray() ?: null;
+                }
+
+                FaultReport::create([
+                    'type' => 'backend',
+                    'severity' => 'error',
+                    'title' => mb_substr($e->getMessage() ?: $exceptionClass, 0, 500),
+                    'message' => mb_substr($e->getMessage() ?: '', 0, 5000) ?: null,
+                    'exception_class' => $exceptionClass,
+                    'file' => $file,
+                    'line' => $line,
+                    'trace' => mb_substr($e->getTraceAsString(), 0, 5000),
+                    'url' => $request?->fullUrl() ? mb_substr($request->fullUrl(), 0, 1000) : null,
+                    'method' => $request?->method(),
+                    'user_id' => $request?->user()?->id,
+                    'user_agent' => $request?->userAgent(),
+                    'ip_address' => $request?->ip(),
+                    'request_data' => $requestData,
+                    'first_seen_at' => now(),
+                    'last_seen_at' => now(),
+                ]);
+            } catch (\Throwable $faultError) {
+                // Fault capture must NEVER break the application
+            }
+        });
     })->create();

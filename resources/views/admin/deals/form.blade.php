@@ -346,6 +346,18 @@
 
                     containerEl.appendChild(row);
                 });
+
+                // Auto-fill 100% when single agent selected
+                const allRows = containerEl.querySelectorAll('[data-user-id]');
+                if (allRows.length === 1) {
+                    const input = allRows[0].querySelector('input[type=number]');
+                    if (input && !input.value) input.value = '100';
+                } else if (allRows.length > 1) {
+                    allRows.forEach(r => {
+                        const input = r.querySelector('input[type=number]');
+                        if (input && input.value === '100') input.value = '';
+                    });
+                }
             }
 
             const listingSelect = document.getElementById('listing_select');

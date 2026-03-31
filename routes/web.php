@@ -195,6 +195,18 @@ Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowled
     Route::post('/categories/reorder', [\App\Http\Controllers\Admin\KnowledgeController::class, 'reorderCategories'])->name('admin.knowledge.reorderCategories');
 });
 
+// ===== FAULT REPORTS =====
+Route::middleware(['auth'])->group(function () {
+    Route::post('/admin/fault-reports/manual', [\App\Http\Controllers\FaultReportController::class, 'manualReport'])
+        ->name('admin.fault-reports.manual');
+    Route::get('/admin/fault-reports/{id}', [\App\Http\Controllers\FaultReportController::class, 'show'])
+        ->name('admin.fault-reports.show');
+    Route::post('/admin/fault-reports/{id}/status', [\App\Http\Controllers\FaultReportController::class, 'updateStatus'])
+        ->name('admin.fault-reports.update-status');
+    Route::get('/admin/fault-reports', [\App\Http\Controllers\FaultReportController::class, 'index'])
+        ->name('admin.fault-reports');
+});
+
 // ===== LISTING IMPORT =====
 Route::middleware(['auth','permission:import_listings'])->group(function () {
     Route::get('/admin/listings/import', [\App\Http\Controllers\Admin\ListingImportController::class, 'index'])
@@ -544,8 +556,59 @@ use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerControll
 Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/', [CoreXDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard');
 
+    // ── Agent Portal ──
+    Route::get('/my-portal', [\App\Http\Controllers\Agent\AgentPortalController::class, 'index'])
+        ->name('agent.portal');
+    Route::post('/my-portal/upload', [\App\Http\Controllers\Agent\AgentPortalController::class, 'uploadDocument'])
+        ->name('agent.portal.upload');
+
+    // ── Commission Engine ──
+    Route::get('/my-earnings', [\App\Http\Controllers\Commission\CommissionController::class, 'dashboard'])
+        ->name('commission.dashboard');
+    Route::get('/commission', [\App\Http\Controllers\Commission\CommissionController::class, 'index'])
+        ->name('commission.index');
+    Route::get('/commission/principal', [\App\Http\Controllers\Commission\CommissionController::class, 'principalDashboard'])
+        ->name('commission.principal');
+    Route::post('/commission/{entry}/confirm', [\App\Http\Controllers\Commission\CommissionController::class, 'confirm'])
+        ->name('commission.confirm');
+    Route::post('/commission/{entry}/pay', [\App\Http\Controllers\Commission\CommissionController::class, 'pay'])
+        ->name('commission.pay');
+    Route::get('/revenue-share/calculator', [\App\Http\Controllers\Commission\RevenueShareController::class, 'calculator'])
+        ->name('revenue-share.calculator');
+
+    // ── Training (LMS) ──
+    Route::get('/training', [\App\Http\Controllers\Training\TrainingController::class, 'index'])->name('training.index');
+    Route::get('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'manage'])->name('training.manage');
+    Route::get('/training/manage/create', [\App\Http\Controllers\Training\TrainingController::class, 'createCourse'])->name('training.create-course');
+    Route::post('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'storeCourse'])->name('training.store-course');
+    Route::get('/training/manage/{course}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editCourse'])->name('training.edit-course');
+    Route::put('/training/manage/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'updateCourse'])->name('training.update-course');
+    Route::get('/training/manage/{course}/lessons/create', [\App\Http\Controllers\Training\TrainingController::class, 'createLesson'])->name('training.create-lesson');
+    Route::post('/training/manage/{course}/lessons', [\App\Http\Controllers\Training\TrainingController::class, 'storeLesson'])->name('training.store-lesson');
+    Route::get('/training/manage/lessons/{lesson}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editLesson'])->name('training.edit-lesson');
+    Route::put('/training/manage/lessons/{lesson}', [\App\Http\Controllers\Training\TrainingController::class, 'updateLesson'])->name('training.update-lesson');
+    Route::get('/training/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'show'])->name('training.show');
+    Route::post('/training/lesson/{lesson}/start', [\App\Http\Controllers\Training\TrainingController::class, 'startLesson'])->name('training.start-lesson');
+    Route::post('/training/lesson/{lesson}/complete', [\App\Http\Controllers\Training\TrainingController::class, 'completeLesson'])->name('training.complete-lesson');
+    Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
+
+    // ── Agent Onboarding ──
+    Route::prefix('onboarding')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'index'])->name('onboarding.index');
+        Route::get('/create', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'create'])->name('onboarding.create');
+        Route::post('/', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'store'])->name('onboarding.store');
+        Route::get('/{application}', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'show'])->name('onboarding.show');
+        Route::post('/{application}/status', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'updateStatus'])->name('onboarding.status');
+        Route::post('/{application}/upload', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'uploadDocument'])->name('onboarding.upload');
+        Route::post('/document/{doc}/verify', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'verifyDocument'])->name('onboarding.verify-document');
+        Route::post('/checklist/{item}/toggle', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'toggleChecklist'])->name('onboarding.toggle-checklist');
+        Route::post('/{application}/activate', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'activate'])->name('onboarding.activate');
+    });
+
     Route::get('/documents', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'documents')->middleware('permission:access_docuperfect')->name('corex.documents');
     // ── Compliance / FICA ──
+    Route::get('/compliance/agents', [\App\Http\Controllers\Compliance\AgentComplianceController::class, 'dashboard'])
+        ->name('compliance.agents');
     Route::get('/compliance/rmcp', [\App\Http\Controllers\Compliance\FicaController::class, 'rmcp'])->middleware('permission:access_compliance')->name('compliance.rmcp');
     Route::middleware('permission:access_compliance')->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
@@ -562,7 +625,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
-    Route::get('/training', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'training')->middleware('permission:access_training')->name('corex.training');
+    // Training placeholder replaced by LMS module (training.index route above)
     Route::get('/communication', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'communication')->middleware('permission:access_communication')->name('corex.communication');
     Route::get('/client-portal', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'client-portal')->middleware('permission:access_client_portal')->name('corex.client-portal');
     Route::get('/franchise-admin', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'franchise-admin')->middleware('permission:access_franchise_admin')->name('corex.franchise-admin');
@@ -578,6 +641,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::put('/settings/agency', [CoreXSettingsController::class, 'updateAgency'])->middleware('permission:access_settings')->name('corex.settings.agency.update');
     Route::get('/settings/preview-header', [CoreXSettingsController::class, 'previewHeader'])->middleware('permission:access_settings')->name('corex.settings.preview-header');
     Route::get('/settings/preview-signature', [CoreXSettingsController::class, 'previewSignature'])->middleware('permission:access_settings')->name('corex.settings.preview-signature');
+
+    // Commission & Revenue Share Settings
+    Route::get('/settings/commission', [\App\Http\Controllers\Commission\CommissionSettingsController::class, 'edit'])
+        ->middleware('permission:access_settings')->name('corex.settings.commission');
+    Route::post('/settings/commission', [\App\Http\Controllers\Commission\CommissionSettingsController::class, 'update'])
+        ->middleware('permission:access_settings')->name('corex.settings.commission.update');
 
     // Role Manager
     Route::get('/role-manager', [CoreXRoleManagerController::class, 'index'])->middleware('permission:access_role_manager')->name('corex.role-manager');

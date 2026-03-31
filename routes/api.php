@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Http\Controllers\Api\ProspectingApiController;
 use App\Http\Controllers\Api\PropertyPullController;
+use App\Http\Controllers\FaultReportController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 
@@ -35,6 +36,9 @@ Route::post('/login', function (Request $request) {
         ],
     ]);
 });
+
+Route::post('/fault-report', [FaultReportController::class, 'capture'])
+    ->middleware('throttle:30,1');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/profile', function (Request $request) {

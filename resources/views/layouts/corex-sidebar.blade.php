@@ -45,7 +45,8 @@
         'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
         'admin.tv-messages*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
-        'tools.commission', 'tools.cma', 'tools.history.*'
+        'tools.commission', 'tools.cma', 'tools.history.*',
+        'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
     )) {
         $activeGroup = 'agency-tracker';
     } elseif (request()->routeIs('evaluation.*')) {
@@ -121,6 +122,74 @@
             <span>Dashboard</span>
         </a>
         @endpermission
+
+        {{-- ═══════════════════════════════════════════
+             MY PORTAL
+             ═══════════════════════════════════════════ --}}
+        @php
+            $portalNeedsAttention = false;
+            if ($user) {
+                $portalNeedsAttention = empty($user->ffc_number) || empty($user->ffc_certificate_path)
+                    || \App\Models\TrainingCourse::where('is_required', true)->published()
+                        ->whereDoesntHave('completions', fn($q) => $q->where('user_id', $user->id))
+                        ->exists();
+            }
+        @endphp
+        <a href="{{ route('agent.portal') }}"
+           class="corex-nav-item {{ request()->routeIs('agent.portal*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            <span>My Portal</span>
+            @if($portalNeedsAttention)
+            <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
+            @endif
+        </a>
+
+        {{-- ═══════════════════════════════════════════
+             MY EARNINGS
+             ═══════════════════════════════════════════ --}}
+        <a href="{{ route('commission.dashboard') }}"
+           class="corex-nav-item {{ request()->routeIs('commission.dashboard') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
+            </svg>
+            <span>My Earnings</span>
+        </a>
+
+        {{-- ═══════════════════════════════════════════
+             REVENUE SHARE
+             ═══════════════════════════════════════════ --}}
+        <a href="{{ route('revenue-share.calculator') }}"
+           class="corex-nav-item {{ request()->routeIs('revenue-share.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+            </svg>
+            <span>Revenue Share</span>
+        </a>
+
+        {{-- ═══════════════════════════════════════════
+             TRAINING
+             ═══════════════════════════════════════════ --}}
+        @php
+            $trainingIncomplete = 0;
+            if ($user) {
+                $trainingIncomplete = \App\Models\TrainingCourse::where('is_required', true)
+                    ->published()
+                    ->whereDoesntHave('completions', fn($q) => $q->where('user_id', $user->id))
+                    ->count();
+            }
+        @endphp
+        <a href="{{ route('training.index') }}"
+           class="corex-nav-item {{ request()->routeIs('training.index', 'training.show') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
+            </svg>
+            <span>Training</span>
+            @if($trainingIncomplete > 0)
+            <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
+            @endif
+        </a>
 
         {{-- ═══════════════════════════════════════════
              AGENCY TRACKER (expandable group)
@@ -238,6 +307,13 @@
                 @endpermission
                 @endpermission
 
+                {{-- Commission Management (admin/owner only) --}}
+                @if($isOwner || $effectiveRole === 'super_admin')
+                <div class="corex-nav-sublabel">Commission</div>
+                <a href="{{ route('commission.principal') }}" class="corex-nav-subitem {{ request()->routeIs('commission.principal') ? 'active' : '' }}">Commission Overview</a>
+                <a href="{{ route('commission.index') }}" class="corex-nav-subitem {{ request()->routeIs('commission.index') ? 'active' : '' }}">Commission Management</a>
+                @endif
+
                 {{-- Tools (all roles within AT) --}}
                 @permission('access_calculators')
                 <div class="corex-nav-sublabel">Tools</div>
@@ -349,13 +425,22 @@
 
         {{-- Compliance --}}
         @permission('access_compliance')
-        <a href="{{ route('compliance.fica.index') }}" class="corex-nav-item {{ request()->routeIs('compliance.fica.*') || request()->routeIs('compliance.rmcp') ? 'active' : '' }}">
+        <a href="{{ route('compliance.fica.index') }}" class="corex-nav-item {{ request()->routeIs('compliance.fica.*') || request()->routeIs('compliance.rmcp') || request()->routeIs('compliance.agents') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
             </svg>
             <span>Compliance</span>
         </a>
         <a href="{{ route('compliance.rmcp') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp') ? 'active' : '' }}" style="margin-left: 2.25rem;">RMCP</a>
+        @if($isOwner || $effectiveRole === 'super_admin')
+        @php $nonCompliantAgents = \App\Models\User::where('is_active', true)->whereNull('deleted_at')->whereNull('ffc_number')->count(); @endphp
+        <a href="{{ route('compliance.agents') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agents') ? 'active' : '' }}" style="margin-left: 2.25rem;">
+            Agent Compliance
+            @if($nonCompliantAgents > 0)
+            <span class="ml-auto w-2 h-2 rounded-full bg-red-500 flex-shrink-0 inline-block"></span>
+            @endif
+        </a>
+        @endif
         @endpermission
 
         {{-- Supervision --}}
@@ -369,15 +454,7 @@
         </a>
         @endpermission
 
-        {{-- Training (LMS) --}}
-        @permission('access_training')
-        <a href="{{ route('corex.training') }}" class="corex-nav-item {{ request()->routeIs('corex.training') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
-            </svg>
-            <span>Training (LMS)</span>
-        </a>
-        @endpermission
+        {{-- Training (LMS) — moved to agent section above as "Training" --}}
 
         {{-- Communication --}}
         @permission('access_communication')
@@ -625,6 +702,30 @@
         </a>
         @endpermission
 
+        {{-- Training Management (admin/owner only) --}}
+        @if($isOwner || $effectiveRole === 'super_admin')
+        <a href="{{ route('training.manage') }}" class="corex-nav-item {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+            </svg>
+            <span>Training Mgmt</span>
+        </a>
+        @endif
+
+        {{-- Onboarding (admin/owner only) --}}
+        @if($isOwner || $effectiveRole === 'super_admin')
+        @php $onboardingCount = \App\Models\AgentApplication::pending()->count(); @endphp
+        <a href="{{ route('onboarding.index') }}" class="corex-nav-item {{ request()->routeIs('onboarding.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" />
+            </svg>
+            <span>Onboarding</span>
+            @if($onboardingCount > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold bg-blue-500 text-white">{{ $onboardingCount }}</span>
+            @endif
+        </a>
+        @endif
+
         {{-- Finance Engine --}}
         @permission('access_finance_engine')
         <a href="{{ route('admin.finance.definitions') }}" class="corex-nav-item {{ request()->routeIs('admin.finance.*') ? 'active' : '' }}">
@@ -634,6 +735,20 @@
             <span>Finance Engine</span>
         </a>
         @endpermission
+
+        {{-- Fault Reports (super_admin / owner only) --}}
+        @if($isOwner || $effectiveRole === 'super_admin')
+        @php $faultNewCount = \App\Models\FaultReport::where('status','new')->count(); @endphp
+        <a href="{{ route('admin.fault-reports') }}" class="corex-nav-item {{ request()->routeIs('admin.fault-reports*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.866.966 1.866 2.013 0 3.728-2.35 6.75-5.25 6.75S6.75 18.728 6.75 15c0-1.046.83-1.867 1.866-2.013A24.204 24.204 0 0 1 12 12.75Zm0 0c2.883 0 5.647.508 8.207 1.44a23.91 23.91 0 0 1-1.152-6.135c-.117-1.427-.245-2.88-.465-4.305-.074-.477-.513-.826-.998-.826H6.408c-.485 0-.924.35-.998.826-.22 1.424-.348 2.878-.465 4.305A23.91 23.91 0 0 1 3.793 14.19 24.467 24.467 0 0 1 12 12.75ZM2.695 18.678a25.411 25.411 0 0 1 .122-2.428c.24-.84.598-1.628 1.058-2.347M21.305 18.678a25.12 25.12 0 0 0-.122-2.428 7.667 7.667 0 0 0-1.058-2.347" />
+            </svg>
+            <span>Fault Reports</span>
+            @if($faultNewCount > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">{{ $faultNewCount }}</span>
+            @endif
+        </a>
+        @endif
 
         {{-- Settings --}}
         @permission('access_settings')
