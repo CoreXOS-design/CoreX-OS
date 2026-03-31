@@ -82,11 +82,11 @@ Get the authenticated user's profile.
 
 ---
 
-## Command Center (NOT YET BUILT — endpoints to create)
+## Command Center
 
-> These API endpoints need to be added to `routes/api.php` to support the mobile app.
-> The web app uses Blade views + form POSTs. The mobile app needs JSON API equivalents.
 > All endpoints require `Authorization: Bearer {token}`.
+> Controller: `App\Http\Controllers\Api\CommandCenterApiController`
+> Routes registered in `routes/api.php` under `auth:sanctum` middleware, prefixed `command-center`.
 
 ### GET `/api/command-center/dashboard`
 Get the full dashboard data for the authenticated user.
