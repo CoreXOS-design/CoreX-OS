@@ -617,7 +617,6 @@ Route::middleware(['auth', 'permission:access_filing_register'])->group(function
 });
 
 // ===== NEXUS OS ROUTES =====
-use App\Http\Controllers\CoreX\DashboardController as CoreXDashboardController;
 use App\Http\Controllers\CoreX\PlaceholderController as CoreXPlaceholderController;
 use App\Http\Controllers\CommandCenter\DashboardController as CommandCenterDashboardController;
 use App\Http\Controllers\CommandCenter\CalendarController as CommandCenterCalendarController;

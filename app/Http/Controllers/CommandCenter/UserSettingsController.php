@@ -53,8 +53,6 @@ class UserSettingsController extends Controller
             'task_due_reminders'         => 'nullable|boolean',
             'task_reminder_hours_before'  => 'required|integer|min:1|max:168',
             'event_reminder_hours_before' => 'required|integer|min:1|max:168',
-            'overdue_daily_digest'       => 'nullable|boolean',
-            'digest_time'                => 'required|date_format:H:i',
             'default_calendar_view'      => 'required|in:month,week,day,agenda',
             'weekend_visible'            => 'nullable|boolean',
             'working_hours_start'        => 'required|date_format:H:i',
@@ -66,7 +64,7 @@ class UserSettingsController extends Controller
         // Boolean fields default to false if not sent
         foreach ([
             'idle_alerts_enabled', 'doc_reminders_enabled', 'lease_expiry_reminders',
-            'fica_reminders', 'ffc_reminders', 'task_due_reminders', 'overdue_daily_digest',
+            'fica_reminders', 'ffc_reminders', 'task_due_reminders',
             'weekend_visible', 'notify_in_app', 'notify_email',
         ] as $boolField) {
             $validated[$boolField] = $request->boolean($boolField);

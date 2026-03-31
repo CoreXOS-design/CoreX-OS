@@ -1,7 +1,7 @@
 # CoreX OS — Codebase Map & Dependency Reference
 > **MANDATORY READ** before any code changes.
 > Every VS Code prompt MUST read this file alongside CLAUDE.md and STANDARDS.md.
-> Last updated: 2026-03-31 | Total tables: 190
+> Last updated: 2026-03-31 | Total tables: 203
 >
 > **If your change touches a table listed here, check the DEPENDENCY CHAIN
 > section for that table. If you add/rename/remove a column, every file
@@ -34,26 +34,31 @@
 │   ├── Http/Controllers/
 │   │   ├── Admin/              ← Deal register V1, user mgmt, targets, daily summary
 │   │   ├── Agent/              ← Agent-facing controllers
-│   │   ├── CoreX/              ← Properties, contacts, settings, role manager, dashboard
+│   │   ├── CommandCenter/      ← Dashboard, Calendar, Tasks, Settings, UserSettings
+│   │   ├── CoreX/              ← Properties, contacts, settings, role manager
 │   │   ├── DealV2/             ← Deal Register V2 (pipeline, steps, settlement)
 │   │   ├── Docuperfect/        ← E-sign wizard, templates, signing, importer, packs
 │   │   ├── Compliance/         ← FICA
 │   │   ├── PrivateProperty/    ← PP syndication
 │   │   └── Property24/         ← P24 syndication
 │   ├── Models/
+│   │   ├── CommandCenter/      ← CalendarEvent, CommandTask, AutomationRule, HealthScore, etc.
 │   │   ├── DealV2/             ← V2 deal models (DealV2, DealStepInstance, etc.)
 │   │   ├── Docuperfect/        ← Template, Flow, SignatureTemplate, etc.
 │   │   └── [root]              ← Property, Contact, Deal (V1), User, etc.
 │   ├── Services/
+│   │   ├── CommandCenter/      ← CalendarEventService, TaskService, HealthCalculator, etc.
 │   │   ├── DealV2/             ← DealPipelineService
 │   │   ├── Docuperfect/        ← SignatureService, CdsParser, DocumentFlattener, etc.
 │   │   ├── PrivateProperty/    ← PP SOAP client, mapper, syndication
 │   │   ├── Syndication/Property24/ ← P24 API client, mapper, syndication
 │   │   └── Finance/            ← CommissionCalculator, RollupService
-│   └── Observers/              ← PropertyObserver
+│   ├── Notifications/          ← TaskDueReminder, EventDueReminder
+│   └── Observers/              ← PropertyObserver (+ Command Center hooks)
 ├── resources/views/
 │   ├── admin/                  ← Deal register V1, users, targets, trust interest
-│   ├── corex/                  ← Properties, contacts, settings, dashboard, role-manager
+│   ├── command-center/          ← Dashboard, calendar, tasks, settings, user-settings
+│   ├── corex/                  ← Properties, contacts, settings, role-manager
 │   ├── deals-v2/               ← Deal Register V2 (create, show, form, settlement, pipeline)
 │   ├── docuperfect/            ← E-sign wizard, templates, signing, importer
 │   ├── deposit-interest-calculator/
@@ -466,6 +471,133 @@ deposit_interest_calculations — saved calculation history
 ```
 PP: properties.pp_* columns (syndication state lives ON the property)
 P24: properties.p24_* columns + p24_syndication_logs
+```
+
+---
+
+## MODULE: COMMAND CENTER (Dashboard, Calendar, Tasks, Automation)
+
+### Tables (13)
+```
+calendar_events (33+ cols) — unified event storage (auto + manual)
+  user_id, event_type, category, title, event_date, end_date, all_day
+  priority, send_reminder, status, resolution, resolution_note, colour
+  source_type + source_id (polymorphic), property_id, contact_id, branch_id
+  reminder_offsets (JSON), reminders_sent (JSON), is_recurring, recurrence_rule
+  metadata (JSON)
+
+calendar_reminders_log — reminder delivery audit trail
+calendar_user_preferences — per-user calendar view settings
+
+command_tasks (22+ cols) — actionable task items with kanban status
+  title, task_type, status (todo/in_progress/awaiting/done/dismissed)
+  priority, send_reminder, resolution, resolution_note
+  assigned_to → users, assigned_by → users, due_date
+  property_id, contact_id, deal_id, calendar_event_id
+  checklist (JSON), metadata (JSON)
+
+automation_rules — trigger → action rule definitions (20 system defaults)
+automation_log — rule execution audit trail
+
+property_health_scores — computed health 0-100 per property
+  score, grade (excellent/good/attention/critical), factors (JSON)
+
+agent_scorecards — computed agent metrics (weekly/monthly)
+  tasks_completed, tasks_overdue, properties_attended, documents_uploaded
+  fica_complete, avg_response_hours, deals_progressed, overall_score
+
+command_document_expectations — expected docs per property type
+command_reminder_defaults — reminder config per event category
+
+user_dashboard_settings — per-user reminder/calendar preferences
+  idle_alerts_enabled, idle_threshold_days, idle_alert_day, idle_alert_time
+  task_reminder_hours_before, event_reminder_hours_before
+  doc_reminders_enabled, lease_expiry_reminders, fica_reminders, ffc_reminders
+  notify_in_app, notify_email
+
+agency_dashboard_settings — agency-wide settings (when mode = agency)
+  Same fields as user_dashboard_settings
+  agencies.dashboard_settings_mode = 'user' | 'agency'
+```
+
+### Command Center Dependency Chain
+```
+COMMAND CENTER:
+├── Controllers: app/Http/Controllers/CommandCenter/
+│   ├── DashboardController.php — main dashboard (replaces CoreX/DashboardController)
+│   ├── CalendarController.php — full calendar page + CRUD + JSON API
+│   ├── TaskController.php — kanban board + list view + CRUD
+│   ├── SettingsController.php — automation rules, doc expectations, reminders
+│   └── UserSettingsController.php — per-user reminder/calendar settings
+│
+├── Models: app/Models/CommandCenter/
+│   ├── CalendarEvent, CalendarReminderLog, CalendarUserPreference
+│   ├── CommandTask, AutomationRule, AutomationLog
+│   ├── PropertyHealthScore, AgentScorecard
+│   ├── DocumentExpectation, ReminderDefault
+│   ├── UserDashboardSetting, AgencyDashboardSetting
+│
+├── Services: app/Services/CommandCenter/
+│   ├── CalendarEventService — CRUD + month grid + date range queries
+│   ├── TaskService — CRUD + kanban columns + status management
+│   ├── PropertyHealthCalculator — 6-factor scoring
+│   ├── AgentScorecardCalculator — weekly/monthly metrics
+│   └── AutoEventService — auto-creates tasks on property create, flags idle
+│
+├── Notifications: app/Notifications/
+│   ├── TaskDueReminderNotification — email + in-app before task due
+│   └── EventDueReminderNotification — email + in-app before event due
+│
+├── Commands: app/Console/Commands/CommandCenter/
+│   ├── ProcessReminders — every 15 min, sends notifications per user settings
+│   ├── CalculatePropertyHealth — nightly at 02:00
+│   ├── CalculateAgentScorecards — nightly at 02:30
+│   ├── FlagIdleProperties — daily at 07:00
+│   └── BackfillCalendarEvents — one-time backfill
+│
+├── Observer hooks: app/Observers/PropertyObserver.php
+│   ├── created() — auto-generates document expectation tasks
+│   └── saved() — updates last_activity_at for health tracking
+│
+├── Views: resources/views/command-center/
+│   ├── dashboard.blade.php — full dashboard with 8 widgets + overdue popup
+│   ├── calendar/index.blade.php — month grid + agenda view
+│   ├── tasks/index.blade.php — kanban board + list view
+│   ├── settings/index.blade.php — admin automation settings
+│   └── user-settings.blade.php — per-user reminder preferences
+│
+├── Routes (22): routes/web.php under /corex/command-center/*
+│   command-center.calendar, .calendar.store, .calendar.complete, .calendar.dismiss
+│   command-center.tasks, .tasks.store, .tasks.complete, .tasks.update-status
+│   command-center.resolve-task, .resolve-event
+│   command-center.settings, .settings.toggle-rule, .settings.store-expectation
+│   command-center.user-settings, .user-settings.update
+│
+├── Permissions (17): config/corex-permissions.php section 'command-center'
+│   command_center.view, .calendar.*, .tasks.*, .health.view
+│   command_center.scorecards.own/branch/all, .automation.*, .settings
+│
+├── Sidebar: Dashboard (expandable group)
+│   ├── Overview — /corex (main dashboard)
+│   ├── Calendar — /corex/command-center/calendar
+│   ├── Tasks — /corex/command-center/tasks
+│   └── User Settings — /corex/command-center/user-settings
+│
+├── Settings integration: /corex/settings?tab=feature&fsec=dashboard
+│   ├── Mode selector: Individual vs Agency settings
+│   └── Agency-wide settings form (when mode = agency)
+│
+└── Scheduler: routes/console.php
+    ├── command-center:reminders — everyFifteenMinutes
+    ├── command-center:health — dailyAt 02:00
+    ├── command-center:scorecards — dailyAt 02:30
+    └── command-center:flag-idle — dailyAt 07:00
+```
+
+### Modified tables
+```
+properties — added: last_activity_at (datetime, nullable)
+agencies — added: dashboard_settings_mode (string, default 'user')
 ```
 
 ---

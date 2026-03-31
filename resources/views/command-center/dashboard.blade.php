@@ -411,7 +411,7 @@
                                 $hasEvents = isset($monthEvents[$dateStr]) && count($monthEvents[$dateStr]) > 0;
                                 $isToday = $d === $today->day;
                             @endphp
-                            <a href="{{ route('command-center.calendar', ['year' => $today->year, 'month' => $today->month, 'view' => 'day', 'day' => $d]) }}"
+                            <a href="{{ route('command-center.calendar', ['year' => $today->year, 'month' => $today->month, 'view' => 'agenda']) }}"
                                class="relative py-1.5 rounded-md transition-colors {{ $isToday ? 'font-bold' : '' }}"
                                style="{{ $isToday ? 'background:var(--brand-button); color:#fff;' : 'color:var(--text-primary);' }}"
                                onmouseover="if(!{{ $isToday ? 'true' : 'false' }}) this.style.background='var(--surface-2)'"
