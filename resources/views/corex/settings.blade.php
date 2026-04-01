@@ -1139,10 +1139,8 @@
                         </div>
                     </div>
                 </div>
-
-                    </div>
-                    </div>
-                </div>
+                    </div>{{-- /x-show open (Contact Types) --}}
+                </div>{{-- /x-data accordion (Contact Types) --}}
 
                 {{-- ── Contact Sources (accordion) ── --}}
                 <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
@@ -1258,6 +1256,8 @@
                         </div>
                     </div>
                 </div>
+                    </div>{{-- /x-show open (Contact Sources) --}}
+                </div>{{-- /x-data accordion (Contact Sources) --}}
 
                 {{-- ── Contact Tags (accordion) ── --}}
                 <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
