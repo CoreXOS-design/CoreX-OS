@@ -2516,9 +2516,14 @@ function externalSign() {
                 const self = this;
 
                 checklists.forEach(checklist => {
+                    // Check which party should fill this disclosure
+                    // Default to owner_party for mandatory disclosure (seller discloses defects)
+                    // Honour data-disclosure-party attribute if set on the checklist element
+                    const disclosureParty = checklist.getAttribute('data-disclosure-party') || 'owner_party';
+
                     const rows = checklist.querySelectorAll('.corex-disclosure-row');
                     rows.forEach((row, rowIdx) => {
-                        const isEditable = this.isMyWebSigBlock('owner_party');
+                        const isEditable = this.isMyWebSigBlock(disclosureParty);
                         row.setAttribute('data-editable', isEditable ? 'true' : 'false');
 
                         if (isEditable) {
