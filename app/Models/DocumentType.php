@@ -11,11 +11,12 @@ class DocumentType extends Model
 
     protected $table = 'document_types';
 
-    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'grouping'];
+    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'grouping', 'listing_types'];
 
     protected $casts = [
-        'sort_order' => 'integer',
-        'is_active'  => 'boolean',
+        'sort_order'    => 'integer',
+        'is_active'     => 'boolean',
+        'listing_types' => 'array',
     ];
 
     /**
@@ -26,14 +27,15 @@ class DocumentType extends Model
         return $this->label;
     }
 
-    public function propertyTypes()
+    /**
+     * Check if this document type applies to a given listing type (sale/rental).
+     * Null or empty listing_types means it applies to all.
+     */
+    public function appliesToListingType(?string $listingType): bool
     {
-        return $this->belongsToMany(
-            PropertySettingItem::class,
-            'document_type_property_type',
-            'document_type_id',
-            'property_type_id'
-        );
+        $types = $this->listing_types;
+        if (empty($types)) return true;
+        return in_array($listingType, $types);
     }
 
     public function scopeActive($query)

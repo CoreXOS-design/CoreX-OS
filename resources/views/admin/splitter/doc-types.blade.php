@@ -11,7 +11,7 @@
         <div class="flex items-center justify-between">
             <div>
                 <h2 style="font-size:1.25rem; font-weight:800; color:#fff; margin:0 0 4px;">Document Types</h2>
-                <div style="font-size:0.875rem; color:rgba(255,255,255,0.55);">{{ $isSettings ? 'Manage document categories used across CoreX. Assign property types to control which document folders appear on the property drive.' : 'Manage the label types used in the PDF Pack Splitter review page.' }}</div>
+                <div style="font-size:0.875rem; color:rgba(255,255,255,0.55);">{{ $isSettings ? 'Manage document categories used across CoreX. Assign listing types to control which document folders appear on a property\'s drive.' : 'Manage the label types used in the PDF Pack Splitter review page.' }}</div>
             </div>
             @if($isSettings)
             <a href="{{ route('corex.settings', ['tab' => 'system']) }}"
@@ -78,11 +78,26 @@
             <div class="mt-4 rounded-md p-4 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted); border-left:3px solid var(--brand-icon, #0ea5e9); padding-left:10px;">How It Works</h3>
                 <p class="text-xs leading-relaxed" style="color:var(--text-secondary);">
-                    Assign <strong style="color:var(--text-primary);">property types</strong> to each document type to control which file upload folders appear on a property's <strong style="color:var(--text-primary);">Drive</strong> tab.
+                    Assign <strong style="color:var(--text-primary);">listing types</strong> to each document type to control which file upload folders appear on a property's <strong style="color:var(--text-primary);">Drive</strong> tab.
                 </p>
-                <p class="text-xs leading-relaxed" style="color:var(--text-secondary);">
-                    If no property types are selected, the document type will appear on <strong style="color:var(--text-primary);">all</strong> properties.
-                </p>
+                <div class="space-y-1 mt-2">
+                    <div class="flex items-center gap-2 text-xs" style="color:var(--text-secondary);">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:#22c55e;"></span>
+                        <strong style="color:var(--text-primary);">For Sale</strong> — appears on sale listings only
+                    </div>
+                    <div class="flex items-center gap-2 text-xs" style="color:var(--text-secondary);">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:#3b82f6;"></span>
+                        <strong style="color:var(--text-primary);">For Rent</strong> — appears on rental listings only
+                    </div>
+                    <div class="flex items-center gap-2 text-xs" style="color:var(--text-secondary);">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:#a855f7;"></span>
+                        <strong style="color:var(--text-primary);">Both ticked</strong> — appears on all listings
+                    </div>
+                    <div class="flex items-center gap-2 text-xs" style="color:var(--text-secondary);">
+                        <span class="inline-block w-2 h-2 rounded-full" style="background:#94a3b8;"></span>
+                        <strong style="color:var(--text-primary);">None ticked</strong> — appears on all listings
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -112,14 +127,14 @@
                                     <th class="px-3 py-2.5 w-14 text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Order</th>
                                     <th class="px-3 py-2.5 text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Label</th>
                                     <th class="px-3 py-2.5 w-20 text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Slug</th>
-                                    <th class="px-3 py-2.5 text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Property Types</th>
+                                    <th class="px-3 py-2.5 text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Listing Type</th>
                                     <th class="px-3 py-2.5 w-16 text-center text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Active</th>
                                     <th class="px-3 py-2.5 w-14 text-right text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Del</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach($types as $i => $t)
-                                @php $assignedIds = $t->propertyTypes->pluck('id')->toArray(); @endphp
+                                @php $assigned = $t->listing_types ?? []; @endphp
                                 <tr style="border-bottom:1px solid var(--border);">
                                     <td class="px-3 py-2">
                                         <input type="hidden" name="types[{{ $i }}][id]" value="{{ $t->id }}">
@@ -138,32 +153,41 @@
                                         <div x-data="{ open: false }" class="relative">
                                             <button type="button" @click="open = !open" @click.outside="open = false"
                                                     class="w-full flex items-center justify-between gap-1 rounded-md px-2 py-1 text-xs text-left transition-colors"
-                                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary); min-width:140px;">
+                                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary); min-width:120px;">
                                                 <span class="truncate">
-                                                    @if(count($assignedIds) === 0)
-                                                        <span style="color:var(--text-muted);">All property types</span>
-                                                    @elseif(count($assignedIds) <= 2)
-                                                        {{ $t->propertyTypes->pluck('name')->join(', ') }}
-                                                    @else
-                                                        {{ count($assignedIds) }} selected
+                                                    @if(empty($assigned) || count($assigned) === 2)
+                                                        <span style="color:var(--text-muted);">All listings</span>
+                                                    @elseif(in_array('sale', $assigned))
+                                                        <span style="color:#22c55e;">For Sale</span>
+                                                    @elseif(in_array('rental', $assigned))
+                                                        <span style="color:#3b82f6;">For Rent</span>
                                                     @endif
                                                 </span>
                                                 <svg class="w-3 h-3 flex-shrink-0 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                             </button>
                                             <div x-show="open" x-cloak x-transition
-                                                 class="absolute z-50 mt-1 w-56 rounded-md shadow-lg py-1 max-h-60 overflow-y-auto"
+                                                 class="absolute z-50 mt-1 w-40 rounded-md shadow-lg py-1"
                                                  style="background:var(--surface); border:1px solid var(--border); right:0;">
-                                                @foreach($propertyTypes as $pt)
-                                                <label class="flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors text-xs hover:bg-white/5"
+                                                <label class="flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors text-xs hover:bg-white/5"
                                                        style="color:var(--text-secondary);">
                                                     <input type="checkbox"
-                                                           name="types[{{ $i }}][property_type_ids][]"
-                                                           value="{{ $pt->id }}"
-                                                           {{ in_array($pt->id, $assignedIds) ? 'checked' : '' }}
-                                                           class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);">
-                                                    {{ $pt->name }}
+                                                           name="types[{{ $i }}][listing_types][]"
+                                                           value="sale"
+                                                           {{ in_array('sale', $assigned) ? 'checked' : '' }}
+                                                           class="rounded" style="accent-color:#22c55e;">
+                                                    <span class="inline-block w-2 h-2 rounded-full" style="background:#22c55e;"></span>
+                                                    For Sale
                                                 </label>
-                                                @endforeach
+                                                <label class="flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors text-xs hover:bg-white/5"
+                                                       style="color:var(--text-secondary);">
+                                                    <input type="checkbox"
+                                                           name="types[{{ $i }}][listing_types][]"
+                                                           value="rental"
+                                                           {{ in_array('rental', $assigned) ? 'checked' : '' }}
+                                                           class="rounded" style="accent-color:#3b82f6;">
+                                                    <span class="inline-block w-2 h-2 rounded-full" style="background:#3b82f6;"></span>
+                                                    For Rent
+                                                </label>
                                             </div>
                                         </div>
                                     </td>

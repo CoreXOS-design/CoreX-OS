@@ -202,23 +202,12 @@ class PropertyController extends Controller
             $documentTypes = collect();
         }
 
-        // Drive folders: document types applicable to this property's type
+        // Drive folders: document types applicable to this property's listing type (sale/rental)
         try {
-            $propertyTypeItem = $property->property_type
-                ? \App\Models\PropertySettingItem::where('group', 'property_type')
-                    ->where('name', $property->property_type)->first()
-                : null;
-
-            if ($propertyTypeItem) {
-                // Get doc types assigned to this property type, OR doc types with no assignments (universal)
-                $driveFolders = DocumentType::active()->ordered()
-                    ->where(function ($q) use ($propertyTypeItem) {
-                        $q->whereHas('propertyTypes', fn($sub) => $sub->where('property_setting_items.id', $propertyTypeItem->id))
-                          ->orWhereDoesntHave('propertyTypes');
-                    })->get();
-            } else {
-                $driveFolders = DocumentType::active()->ordered()->get();
-            }
+            $listingType = $property->listing_type ?? 'sale';
+            $driveFolders = DocumentType::active()->ordered()->get()
+                ->filter(fn($dt) => $dt->appliesToListingType($listingType))
+                ->values();
         } catch (\Exception $e) {
             $driveFolders = $documentTypes;
         }

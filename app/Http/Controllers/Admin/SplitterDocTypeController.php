@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\PropertySettingItem;
 use App\Models\SplitterDocType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -12,13 +11,10 @@ class SplitterDocTypeController extends Controller
 {
     public function index()
     {
-        $types = SplitterDocType::with('propertyTypes')->orderBy('sort_order')->get();
+        $types = SplitterDocType::orderBy('sort_order')->get();
         $context = request()->routeIs('admin.settings.*') ? 'settings' : 'splitter';
-        $propertyTypes = PropertySettingItem::where('group', 'property_type')
-            ->orderBy('sort_order')
-            ->get(['id', 'name']);
 
-        return view('admin.splitter.doc-types', compact('types', 'context', 'propertyTypes'));
+        return view('admin.splitter.doc-types', compact('types', 'context'));
     }
 
     public function store(Request $request)
@@ -73,26 +69,27 @@ class SplitterDocTypeController extends Controller
     public function bulkSave(Request $request)
     {
         $request->validate([
-            'types'                      => 'required|array',
-            'types.*.id'                 => 'required|integer|exists:document_types,id',
-            'types.*.label'              => 'required|string|max:100',
-            'types.*.sort_order'         => 'required|integer|min:0',
-            'types.*.is_active'          => 'required',
-            'types.*.property_type_ids'  => 'nullable|array',
-            'types.*.property_type_ids.*' => 'integer|exists:property_setting_items,id',
+            'types'                     => 'required|array',
+            'types.*.id'                => 'required|integer|exists:document_types,id',
+            'types.*.label'             => 'required|string|max:100',
+            'types.*.sort_order'        => 'required|integer|min:0',
+            'types.*.is_active'         => 'required',
+            'types.*.listing_types'     => 'nullable|array',
+            'types.*.listing_types.*'   => 'in:sale,rental',
         ]);
 
         foreach ($request->input('types') as $data) {
             $docType = SplitterDocType::find($data['id']);
             if (! $docType) continue;
 
-            $docType->update([
-                'label'      => $data['label'],
-                'sort_order' => $data['sort_order'],
-                'is_active'  => filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN),
-            ]);
+            $listingTypes = array_values(array_filter($data['listing_types'] ?? []));
 
-            $docType->propertyTypes()->sync($data['property_type_ids'] ?? []);
+            $docType->update([
+                'label'         => $data['label'],
+                'sort_order'    => $data['sort_order'],
+                'is_active'     => filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN),
+                'listing_types' => !empty($listingTypes) ? $listingTypes : null,
+            ]);
         }
 
         return back()->with('success', 'All changes saved.');
