@@ -95,7 +95,7 @@
                     </div>
                     <div class="flex items-center gap-2 text-xs" style="color:var(--text-secondary);">
                         <span class="inline-block w-2 h-2 rounded-full" style="background:#94a3b8;"></span>
-                        <strong style="color:var(--text-primary);">None ticked</strong> — appears on all listings
+                        <strong style="color:var(--text-primary);">None ticked</strong> — appears on no listings
                     </div>
                 </div>
             </div>
