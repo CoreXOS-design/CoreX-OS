@@ -326,6 +326,8 @@ class PropertyController extends Controller
             'branch_id'        => 'nullable|exists:branches,id',
             'agent_id'         => 'nullable|exists:users,id',
             'pp_second_agent_id' => 'nullable|exists:users,id',
+            'pp_agent_image'           => 'nullable|image|max:1024',
+            'pp_second_agent_image'    => 'nullable|image|max:1024',
             'rental_price_type'  => 'nullable|string|max:50',
             'pp_hide_street_name'   => 'nullable|boolean',
             'pp_hide_street_number' => 'nullable|boolean',
@@ -370,6 +372,15 @@ class PropertyController extends Controller
         $property->noon_images_json    = $this->storeImages($request, 'noon_images',    $property->id);
         $property->dusk_images_json    = $this->storeImages($request, 'dusk_images',    $property->id);
         $property->gallery_images_json = $this->storeImages($request, 'gallery_images', $property->id);
+
+        // Agent images for portal syndication
+        if ($request->hasFile('pp_agent_image')) {
+            $property->pp_agent_image_path = $request->file('pp_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
+        if ($request->hasFile('pp_second_agent_image')) {
+            $property->pp_second_agent_image_path = $request->file('pp_second_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
+
         $property->saveQuietly();
 
         // Re-sync with images if published (first create had no images yet)
@@ -496,6 +507,8 @@ class PropertyController extends Controller
             'branch_id'        => 'nullable|exists:branches,id',
             'agent_id'         => 'nullable|exists:users,id',
             'pp_second_agent_id' => 'nullable|exists:users,id',
+            'pp_agent_image'           => 'nullable|image|max:1024',
+            'pp_second_agent_image'    => 'nullable|image|max:1024',
             'rental_price_type'  => 'nullable|string|max:50',
             'pp_hide_street_name'   => 'nullable|boolean',
             'pp_hide_street_number' => 'nullable|boolean',
@@ -511,6 +524,14 @@ class PropertyController extends Controller
             'gallery_images'   => 'nullable|array',
             'gallery_images.*' => 'image|max:5120',
         ]);
+
+        // Agent images for portal syndication
+        if ($request->hasFile('pp_agent_image')) {
+            $data['pp_agent_image_path'] = $request->file('pp_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
+        if ($request->hasFile('pp_second_agent_image')) {
+            $data['pp_second_agent_image_path'] = $request->file('pp_second_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
 
         // Checkboxes that aren't checked don't submit — ensure they're explicitly set to false
         $data['pp_hide_street_name']   = $request->boolean('pp_hide_street_name');

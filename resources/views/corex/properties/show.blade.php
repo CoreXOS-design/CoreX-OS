@@ -1963,34 +1963,86 @@
                 {{-- Agent / Branch --}}
                 <div>
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Assignment</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Primary Agent <span class="text-red-400">*</span></label>
-                            <select name="agent_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                @foreach($agents as $agent)
-                                <option value="{{ $agent->id }}" {{ (int) old('agent_id', $property->agent_id) === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
-                                @endforeach
-                            </select>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {{-- Primary Agent Card --}}
+                        <div class="rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-secondary);">Primary Agent <span class="text-red-400">*</span></label>
+                            <div class="flex items-start gap-3" x-data="{ agentId: {{ (int) old('agent_id', $property->agent_id) }} }">
+                                {{-- Agent photo preview --}}
+                                @php
+                                    $primaryAgent = $agents->firstWhere('id', $property->agent_id);
+                                    $primaryImgSrc = $property->pp_agent_image_path
+                                        ? asset('storage/' . $property->pp_agent_image_path)
+                                        : ($primaryAgent && $primaryAgent->agent_photo_path ? asset('storage/' . $primaryAgent->agent_photo_path) : null);
+                                @endphp
+                                <div class="flex-shrink-0">
+                                    @if($primaryImgSrc)
+                                        <img src="{{ $primaryImgSrc }}" alt="" class="w-14 h-14 rounded-md object-cover" style="border:1px solid var(--border);">
+                                    @else
+                                        <div class="w-14 h-14 rounded-md flex items-center justify-center" style="background:var(--surface-3); border:1px solid var(--border);">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                                        </div>
+                                    @endif
+                                </div>
+                                <div class="flex-1 space-y-2">
+                                    <select name="agent_id" x-model="agentId" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface-3); border:1px solid var(--border); color:var(--text-primary);">
+                                        @foreach($agents as $agent)
+                                        <option value="{{ $agent->id }}" {{ (int) old('agent_id', $property->agent_id) === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    <div>
+                                        <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-muted);">Portal photo <span class="opacity-60">(max 1MB)</span></label>
+                                        <input type="file" name="pp_agent_image" accept="image/*" class="text-[11px] w-full" style="color:var(--text-secondary);">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Second Agent</label>
-                            <select name="pp_second_agent_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— None —</option>
-                                @foreach($agents as $agent)
-                                <option value="{{ $agent->id }}" {{ (int) old('pp_second_agent_id', $property->pp_second_agent_id ?? '') === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
-                                @endforeach
-                            </select>
+
+                        {{-- Second Agent Card --}}
+                        <div class="rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-secondary);">Second Agent</label>
+                            <div class="flex items-start gap-3">
+                                {{-- Agent photo preview --}}
+                                @php
+                                    $secondAgent = $property->pp_second_agent_id ? $agents->firstWhere('id', $property->pp_second_agent_id) : null;
+                                    $secondImgSrc = $property->pp_second_agent_image_path
+                                        ? asset('storage/' . $property->pp_second_agent_image_path)
+                                        : ($secondAgent && $secondAgent->agent_photo_path ? asset('storage/' . $secondAgent->agent_photo_path) : null);
+                                @endphp
+                                <div class="flex-shrink-0">
+                                    @if($secondImgSrc)
+                                        <img src="{{ $secondImgSrc }}" alt="" class="w-14 h-14 rounded-md object-cover" style="border:1px solid var(--border);">
+                                    @else
+                                        <div class="w-14 h-14 rounded-md flex items-center justify-center" style="background:var(--surface-3); border:1px solid var(--border);">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                                        </div>
+                                    @endif
+                                </div>
+                                <div class="flex-1 space-y-2">
+                                    <select name="pp_second_agent_id" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface-3); border:1px solid var(--border); color:var(--text-primary);">
+                                        <option value="">— None —</option>
+                                        @foreach($agents as $agent)
+                                        <option value="{{ $agent->id }}" {{ (int) old('pp_second_agent_id', $property->pp_second_agent_id ?? '') === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
+                                        @endforeach
+                                    </select>
+                                    <div>
+                                        <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-muted);">Portal photo <span class="opacity-60">(max 1MB)</span></label>
+                                        <input type="file" name="pp_second_agent_image" accept="image/*" class="text-[11px] w-full" style="color:var(--text-secondary);">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Branch</label>
-                            <select name="branch_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— None —</option>
-                                @foreach($branches as $branch)
-                                <option value="{{ $branch->id }}" {{ (int) old('branch_id', $property->branch_id) === $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        {{-- Publish to Website moved to syndication panel in sidebar --}}
+                    </div>
+
+                    {{-- Branch --}}
+                    <div class="mt-4" style="max-width:50%;">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Branch</label>
+                        <select name="branch_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <option value="">— None —</option>
+                            @foreach($branches as $branch)
+                            <option value="{{ $branch->id }}" {{ (int) old('branch_id', $property->branch_id) === $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
+                            @endforeach
+                        </select>
                     </div>
                 </div>
 

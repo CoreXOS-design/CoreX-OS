@@ -96,6 +96,8 @@ class Property extends Model
         'zone_type',
         'address_internal_note',
         'pp_second_agent_id',
+        'pp_agent_image_path',
+        'pp_second_agent_image_path',
         'pp_hide_street_name',
         'pp_hide_street_number',
         'pp_hide_complex_name',
