@@ -325,8 +325,7 @@ class PrivatePropertySyndicationService
 
     /**
      * Submit agent images for all agents assigned to a property.
-     * Prefers property-level agent images (pp_agent_image_path / pp_second_agent_image_path),
-     * falls back to the user's profile photo (agent_photo_path).
+     * Uses agent_photo_path from the User model (profile photo).
      */
     public function submitAgentImages(Property $property): array
     {
@@ -334,31 +333,27 @@ class PrivatePropertySyndicationService
         $skipped   = [];
         $errors    = [];
 
-        // Map: agent user ID → property-level image path override
-        $agentImages = array_filter([
-            $property->agent_id           => $property->pp_agent_image_path,
-            $property->pp_second_agent_id => $property->pp_second_agent_image_path,
-        ], fn($v, $k) => !empty($k), ARRAY_FILTER_USE_BOTH);
+        $agentIds = array_filter([
+            $property->agent_id,
+            $property->pp_second_agent_id,
+        ]);
 
         $override = config('services.private_property.image_base_url');
         $baseUrl  = rtrim(!empty($override) ? $override : config('app.url'), '/');
 
-        foreach ($agentImages as $agentId => $propertyImagePath) {
+        foreach ($agentIds as $agentId) {
             $user = User::find($agentId);
             if (!$user) {
                 $skipped[] = ['user_id' => $agentId, 'name' => '(not found)', 'reason' => 'User not found'];
                 continue;
             }
 
-            // Prefer property-level image, fall back to user's profile photo
-            $imagePath = !empty($propertyImagePath) ? $propertyImagePath : $user->agent_photo_path;
-
-            if (empty($imagePath)) {
-                $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => 'No agent image set on listing or profile'];
+            if (empty($user->agent_photo_path)) {
+                $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => 'No agent_photo_path set — upload a photo in CoreX first'];
                 continue;
             }
 
-            $imageUrl = $baseUrl . '/storage/' . $imagePath;
+            $imageUrl = $baseUrl . '/storage/' . ltrim($user->agent_photo_path, '/');
 
             if (!str_starts_with($imageUrl, 'https://')) {
                 $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => "Image URL is not HTTPS: {$imageUrl}"];
@@ -367,7 +362,7 @@ class PrivatePropertySyndicationService
             }
 
             // Check file size if stored locally
-            $localPath = storage_path('app/public/' . $imagePath);
+            $localPath = storage_path('app/public/' . $user->agent_photo_path);
             if (file_exists($localPath) && filesize($localPath) > 1048576) {
                 $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => 'Image exceeds 1MB limit'];
                 $this->log('warning', "Skipping agent image for #{$user->id} — exceeds 1MB");
