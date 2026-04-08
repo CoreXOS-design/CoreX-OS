@@ -245,6 +245,33 @@ class PrivatePropertyListingMapper
             $missing[] = ['field' => 'street_name', 'label' => 'Street name (e.g. "14 Ocean Drive")', 'tab' => 'info'];
         }
 
+        // Town is required for PP geographic hierarchy (suburb → town → province)
+        if (empty($property->town) && empty($property->city) && empty($property->pp_suburb_id)) {
+            $missing[] = ['field' => 'town', 'label' => 'Town (e.g. "Margate") — required for PP location hierarchy', 'tab' => 'info'];
+        }
+
+        // Suburb and Town must not be identical — PP cannot shape the listing without a correct hierarchy
+        $suburb = trim($property->suburb ?? '');
+        $town   = trim($property->town ?? $property->city ?? '');
+        if ($suburb !== '' && $town !== '' && strtolower($suburb) === strtolower($town)) {
+            $missing[] = ['field' => 'suburb', 'label' => "Suburb and Town are identical (\"{$suburb}\") — PP requires different values (e.g. Suburb=Uvongo, Town=Margate)", 'tab' => 'info'];
+        }
+
+        // StreetName must not contain listing title keywords
+        $streetName = $property->street_name ?: $this->parseStreetName($property->address);
+        if (!empty($streetName)) {
+            $suspiciousWords = ['bedroom', 'bathroom', 'house for sale', 'to let', 'property', 'for sale in', 'for rent'];
+            foreach ($suspiciousWords as $word) {
+                if (str_contains(strtolower($streetName), $word)) {
+                    $missing[] = ['field' => 'street_name', 'label' => "Street name looks like a listing title (\"{$streetName}\") — enter the actual street name", 'tab' => 'info'];
+                    break;
+                }
+            }
+            if (strlen($streetName) > 100) {
+                $missing[] = ['field' => 'street_name', 'label' => 'Street name exceeds 100 characters (PP limit)', 'tab' => 'info'];
+            }
+        }
+
         // PP requires minimum 3 images for sale listings, 1 for rentals
         $allImages = $property->allImages();
         $isRental  = in_array(strtolower($property->mandate_type ?? ''), ['rental']);
