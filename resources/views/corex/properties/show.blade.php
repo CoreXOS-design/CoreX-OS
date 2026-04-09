@@ -469,61 +469,6 @@
                                 </ul>
                             </div>
 
-                            {{-- ── VIDEO & VIRTUAL TOUR ─── (only when active on PP) --}}
-                            <div x-show="status === 'active'" x-cloak class="rounded-md p-3 space-y-2"
-                                 style="background:var(--surface-2); border:1px solid var(--border);">
-                                <h4 class="text-[11px] font-bold uppercase tracking-wider" style="color:var(--text-secondary);">Video & Virtual Tour</h4>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-0.5" style="color:var(--text-muted);">YouTube Video ID (11 chars)</label>
-                                        <input type="text" x-model="youtubeVideoId" maxlength="11" placeholder="e.g. dQw4w9WgXcQ"
-                                               class="w-full rounded-md px-2 py-1.5 text-xs font-mono"
-                                               style="background:var(--surface-3); border:1px solid var(--border); color:var(--text-primary);"
-                                               @click.stop>
-                                    </div>
-                                    <div>
-                                        <label class="block text-[10px] font-medium mb-0.5" style="color:var(--text-muted);">Matterport ID</label>
-                                        <input type="text" x-model="matterportId" placeholder="Matterport scan ID"
-                                               class="w-full rounded-md px-2 py-1.5 text-xs font-mono"
-                                               style="background:var(--surface-3); border:1px solid var(--border); color:var(--text-primary);"
-                                               @click.stop>
-                                    </div>
-                                </div>
-                                <div class="flex items-center justify-between">
-                                    <button type="button" @click.stop="pushVideo()" :disabled="videoLoading"
-                                            class="px-3 py-1.5 rounded-md text-[11px] font-medium text-white transition-colors"
-                                            style="background:var(--brand-button, #0ea5e9);">
-                                        <span x-show="!videoLoading">Push to Private Property</span>
-                                        <span x-show="videoLoading" x-cloak>Pushing...</span>
-                                    </button>
-                                    <span x-show="videoMsg" x-cloak class="text-[10px] font-medium"
-                                          :style="videoOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="videoMsg"></span>
-                                </div>
-                            </div>
-
-                            {{-- ── PP LISTING OWNERSHIP ─── (only when pp_ref exists) --}}
-                            <div x-show="ppRef" x-cloak class="rounded-md p-3 space-y-2"
-                                 style="background:var(--surface-2); border:1px solid var(--border);">
-                                <h4 class="text-[11px] font-bold uppercase tracking-wider" style="color:var(--text-secondary);">PP Listing Ownership</h4>
-                                <div class="text-[10px]" style="color:var(--text-muted);">PP Ref: <span class="font-mono" x-text="ppRef" style="color:var(--text-primary);"></span></div>
-                                <div class="flex items-end gap-2">
-                                    <div class="flex-1">
-                                        <label class="block text-[10px] font-medium mb-0.5" style="color:var(--text-muted);">PP Encrypted Listing ID</label>
-                                        <input type="text" x-model="ppListingId" placeholder="Paste ID supplied by PP"
-                                               class="w-full rounded-md px-2 py-1.5 text-xs font-mono"
-                                               style="background:var(--surface-3); border:1px solid var(--border); color:var(--text-primary);"
-                                               @click.stop>
-                                    </div>
-                                    <button type="button" @click.stop="claimListingOwnership()" :disabled="listingIdLoading"
-                                            class="px-3 py-1.5 rounded-md text-[11px] font-medium text-white transition-colors flex-shrink-0"
-                                            style="background:var(--brand-button, #0ea5e9);">
-                                        <span x-show="!listingIdLoading">Claim Ownership</span>
-                                        <span x-show="listingIdLoading" x-cloak>Updating...</span>
-                                    </button>
-                                </div>
-                                <span x-show="listingIdMsg" x-cloak class="text-[10px] font-medium"
-                                      :style="listingIdOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="listingIdMsg"></span>
-                            </div>
                         </div>
 
                         {{-- Property24 Syndication Panel --}}
@@ -2071,10 +2016,6 @@
                                         <option value="{{ $agent->id }}" {{ (int) old('agent_id', $property->agent_id) === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
                                         @endforeach
                                     </select>
-                                    <div>
-                                        <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-muted);">Portal photo <span class="opacity-60">(max 1MB)</span></label>
-                                        <input type="file" name="pp_agent_image" accept="image/*" class="text-[11px] w-full" style="color:var(--text-secondary);">
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2106,11 +2047,28 @@
                                         <option value="{{ $agent->id }}" {{ (int) old('pp_second_agent_id', $property->pp_second_agent_id ?? '') === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
                                         @endforeach
                                     </select>
-                                    <div>
-                                        <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-muted);">Portal photo <span class="opacity-60">(max 1MB)</span></label>
-                                        <input type="file" name="pp_second_agent_image" accept="image/*" class="text-[11px] w-full" style="color:var(--text-secondary);">
-                                    </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Video & Virtual Tour Links --}}
+                    <div class="mt-4">
+                        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Video & Virtual Tour</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">YouTube Video ID <span class="opacity-60">(11 chars)</span></label>
+                                <input type="text" name="youtube_video_id" value="{{ old('youtube_video_id', $property->youtube_video_id) }}"
+                                       maxlength="11" placeholder="e.g. dQw4w9WgXcQ"
+                                       class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Matterport ID</label>
+                                <input type="text" name="matterport_id" value="{{ old('matterport_id', $property->matterport_id) }}"
+                                       placeholder="Matterport scan ID"
+                                       class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                     </div>
