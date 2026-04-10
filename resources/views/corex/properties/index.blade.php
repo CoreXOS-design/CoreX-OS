@@ -41,10 +41,21 @@
     @endif
 
     {{-- Filters --}}
-    @php $dataScope = \App\Services\PermissionService::getDataScope(auth()->user(), 'properties'); @endphp
+    @php
+        $dataScope = \App\Services\PermissionService::getDataScope(auth()->user(), 'properties');
+        // Determine if any "advanced" filters are active so the panel auto-expands
+        $advancedActive = collect([
+            $filters['listingType'] ?? '', $filters['propertyType'] ?? '',
+            $filters['category'] ?? '',     $filters['mandateType'] ?? '',
+            $filters['branchFilter'] ?? '', $filters['priceMin'] ?? '',
+            $filters['priceMax'] ?? '',     $filters['bedsMin'] ?? '',
+            $filters['bathsMin'] ?? '',
+        ])->filter(fn($v) => $v !== '' && $v !== null)->isNotEmpty();
+    @endphp
     <div x-data="{
             agentPicker: false,
             agentSearch: '',
+            advancedOpen: {{ $advancedActive ? 'true' : 'false' }},
             agents: {{ $agentList->toJson() }},
             get filtered() {
                 if (!this.agentSearch) return this.agents;
@@ -82,6 +93,22 @@
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
                 <option value="sold" {{ $status === 'sold' ? 'selected' : '' }}>Sold</option>
                 <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+            </select>
+
+            {{-- Listing Type --}}
+            <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
+                <option value="" {{ ($filters['listingType'] ?? '') === '' ? 'selected' : '' }}>Sale &amp; Rental</option>
+                <option value="sale"   {{ ($filters['listingType'] ?? '') === 'sale'   ? 'selected' : '' }}>For Sale</option>
+                <option value="rental" {{ ($filters['listingType'] ?? '') === 'rental' ? 'selected' : '' }}>For Rental</option>
+            </select>
+
+            {{-- Sort --}}
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter">
+                <option value="newest"     {{ ($filters['sort'] ?? 'newest') === 'newest'     ? 'selected' : '' }}>Newest first</option>
+                <option value="oldest"     {{ ($filters['sort'] ?? '') === 'oldest'     ? 'selected' : '' }}>Oldest first</option>
+                <option value="price_desc" {{ ($filters['sort'] ?? '') === 'price_desc' ? 'selected' : '' }}>Price: high → low</option>
+                <option value="price_asc"  {{ ($filters['sort'] ?? '') === 'price_asc'  ? 'selected' : '' }}>Price: low → high</option>
+                <option value="title"      {{ ($filters['sort'] ?? '') === 'title'      ? 'selected' : '' }}>Title (A–Z)</option>
             </select>
 
             {{-- Agent picker (admin/bm only) --}}
@@ -171,8 +198,22 @@
             @endif
 
             <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
-            @if(collect(request()->except(['sort','direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index') }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
+
+            {{-- More filters toggle --}}
+            <button type="button" @click="advancedOpen = !advancedOpen"
+                    class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
+                    :style="advancedOpen ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 4.5h18M6 12h12m-9 7.5h6"/>
+                </svg>
+                <span>More filters</span>
+                @if($advancedActive)
+                <span class="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold" style="background:var(--brand-icon,#0ea5e9);color:#fff;">●</span>
+                @endif
+            </button>
+
+            @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
+            <a href="{{ route('corex.properties.index') }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
             @endif
 
             {{-- View toggle --}}
@@ -194,7 +235,140 @@
                     </svg>
                 </button>
             </div>
+
+            {{-- ── Advanced filters panel ───────────────────────────────────── --}}
+            <div x-show="advancedOpen" x-cloak x-transition class="w-full mt-3 pt-3" style="border-top:1px dashed var(--border);">
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+
+                    {{-- Property Type --}}
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Property Type</label>
+                        <select name="property_type" class="list-header-filter w-full">
+                            <option value="">Any type</option>
+                            @foreach($filterOptions['property_types'] as $opt)
+                                <option value="{{ $opt->name }}" {{ ($filters['propertyType'] ?? '') === $opt->name ? 'selected' : '' }}>{{ $opt->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    {{-- Category --}}
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Category</label>
+                        <select name="category" class="list-header-filter w-full">
+                            <option value="">Any category</option>
+                            @foreach($filterOptions['categories'] as $opt)
+                                <option value="{{ $opt->name }}" {{ ($filters['category'] ?? '') === $opt->name ? 'selected' : '' }}>{{ $opt->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    {{-- Mandate --}}
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Mandate</label>
+                        <select name="mandate_type" class="list-header-filter w-full">
+                            <option value="">Any mandate</option>
+                            @foreach($filterOptions['mandate_types'] as $opt)
+                                <option value="{{ $opt->name }}" {{ ($filters['mandateType'] ?? '') === $opt->name ? 'selected' : '' }}>{{ $opt->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    {{-- Branch (admin/BM only) --}}
+                    @if($canPickAgent && $filterOptions['branches']->isNotEmpty())
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Branch</label>
+                        <select name="branch_id" class="list-header-filter w-full">
+                            <option value="">All branches</option>
+                            @foreach($filterOptions['branches'] as $branch)
+                                <option value="{{ $branch->id }}" {{ (string) ($filters['branchFilter'] ?? '') === (string) $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    @endif
+
+                    {{-- Min Beds --}}
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min Beds</label>
+                        <select name="beds_min" class="list-header-filter w-full">
+                            <option value="">Any</option>
+                            @for($i = 1; $i <= 6; $i++)
+                                <option value="{{ $i }}" {{ (string) ($filters['bedsMin'] ?? '') === (string) $i ? 'selected' : '' }}>{{ $i }}+</option>
+                            @endfor
+                        </select>
+                    </div>
+
+                    {{-- Min Baths --}}
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min Baths</label>
+                        <select name="baths_min" class="list-header-filter w-full">
+                            <option value="">Any</option>
+                            @for($i = 1; $i <= 6; $i++)
+                                <option value="{{ $i }}" {{ (string) ($filters['bathsMin'] ?? '') === (string) $i ? 'selected' : '' }}>{{ $i }}+</option>
+                            @endfor
+                        </select>
+                    </div>
+
+                    {{-- Price Min --}}
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Price Min (R)</label>
+                        <input type="number" name="price_min" min="0" step="50000"
+                               value="{{ $filters['priceMin'] ?? '' }}" placeholder="0"
+                               class="list-header-filter w-full">
+                    </div>
+
+                    {{-- Price Max --}}
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Price Max (R)</label>
+                        <input type="number" name="price_max" min="0" step="50000"
+                               value="{{ $filters['priceMax'] ?? '' }}" placeholder="No max"
+                               class="list-header-filter w-full">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 mt-3">
+                    <button type="submit" class="corex-btn-primary text-xs px-4 py-1.5">Apply filters</button>
+                </div>
+            </div>
         </form>
+
+        {{-- ── Active filter chips ──────────────────────────────────────────── --}}
+        @php
+            $chipBase = request()->except(['page']);
+            $chips = [];
+            if ($search !== '')                       $chips[] = ['label' => 'Search: "'.$search.'"',                'key' => 'search'];
+            if ($status !== '')                       $chips[] = ['label' => 'Status: '.ucfirst($status),            'key' => 'status'];
+            if (($filters['listingType'] ?? '') !== '')  $chips[] = ['label' => $filters['listingType'] === 'sale' ? 'For Sale' : 'For Rental', 'key' => 'listing_type'];
+            if (($filters['propertyType'] ?? '') !== '') $chips[] = ['label' => 'Type: '.$filters['propertyType'],   'key' => 'property_type'];
+            if (($filters['category'] ?? '') !== '')     $chips[] = ['label' => 'Category: '.$filters['category'],   'key' => 'category'];
+            if (($filters['mandateType'] ?? '') !== '')  $chips[] = ['label' => 'Mandate: '.$filters['mandateType'], 'key' => 'mandate_type'];
+            if (($filters['branchFilter'] ?? '') !== '' && $canPickAgent) {
+                $b = $filterOptions['branches']->firstWhere('id', (int) $filters['branchFilter']);
+                if ($b) $chips[] = ['label' => 'Branch: '.$b->name, 'key' => 'branch_id'];
+            }
+            if (($filters['bedsMin'] ?? '') !== '')   $chips[] = ['label' => $filters['bedsMin'].'+ beds',  'key' => 'beds_min'];
+            if (($filters['bathsMin'] ?? '') !== '')  $chips[] = ['label' => $filters['bathsMin'].'+ baths','key' => 'baths_min'];
+            if (($filters['priceMin'] ?? '') !== '')  $chips[] = ['label' => 'Min R '.number_format((int) $filters['priceMin'], 0, '.', ' '), 'key' => 'price_min'];
+            if (($filters['priceMax'] ?? '') !== '')  $chips[] = ['label' => 'Max R '.number_format((int) $filters['priceMax'], 0, '.', ' '), 'key' => 'price_max'];
+        @endphp
+        @if(count($chips))
+        <div class="flex flex-wrap items-center gap-1.5 mt-3 pt-3" style="border-top:1px dashed var(--border);">
+            <span class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Active:</span>
+            @foreach($chips as $chip)
+                @php $params = $chipBase; unset($params[$chip['key']]); @endphp
+                <a href="{{ route('corex.properties.index', $params) }}"
+                   class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-300"
+                   style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);"
+                   onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 18%, transparent)'"
+                   onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent)'"
+                   title="Remove this filter">
+                    {{ $chip['label'] }}
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </a>
+            @endforeach
+        </div>
+        @endif
 
     </div>
 

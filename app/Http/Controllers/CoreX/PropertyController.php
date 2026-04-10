@@ -28,6 +28,18 @@ class PropertyController extends Controller
         $search         = trim($request->query('search', ''));
         $filterAgentId  = $request->query('agent_id', '');  // admin/bm: view a specific agent's listings
 
+        // Extended filters
+        $listingType    = $request->query('listing_type', '');   // '' | sale | rental
+        $propertyType   = $request->query('property_type', '');
+        $category       = $request->query('category', '');
+        $mandateType    = $request->query('mandate_type', '');
+        $branchFilter   = $request->query('branch_id', '');
+        $priceMin       = $request->query('price_min', '');
+        $priceMax       = $request->query('price_max', '');
+        $bedsMin        = $request->query('beds_min', '');
+        $bathsMin       = $request->query('baths_min', '');
+        $sort           = $request->query('sort', 'newest');     // newest|oldest|price_asc|price_desc|title
+
         $query = Property::with(['agent', 'branch']);
 
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
@@ -69,15 +81,32 @@ class PropertyController extends Controller
             }
         }
 
-        if ($status !== '') {
-            $query->where('status', $status);
-        }
+        if ($status !== '')        $query->where('status', $status);
+        if ($listingType !== '')   $query->where('listing_type', $listingType);
+        if ($propertyType !== '')  $query->where('property_type', $propertyType);
+        if ($category !== '')      $query->where('category', $category);
+        if ($mandateType !== '')   $query->where('mandate_type', $mandateType);
+        if ($branchFilter !== '' && $canPickAgent) $query->where('branch_id', (int) $branchFilter);
+        if ($priceMin !== '' && is_numeric($priceMin)) $query->where('price', '>=', (int) $priceMin);
+        if ($priceMax !== '' && is_numeric($priceMax)) $query->where('price', '<=', (int) $priceMax);
+        if ($bedsMin !== ''  && is_numeric($bedsMin))  $query->where('beds', '>=', (int) $bedsMin);
+        if ($bathsMin !== '' && is_numeric($bathsMin)) $query->where('baths', '>=', (int) $bathsMin);
 
         if ($search !== '') {
             $query->searchAddress($search);
         }
 
-        $properties = $query->orderByDesc('created_at')->get();
+        // Sorting
+        switch ($sort) {
+            case 'oldest':     $query->orderBy('created_at', 'asc'); break;
+            case 'price_asc':  $query->orderBy('price', 'asc'); break;
+            case 'price_desc': $query->orderBy('price', 'desc'); break;
+            case 'title':      $query->orderBy('title', 'asc'); break;
+            case 'newest':
+            default:           $query->orderByDesc('created_at');
+        }
+
+        $properties = $query->get();
 
         // Stats for the header KPIs
         $stats = [
@@ -96,11 +125,26 @@ class PropertyController extends Controller
             ? $agentList->firstWhere('id', (int) $filterAgentId)
             : null;
 
+        // Dropdown option lists (agency-managed via web settings)
+        $filterOptions = [
+            'property_types' => PropertySettingItem::group('property_type')->where('active', true)->get(),
+            'categories'     => PropertySettingItem::group('category')->get(),
+            'mandate_types'  => PropertySettingItem::group('mandate_type')->get(),
+            'branches'       => $canPickAgent ? Branch::orderBy('name')->get() : collect(),
+        ];
+
+        $filters = compact(
+            'status', 'search', 'listingType', 'propertyType', 'category',
+            'mandateType', 'branchFilter', 'priceMin', 'priceMax',
+            'bedsMin', 'bathsMin', 'sort'
+        );
+
         $scope = $viewScope;
 
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
-            'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
+            'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
+            'filterOptions', 'filters'
         ));
     }
 
