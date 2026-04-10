@@ -164,6 +164,7 @@ class PropertyController extends Controller
         // P24 syndication events
         $activityTimeline = $activityTimeline->merge(
             \App\Models\P24SyndicationLog::where('property_id', $property->id)
+                ->select(['id', 'property_id', 'action', 'status_code', 'created_at'])
                 ->latest('created_at')->take(10)->get()
                 ->map(fn($l) => [
                     'type' => 'p24',
