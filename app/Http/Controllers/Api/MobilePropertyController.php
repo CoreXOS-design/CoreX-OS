@@ -57,43 +57,23 @@ class MobilePropertyController extends Controller
     }
 
     // ── POST /api/mobile/properties ─────────────────────────────
+    // Create a brand-new property. The mobile must send the same minimum
+    // set of fields the web requires (title, property_type, listing_type,
+    // status, suburb, price) — anything less and the property would be
+    // unusable on the web side.
     public function store(Request $request): JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
 
-        $data = $request->validate([
-            'street_number' => 'nullable|string|max:20',
-            'street_name'   => 'nullable|string|max:255',
-            'address'       => 'nullable|string|max:500',
-            'suburb'        => 'nullable|string|max:255',
-            'city'          => 'nullable|string|max:255',
-            'complex_name'  => 'nullable|string|max:255',
-            'unit_number'   => 'nullable|string|max:50',
-            'beds'          => 'nullable|integer|min:0|max:50',
-            'baths'         => 'nullable|integer|min:0|max:50',
-            'garages'       => 'nullable|integer|min:0|max:20',
-            'size_m2'       => 'nullable|numeric|min:0',
-            'erf_size_m2'   => 'nullable|numeric|min:0',
-            'property_type' => 'nullable|string|max:100',
-            'category'      => 'nullable|string|max:100',
-            'listing_type'  => 'nullable|string|max:100',
-            'mandate_type'  => 'nullable|string|max:100',
-            'price'         => 'nullable|integer|min:0',
-            'description'   => 'nullable|string|max:10000',
-            'features'      => 'nullable|array',
-            'features.*'    => 'string|max:255',
-            'status'        => 'nullable|string|max:50',
-        ]);
+        $data = $request->validate($this->propertyRules(isCreate: true));
 
-        $data['agent_id']   = $user->id;
-        $data['branch_id']  = $user->effectiveBranchId();
-        $data['agency_id']  = $user->agency_id ?? null;
+        // Server fills these — never trust the client
+        $data['agent_id']  = $user->id;
+        $data['branch_id'] = $user->effectiveBranchId();
+        $data['agency_id'] = $user->agency_id ?? null;
 
-        if (isset($data['features'])) {
-            $data['features_json'] = $data['features'];
-            unset($data['features']);
-        }
+        $data = $this->mapPayloadToColumns($data);
 
         $property = Property::create($data);
         $property->refresh();
@@ -104,38 +84,14 @@ class MobilePropertyController extends Controller
     }
 
     // ── PUT /api/mobile/properties/{id} ─────────────────────────
+    // Edit an existing property. Same field set as create, but every
+    // field is optional — only send what changed (PATCH-style semantics).
     public function update(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($request->user(), $property);
 
-        $data = $request->validate([
-            'street_number' => 'nullable|string|max:20',
-            'street_name'   => 'nullable|string|max:255',
-            'address'       => 'nullable|string|max:500',
-            'suburb'        => 'nullable|string|max:255',
-            'city'          => 'nullable|string|max:255',
-            'complex_name'  => 'nullable|string|max:255',
-            'unit_number'   => 'nullable|string|max:50',
-            'beds'          => 'nullable|integer|min:0|max:50',
-            'baths'         => 'nullable|integer|min:0|max:50',
-            'garages'       => 'nullable|integer|min:0|max:20',
-            'size_m2'       => 'nullable|numeric|min:0',
-            'erf_size_m2'   => 'nullable|numeric|min:0',
-            'property_type' => 'nullable|string|max:100',
-            'category'      => 'nullable|string|max:100',
-            'listing_type'  => 'nullable|string|max:100',
-            'mandate_type'  => 'nullable|string|max:100',
-            'price'         => 'nullable|integer|min:0',
-            'description'   => 'nullable|string|max:10000',
-            'features'      => 'nullable|array',
-            'features.*'    => 'string|max:255',
-            'status'        => 'nullable|string|max:50',
-        ]);
-
-        if (isset($data['features'])) {
-            $data['features_json'] = $data['features'];
-            unset($data['features']);
-        }
+        $data = $request->validate($this->propertyRules(isCreate: false));
+        $data = $this->mapPayloadToColumns($data);
 
         $property->update($data);
         $property->refresh();
@@ -143,6 +99,124 @@ class MobilePropertyController extends Controller
         return response()->json([
             'property' => $this->fullPropertyResponse($property),
         ]);
+    }
+
+    /**
+     * Validation rules shared by store + update.
+     *
+     * On create, the same fields the web form requires (title,
+     * property_type, listing_type, status, suburb, price) are required.
+     * On update, every field is optional — the client only sends what
+     * changed.
+     */
+    private function propertyRules(bool $isCreate): array
+    {
+        $req = $isCreate ? 'required' : 'sometimes';
+
+        return [
+            // Required-on-create fields
+            'title'         => "{$req}|string|max:255",
+            'property_type' => "{$req}|string|max:100",
+            'listing_type'  => "{$req}|string|in:sale,rental",
+            'status'        => "{$req}|string|max:50",
+            'suburb'        => "{$req}|string|max:255",
+            'price'         => "{$req}|integer|min:0",
+
+            // Address & location
+            'street_number' => 'nullable|string|max:20',
+            'street_name'   => 'nullable|string|max:255',
+            'address'       => 'nullable|string|max:500',
+            'city'          => 'nullable|string|max:255',
+            'province'      => 'nullable|string|max:100',
+            'region'        => 'nullable|string|max:255',
+            'district'      => 'nullable|string|max:255',
+            'complex_name'  => 'nullable|string|max:255',
+            'unit_number'   => 'nullable|string|max:50',
+
+            // Counts & sizes
+            'beds'          => 'nullable|integer|min:0|max:50',
+            'baths'         => 'nullable|numeric|min:0|max:50',
+            'garages'       => 'nullable|integer|min:0|max:20',
+            'size_m2'       => 'nullable|numeric|min:0',
+            'erf_size_m2'   => 'nullable|numeric|min:0',
+
+            // Classification
+            'category'      => 'nullable|string|max:100',
+            'mandate_type'  => 'nullable|string|max:100',
+
+            // Content
+            'excerpt'       => 'nullable|string|max:500',
+            'description'   => 'nullable|string|max:10000',
+
+            // Rental-only (ignored if listing_type === 'sale')
+            'rental_amount'    => 'nullable|numeric|min:0',
+            'deposit_amount'   => 'nullable|numeric|min:0',
+            'lease_start_date' => 'nullable|date',
+            'lease_end_date'   => 'nullable|date|after_or_equal:lease_start_date',
+
+            // Commission / fees
+            'commission_percent' => 'nullable|numeric|min:0|max:100',
+            'admin_fee'          => 'nullable|numeric|min:0',
+            'marketing_fee'      => 'nullable|numeric|min:0',
+
+            // Flat features list (the global ones — the property,
+            // security, connectivity, sustainability)
+            'features'   => 'nullable|array',
+            'features.*' => 'string|max:255',
+
+            // Optional one-shot spaces payload — same shape as the
+            // dedicated /spaces endpoint accepts. If supplied here on
+            // create, the property is born with its spaces already set.
+            'spaces_json'                          => 'nullable|array',
+            'spaces_json.spaces'                   => 'nullable|array',
+            'spaces_json.spaces.*.type'            => 'required_with:spaces_json.spaces|string|max:100',
+            'spaces_json.spaces.*.count'           => 'required_with:spaces_json.spaces|numeric|min:0|max:100',
+            'spaces_json.spaces.*.featuresAll'     => 'nullable|array',
+            'spaces_json.spaces.*.featuresAll.*'   => 'string|max:255',
+            'spaces_json.spaces.*.descriptionAll'  => 'nullable|string|max:5000',
+            'spaces_json.spaces.*.units'           => 'nullable|array',
+            'spaces_json.spaces.*.units.*.label'   => 'nullable|string|max:255',
+            'spaces_json.spaces.*.units.*.features'   => 'nullable|array',
+            'spaces_json.spaces.*.units.*.features.*' => 'string|max:255',
+            'spaces_json.features'                 => 'nullable|array',
+            'spaces_json.features.theProperty'     => 'nullable|array',
+            'spaces_json.features.theProperty.*'   => 'string|max:255',
+            'spaces_json.features.security'        => 'nullable|array',
+            'spaces_json.features.security.*'      => 'string|max:255',
+            'spaces_json.features.connectivity'    => 'nullable|array',
+            'spaces_json.features.connectivity.*'  => 'string|max:255',
+            'spaces_json.features.sustainability'  => 'nullable|array',
+            'spaces_json.features.sustainability.*'=> 'string|max:255',
+        ];
+    }
+
+    /**
+     * Convert the validated payload to actual model column names.
+     * `features` → `features_json`, `spaces_json` is normalized via the
+     * same helper the dedicated /spaces endpoint uses.
+     */
+    private function mapPayloadToColumns(array $data): array
+    {
+        if (isset($data['features'])) {
+            $data['features_json'] = $data['features'];
+            unset($data['features']);
+        }
+
+        if (isset($data['spaces_json'])) {
+            $data['spaces_json'] = $this->normalizeSpacesPayload($data['spaces_json']);
+
+            // Sync legacy bed/bath/garage columns from the spaces payload
+            // so the rest of the system stays correct (search, listings,
+            // syndication all read these directly off the row).
+            $bedSpace  = collect($data['spaces_json']['spaces'])->firstWhere('type', 'Bedroom');
+            $bathSpace = collect($data['spaces_json']['spaces'])->firstWhere('type', 'Bathroom');
+            $garSpace  = collect($data['spaces_json']['spaces'])->firstWhere('type', 'Garage');
+            if ($bedSpace)  $data['beds']    = (int) floor($bedSpace['count']);
+            if ($bathSpace) $data['baths']   = (int) floor($bathSpace['count']);
+            if ($garSpace)  $data['garages'] = (int) floor($garSpace['count']);
+        }
+
+        return $data;
     }
 
     // ── GET /api/mobile/properties/options ─────────────────────────
