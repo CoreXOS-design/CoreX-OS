@@ -2205,14 +2205,14 @@
                 <form method="POST" action="{{ route('corex.properties.update', $property) }}"
                       enctype="multipart/form-data">
                     @csrf @method('PUT')
-                    {{-- Pass required fields silently --}}
-                    <input type="hidden" name="title" value="{{ $property->title }}">
-                    <input type="hidden" name="suburb" value="{{ $property->suburb }}">
-                    <input type="hidden" name="price" value="{{ $property->price }}">
-                    <input type="hidden" name="beds" value="{{ $property->beds }}">
-                    <input type="hidden" name="baths" value="{{ $property->baths }}">
-                    <input type="hidden" name="garages" value="{{ $property->garages }}">
-                    <input type="hidden" name="status" value="{{ $property->status }}">
+                    {{-- Pass required fields silently — fall back to safe defaults when null --}}
+                    <input type="hidden" name="title"   value="{{ $property->title ?: 'Untitled property' }}">
+                    <input type="hidden" name="suburb"  value="{{ $property->suburb ?: 'Unknown' }}">
+                    <input type="hidden" name="price"   value="{{ (int) ($property->price ?? 0) }}">
+                    <input type="hidden" name="beds"    value="{{ (int) ($property->beds ?? 0) }}">
+                    <input type="hidden" name="baths"   value="{{ (int) ($property->baths ?? 0) }}">
+                    <input type="hidden" name="garages" value="{{ (int) ($property->garages ?? 0) }}">
+                    <input type="hidden" name="status"  value="{{ $property->status }}">
 
                     <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
                            style="border-color:var(--border-hover); color:var(--text-secondary);"
