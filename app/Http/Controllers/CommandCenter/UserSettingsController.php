@@ -43,7 +43,7 @@ class UserSettingsController extends Controller
             'idle_alerts_enabled'        => 'nullable|boolean',
             'idle_threshold_days'        => 'required|integer|min:1|max:365',
             'idle_alert_day'             => 'nullable|in:monday,tuesday,wednesday,thursday,friday,saturday,sunday',
-            'idle_alert_time'            => 'required|date_format:H:i',
+            'idle_alert_time'            => 'required|date_format:H:i,H:i:s',
             'doc_reminders_enabled'      => 'nullable|boolean',
             'doc_reminder_hours_before'  => 'required|integer|min:1|max:168',
             'lease_expiry_reminders'     => 'nullable|boolean',
@@ -55,8 +55,8 @@ class UserSettingsController extends Controller
             'event_reminder_hours_before' => 'required|integer|min:1|max:168',
             'default_calendar_view'      => 'required|in:month,week,day,agenda',
             'weekend_visible'            => 'nullable|boolean',
-            'working_hours_start'        => 'required|date_format:H:i',
-            'working_hours_end'          => 'required|date_format:H:i',
+            'working_hours_start'        => 'required|date_format:H:i,H:i:s',
+            'working_hours_end'          => 'required|date_format:H:i,H:i:s',
             'notify_in_app'              => 'nullable|boolean',
             'notify_email'               => 'nullable|boolean',
         ]);
@@ -68,6 +68,13 @@ class UserSettingsController extends Controller
             'weekend_visible', 'notify_in_app', 'notify_email',
         ] as $boolField) {
             $validated[$boolField] = $request->boolean($boolField);
+        }
+
+        // Trim seconds from time fields so the DB stores a clean H:i
+        foreach (['idle_alert_time', 'working_hours_start', 'working_hours_end'] as $timeField) {
+            if (!empty($validated[$timeField])) {
+                $validated[$timeField] = substr($validated[$timeField], 0, 5);
+            }
         }
 
         UserDashboardSetting::updateOrCreate(
