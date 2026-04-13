@@ -365,8 +365,11 @@ class Property24ListingMapper
         $suburbName = trim((string) $property->suburb);
         if ($suburbName === '') return null;
 
-        $city     = trim((string) ($property->city ?? ''));
-        $province = trim((string) ($property->province ?? 'KwaZulu-Natal'));
+        $city     = trim((string) ($property->town ?? $property->city ?? ''));
+        $province = trim((string) ($property->province ?? ''));
+        if ($province === '' || strtolower($province) === 'kwazulu-natal') {
+            $province = 'KwaZulu-Natal';
+        }
 
         try {
             $client = app(Property24ApiClient::class);
