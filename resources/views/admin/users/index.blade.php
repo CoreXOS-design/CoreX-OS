@@ -128,11 +128,15 @@
                             P24: {{ $p24AgentMap[$u->id] }}
                         </span>
                         @else
-                        <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                              style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);"
-                              title="Not registered on Property24">
-                            P24: —
-                        </span>
+                        <form method="POST" action="{{ route('admin.users.sync-p24', $u) }}" class="inline" onclick="event.stopPropagation();">
+                            @csrf
+                            <button type="submit"
+                                    class="px-2 py-0.5 rounded-full text-xs font-medium transition-colors"
+                                    style="background:rgba(245,158,11,0.12); color:#b45309; border:1px solid rgba(245,158,11,0.3);"
+                                    title="Push this agent to Property24 to get an agent ID">
+                                Sync to P24
+                            </button>
+                        </form>
                         @endif
                     </div>
                     <div class="flex flex-wrap items-center gap-3 mt-0.5">

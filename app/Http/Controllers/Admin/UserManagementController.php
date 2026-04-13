@@ -148,7 +148,7 @@ class UserManagementController extends Controller
             'designation'                 => $data['designation'] ?: null,
             'is_active'                   => true,
             'is_admin'                    => in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0,
-            'email_verified_at'           => $isTestAgent ? now() : null,
+            'email_verified_at'           => null,
             'agent_cut_percent'           => $data['agent_cut_percent'] ?? 50,
             'paye_method'                 => $data['paye_method'] ?? 'percentage',
             'paye_value'                  => $data['paye_value'] ?? 0,
@@ -186,7 +186,11 @@ class UserManagementController extends Controller
         }
 
         if ($isTestAgent) {
-            // Test-agent flow: no invitation email. Register on P24 sandbox right away.
+            // Test-agent flow: mark verified immediately (bypass invite),
+            // force-fill because email_verified_at is not in $fillable.
+            $user->forceFill(['email_verified_at' => now()])->save();
+
+            // Register on P24 right away so the agent gets an ID.
             $p24Note = '';
             try {
                 $p24 = app(Property24SyndicationService::class);
@@ -552,6 +556,34 @@ class UserManagementController extends Controller
         }
 
         return back();
+    }
+
+    /**
+     * Push a user to Property24 so they get a P24 agent ID.
+     * Safe to call repeatedly — if the agent already exists on P24
+     * (matched via sourceReference), no duplicate is created.
+     */
+    public function syncP24(User $user)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        try {
+            $p24 = app(Property24SyndicationService::class);
+            $result = $p24->ensureAgentRegisteredByUser($user);
+
+            if ($result !== true) {
+                return back()->withErrors('P24 sync failed: ' . (is_string($result) ? $result : 'unknown error'));
+            }
+
+            $agentId = $p24->getP24AgentId($user);
+            Cache::forget('p24:agent-map:by-source-ref');
+
+            return back()->with('status', $agentId
+                ? "Synced {$user->name} to Property24. Agent ID: {$agentId}."
+                : "Synced {$user->name} to Property24 (agent ID unavailable).");
+        } catch (\Throwable $e) {
+            return back()->withErrors('P24 sync error: ' . $e->getMessage());
+        }
     }
 
     public function toggle(User $user)
