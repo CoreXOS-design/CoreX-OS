@@ -290,15 +290,23 @@ class Property24SyndicationService
             'firstname'       => $parts[0] ?? '',
             'lastname'        => $parts[1] ?? $parts[0] ?? '',
             'emailAddress'    => $user->email ?? '',
-            'mobileNumber'    => $user->cell ?? $user->phone ?? '',
-            'workNumber'      => $user->phone ?? '',
-            'faxNumber'       => $user->fax ?? '',
+            'mobileNumber'    => $this->normaliseSaPhone($user->cell ?? $user->phone),
             'sourceReference' => 'CoreX-Agent-' . $user->id,
             'published'       => true,
             'receiveStatsMail' => false,
             'countryId'       => 1,
             'jobTitle'        => $user->designation ?: 'Sales Agent',
         ];
+
+        // Only send workNumber if it looks like a SA landline (not mobile).
+        // P24 rejects mobile-format numbers in the work field with "Invalid work number".
+        if ($landline = $this->extractLandline($user->phone)) {
+            $payload['workNumber'] = $landline;
+        }
+        if (!empty($user->fax)) {
+            $fax = $this->normaliseSaPhone($user->fax);
+            if ($fax !== '') $payload['faxNumber'] = $fax;
+        }
 
         $result = $this->client->updateAgent($payload);
         if (!($result['success'] ?? false)) {
@@ -311,6 +319,28 @@ class Property24SyndicationService
         }
 
         return true;
+    }
+
+    /**
+     * Strip whitespace / punctuation from a SA phone number.
+     */
+    private function normaliseSaPhone(?string $raw): string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $raw);
+        return $digits ?: '';
+    }
+
+    /**
+     * Return the number only if it looks like a SA landline (0[1-5]XXXXXXXXX, 10 digits).
+     * Returns null for mobile (08X/07X/06X) or anything too short/long —
+     * so we don't send invalid work numbers that P24 rejects.
+     */
+    private function extractLandline(?string $raw): ?string
+    {
+        $d = $this->normaliseSaPhone($raw);
+        if (strlen($d) !== 10) return null;
+        if (!preg_match('/^0[1-5]\d{8}$/', $d)) return null;
+        return $d;
     }
 
     /**
