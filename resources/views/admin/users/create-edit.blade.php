@@ -65,7 +65,8 @@
         </div>
     @endif
 
-    <form method="POST"
+    <form id="user-main-form"
+          method="POST"
           action="{{ $isEdit ? route('admin.users.update', $user) : route('admin.users.store') }}"
           enctype="multipart/form-data"
           autocomplete="off">
@@ -521,7 +522,7 @@
                     Cancel
                 </a>
                 @if(!$isEdit)
-                <button type="submit"
+                <button type="submit" form="user-main-form"
                         name="test_agent" value="1"
                         class="px-5 py-2.5 rounded-md text-sm font-semibold transition-colors"
                         style="background:rgba(245,158,11,0.15); color:#b45309; border:1px solid rgba(245,158,11,0.35);"
@@ -530,7 +531,7 @@
                     Test Agent
                 </button>
                 @endif
-                <button type="submit"
+                <button type="submit" form="user-main-form"
                         class="px-6 py-2.5 rounded-md text-sm font-semibold text-white transition-colors"
                         style="background:var(--brand-button, #0ea5e9);"
                         onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
