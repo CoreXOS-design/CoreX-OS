@@ -25,6 +25,27 @@
         </div>
     @endif
 
+    @if(session('success'))
+        <div class="rounded-md px-4 py-2.5 text-sm" style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534;">
+            {{ session('success') }}
+        </div>
+    @endif
+    @if(session('error'))
+        <div class="rounded-md px-4 py-2.5 text-sm" style="background:#fef2f2; border:1px solid #fecaca; color:#991b1b;">
+            {{ session('error') }}
+        </div>
+    @endif
+    @if($errors->any())
+        <div class="rounded-md px-4 py-2.5 text-sm" style="background:#fef2f2; border:1px solid #fecaca; color:#991b1b;">
+            <strong>Could not save:</strong>
+            <ul class="list-disc list-inside mt-1 space-y-0.5">
+                @foreach($errors->all() as $err)
+                    <li>{{ $err }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
     <form method="POST" action="{{ route('command-center.user-settings.update') }}">
         @csrf @method('PUT')
 
@@ -49,7 +70,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                             <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Alert after (days idle)</label>
-                            <input type="number" name="idle_threshold_days" value="{{ $settings->idle_threshold_days }}" min="1" max="365"
+                            <input type="number" name="idle_threshold_days" value="{{ $settings->idle_threshold_days ?? 14 }}" min="1" max="365"
                                    class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);"
                                    {{ $isAgencyControlled ? 'disabled' : '' }}>
                         </div>
@@ -88,7 +109,7 @@
                 <div class="corex-panel-body">
                     <div class="max-w-xs">
                         <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Remind me (hours before due)</label>
-                        <input type="number" name="doc_reminder_hours_before" value="{{ $settings->doc_reminder_hours_before }}" min="1" max="168"
+                        <input type="number" name="doc_reminder_hours_before" value="{{ $settings->doc_reminder_hours_before ?? 24 }}" min="1" max="168"
                                class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);"
                                {{ $isAgencyControlled ? 'disabled' : '' }}>
                     </div>
@@ -113,7 +134,7 @@
                             </label>
                             <div class="mt-2">
                                 <label class="block text-xs mb-1" style="color:var(--text-muted);">Days before expiry</label>
-                                <input type="number" name="lease_reminder_days_before" value="{{ $settings->lease_reminder_days_before }}" min="1" max="365"
+                                <input type="number" name="lease_reminder_days_before" value="{{ $settings->lease_reminder_days_before ?? 90 }}" min="1" max="365"
                                        class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);"
                                        {{ $isAgencyControlled ? 'disabled' : '' }}>
                             </div>
@@ -151,7 +172,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                             <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Task reminder (hours before)</label>
-                            <input type="number" name="task_reminder_hours_before" value="{{ $settings->task_reminder_hours_before }}" min="1" max="168"
+                            <input type="number" name="task_reminder_hours_before" value="{{ $settings->task_reminder_hours_before ?? 4 }}" min="1" max="168"
                                    class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);"
                                    {{ $isAgencyControlled ? 'disabled' : '' }}>
                             <p class="text-[10px] mt-1" style="color:var(--text-muted);">Email & notification sent this many hours before a task is due</p>
