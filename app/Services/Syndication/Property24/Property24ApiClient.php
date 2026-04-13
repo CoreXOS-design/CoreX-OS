@@ -74,11 +74,14 @@ class Property24ApiClient
     /**
      * Find a suburb by name/qualification data.
      */
-    public function findSuburb(string $suburbName, ?string $cityName = null, ?string $provinceName = null): array
+    public function findSuburb(string $suburbName, ?string $cityName = null, ?string $provinceName = null, string $countryName = 'South Africa'): array
     {
-        $params = ['suburbName' => $suburbName];
-        if ($cityName) $params['cityName'] = $cityName;
-        if ($provinceName) $params['provinceName'] = $provinceName;
+        $params = [
+            'countryName'  => $countryName,
+            'provinceName' => $provinceName ?: '',
+            'cityName'     => $cityName ?: '',
+            'suburbName'   => $suburbName,
+        ];
 
         $query = '?' . http_build_query($params);
         return $this->request('GET', "/suburbs/find{$query}", [], null, 'find_suburb');

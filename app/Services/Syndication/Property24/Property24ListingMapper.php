@@ -4,7 +4,9 @@ namespace App\Services\Syndication\Property24;
 
 use App\Models\P24Suburb;
 use App\Models\Property;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class Property24ListingMapper
 {
@@ -344,11 +346,65 @@ class Property24ListingMapper
             $suburb = P24Suburb::find($property->pp_suburb_id);
             if ($suburb && $suburb->p24_id) return (int) $suburb->p24_id;
         }
-        if ($property->suburb) {
-            $suburb = P24Suburb::lookup($property->suburb);
-            if ($suburb && $suburb->p24_id) return (int) $suburb->p24_id;
+        if (!$property->suburb) return null;
+
+        $suburb = P24Suburb::lookup($property->suburb);
+        if ($suburb && $suburb->p24_id) return (int) $suburb->p24_id;
+
+        // Auto-resolve via P24 API — creates/updates a P24Suburb row on success.
+        return $this->autoResolveSuburbFromP24($property);
+    }
+
+    /**
+     * Look up the suburb on P24 (GET /suburbs/find) and cache the result in p24_suburbs.
+     * Falls back gracefully — returns null if P24 can't find it so the caller still
+     * surfaces the existing "Suburb not mapped" error.
+     */
+    private function autoResolveSuburbFromP24(Property $property): ?int
+    {
+        $suburbName = trim((string) $property->suburb);
+        if ($suburbName === '') return null;
+
+        $city     = trim((string) ($property->city ?? ''));
+        $province = trim((string) ($property->province ?? 'KwaZulu-Natal'));
+
+        try {
+            $client = app(Property24ApiClient::class);
+            $result = $client->findSuburb($suburbName, $city, $province);
+        } catch (\Throwable $e) {
+            Log::channel('property24')->warning('auto suburb lookup threw', ['error' => $e->getMessage()]);
+            return null;
         }
-        return null;
+
+        if (!($result['success'] ?? false)) {
+            Log::channel('property24')->warning('auto suburb lookup failed', ['suburb' => $suburbName, 'msg' => $result['message'] ?? null]);
+            return null;
+        }
+
+        $data = $result['data'] ?? [];
+        $found = $data['found'] ?? ($data['Found'] ?? false);
+        $remote = $data['suburb'] ?? ($data['Suburb'] ?? null);
+        $p24Id = $remote['id'] ?? ($remote['Id'] ?? null);
+
+        if (!$found || !$p24Id) {
+            Log::channel('property24')->info('P24 did not find suburb', ['suburb' => $suburbName, 'city' => $city, 'province' => $province]);
+            return null;
+        }
+
+        $slug = Str::slug($suburbName);
+        P24Suburb::updateOrCreate(
+            ['slug' => $slug],
+            [
+                'name'      => $remote['name'] ?? $suburbName,
+                'p24_id'    => (int) $p24Id,
+                'region'    => $remote['cityName'] ?? $city ?: null,
+                'confirmed' => true,
+            ]
+        );
+
+        Log::channel('property24')->info('auto-resolved suburb from P24', ['suburb' => $suburbName, 'p24_id' => (int) $p24Id]);
+
+        return (int) $p24Id;
     }
 
     /**
