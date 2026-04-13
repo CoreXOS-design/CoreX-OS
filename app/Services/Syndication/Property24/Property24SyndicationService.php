@@ -269,6 +269,51 @@ class Property24SyndicationService
     }
 
     /**
+     * Push the latest CoreX user details to P24 (name, contact, photo).
+     * If the agent isn't on P24 yet, registers them first.
+     * Returns true on success, or an error string.
+     */
+    public function updateAgentOnP24(User $user, bool $pushPhoto = true): bool|string
+    {
+        $p24AgentId = $this->getP24AgentId($user);
+        if (!$p24AgentId) {
+            // Not registered yet — create them; that flow also uploads the photo.
+            return $this->ensureAgentRegisteredByUser($user);
+        }
+
+        $agencyId = (int) config('services.property24_syndication.agency_id');
+        $parts    = explode(' ', trim($user->name), 2);
+
+        $payload = [
+            'id'              => $p24AgentId,
+            'agencyId'        => $agencyId,
+            'firstname'       => $parts[0] ?? '',
+            'lastname'        => $parts[1] ?? $parts[0] ?? '',
+            'emailAddress'    => $user->email ?? '',
+            'mobileNumber'    => $user->cell ?? $user->phone ?? '',
+            'workNumber'      => $user->phone ?? '',
+            'faxNumber'       => $user->fax ?? '',
+            'sourceReference' => 'CoreX-Agent-' . $user->id,
+            'published'       => true,
+            'receiveStatsMail' => false,
+            'countryId'       => 1,
+            'jobTitle'        => $user->designation ?: 'Sales Agent',
+        ];
+
+        $result = $this->client->updateAgent($payload);
+        if (!($result['success'] ?? false)) {
+            $this->log('error', "Agent update failed for #{$user->id}", ['result' => $result]);
+            return $result['message'] ?? 'Unknown agent update error';
+        }
+
+        if ($pushPhoto) {
+            $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
+        }
+
+        return true;
+    }
+
+    /**
      * Upload the agent's profile photo to P24 if they have one in CoreX.
      */
     private function uploadAgentPhotoIfAvailable(User $user, int $p24AgentId): void

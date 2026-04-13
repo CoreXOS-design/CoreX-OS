@@ -319,7 +319,35 @@ class UserManagementController extends Controller
             $user->update(['ffc_certificate_path' => $path]);
         }
 
-        return redirect()->route('admin.users.edit', $user)->with('status', "User \"{$fullName}\" updated.");
+        $p24Note = $this->pushUserToP24($user->fresh());
+
+        return redirect()->route('admin.users.edit', $user)->with('status', "User \"{$fullName}\" updated.{$p24Note}");
+    }
+
+    /**
+     * Push the user's details to Property24.
+     * Returns a short status string to append to the flash message.
+     * Silent if the user hasn't been synced to P24 yet (no agent ID on file).
+     */
+    private function pushUserToP24(User $user): string
+    {
+        try {
+            $p24 = app(Property24SyndicationService::class);
+            $existingId = $p24->getP24AgentId($user);
+            if (!$existingId) {
+                // Not on P24 yet — don't auto-register on every edit; require explicit sync.
+                return '';
+            }
+
+            $result = $p24->updateAgentOnP24($user, pushPhoto: true);
+            Cache::forget('p24:agent-map:by-source-ref');
+
+            return $result === true
+                ? ' Synced to Property24 (agent #' . $existingId . ').'
+                : ' P24 sync warning: ' . (is_string($result) ? $result : 'unknown');
+        } catch (\Throwable $e) {
+            return ' P24 sync error: ' . $e->getMessage();
+        }
     }
 
     public function updateDefaults(Request $request, User $user)
@@ -518,7 +546,9 @@ class UserManagementController extends Controller
             $user->update(['ffc_certificate_path' => $path]);
         }
 
-        return back()->with('status', "Updated role/branch for {$user->name}.");
+        $p24Note = $this->pushUserToP24($user->fresh());
+
+        return back()->with('status', "Updated role/branch for {$user->name}.{$p24Note}");
     }
 
     public function resendInvite(User $user)
