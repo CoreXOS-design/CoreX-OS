@@ -83,14 +83,19 @@ class AgencyScope implements Scope
         $isUserModel = $model instanceof \App\Models\User;
 
         $builder->where(function (Builder $q) use ($column, $agencyId, $keyName, $authId, $isUserModel) {
-            $q->where($column, $agencyId)
-              ->orWhereNull($column);
+            // Strict tenancy: rows must carry the current agency_id.
+            // Previously we also allowed `agency_id IS NULL` as "shared",
+            // but NULL on a tenant table is always an orphan (e.g. a
+            // pre-migration row) and treating it as shared made those
+            // orphans leak into every agency.
+            $q->where($column, $agencyId);
 
             // The authenticated user must always be able to see their own
-            // record, even if a switcher override would otherwise exclude
-            // them. Without this, a stale session agency causes the user
+            // record. Without this, a stale session agency causes the user
             // provider to lose the logged-in row and immediately log them
-            // out on the next request.
+            // out on the next request. System Owners legitimately have
+            // NULL agency_id — the bypass above already covers them before
+            // we reach this clause.
             if ($isUserModel && $authId) {
                 $q->orWhere($keyName, $authId);
             }
