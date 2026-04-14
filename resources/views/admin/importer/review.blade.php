@@ -6,10 +6,38 @@
 
     <div class="rounded-md px-6 py-4 flex items-center justify-between" style="background:var(--brand-default, #0b2a4a);">
         <div>
-            <h2 class="text-xl font-bold text-white">Property Review Queue</h2>
+            <h2 class="text-xl font-bold text-white">Property Review &amp; Share</h2>
             <div class="text-sm mt-0.5" style="color:rgba(255,255,255,0.6);">
-                Confirm imported listings into live properties.
+                Confirm imported listings and copy the public property page link for each agency.
             </div>
+        </div>
+    </div>
+
+    {{-- Shareable public links — one per agency with a slug --}}
+    <div class="rounded-md bg-surface p-4 border border-subtle/30">
+        <div class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">Public property pages</div>
+        <div class="space-y-2">
+            @forelse ($agencies as $a)
+                @if(!empty($a->slug))
+                    @php $publicUrl = url('/' . $a->slug . '/properties'); @endphp
+                    <div class="flex items-center gap-3 flex-wrap">
+                        <div class="text-sm font-medium min-w-[180px]">{{ $a->name }}</div>
+                        <code class="text-xs bg-surface-2 border border-subtle/30 rounded px-2 py-1 flex-1 min-w-[280px] truncate">{{ $publicUrl }}</code>
+                        <button type="button"
+                                onclick="navigator.clipboard.writeText('{{ $publicUrl }}'); this.innerText='Copied ✓'; setTimeout(()=>this.innerText='Copy link', 1500);"
+                                class="rounded-md px-3 py-1.5 text-xs bg-surface-2 border border-subtle hover:border-subtle/60">
+                            Copy link
+                        </button>
+                        <a href="{{ $publicUrl }}" target="_blank"
+                           class="rounded-md px-3 py-1.5 text-xs text-white"
+                           style="background:var(--brand-button, #0ea5e9);">
+                            Open
+                        </a>
+                    </div>
+                @endif
+            @empty
+                <div class="text-sm text-muted">No agencies found.</div>
+            @endforelse
         </div>
     </div>
 

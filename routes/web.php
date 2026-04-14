@@ -23,6 +23,14 @@ Route::get('/', function () {
 Route::get('/shared/match/{token}', [\App\Http\Controllers\SharedMatchController::class, 'show'])->name('shared.match');
 Route::get('/shared/match/{token}/view/{property}', [\App\Http\Controllers\SharedMatchController::class, 'recordView'])->name('shared.match.view');
 
+// Public agency property listings (no auth) — /{slug}/properties
+Route::get('/{agencySlug}/properties', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'index'])
+    ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite)[a-z0-9-]+$')
+    ->name('public.agency.properties.index');
+Route::get('/{agencySlug}/properties/{property}', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'show'])
+    ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite)[a-z0-9-]+$')
+    ->name('public.agency.properties.show');
+
 Route::get('/dashboard', function () {
     return redirect()->route('corex.dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
