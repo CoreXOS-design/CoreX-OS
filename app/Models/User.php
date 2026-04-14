@@ -56,6 +56,10 @@ class User extends Authenticatable
 
         // Private Property integration
         'pp_unique_agent_id',
+
+        // Property24 importer
+        'p24_agent_id',
+        'source_reference',
     ];
 
     protected $hidden = [

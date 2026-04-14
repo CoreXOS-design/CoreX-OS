@@ -30,8 +30,8 @@ return new class extends Migration
             $table->unsignedBigInteger('resolved_by')->nullable();
             $table->timestamp('resolved_at')->nullable();
             $table->integer('occurrence_count')->default(1);
-            $table->timestamp('first_seen_at');
-            $table->timestamp('last_seen_at');
+            $table->timestamp('first_seen_at')->nullable();
+            $table->timestamp('last_seen_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
 

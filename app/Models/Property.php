@@ -14,6 +14,7 @@ class Property extends Model
 
     protected $fillable = [
         'external_id',
+        'p24_listing_number',
         'title',
         'excerpt',
         'description',

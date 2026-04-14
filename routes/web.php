@@ -174,6 +174,26 @@ Route::middleware('auth')->group(function () {
 
 });
 
+// ===== P24 IMPORTER (Admin) =====
+Route::prefix('admin/importer')->middleware(['auth', 'permission:access_importer'])->name('admin.importer.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\ImporterController::class, 'index'])->name('index');
+    Route::post('/agents/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadAgents'])->name('agents.upload');
+    Route::get('/runs/{run}/preview', [\App\Http\Controllers\Admin\ImporterController::class, 'preview'])->name('preview');
+    Route::post('/runs/{run}/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmAgents'])->name('confirm');
+    Route::post('/runs/{run}/cancel', [\App\Http\Controllers\Admin\ImporterController::class, 'cancelRun'])->name('cancel');
+    Route::get('/runs/{run}', [\App\Http\Controllers\Admin\ImporterController::class, 'show'])->name('show');
+    Route::post('/listings/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadListings'])->name('listings.upload');
+    Route::get('/review', [\App\Http\Controllers\Admin\ImporterController::class, 'review'])->name('review');
+    Route::get('/rows/{row}', [\App\Http\Controllers\Admin\ImporterController::class, 'rowDetails'])->name('row.details');
+    Route::post('/rows/{row}/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmRow'])->name('row.confirm');
+    Route::post('/rows/{row}/exclude', [\App\Http\Controllers\Admin\ImporterController::class, 'excludeRow'])->name('row.exclude');
+    Route::post('/rows/{row}/resolve-agent', [\App\Http\Controllers\Admin\ImporterController::class, 'resolveAgentRow'])->name('row.resolve-agent');
+    Route::post('/rows/bulk/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmBulk'])->name('rows.bulk-confirm');
+    Route::post('/rows/bulk/exclude', [\App\Http\Controllers\Admin\ImporterController::class, 'excludeBulk'])->name('rows.bulk-exclude');
+    Route::post('/agents/{user}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'sendInvite'])->name('agent.invite');
+    Route::post('/runs/{run}/invite-all', [\App\Http\Controllers\Admin\ImporterController::class, 'sendAllInvites'])->name('invite.all');
+});
+
 // ===== P24 MARKET INTELLIGENCE =====
 Route::prefix('admin/p24')->middleware(['auth', 'permission:manage_p24'])->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\P24Controller::class, 'index'])->name('admin.p24.index');

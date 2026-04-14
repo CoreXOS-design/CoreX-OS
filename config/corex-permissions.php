@@ -138,6 +138,13 @@ return [
         ['key' => 'access_client_portal',    'label' => 'Access Client Portal',            'section' => 'client-portal',    'type' => 'access',  'module' => 'client_portal',    'sort_order' => 1],
         ['key' => 'manage_clients',          'label' => 'Manage Client Records',           'section' => 'client-portal',    'type' => 'access',  'module' => 'client_portal',    'sort_order' => 2],
 
+        // ── P24 Importer ──
+        ['key' => 'access_importer',         'label' => 'Access P24 Importer',             'section' => 'importer',         'type' => 'access',  'module' => 'importer',         'sort_order' => 1],
+        ['key' => 'importer.import_agents',   'label' => 'Import Agents (P24)',             'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 2],
+        ['key' => 'importer.import_listings', 'label' => 'Import Listings (P24)',           'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 3],
+        ['key' => 'confirm_properties',      'label' => 'Confirm Properties (Review)',     'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 4],
+        ['key' => 'send_agent_invites',      'label' => 'Send Agent Invites',              'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 5],
+
         // ── Franchise Admin ──
         ['key' => 'access_franchise_admin',  'label' => 'Access Franchise Admin',          'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 1],
         ['key' => 'manage_branches',         'label' => 'Manage Branches',                 'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 2],
