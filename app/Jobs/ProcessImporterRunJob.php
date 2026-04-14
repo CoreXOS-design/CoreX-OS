@@ -66,7 +66,7 @@ class ProcessImporterRunJob implements ShouldQueue
                 $email = strtolower(trim($mapped['email'] ?? ''));
                 if ($email === '') return;
 
-                $user = User::withTrashed()->where('email', $email)->first();
+                $user = User::withoutGlobalScopes()->withTrashed()->where('email', $email)->first();
                 if ($user && $user->agency_id && $user->agency_id !== (int)$run->agency_id) {
                     // Collision across agencies — skip per spec §13 Q1
                     $row->update([

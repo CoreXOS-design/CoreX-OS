@@ -39,7 +39,8 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
             DB::transaction(function () use ($row, $mapped, $run) {
                 $listingNumber = $mapped['p24_listing_number'] ?? $row->external_id;
 
-                $existing = Property::where('p24_listing_number', $listingNumber)
+                $existing = Property::withoutGlobalScopes()
+                    ->where('p24_listing_number', $listingNumber)
                     ->where('agency_id', $run->agency_id)
                     ->first();
 

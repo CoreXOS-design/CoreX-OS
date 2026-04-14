@@ -161,7 +161,8 @@ class ImporterController extends Controller
             ];
 
             // Build agent resolver map: p24_agent_id → users.id for this agency
-            $agentMap = User::where('agency_id', $agencyId)
+            $agentMap = User::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
                 ->whereNotNull('p24_agent_id')
                 ->pluck('id', 'p24_agent_id')
                 ->toArray();
