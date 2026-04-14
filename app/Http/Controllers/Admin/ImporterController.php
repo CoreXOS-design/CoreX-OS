@@ -18,6 +18,22 @@ use Illuminate\Support\Facades\DB;
 
 class ImporterController extends Controller
 {
+    /**
+     * P24 Importer is a System-Owner-only tool — it creates agents and
+     * listings across agencies and is not something an agency admin
+     * should reach. Route middleware would work, but centralising the
+     * gate in the controller guarantees every action is covered even if
+     * a new route is added later without the middleware.
+     */
+    public function __construct()
+    {
+        $this->middleware(function ($request, $next) {
+            $user = auth()->user();
+            abort_unless($user && $user->isOwnerRole(), 403, 'P24 Importer is restricted to System Owners.');
+            return $next($request);
+        });
+    }
+
     public function index(Request $request)
     {
         $agencies = Agency::orderBy('name')->get();
