@@ -803,8 +803,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{agency}/edit', [\App\Http\Controllers\Admin\AgencyController::class, 'edit'])->name('edit');
         Route::put('/{agency}',      [\App\Http\Controllers\Admin\AgencyController::class, 'update'])->name('update');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
-        Route::post('/{agency}/restore', [\App\Http\Controllers\Admin\AgencyController::class, 'restore'])
-            ->name('restore')->withTrashed();
     });
 
     // Company Settings (standalone admin page — separate from tabbed settings)

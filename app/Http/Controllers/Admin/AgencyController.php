@@ -128,9 +128,16 @@ class AgencyController extends Controller
     }
 
     /**
-     * Soft-delete an agency. Refuses to delete the last remaining agency
-     * or one that still has branches/users attached — those need to be
-     * moved or removed first, otherwise their tenancy context vanishes.
+     * Permanently delete an agency. Unlike operational data (contacts,
+     * deals, documents) agencies are tenant definitions, and the `slug`
+     * column is uniquely indexed — a soft-deleted row keeps the slug
+     * reserved and blocks the admin from re-creating an agency with the
+     * same identifier. So this is a hard delete, guarded by:
+     *   - no remaining branches,
+     *   - no remaining users,
+     *   - never the last agency in the platform.
+     * The branch/user guard also prevents us from orphaning operational
+     * rows that still point at this agency_id.
      */
     public function destroy(Agency $agency)
     {
@@ -155,16 +162,12 @@ class AgencyController extends Controller
             session()->forget('active_agency_id');
         }
 
-        $agency->delete();
+        if ($agency->logo_path) {
+            Storage::disk('public')->delete($agency->logo_path);
+        }
 
-        return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" deleted.");
-    }
+        $agency->forceDelete();
 
-    public function restore($id)
-    {
-        $agency = Agency::onlyTrashed()->findOrFail($id);
-        $agency->restore();
-
-        return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" restored.");
+        return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" permanently deleted.");
     }
 }
