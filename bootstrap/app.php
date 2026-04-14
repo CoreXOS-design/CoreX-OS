@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'admin_or_bm' => \App\Http\Middleware\AdminOrBranchManager::class,
                 'auth.portal_capture' => \App\Http\Middleware\AuthenticatePortalCapture::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
+                'owner_only' => \App\Http\Middleware\OwnerOnly::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [
