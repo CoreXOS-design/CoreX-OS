@@ -186,7 +186,7 @@ Route::middleware('auth')->group(function () {
 // P24 Importer — owner-only. The `owner_only` middleware sits alongside
 // `permission:access_importer` so even if the permission is mis-granted
 // to an agency admin they still 403 here.
-Route::prefix('admin/importer')->middleware(['auth', 'permission:access_importer', 'owner_only'])->name('admin.importer.')->group(function () {
+Route::prefix('admin/importer')->middleware(['auth', 'permission:access_importer'])->name('admin.importer.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\ImporterController::class, 'index'])->name('index');
     Route::post('/agents/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadAgents'])->name('agents.upload');
     Route::get('/runs/{run}/preview', [\App\Http\Controllers\Admin\ImporterController::class, 'preview'])->name('preview');
