@@ -55,11 +55,17 @@ class AgencyScope implements Scope
             return;
         }
 
-        $hasOverride = session('active_agency_id') !== null
-            && session('active_agency_id') !== '';
-
-        if (method_exists($user, 'isOwnerRole') && $user->isOwnerRole() && !$hasOverride) {
-            return;
+        // Super-admin / owner roles see every agency by default. They opt
+        // INTO a specific agency via the agency switcher — until they do,
+        // we do not scope their queries at all (even if a stale override
+        // is sitting in the session from a previous login, the login event
+        // listener wipes it).
+        if (method_exists($user, 'isOwnerRole') && $user->isOwnerRole()) {
+            $hasOverride = session('active_agency_id') !== null
+                && session('active_agency_id') !== '';
+            if (!$hasOverride) {
+                return;
+            }
         }
 
         $agencyId = method_exists($user, 'effectiveAgencyId')
@@ -70,11 +76,24 @@ class AgencyScope implements Scope
             return;
         }
 
-        $column = $model->getTable() . '.agency_id';
+        $table = $model->getTable();
+        $column = $table . '.agency_id';
+        $keyName = $table . '.' . $model->getKeyName();
+        $authId = $user->getKey();
+        $isUserModel = $model instanceof \App\Models\User;
 
-        $builder->where(function (Builder $q) use ($column, $agencyId) {
+        $builder->where(function (Builder $q) use ($column, $agencyId, $keyName, $authId, $isUserModel) {
             $q->where($column, $agencyId)
               ->orWhereNull($column);
+
+            // The authenticated user must always be able to see their own
+            // record, even if a switcher override would otherwise exclude
+            // them. Without this, a stale session agency causes the user
+            // provider to lose the logged-in row and immediately log them
+            // out on the next request.
+            if ($isUserModel && $authId) {
+                $q->orWhere($keyName, $authId);
+            }
         });
     }
 }
