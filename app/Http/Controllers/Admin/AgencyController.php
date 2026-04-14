@@ -141,13 +141,26 @@ class AgencyController extends Controller
      */
     public function destroy(Agency $agency)
     {
-        $branchCount = $agency->branches()->count();
-        $userCount   = $agency->users()->count();
+        $branchCount       = $agency->branches()->count();
+        $userCount         = $agency->users()->count();
+        $propertyCount     = \DB::table('properties')->where('agency_id', $agency->id)->whereNull('deleted_at')->count();
+        $contactCount      = \DB::table('contacts')->where('agency_id', $agency->id)->whereNull('deleted_at')->count();
+        $dealCount         = \DB::table('deals')->where('agency_id', $agency->id)->whereNull('deleted_at')->count();
+        $presentationCount = \DB::table('presentations')->where('agency_id', $agency->id)->whereNull('deleted_at')->count();
 
-        if ($branchCount > 0 || $userCount > 0) {
+        $blockers = array_filter([
+            $branchCount       ? "{$branchCount} branch(es)"          : null,
+            $userCount         ? "{$userCount} user(s)"               : null,
+            $propertyCount     ? "{$propertyCount} property(ies)"     : null,
+            $contactCount      ? "{$contactCount} contact(s)"         : null,
+            $dealCount         ? "{$dealCount} deal(s)"               : null,
+            $presentationCount ? "{$presentationCount} presentation(s)" : null,
+        ]);
+
+        if (!empty($blockers)) {
             return redirect()->route('agencies.index')->with(
                 'error',
-                "Cannot delete \"{$agency->name}\": it still has {$branchCount} branch(es) and {$userCount} user(s). Re-assign or remove them first."
+                "Cannot delete \"{$agency->name}\": it still has " . implode(', ', $blockers) . ". Re-assign or remove them first."
             );
         }
 

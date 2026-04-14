@@ -838,7 +838,7 @@ class PropertyController extends Controller
         $user = auth()->user();
         $scope = PermissionService::getDataScope($user, 'properties');
 
-        $query = User::orderBy('name')->where('is_active', 1);
+        $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
 
         if ($scope === 'branch') {
             $branchId = $user->effectiveBranchId();

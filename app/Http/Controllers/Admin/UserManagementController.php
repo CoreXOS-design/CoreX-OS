@@ -25,7 +25,8 @@ class UserManagementController extends Controller
 
         $agencyId = auth()->user()->effectiveAgencyId();
 
-        $users = User::when($agencyId, function ($q) use ($agencyId) {
+        $users = User::agencyMembers()
+            ->when($agencyId, function ($q) use ($agencyId) {
                 $q->where(function ($q2) use ($agencyId) {
                     $q2->where('agency_id', $agencyId)
                         ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));

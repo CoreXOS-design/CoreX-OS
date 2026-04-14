@@ -61,7 +61,7 @@ class DealV2Controller extends Controller
             ->groupBy('deal_type');
 
         $branches = Branch::orderBy('name')->get();
-        $agents = User::where('is_active', true)->orderBy('name')->get();
+        $agents = User::agencyMembers()->where('is_active', true)->orderBy('name')->get();
 
         // Pre-build template data for JS (avoid Blade closures in @json)
         $templatesJson = DealPipelineTemplate::active()
@@ -295,7 +295,7 @@ class DealV2Controller extends Controller
         $deal->load(['property', 'contacts', 'agents', 'listingAgent', 'sellingAgent', 'branch',
             'stepInstances' => fn ($q) => $q->orderBy('position')]);
 
-        $agents = User::where('is_active', true)->orderBy('name')->get();
+        $agents = User::agencyMembers()->where('is_active', true)->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
         $locked = $deal->isFinanciallyLocked();
         $vatRate = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);

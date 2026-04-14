@@ -124,6 +124,61 @@ If any item fails, the feature is not done.
 
 ---
 
+## System Owners — platform identities, not agency members
+
+Added 2026-04-14.
+
+A "System Owner" is a platform-level operator (e.g. Andre, Johan). They
+authenticate through the same `users` table as everyone else — login,
+sessions, permissions, all reuse the existing infrastructure — but they
+are **not members of any agency**. This matters because:
+
+- they must be able to move between agencies without cluttering each
+  agency's own data,
+- they must never appear in an agency's user list, property agent picker,
+  commission table, branch assignment, etc.,
+- they must never be assignable as a property agent, deal participant, or
+  contact creator-for-agency — those are agency-member responsibilities.
+
+### How it's enforced
+
+1. **Role flag.** System Owner users have a role with `is_owner = true`
+   on the `roles` table. `User::isOwnerRole()` and `User::ownerRoleNames()`
+   are the canonical checks.
+2. **Null tenancy columns.** Owners carry `agency_id = NULL` and
+   `branch_id = NULL`. The one-off migration
+   `2026_04_14_110000_detach_system_owners_from_agencies` nulls these on
+   every existing owner account and is intentionally non-reversible.
+3. **Read-side filter.** Every query that builds an "agency users list"
+   must call `User::scopeAgencyMembers()`. Applied in: PropertyController
+   agent picker, ContactController agent filter, DealV2Controller, Role
+   Manager, User Management, Branch Assignments, Commission principal
+   dashboard, Agent Compliance, email signature picker.
+4. **Write-side guard.** `PropertyObserver::saving()` rejects any attempt
+   to set `agent_id` to an owner. Extend the same pattern to any future
+   pillar model that introduces an agent/user FK.
+5. **AgencyScope compatibility.** Owners without an active switcher
+   override bypass the global scope entirely, so they see every agency's
+   data for platform-level operations. Once they switch into a specific
+   agency, they are scoped like any member.
+6. **Sidebar separation.** The sidebar renders a dedicated "Platform
+   Admin" section (Agency Management, Company Settings) visible only to
+   owners, above the regular Admin block.
+
+### Rules when adding new features
+
+- Any new "list users of this agency" query must call
+  `->agencyMembers()`. If you find yourself reaching for `User::where`
+  directly for a UI picker, stop and ask why.
+- Any new FK that points at `users.id` and represents ownership
+  (property agent, deal participant, mandate signatory, commission
+  recipient) needs a saving-time guard that rejects owner-role users.
+- If you legitimately need to target owners (audit tooling, impersonation
+  picker, super-admin activity logs), query `User::query()` without
+  the scope — don't invent a second scope.
+
+---
+
 ## Known limitations / follow-up
 
 - A handful of secondary tables (`prospecting_listings`, `fica_submissions`,

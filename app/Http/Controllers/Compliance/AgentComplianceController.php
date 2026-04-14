@@ -19,7 +19,8 @@ class AgentComplianceController extends Controller
         $agencyId = $user->effectiveAgencyId() ?? 1;
 
         // Get all active agents
-        $agents = User::where('is_active', true)
+        $agents = User::agencyMembers()
+            ->where('is_active', true)
             ->whereNull('deleted_at')
             ->orderBy('name')
             ->get();

@@ -87,7 +87,7 @@ class SettingsController extends Controller
         $data['agency'] = $agencyId ? Agency::find($agencyId) : Agency::first();
 
         // Agents list for email signature preview selector
-        $data['agents'] = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
+        $data['agents'] = User::agencyMembers()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
         // Feature Settings tab: Dashboard — settings mode + agency dashboard settings
         $data['dashboardSettingsMode'] = $data['agency']->dashboard_settings_mode ?? 'user';

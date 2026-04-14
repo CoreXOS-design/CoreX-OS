@@ -67,7 +67,8 @@ These items have been identified and scoped. Each requires a full spec in `/.ai/
 | Presentations | ✅ Live (partial) | Puppeteer rendering — photo display + P24 data pending |
 | Multi-Tenancy Isolation | ✅ Live (2026-04-14) | `BelongsToAgency` trait + `AgencyScope` — see `.ai/specs/multi-tenancy.md` |
 | Company Settings (standalone) | ✅ Live (2026-04-14) | Moved out of tabbed settings into `/admin/company-settings` — mirrors Branch Assignments pattern |
-| Agency Delete | ✅ Live (2026-04-14) | Hard delete — `slug` is uniquely indexed, so soft-delete would permanently reserve the slug. Guarded: refuses if agency has branches/users or is the last agency. Documented exception to the "no hard deletes" rule. |
+| Agency Delete | ✅ Live (2026-04-14) | Hard delete — `slug` is uniquely indexed, so soft-delete would permanently reserve the slug. Guarded: refuses if agency has branches/users/properties/contacts/deals/presentations or is the last agency. Documented exception to the "no hard deletes" rule. |
+| System Owner separation | ✅ Live (2026-04-14) | Owner-role users detached from agencies (NULL agency_id/branch_id) + `User::scopeAgencyMembers()` hides them from every agent/user picker + `PropertyObserver::saving()` blocks assigning them as property agents + sidebar "Platform Admin" section. Spec: `.ai/specs/multi-tenancy.md`. |
 
 ---
 
