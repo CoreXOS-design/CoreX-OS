@@ -87,14 +87,16 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
 
                 $row->status = 'confirmed';
                 $row->confirmed_at = now();
+                $row->processing_at = null;
                 if ($this->userId) $row->confirmed_by = $this->userId;
                 $row->save();
             });
         } catch (\Throwable $e) {
             Log::error('ConfirmP24PropertyRowJob failed', ['row_id' => $row->id, 'error' => $e->getMessage()]);
             $row->update([
-                'status'      => 'error',
-                'errors_json' => array_merge($row->errors_json ?? [], ['Confirm failed: ' . $e->getMessage()]),
+                'status'        => 'error',
+                'processing_at' => null,
+                'errors_json'   => array_merge($row->errors_json ?? [], ['Confirm failed: ' . $e->getMessage()]),
             ]);
         }
     }

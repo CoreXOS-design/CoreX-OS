@@ -9,7 +9,10 @@ use App\Jobs\SendAgentInviteJob;
 use App\Models\Agency;
 use App\Models\P24ImportRow;
 use App\Models\P24ImportRun;
+use App\Models\P24OnboardingPortal;
+use App\Models\P24PortalEvent;
 use App\Models\User;
+use App\Notifications\OnboardingPortalInvitation;
 use App\Services\Importer\P24AgentsCsvParser;
 use App\Services\Importer\P24ImagesCsvParser;
 use App\Services\Importer\P24ListingsCsvParser;
@@ -200,55 +203,158 @@ class ImporterController extends Controller
         return redirect()->route('admin.importer.review', ['run_id' => $run->id]);
     }
 
+    /**
+     * Admin "Property Review" page — rebuilt as a per-agency portal
+     * management + activity log. Confirming happens in the public portal,
+     * not here.
+     */
     public function review(Request $request)
     {
-        $agencies = Agency::orderBy('name')->get();
-        $runs = P24ImportRun::where('kind', 'listings_images')
-            ->orderByDesc('id')->limit(50)->get();
+        // Agencies that either have at least one listing row OR an existing portal
+        $agencyIdsWithRows = P24ImportRun::where('kind', 'listings_images')
+            ->whereNotNull('agency_id')
+            ->distinct()->pluck('agency_id');
+        $agencyIdsWithPortals = P24OnboardingPortal::whereNull('deleted_at')
+            ->distinct()->pluck('agency_id');
+        $agencyIds = $agencyIdsWithRows->merge($agencyIdsWithPortals)->unique()->filter()->values();
 
-        $q = P24ImportRow::with(['run', 'resolvedAgent'])
-            ->where('row_type', 'listing');
+        $agencies = Agency::whereIn('id', $agencyIds)->orderBy('name')->get();
 
-        if ($request->filled('agency_id')) {
-            $q->whereHas('run', fn($r) => $r->where('agency_id', $request->integer('agency_id')));
-        }
-        if ($request->filled('run_id')) {
-            $q->where('run_id', $request->integer('run_id'));
-        }
-        if ($request->filled('status') && $request->get('status') !== 'all') {
-            $q->where('status', $request->get('status'));
-        } else {
-            $q->where('status', 'pending');
-        }
-        if ($request->filled('agent_id')) {
-            $q->where('resolved_agent_id', $request->integer('agent_id'));
-        }
-        if ($request->filled('listing_type') && $request->get('listing_type') !== 'all') {
-            $type = $request->get('listing_type');
-            $q->where(function ($qq) use ($type) {
-                $qq->whereJsonContains('mapped_json->listing_type', $type)
-                   ->orWhereRaw("JSON_EXTRACT(mapped_json, '$.listing_type') = ?", [$type]);
-            });
-        }
-        if ($request->filled('has_errors')) {
-            if ($request->get('has_errors') === 'yes') {
-                $q->whereNotNull('errors_json');
-            } elseif ($request->get('has_errors') === 'no') {
-                $q->whereNull('errors_json');
-            }
-        }
-        if ($request->filled('search')) {
-            $s = '%' . $request->get('search') . '%';
-            $q->where(function ($qq) use ($s) {
-                $qq->where('external_id', 'like', $s)
-                   ->orWhereRaw("JSON_EXTRACT(mapped_json, '$.address') LIKE ?", [$s]);
-            });
-        }
+        $cards = $agencies->map(function (Agency $agency) {
+            $rowQ = P24ImportRow::query()
+                ->where('row_type', 'listing')
+                ->whereHas('run', fn($r) => $r->where('agency_id', $agency->id));
 
-        $rows = $q->orderByDesc('id')->paginate(50)->withQueryString();
+            $counts = [
+                'pending'    => (clone $rowQ)->where('status', 'pending')->whereNull('processing_at')->count(),
+                'processing' => (clone $rowQ)->where('status', 'pending')->whereNotNull('processing_at')->count(),
+                'confirmed'  => (clone $rowQ)->where('status', 'confirmed')->count(),
+                'excluded'   => (clone $rowQ)->where('status', 'excluded')->count(),
+                'error'      => (clone $rowQ)->where('status', 'error')->count(),
+                'total'      => (clone $rowQ)->count(),
+            ];
 
-        return view('admin.importer.review', compact('rows', 'agencies', 'runs'));
+            $portals = P24OnboardingPortal::where('agency_id', $agency->id)
+                ->orderByDesc('id')->limit(10)->get();
+
+            $events = P24PortalEvent::where('agency_id', $agency->id)
+                ->orderByDesc('id')->limit(25)->get();
+
+            return [
+                'agency'  => $agency,
+                'counts'  => $counts,
+                'portals' => $portals,
+                'events'  => $events,
+            ];
+        });
+
+        return view('admin.importer.review', compact('cards'));
     }
+
+    public function createPortal(Request $request)
+    {
+        $data = $request->validate([
+            'agency_id'   => 'required|integer|exists:agencies,id',
+            'label'       => 'nullable|string|max:255',
+            'expires_in_days' => 'nullable|integer|min:1|max:180',
+            'run_ids'     => 'nullable|array',
+            'run_ids.*'   => 'integer|exists:p24_import_runs,id',
+        ]);
+
+        // Enforce one active portal per agency (Q3 decision). Supersede any active.
+        $existing = P24OnboardingPortal::where('agency_id', $data['agency_id'])
+            ->whereNull('revoked_at')
+            ->whereNull('completed_at')
+            ->where(function ($q) { $q->whereNull('expires_at')->orWhere('expires_at', '>', now()); })
+            ->get();
+        foreach ($existing as $old) {
+            $old->update(['revoked_at' => now(), 'revoked_reason' => 'superseded']);
+            P24PortalEvent::log([
+                'portal_id'   => $old->id,
+                'agency_id'   => $old->agency_id,
+                'actor_type'  => 'admin',
+                'actor_label' => auth()->user()?->name ?? 'admin',
+                'event'       => 'portal.revoked',
+                'meta_json'   => ['reason' => 'superseded'],
+                'ip'          => $request->ip(),
+            ]);
+        }
+
+        $portal = P24OnboardingPortal::create([
+            'agency_id'    => $data['agency_id'],
+            'token'        => P24OnboardingPortal::generateToken(),
+            'label'        => $data['label'] ?? null,
+            'created_by'   => auth()->id(),
+            'expires_at'   => now()->addDays($data['expires_in_days'] ?? 30),
+            'run_ids_json' => $data['run_ids'] ?? null,
+        ]);
+
+        P24PortalEvent::log([
+            'portal_id'   => $portal->id,
+            'agency_id'   => $portal->agency_id,
+            'actor_type'  => 'admin',
+            'actor_label' => auth()->user()?->name ?? 'admin',
+            'event'       => 'portal.created',
+            'meta_json'   => ['label' => $portal->label, 'expires_at' => $portal->expires_at?->toIso8601String()],
+            'ip'          => $request->ip(),
+        ]);
+
+        return back()->with('status', 'Portal created: ' . $portal->publicUrl());
+    }
+
+    public function revokePortal(Request $request, P24OnboardingPortal $portal)
+    {
+        $portal->update([
+            'revoked_at'     => now(),
+            'revoked_reason' => $request->input('reason', 'manual'),
+        ]);
+        P24PortalEvent::log([
+            'portal_id'   => $portal->id,
+            'agency_id'   => $portal->agency_id,
+            'actor_type'  => 'admin',
+            'actor_label' => auth()->user()?->name ?? 'admin',
+            'event'       => 'portal.revoked',
+            'meta_json'   => ['reason' => $portal->revoked_reason],
+            'ip'          => $request->ip(),
+        ]);
+        return back()->with('status', 'Portal revoked.');
+    }
+
+    public function extendPortal(Request $request, P24OnboardingPortal $portal)
+    {
+        $days = (int) $request->input('days', 30);
+        $new = ($portal->expires_at && $portal->expires_at->isFuture() ? $portal->expires_at : now())
+            ->addDays(max(1, min(180, $days)));
+        $portal->update(['expires_at' => $new]);
+        P24PortalEvent::log([
+            'portal_id'   => $portal->id,
+            'agency_id'   => $portal->agency_id,
+            'actor_type'  => 'admin',
+            'actor_label' => auth()->user()?->name ?? 'admin',
+            'event'       => 'portal.extended',
+            'meta_json'   => ['new_expiry' => $new->toIso8601String(), 'added_days' => $days],
+            'ip'          => $request->ip(),
+        ]);
+        return back()->with('status', 'Portal extended to ' . $new->toDayDateTimeString());
+    }
+
+    public function invitePortal(Request $request, P24OnboardingPortal $portal)
+    {
+        $data = $request->validate(['email' => 'required|email']);
+        \Illuminate\Support\Facades\Notification::route('mail', $data['email'])
+            ->notify(new OnboardingPortalInvitation($portal));
+        P24PortalEvent::log([
+            'portal_id'   => $portal->id,
+            'agency_id'   => $portal->agency_id,
+            'actor_type'  => 'admin',
+            'actor_label' => auth()->user()?->name ?? 'admin',
+            'event'       => 'portal.invite_sent',
+            'meta_json'   => ['email' => $data['email']],
+            'ip'          => $request->ip(),
+        ]);
+        return back()->with('status', 'Invite sent to ' . $data['email']);
+    }
+
 
     public function rowDetails(P24ImportRow $row)
     {
@@ -259,8 +365,11 @@ class ImporterController extends Controller
     public function confirmRow(P24ImportRow $row)
     {
         abort_if($row->row_type !== 'listing', 400);
-        ConfirmP24PropertyRowJob::dispatchSync($row->id, auth()->id());
-        return response()->json(['ok' => true, 'row_id' => $row->id]);
+        if (empty($row->processing_at) && $row->status !== 'confirmed') {
+            $row->update(['processing_at' => now(), 'confirmed_via' => 'admin']);
+            ConfirmP24PropertyRowJob::dispatch($row->id, auth()->id());
+        }
+        return response()->json(['ok' => true, 'row_id' => $row->id, 'status' => 'processing']);
     }
 
     public function excludeRow(P24ImportRow $row)
@@ -285,10 +394,16 @@ class ImporterController extends Controller
     public function confirmBulk(Request $request)
     {
         $ids = (array) $request->input('ids', []);
-        foreach ($ids as $id) {
-            ConfirmP24PropertyRowJob::dispatchSync((int)$id, auth()->id());
+        $rows = P24ImportRow::whereIn('id', $ids)
+            ->where('row_type', 'listing')
+            ->whereIn('status', ['pending', 'error'])
+            ->whereNull('processing_at')
+            ->get();
+        foreach ($rows as $row) {
+            $row->update(['processing_at' => now(), 'confirmed_via' => 'admin']);
+            ConfirmP24PropertyRowJob::dispatch($row->id, auth()->id());
         }
-        return response()->json(['ok' => true, 'count' => count($ids)]);
+        return response()->json(['ok' => true, 'count' => $rows->count()]);
     }
 
     public function excludeBulk(Request $request)

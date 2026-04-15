@@ -25,10 +25,10 @@ Route::get('/shared/match/{token}/view/{property}', [\App\Http\Controllers\Share
 
 // Public agency property listings (no auth) — /{slug}/properties
 Route::get('/{agencySlug}/properties', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'index'])
-    ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite)[a-z0-9-]+$')
+    ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite|up)[a-z0-9-]+$')
     ->name('public.agency.properties.index');
 Route::get('/{agencySlug}/properties/{property}', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'show'])
-    ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite)[a-z0-9-]+$')
+    ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite|up)[a-z0-9-]+$')
     ->name('public.agency.properties.show');
 
 Route::get('/dashboard', function () {
@@ -203,6 +203,26 @@ Route::prefix('admin/importer')->middleware(['auth', 'permission:access_importer
     Route::post('/rows/bulk/exclude', [\App\Http\Controllers\Admin\ImporterController::class, 'excludeBulk'])->name('rows.bulk-exclude');
     Route::post('/agents/{user}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'sendInvite'])->name('agent.invite');
     Route::post('/runs/{run}/invite-all', [\App\Http\Controllers\Admin\ImporterController::class, 'sendAllInvites'])->name('invite.all');
+
+    // Onboarding portals — admin management
+    Route::post('/portals', [\App\Http\Controllers\Admin\ImporterController::class, 'createPortal'])->name('portal.create');
+    Route::post('/portals/{portal}/revoke', [\App\Http\Controllers\Admin\ImporterController::class, 'revokePortal'])->name('portal.revoke');
+    Route::post('/portals/{portal}/extend', [\App\Http\Controllers\Admin\ImporterController::class, 'extendPortal'])->name('portal.extend');
+    Route::post('/portals/{portal}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'invitePortal'])->name('portal.invite');
+});
+
+// ===== PUBLIC ONBOARDING PORTAL (token-auth, no login) =====
+Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('onboarding.portal.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'welcome'])->name('welcome');
+    Route::get('/review', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'review'])->name('review');
+    Route::get('/status', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'status'])->name('status');
+    Route::get('/finish', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'finish'])->name('finish');
+    Route::post('/rows/{rowId}/confirm', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmRow'])->name('row.confirm');
+    Route::post('/rows/{rowId}/exclude', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'excludeRow'])->name('row.exclude');
+    Route::post('/rows/{rowId}/reassign', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'reassignAgent'])->name('row.reassign');
+    Route::post('/rows/bulk/confirm', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'bulkConfirm'])->name('rows.bulk-confirm');
+    Route::post('/rows/bulk/exclude', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'bulkExclude'])->name('rows.bulk-exclude');
+    Route::post('/rows/confirm-all', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmAllFiltered'])->name('rows.confirm-all');
 });
 
 // ===== P24 MARKET INTELLIGENCE =====

@@ -27,6 +27,9 @@ class P24ImportRow extends Model
         'confirmed_at',
         'excluded_at',
         'confirmed_by',
+        'confirmed_via',
+        'confirmed_by_portal_id',
+        'processing_at',
     ];
 
     protected $casts = [
@@ -36,7 +39,13 @@ class P24ImportRow extends Model
         'image_urls_json' => 'array',
         'confirmed_at'    => 'datetime',
         'excluded_at'     => 'datetime',
+        'processing_at'   => 'datetime',
     ];
+
+    public function isProcessing(): bool
+    {
+        return !empty($this->processing_at) && $this->status === 'pending';
+    }
 
     public function run(): BelongsTo
     {
