@@ -285,7 +285,7 @@ class ImporterController extends Controller
             'token'        => P24OnboardingPortal::generateToken(),
             'label'        => $data['label'] ?? null,
             'created_by'   => auth()->id(),
-            'expires_at'   => now()->addDays($data['expires_in_days'] ?? 30),
+            'expires_at'   => now()->addDays((int) ($data['expires_in_days'] ?? 30)),
             'run_ids_json' => $data['run_ids'] ?? null,
         ]);
 
