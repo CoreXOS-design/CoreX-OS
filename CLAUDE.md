@@ -1,6 +1,6 @@
 # CoreX OS — Claude Instructions
 > **Root entry point. Read this first. Every session. No exceptions.**
-> Last updated: 2026-03-10
+> Last updated: 2026-04-14
 
 ---
 
@@ -176,6 +176,7 @@ No demo modes. No "we'll fix it later." No patches over root causes. If it works
 | `specs/compliance.md` | Compliance module spec | When working on FICA/POPIA/PPRA |
 | `specs/ellie.md` | Ellie AI assistant spec | When working on Ellie |
 | `specs/tvadisplay.md` | TV display spec | When working on TV |
+| `specs/multi-tenancy.md` | Agency isolation — global scope, switcher rules | Any feature touching the DB |
 
 ---
 

@@ -70,12 +70,21 @@
                             @endif
                         </td>
                         <td class="py-3 px-5 text-right">
-                            <a href="{{ route('agencies.edit', $agency) }}"
-                               class="text-xs font-semibold transition-colors"
-                               style="color:var(--brand-icon, #0ea5e9);"
-                               onmouseover="this.style.color='var(--brand-default, #0b2a4a)'" onmouseout="this.style.color='var(--brand-icon, #0ea5e9)'">
-                                Edit
-                            </a>
+                            <div class="flex items-center justify-end gap-3">
+                                <a href="{{ route('agencies.edit', $agency) }}"
+                                   class="text-xs font-semibold transition-colors"
+                                   style="color:var(--brand-icon, #0ea5e9);"
+                                   onmouseover="this.style.color='var(--brand-default, #0b2a4a)'" onmouseout="this.style.color='var(--brand-icon, #0ea5e9)'">
+                                    Edit
+                                </a>
+                                <form method="POST" action="{{ route('agencies.destroy', $agency) }}"
+                                      onsubmit="return confirm('PERMANENTLY delete agency &quot;{{ $agency->name }}&quot;? This cannot be undone. Branches and users must be moved or removed first.');"
+                                      class="inline">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="text-xs font-semibold text-red-600 hover:text-red-700 transition-colors">Delete</button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                 @empty

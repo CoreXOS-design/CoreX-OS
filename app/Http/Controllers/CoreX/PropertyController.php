@@ -28,6 +28,18 @@ class PropertyController extends Controller
         $search         = trim($request->query('search', ''));
         $filterAgentId  = $request->query('agent_id', '');  // admin/bm: view a specific agent's listings
 
+        // Extended filters
+        $listingType    = $request->query('listing_type', '');   // '' | sale | rental
+        $propertyType   = $request->query('property_type', '');
+        $category       = $request->query('category', '');
+        $mandateType    = $request->query('mandate_type', '');
+        $branchFilter   = $request->query('branch_id', '');
+        $priceMin       = $request->query('price_min', '');
+        $priceMax       = $request->query('price_max', '');
+        $bedsMin        = $request->query('beds_min', '');
+        $bathsMin       = $request->query('baths_min', '');
+        $sort           = $request->query('sort', 'newest');     // newest|oldest|price_asc|price_desc|title
+
         $query = Property::with(['agent', 'branch']);
 
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
@@ -69,15 +81,32 @@ class PropertyController extends Controller
             }
         }
 
-        if ($status !== '') {
-            $query->where('status', $status);
-        }
+        if ($status !== '')        $query->where('status', $status);
+        if ($listingType !== '')   $query->where('listing_type', $listingType);
+        if ($propertyType !== '')  $query->where('property_type', $propertyType);
+        if ($category !== '')      $query->where('category', $category);
+        if ($mandateType !== '')   $query->where('mandate_type', $mandateType);
+        if ($branchFilter !== '' && $canPickAgent) $query->where('branch_id', (int) $branchFilter);
+        if ($priceMin !== '' && is_numeric($priceMin)) $query->where('price', '>=', (int) $priceMin);
+        if ($priceMax !== '' && is_numeric($priceMax)) $query->where('price', '<=', (int) $priceMax);
+        if ($bedsMin !== ''  && is_numeric($bedsMin))  $query->where('beds', '>=', (int) $bedsMin);
+        if ($bathsMin !== '' && is_numeric($bathsMin)) $query->where('baths', '>=', (int) $bathsMin);
 
         if ($search !== '') {
             $query->searchAddress($search);
         }
 
-        $properties = $query->orderByDesc('created_at')->get();
+        // Sorting
+        switch ($sort) {
+            case 'oldest':     $query->orderBy('created_at', 'asc'); break;
+            case 'price_asc':  $query->orderBy('price', 'asc'); break;
+            case 'price_desc': $query->orderBy('price', 'desc'); break;
+            case 'title':      $query->orderBy('title', 'asc'); break;
+            case 'newest':
+            default:           $query->orderByDesc('created_at');
+        }
+
+        $properties = $query->get();
 
         // Stats for the header KPIs
         $stats = [
@@ -96,11 +125,26 @@ class PropertyController extends Controller
             ? $agentList->firstWhere('id', (int) $filterAgentId)
             : null;
 
+        // Dropdown option lists (agency-managed via web settings)
+        $filterOptions = [
+            'property_types' => PropertySettingItem::group('property_type')->where('active', true)->get(),
+            'categories'     => PropertySettingItem::group('category')->get(),
+            'mandate_types'  => PropertySettingItem::group('mandate_type')->get(),
+            'branches'       => $canPickAgent ? Branch::orderBy('name')->get() : collect(),
+        ];
+
+        $filters = compact(
+            'status', 'search', 'listingType', 'propertyType', 'category',
+            'mandateType', 'branchFilter', 'priceMin', 'priceMax',
+            'bedsMin', 'bathsMin', 'sort'
+        );
+
         $scope = $viewScope;
 
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
-            'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent'
+            'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
+            'filterOptions', 'filters'
         ));
     }
 
@@ -164,6 +208,7 @@ class PropertyController extends Controller
         // P24 syndication events
         $activityTimeline = $activityTimeline->merge(
             \App\Models\P24SyndicationLog::where('property_id', $property->id)
+                ->select(['id', 'property_id', 'action', 'status_code', 'created_at'])
                 ->latest('created_at')->take(10)->get()
                 ->map(fn($l) => [
                     'type' => 'p24',
@@ -202,9 +247,19 @@ class PropertyController extends Controller
             $documentTypes = collect();
         }
 
+        // Drive folders: document types applicable to this property's listing type (sale/rental)
+        try {
+            $listingType = $property->listing_type ?? 'sale';
+            $driveFolders = DocumentType::active()->ordered()->get()
+                ->filter(fn($dt) => $dt->appliesToListingType($listingType))
+                ->values();
+        } catch (\Exception $e) {
+            $driveFolders = $documentTypes;
+        }
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields',
-            'allDriveDocs', 'documentTypes', 'activityTimeline'
+            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline'
         ));
     }
 
@@ -316,6 +371,10 @@ class PropertyController extends Controller
             'branch_id'        => 'nullable|exists:branches,id',
             'agent_id'         => 'nullable|exists:users,id',
             'pp_second_agent_id' => 'nullable|exists:users,id',
+            'pp_agent_image'           => 'nullable|image|max:1024',
+            'pp_second_agent_image'    => 'nullable|image|max:1024',
+            'youtube_video_id'   => 'nullable|string|max:500',
+            'matterport_id'      => 'nullable|string|max:100',
             'rental_price_type'  => 'nullable|string|max:50',
             'pp_hide_street_name'   => 'nullable|boolean',
             'pp_hide_street_number' => 'nullable|boolean',
@@ -341,6 +400,11 @@ class PropertyController extends Controller
 
         $data = $this->processSpacesJson($data);
 
+        // Extract YouTube video ID from full URL if pasted
+        if (!empty($data['youtube_video_id'])) {
+            $data['youtube_video_id'] = self::extractYoutubeId($data['youtube_video_id']);
+        }
+
         $storeScope = PermissionService::getDataScope($user, 'properties');
         if (! in_array($storeScope, ['all', 'branch']) || empty($data['agent_id'])) {
             $data['agent_id'] = $user->id;
@@ -360,6 +424,15 @@ class PropertyController extends Controller
         $property->noon_images_json    = $this->storeImages($request, 'noon_images',    $property->id);
         $property->dusk_images_json    = $this->storeImages($request, 'dusk_images',    $property->id);
         $property->gallery_images_json = $this->storeImages($request, 'gallery_images', $property->id);
+
+        // Agent images for portal syndication
+        if ($request->hasFile('pp_agent_image')) {
+            $property->pp_agent_image_path = $request->file('pp_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
+        if ($request->hasFile('pp_second_agent_image')) {
+            $property->pp_second_agent_image_path = $request->file('pp_second_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
+
         $property->saveQuietly();
 
         // Re-sync with images if published (first create had no images yet)
@@ -486,6 +559,10 @@ class PropertyController extends Controller
             'branch_id'        => 'nullable|exists:branches,id',
             'agent_id'         => 'nullable|exists:users,id',
             'pp_second_agent_id' => 'nullable|exists:users,id',
+            'pp_agent_image'           => 'nullable|image|max:1024',
+            'pp_second_agent_image'    => 'nullable|image|max:1024',
+            'youtube_video_id'   => 'nullable|string|max:500',
+            'matterport_id'      => 'nullable|string|max:100',
             'rental_price_type'  => 'nullable|string|max:50',
             'pp_hide_street_name'   => 'nullable|boolean',
             'pp_hide_street_number' => 'nullable|boolean',
@@ -501,6 +578,19 @@ class PropertyController extends Controller
             'gallery_images'   => 'nullable|array',
             'gallery_images.*' => 'image|max:5120',
         ]);
+
+        // Agent images for portal syndication
+        if ($request->hasFile('pp_agent_image')) {
+            $data['pp_agent_image_path'] = $request->file('pp_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
+        if ($request->hasFile('pp_second_agent_image')) {
+            $data['pp_second_agent_image_path'] = $request->file('pp_second_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
+
+        // Extract YouTube video ID from full URL if pasted
+        if (!empty($data['youtube_video_id'])) {
+            $data['youtube_video_id'] = self::extractYoutubeId($data['youtube_video_id']);
+        }
 
         // Checkboxes that aren't checked don't submit — ensure they're explicitly set to false
         $data['pp_hide_street_name']   = $request->boolean('pp_hide_street_name');
@@ -748,7 +838,7 @@ class PropertyController extends Controller
         $user = auth()->user();
         $scope = PermissionService::getDataScope($user, 'properties');
 
-        $query = User::orderBy('name')->where('is_active', 1);
+        $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
 
         if ($scope === 'branch') {
             $branchId = $user->effectiveBranchId();
@@ -783,5 +873,26 @@ class PropertyController extends Controller
         $record = Property::onlyTrashed()->findOrFail($id);
         $record->restore();
         return redirect()->back()->with('success', 'Record restored.');
+    }
+
+    /**
+     * Extract the 11-char YouTube video ID from a full URL or return as-is if already an ID.
+     */
+    private static function extractYoutubeId(string $input): string
+    {
+        $input = trim($input);
+
+        // Already an 11-char ID
+        if (preg_match('/^[a-zA-Z0-9_-]{11}$/', $input)) {
+            return $input;
+        }
+
+        // youtube.com/watch?v=ID or youtube.com/embed/ID or youtu.be/ID
+        if (preg_match('/(?:youtube\.com\/(?:watch\?.*v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/', $input, $m)) {
+            return $m[1];
+        }
+
+        // Fallback: return first 11 chars if longer, or as-is
+        return substr($input, 0, 11);
     }
 }

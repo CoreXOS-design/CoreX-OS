@@ -18,12 +18,21 @@
                 <h2 style="font-size:1.25rem; font-weight:800; color:#fff; margin:0 0 4px;">User Management</h2>
                 <div style="font-size:0.875rem; color:rgba(255,255,255,0.55);">{{ $totalUsers }} users</div>
             </div>
-            <a href="{{ route('admin.users.create') }}"
-               class="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-               style="background:var(--brand-button, #0ea5e9);"
-               onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
-                + Add User
-            </a>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('admin.users', ['refresh_p24' => 1]) }}"
+                   class="px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
+                   style="background:rgba(255,255,255,0.1); color:#fff; border:1px solid rgba(255,255,255,0.2);"
+                   onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"
+                   title="Re-fetch P24 agent list">
+                    Refresh P24
+                </a>
+                <a href="{{ route('admin.users.create') }}"
+                   class="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
+                   style="background:var(--brand-button, #0ea5e9);"
+                   onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                    + Add User
+                </a>
+            </div>
         </div>
     </div>
 
@@ -111,6 +120,23 @@
                         @else
                         <span class="px-2 py-0.5 rounded-full text-xs font-medium"
                               style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca;">Inactive</span>
+                        @endif
+                        @if(!empty($p24AgentMap[$u->id]))
+                        <span class="px-2 py-0.5 rounded-full text-xs font-mono font-medium"
+                              style="background:rgba(14,165,233,0.12); color:#0284c7; border:1px solid rgba(14,165,233,0.3);"
+                              title="Property24 Agent ID">
+                            P24: {{ $p24AgentMap[$u->id] }}
+                        </span>
+                        @else
+                        <form method="POST" action="{{ route('admin.users.sync-p24', $u) }}" class="inline" onclick="event.stopPropagation();">
+                            @csrf
+                            <button type="submit"
+                                    class="px-2 py-0.5 rounded-full text-xs font-medium transition-colors"
+                                    style="background:rgba(245,158,11,0.12); color:#b45309; border:1px solid rgba(245,158,11,0.3);"
+                                    title="Push this agent to Property24 to get an agent ID">
+                                Sync to P24
+                            </button>
+                        </form>
                         @endif
                     </div>
                     <div class="flex flex-wrap items-center gap-3 mt-0.5">

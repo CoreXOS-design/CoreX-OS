@@ -54,7 +54,7 @@ class PrivatePropertyListingMapper
             'ListingDate'             => $property->created_at ? $property->created_at->format('Y-m-d\TH:i:s') : now()->format('Y-m-d\TH:i:s'),
             'ExpiryDate'              => $expiryDate,
             'AvailableFrom'           => now()->format('Y-m-d\TH:i:s'),
-            'AgentId'                 => (string) ($property->agent_id ?? ''),
+            'AgentId'                 => $this->buildAgentIdString($property),
             'PhotoUrls'               => new \stdClass(), // empty ArrayOfString — overridden below if photos exist
             'OwnerID'                 => '',
             'XCoordinate'             => (float) ($property->latitude ?? 0),
@@ -99,6 +99,25 @@ class PrivatePropertyListingMapper
     }
 
     /**
+     * Build comma-separated AgentId string for PP.
+     * PP supports multiple agents via "AGENT1,AGENT2" format.
+     */
+    private function buildAgentIdString(Property $property): string
+    {
+        $ids = [];
+
+        if ($property->agent_id) {
+            $ids[] = (string) $property->agent_id;
+        }
+
+        if ($property->pp_second_agent_id) {
+            $ids[] = (string) $property->pp_second_agent_id;
+        }
+
+        return implode(',', $ids);
+    }
+
+    /**
      * Validate a mapped payload. Returns array of error messages (empty = valid).
      */
     public function validate(array $payload): array
@@ -114,13 +133,39 @@ class PrivatePropertyListingMapper
             }
         }
 
+        // Location: SuburbId OR (Suburb + Town) required
         if (empty($payload['Suburb']) && empty($payload['SuburbId'])) {
-            $errors[] = 'Either Suburb name or SuburbId must be provided';
+            $errors[] = 'Suburb or SuburbId is required for PP syndication';
+        }
+        if (empty($payload['Town']) && empty($payload['SuburbId'])) {
+            $errors[] = 'Town is required when SuburbId is not provided';
         }
 
-        if (empty($payload['StreetName'])) {
-            $errors[] = 'Street name is required for PP syndication';
+        // Suburb and Town must not be identical (PP cannot shape the listing)
+        if (!empty($payload['Suburb']) && !empty($payload['Town'])
+            && strtolower(trim($payload['Suburb'])) === strtolower(trim($payload['Town']))) {
+            $errors[] = 'Suburb and Town must not be identical — PP requires a correct geographic hierarchy (e.g. Suburb=Uvongo, Town=Margate)';
         }
+
+        // StreetName validation
+        $streetName = $payload['StreetName'] ?? '';
+        if (empty($streetName)) {
+            $errors[] = 'Street name is required for PP syndication';
+        } else {
+            if (strlen($streetName) > 100) {
+                $errors[] = 'StreetName exceeds 100 character limit: ' . strlen($streetName) . ' chars';
+            }
+
+            // Detect listing title used as street name
+            $suspiciousWords = ['bedroom', 'bathroom', 'house for sale', 'to let', 'property', 'for sale in', 'for rent'];
+            foreach ($suspiciousWords as $word) {
+                if (str_contains(strtolower($streetName), $word)) {
+                    $errors[] = 'StreetName appears to contain a listing title rather than a real street name: ' . $streetName;
+                    break;
+                }
+            }
+        }
+
         if (empty($payload['StreetNumber'])) {
             $errors[] = 'Street number is required for PP syndication';
         }
@@ -137,7 +182,22 @@ class PrivatePropertyListingMapper
             $errors[] = 'Headline is required and cannot be empty';
         }
 
-        // SoleMandateExclusiveDays is auto-calculated from listed_date and expiry_date — no user validation needed
+        // Province must be a valid PP enum
+        $validProvinces = ['KwaZuluNatal', 'Gauteng', 'WesternCape', 'EasternCape', 'FreeState', 'Limpopo', 'Mpumalanga', 'NorthWest', 'NorthernCape'];
+        if (!empty($payload['Province']) && !in_array($payload['Province'], $validProvinces)) {
+            $errors[] = 'Province is not a valid PP enum value: ' . $payload['Province'];
+        }
+
+        // All photo URLs must be HTTPS
+        $photoUrls = $payload['PhotoUrls'] ?? null;
+        if (is_array($photoUrls) && isset($photoUrls['string'])) {
+            foreach ((array) $photoUrls['string'] as $url) {
+                if (!str_starts_with($url, 'https://')) {
+                    $errors[] = 'Photo URL must use HTTPS: ' . $url;
+                    break;
+                }
+            }
+        }
 
         return $errors;
     }
@@ -183,6 +243,33 @@ class PrivatePropertyListingMapper
         }
         if (!$hasStreetName) {
             $missing[] = ['field' => 'street_name', 'label' => 'Street name (e.g. "14 Ocean Drive")', 'tab' => 'info'];
+        }
+
+        // Town is required for PP geographic hierarchy (suburb → town → province)
+        if (empty($property->town) && empty($property->city) && empty($property->pp_suburb_id)) {
+            $missing[] = ['field' => 'town', 'label' => 'Town (e.g. "Margate") — required for PP location hierarchy', 'tab' => 'info'];
+        }
+
+        // Suburb and Town must not be identical — PP cannot shape the listing without a correct hierarchy
+        $suburb = trim($property->suburb ?? '');
+        $town   = trim($property->town ?? $property->city ?? '');
+        if ($suburb !== '' && $town !== '' && strtolower($suburb) === strtolower($town)) {
+            $missing[] = ['field' => 'suburb', 'label' => "Suburb and Town are identical (\"{$suburb}\") — PP requires different values (e.g. Suburb=Uvongo, Town=Margate)", 'tab' => 'info'];
+        }
+
+        // StreetName must not contain listing title keywords
+        $streetName = $property->street_name ?: $this->parseStreetName($property->address);
+        if (!empty($streetName)) {
+            $suspiciousWords = ['bedroom', 'bathroom', 'house for sale', 'to let', 'property', 'for sale in', 'for rent'];
+            foreach ($suspiciousWords as $word) {
+                if (str_contains(strtolower($streetName), $word)) {
+                    $missing[] = ['field' => 'street_name', 'label' => "Street name looks like a listing title (\"{$streetName}\") — enter the actual street name", 'tab' => 'info'];
+                    break;
+                }
+            }
+            if (strlen($streetName) > 100) {
+                $missing[] = ['field' => 'street_name', 'label' => 'Street name exceeds 100 characters (PP limit)', 'tab' => 'info'];
+            }
         }
 
         // PP requires minimum 3 images for sale listings, 1 for rentals

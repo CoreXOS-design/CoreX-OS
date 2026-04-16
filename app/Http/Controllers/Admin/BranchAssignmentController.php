@@ -16,7 +16,7 @@ class BranchAssignmentController extends Controller
     {
         $this->authorizeAdmin();
 
-        $users = User::orderBy('name')->get();
+        $users = User::agencyMembers()->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
         $assigned = DB::table('branch_assignments')->pluck('branch_id', 'user_id')->toArray();
         $branchesInUse = DB::table('branch_assignments')

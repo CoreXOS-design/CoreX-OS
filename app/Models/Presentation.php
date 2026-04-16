@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Presentation extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, BelongsToAgency;
 
     // Status values: draft | presented | locked
     protected $fillable = [
+        'agency_id',
         'branch_id',
         'created_by_user_id',
         'listing_id',

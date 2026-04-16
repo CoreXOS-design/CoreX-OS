@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -10,10 +11,11 @@ use Illuminate\Support\Str;
 
 class Property extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, BelongsToAgency;
 
     protected $fillable = [
         'external_id',
+        'p24_listing_number',
         'title',
         'excerpt',
         'description',
@@ -96,10 +98,14 @@ class Property extends Model
         'zone_type',
         'address_internal_note',
         'pp_second_agent_id',
+        'pp_agent_image_path',
+        'pp_second_agent_image_path',
         'pp_hide_street_name',
         'pp_hide_street_number',
         'pp_hide_complex_name',
         'pp_hide_unit_number',
+        'youtube_video_id',
+        'matterport_id',
         'rental_price_type',
         'p24_syndication_enabled',
         'p24_syndication_status',
@@ -137,6 +143,7 @@ class Property extends Model
         'expiry_date'         => 'date',
         'lease_start_date'    => 'date',
         'lease_end_date'      => 'date',
+        'baths'               => 'decimal:1',
         'rental_amount'       => 'float',
         'deposit_amount'      => 'float',
         'commission_percent'  => 'float',
@@ -281,7 +288,8 @@ class Property extends Model
               ->orWhere('city', 'like', "%{$term}%")
               ->orWhere('complex_name', 'like', "%{$term}%")
               ->orWhere('unit_number', 'like', "%{$term}%")
-              ->orWhere('property_number', 'like', "%{$term}%");
+              ->orWhere('property_number', 'like', "%{$term}%")
+              ->orWhere('p24_ref', 'like', "%{$term}%");
         });
     }
 
@@ -304,6 +312,55 @@ class Property extends Model
     public function formattedPrice(): string
     {
         return 'R ' . number_format((int) $this->price, 0, '.', ' ');
+    }
+
+    /**
+     * The list of gallery tags currently available on this property.
+     *
+     * Tags are derived from the property's `spaces_json` (preferred) or
+     * the legacy beds/baths/garages columns. ONLY spaces the user has
+     * actually added (count >= 1) produce tags — no hardcoded defaults.
+     *
+     * Used by:
+     *   - Web gallery tagger (resources/views/corex/properties/show.blade.php)
+     *   - Mobile API (App\Http\Controllers\Api\MobilePropertyController)
+     *
+     * @return string[]
+     */
+    public function getAvailableGalleryTags(): array
+    {
+        $allowed = ['Bedroom','Bathroom','Kitchen','Lounge','Dining Room','Study','Patio','Garden','Pool','Flatlet','Garage'];
+
+        // Prefer spaces_json — it's the canonical source after the
+        // user has touched the Spaces editor.
+        $spacesData = $this->spaces_json ?? [];
+        $spacesList = $spacesData['spaces'] ?? [];
+        if (empty($spacesList) && !empty($spacesData) && isset($spacesData[0]['type'])) {
+            $spacesList = $spacesData; // legacy flat shape
+        }
+
+        $tags = [];
+
+        if (!empty($spacesList)) {
+            foreach ($spacesList as $sp) {
+                $type  = $sp['type'] ?? '';
+                $count = (int) ($sp['count'] ?? 0);
+                if ($count < 1 || !in_array($type, $allowed, true)) continue;
+
+                if ($count > 1) {
+                    for ($i = 1; $i <= $count; $i++) $tags[] = $type . ' ' . $i;
+                } else {
+                    $tags[] = $type;
+                }
+            }
+        } else {
+            // Fallback: derive from legacy columns
+            for ($i = 1; $i <= (int) ($this->beds ?? 0); $i++)  $tags[] = 'Bedroom ' . $i;
+            for ($i = 1; $i <= (int) ($this->baths ?? 0); $i++) $tags[] = 'Bathroom ' . $i;
+            if ((int) ($this->garages ?? 0) > 0) $tags[] = 'Garage';
+        }
+
+        return $tags;
     }
 
     /** All images flattened into one array for convenience */

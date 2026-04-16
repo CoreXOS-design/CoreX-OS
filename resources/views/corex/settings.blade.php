@@ -76,10 +76,26 @@
                 </a>
             </div>
 
-            {{-- Company Settings — reads/writes Agency model --}}
+            {{-- Company Settings — moved to its own admin page (mirrors Branch Assignments) --}}
             @if(isset($agency) && $agency)
             <div>
-                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Company Settings</h3>
+                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Company</h3>
+                <a href="{{ route('admin.company-settings') }}"
+                   class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline group hover:bg-white/5"
+                   style="border:1px solid var(--border);">
+                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background:rgba(14,165,233,0.12);">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#0ea5e9" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
+                    </div>
+                    <div class="flex-1">
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Company Settings</div>
+                        <div class="text-xs" style="color:var(--text-secondary);">Trading name, contact block, logo, email signature</div>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                </a>
+            </div>
+            @endif
+            @if(false)
+            <div>
                 <form method="POST" action="{{ route('corex.settings.agency.update') }}" enctype="multipart/form-data"
                       class="space-y-5 p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);"
                       x-data="agencySettingsForm()" x-init="scheduleRefresh()">
@@ -1139,10 +1155,8 @@
                         </div>
                     </div>
                 </div>
-
-                    </div>
-                    </div>
-                </div>
+                    </div>{{-- /x-show open (Contact Types) --}}
+                </div>{{-- /x-data accordion (Contact Types) --}}
 
                 {{-- ── Contact Sources (accordion) ── --}}
                 <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
@@ -1258,6 +1272,8 @@
                         </div>
                     </div>
                 </div>
+                    </div>{{-- /x-show open (Contact Sources) --}}
+                </div>{{-- /x-data accordion (Contact Sources) --}}
 
                 {{-- ── Contact Tags (accordion) ── --}}
                 <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">

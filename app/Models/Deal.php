@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use App\Services\Finance\CommissionCalculator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Deal extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, BelongsToAgency;
 
     protected $fillable = [
+        'agency_id',
         'deal_no',
 
         'period',

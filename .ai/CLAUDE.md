@@ -1,6 +1,6 @@
 # CoreX OS — Claude Instructions
 > **Root entry point. Read this first. Every session. No exceptions.**
-> Last updated: 2026-03-10
+> Last updated: 2026-04-14
 
 ---
 
@@ -94,7 +94,15 @@ Every new feature includes permission keys in `CoreXPermissionSeeder.php`, sideb
 ### 6. Production quality only.
 No demo modes. No "we'll fix it later." No patches over root causes. If it works, it works correctly. If it doesn't, fix the root cause.
 
-### 7. Branch rules.
+### 7. Multi-tenancy is non-negotiable.
+Every tenant-owned table has an `agency_id` column and every tenant-owned model
+uses `App\Models\Concerns\BelongsToAgency`. A user of Agency A must never read
+or write Agency B data — enforced structurally by the global `AgencyScope`,
+not by ad-hoc `where('agency_id', …)` in controllers. New pillar tables ship
+with `agency_id` from day one. Full spec: `.ai/specs/multi-tenancy.md`. Do
+not use `withoutGlobalScope(AgencyScope::class)` in request code.
+
+### 8. Branch rules.
 - `main` = production server (91.99.130.85)
 - `HFC2402` = Johan's dev branch
 - `andre` = Andre's dev branch
@@ -165,6 +173,7 @@ No demo modes. No "we'll fix it later." No patches over root causes. If it works
 | `specs/compliance.md` | Compliance module spec | When working on FICA/POPIA/PPRA |
 | `specs/ellie.md` | Ellie AI assistant spec | When working on Ellie |
 | `specs/tvadisplay.md` | TV display spec | When working on TV |
+| `specs/multi-tenancy.md` | Agency isolation — global scope, switcher rules | Any feature touching the DB |
 
 ---
 

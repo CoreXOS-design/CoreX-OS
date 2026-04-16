@@ -616,6 +616,7 @@
         @endif
         @endpermission
 
+
         {{-- Franchise Admin --}}
         @permission('access_franchise_admin')
         <a href="{{ route('corex.franchise-admin') }}" class="corex-nav-item {{ request()->routeIs('corex.franchise-admin') ? 'active' : '' }}">
@@ -746,7 +747,48 @@
         @endpermission
 
         {{-- ═══════════════════════════════════════════
-             ADMIN SECTION
+             PLATFORM ADMIN (System Owners only)
+             Kept separate from the regular Admin section because System
+             Owners are platform identities, not agency members.
+             ═══════════════════════════════════════════ --}}
+        @if($isOwner)
+        <div class="corex-nav-divider"></div>
+        <div class="corex-nav-section-label">Platform Admin</div>
+
+        {{-- Agency Management --}}
+        <a href="{{ route('agencies.index') }}" class="corex-nav-item {{ request()->routeIs('agencies.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+            </svg>
+            <span>Agency Management</span>
+        </a>
+
+        {{-- Company Settings — per-agency identity, lives here because
+             Owners toggle between agencies and edit each one. --}}
+        <a href="{{ route('admin.company-settings') }}" class="corex-nav-item {{ request()->routeIs('admin.company-settings*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
+            </svg>
+            <span>Company Settings</span>
+        </a>
+
+        {{-- P24 Importer — owner-only (cross-agency bulk onboarding tool) --}}
+        <a href="{{ route('admin.importer.index') }}" class="corex-nav-item {{ request()->routeIs('admin.importer.index') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+            </svg>
+            <span>P24 Importer</span>
+        </a>
+        <a href="{{ route('admin.importer.review') }}" class="corex-nav-item {{ request()->routeIs('admin.importer.review') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <span>Property Review</span>
+        </a>
+        @endif
+
+        {{-- ═══════════════════════════════════════════
+             ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @if($user && $user->hasAnyPermission(['access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings']))
         <div class="corex-nav-divider"></div>

@@ -198,7 +198,7 @@ class Property24SyndicationService
      * Register a specific user as an agent on P24.
      * Returns true on success, or an error string on failure.
      */
-    private function ensureAgentRegisteredByUser(User $user): string|bool
+    public function ensureAgentRegisteredByUser(User $user): string|bool
     {
         $this->log('info', "ensureAgentRegistered for user #{$user->id} ({$user->name}), agent_photo_path=" . ($user->agent_photo_path ?? 'NULL'));
 
@@ -266,6 +266,84 @@ class Property24SyndicationService
         }
 
         return null;
+    }
+
+    /**
+     * Push the latest CoreX user details to P24 (name, contact, photo).
+     * If the agent isn't on P24 yet, registers them first.
+     * Returns true on success, or an error string.
+     */
+    public function updateAgentOnP24(User $user, bool $pushPhoto = true): bool|string
+    {
+        $p24AgentId = $this->getP24AgentId($user);
+        if (!$p24AgentId) {
+            // Not registered yet — create them; that flow also uploads the photo.
+            return $this->ensureAgentRegisteredByUser($user);
+        }
+
+        $agencyId = (int) config('services.property24_syndication.agency_id');
+        $parts    = explode(' ', trim($user->name), 2);
+
+        $isActive = (bool) $user->is_active && !$user->trashed();
+
+        $payload = [
+            'id'              => $p24AgentId,
+            'agencyId'        => $agencyId,
+            'firstname'       => $parts[0] ?? '',
+            'lastname'        => $parts[1] ?? $parts[0] ?? '',
+            'emailAddress'    => $user->email ?? '',
+            'mobileNumber'    => $this->normaliseSaPhone($user->cell ?? $user->phone),
+            'sourceReference' => 'CoreX-Agent-' . $user->id,
+            'published'       => $isActive,   // hides the profile from P24 portal when deactivated
+            'status'          => $isActive ? 'Active' : 'Inactive',
+            'receiveStatsMail' => false,
+            'countryId'       => 1,
+            'jobTitle'        => $user->designation ?: 'Sales Agent',
+        ];
+
+        // Only send workNumber if it looks like a SA landline (not mobile).
+        // P24 rejects mobile-format numbers in the work field with "Invalid work number".
+        if ($landline = $this->extractLandline($user->phone)) {
+            $payload['workNumber'] = $landline;
+        }
+        if (!empty($user->fax)) {
+            $fax = $this->normaliseSaPhone($user->fax);
+            if ($fax !== '') $payload['faxNumber'] = $fax;
+        }
+
+        $result = $this->client->updateAgent($payload);
+        if (!($result['success'] ?? false)) {
+            $this->log('error', "Agent update failed for #{$user->id}", ['result' => $result]);
+            return $result['message'] ?? 'Unknown agent update error';
+        }
+
+        if ($pushPhoto) {
+            $this->uploadAgentPhotoIfAvailable($user, $p24AgentId);
+        }
+
+        return true;
+    }
+
+    /**
+     * Strip whitespace / punctuation from a SA phone number.
+     */
+    private function normaliseSaPhone(?string $raw): string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $raw);
+        return $digits ?: '';
+    }
+
+    /**
+     * Return the number only if it looks like a SA landline (0[1-5]XXXXXXXXX, 10 digits).
+     * Returns null for mobile (08X/07X/06X) or anything too short/long —
+     * so we don't send invalid work numbers that P24 rejects.
+     */
+    private function extractLandline(?string $raw): ?string
+    {
+        $d = $this->normaliseSaPhone($raw);
+        if (strlen($d) !== 10) return null;
+        if (!preg_match('/^0[1-5]\d{8}$/', $d)) return null;
+        return $d;
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,7 +15,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes, BelongsToAgency;
 
     protected $fillable = [
         'name',
@@ -53,6 +54,13 @@ class User extends Authenticatable
         'ffc_number',
         'website',
         'theme',
+
+        // Private Property integration
+        'pp_unique_agent_id',
+
+        // Property24 importer
+        'p24_agent_id',
+        'source_reference',
     ];
 
     protected $hidden = [
@@ -154,6 +162,42 @@ class User extends Authenticatable
     public function roleModel(): ?Role
     {
         return Role::allRoles()->firstWhere('name', $this->role ?? '');
+    }
+
+    /**
+     * Names of every role flagged `is_owner = true`. System Owners are
+     * platform identities, not agency members, so any query that builds
+     * an "agency users / agents" list MUST exclude them — otherwise they
+     * appear in property pickers, contact filters, commission tables,
+     * branch assignment, etc., which is the cross-agency bleed we're
+     * trying to close.
+     *
+     * @return array<int, string>
+     */
+    public static function ownerRoleNames(): array
+    {
+        return Role::allRoles()
+            ->where('is_owner', true)
+            ->pluck('name')
+            ->all();
+    }
+
+    /**
+     * Query scope: restrict to agency-member users (exclude System Owners).
+     *
+     * Use on every listing that represents "users of an agency" — agent
+     * pickers, user management, commission tables, role manager, branch
+     * assignments. Do NOT use on audit/log queries where you legitimately
+     * need to resolve the actor regardless of role.
+     */
+    public function scopeAgencyMembers($query)
+    {
+        $ownerNames = static::ownerRoleNames();
+        if (empty($ownerNames)) {
+            return $query;
+        }
+
+        return $query->whereNotIn($query->getModel()->getTable() . '.role', $ownerNames);
     }
 
     public function isCandidate(): bool

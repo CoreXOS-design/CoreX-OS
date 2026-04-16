@@ -24,7 +24,9 @@
     <form method="POST"
           action="{{ $property ? route('corex.properties.update', $property) : route('corex.properties.store') }}"
           enctype="multipart/form-data"
-          class="space-y-5">
+          class="space-y-5"
+          id="property-form"
+          novalidate>
         @csrf
         @if($property) @method('PUT') @endif
 
@@ -393,4 +395,136 @@
     </form>
     @endif
 </div>
+
+{{-- ── Required Fields Modal ───────────────────────────────────────────── --}}
+<div id="required-fields-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 px-4"
+     role="dialog" aria-modal="true" aria-labelledby="required-fields-title">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 flex items-start gap-3">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style="background:#fee2e2;">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:#dc2626;" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 id="required-fields-title" class="text-base font-bold text-slate-800">Missing Required Fields</h3>
+                <p class="text-xs text-slate-500 mt-0.5">Please complete the following before creating the property:</p>
+            </div>
+        </div>
+        <div class="px-6 py-4 max-h-64 overflow-y-auto">
+            <ul id="required-fields-list" class="list-disc list-inside space-y-1 text-sm text-slate-700"></ul>
+        </div>
+        <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+            <button type="button" id="required-fields-close"
+                    class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 border border-slate-300 hover:bg-slate-100 transition-colors">
+                Close
+            </button>
+            <button type="button" id="required-fields-goto"
+                    class="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
+                    style="background:var(--brand-default,#0b2a4a);"
+                    onmouseover="this.style.background='#0a2340'" onmouseout="this.style.background='var(--brand-default,#0b2a4a)'">
+                Take Me There
+            </button>
+        </div>
+    </div>
+</div>
+
+@push('scripts')
+<script>
+(function() {
+    var form    = document.getElementById('property-form');
+    var modal   = document.getElementById('required-fields-modal');
+    var listEl  = document.getElementById('required-fields-list');
+    var closeBtn= document.getElementById('required-fields-close');
+    var gotoBtn = document.getElementById('required-fields-goto');
+    var firstMissingEl = null;
+
+    if (!form || !modal) return;
+
+    function labelFor(field) {
+        // Try to find an associated <label> by walking up to the wrapping div
+        var wrap = field.closest('div');
+        if (wrap) {
+            var lbl = wrap.querySelector('label');
+            if (lbl) {
+                // Strip the asterisk and trim
+                return lbl.textContent.replace(/\*/g, '').trim();
+            }
+        }
+        return field.name || 'Required field';
+    }
+
+    function openAncestors(el) {
+        // Open any collapsible Alpine sections containing the field
+        var node = el.parentElement;
+        while (node && node !== document.body) {
+            if (node.hasAttribute('x-data') && /open\s*:/.test(node.getAttribute('x-data') || '')) {
+                if (window.Alpine) {
+                    try {
+                        var data = Alpine.$data ? Alpine.$data(node) : null;
+                        if (data && 'open' in data) data.open = true;
+                    } catch (e) {}
+                }
+            }
+            node = node.parentElement;
+        }
+    }
+
+    function showModal(missing) {
+        listEl.innerHTML = '';
+        missing.forEach(function(item) {
+            var li = document.createElement('li');
+            li.textContent = item.label;
+            listEl.appendChild(li);
+        });
+        firstMissingEl = missing.length ? missing[0].el : null;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function hideModal() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    form.addEventListener('submit', function(e) {
+        var missing = [];
+        var fields = form.querySelectorAll('[required]');
+        fields.forEach(function(f) {
+            var val = (f.value || '').trim();
+            if (!val) {
+                missing.push({ el: f, label: labelFor(f) });
+            }
+        });
+
+        if (missing.length) {
+            e.preventDefault();
+            showModal(missing);
+        }
+    });
+
+    closeBtn.addEventListener('click', hideModal);
+
+    gotoBtn.addEventListener('click', function() {
+        hideModal();
+        if (firstMissingEl) {
+            openAncestors(firstMissingEl);
+            setTimeout(function() {
+                firstMissingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                try { firstMissingEl.focus({ preventScroll: true }); } catch (e) { firstMissingEl.focus(); }
+            }, 50);
+        }
+    });
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) hideModal();
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !modal.classList.contains('hidden')) hideModal();
+    });
+})();
+</script>
+@endpush
 @endsection

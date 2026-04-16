@@ -128,6 +128,38 @@ Settings
 
 ---
 
+## Multi-Tenancy (Agency Isolation)
+
+CoreX OS is multi-tenant. Each agency is a hard boundary — a user of Agency A
+must never read or write Agency B data.
+
+**How it's enforced (structural, not by convention):**
+
+- Every tenant-owned table carries an `agency_id` column — `users`, `branches`,
+  `properties`, `contacts`, `deals`, `presentations`, `documents` and all
+  downstream operational tables.
+- Every corresponding Eloquent model uses `App\Models\Concerns\BelongsToAgency`,
+  which registers `App\Models\Scopes\AgencyScope` as a global scope and
+  auto-fills `agency_id` on creation from `Auth::user()->effectiveAgencyId()`.
+- `AgencyScope` constrains every query to the effective agency, with
+  `agency_id IS NULL` treated as shared/global. It skips when no user is
+  authenticated (console, login) and for owner-role accounts that have not
+  entered the agency switcher.
+- `AgencySwitcherController` authorises the target agency before writing
+  `active_agency_id` into session — owners may switch anywhere, everyone
+  else may only switch to agencies they already belong to.
+
+**Rules for every feature:**
+
+1. New tenant table → `agency_id` from migration one, model uses the trait.
+2. No manual `where('agency_id', …)` in new code; the scope does it.
+3. No `withoutGlobalScope(AgencyScope::class)` in request code — console /
+   queues only, and only with a documented reason.
+
+Full spec and verification checklist: `.ai/specs/multi-tenancy.md`.
+
+---
+
 ## Tech Stack
 
 | Item | Value |

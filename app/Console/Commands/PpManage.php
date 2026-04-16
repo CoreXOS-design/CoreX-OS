@@ -12,10 +12,14 @@ use Illuminate\Console\Command;
 class PpManage extends Command
 {
     protected $signature = 'pp:manage
-        {action : Action to perform: submit, reactivate, deactivate, status, showday, register-agent, deactivate-agent, agent-image, list-agents, list-active, summary}
+        {action : Action to perform: submit, reactivate, deactivate, status, showday, register-agent, deactivate-agent, agent-image, submit-agent-images, list-agents, list-active, summary, update-agent-id, update-listing-id, add-video}
         {--property= : Property ID (for listing actions)}
         {--user= : User ID (for agent actions)}
         {--image-url= : Image URL (for agent-image action)}
+        {--pp-agent-id= : PP encrypted agent ID (for update-agent-id)}
+        {--pp-listing-id= : PP encrypted listing ID (for update-listing-id)}
+        {--youtube= : YouTube video ID, exactly 11 chars (for add-video)}
+        {--matterport= : Matterport ID (for add-video)}
         {--start= : Showday start datetime (Y-m-d H:i)}
         {--end= : Showday end datetime (Y-m-d H:i)}
         {--description= : Showday description}';
@@ -39,8 +43,12 @@ class PpManage extends Command
             'register-agent'   => $this->registerAgent($service),
             'deactivate-agent' => $this->deactivateAgent($service),
             'agent-image'      => $this->uploadAgentImage($service),
+            'submit-agent-images' => $this->submitAgentImages($service),
             'list-agents'      => $this->listAgents($client),
             'list-active'      => $this->listActive($client),
+            'update-agent-id'  => $this->updateAgentId($service),
+            'update-listing-id'=> $this->updateListingId($service),
+            'add-video'        => $this->addVideo($service),
             default            => $this->error("Unknown action: {$action}") ?? 1,
         };
     }
@@ -187,10 +195,10 @@ class PpManage extends Command
             $override  = config('services.private_property.image_base_url');
             $baseUrl   = rtrim(!empty($override) ? $override : config('app.url'), '/');
 
-            if ($user->profile_photo_path) {
-                $imageUrl = $baseUrl . '/storage/' . $user->profile_photo_path;
+            if ($user->agent_photo_path) {
+                $imageUrl = $baseUrl . '/storage/' . $user->agent_photo_path;
             } else {
-                $this->error('No --image-url provided and user has no profile_photo_path');
+                $this->error('No --image-url provided and user has no agent_photo_path');
                 return 1;
             }
         }
@@ -200,6 +208,41 @@ class PpManage extends Command
 
         $this->outputResult($result);
         return $result['success'] ? 0 : 1;
+    }
+
+    private function submitAgentImages(PrivatePropertySyndicationService $service): int
+    {
+        $property = $this->getProperty();
+        if (!$property) return 1;
+
+        $this->info("Submitting agent images for property #{$property->id}...");
+        $result = $service->submitAgentImages($property);
+
+        if (!empty($result['submitted'])) {
+            $this->info('Submitted:');
+            foreach ($result['submitted'] as $entry) {
+                $this->line("  ✓ Agent #{$entry['user_id']} ({$entry['name']}) — {$entry['url']}");
+            }
+        }
+
+        if (!empty($result['skipped'])) {
+            $this->warn('Skipped (no photo):');
+            foreach ($result['skipped'] as $entry) {
+                $this->line("  - Agent #{$entry['user_id']} ({$entry['name']}) — {$entry['reason']}");
+            }
+        }
+
+        if (!empty($result['errors'])) {
+            $this->error('Errors:');
+            foreach ($result['errors'] as $entry) {
+                $this->line("  ✗ Agent #{$entry['user_id']} ({$entry['name']}) — {$entry['message']}");
+            }
+        }
+
+        $total = count($result['submitted'] ?? []);
+        $this->info("Done. {$total} agent image(s) submitted.");
+
+        return empty($result['errors']) ? 0 : 1;
     }
 
     private function listAgents(PrivatePropertySoapClient $client): int
@@ -216,6 +259,74 @@ class PpManage extends Command
         $result = $client->getActiveListings();
         $this->line(json_encode($result, JSON_PRETTY_PRINT));
         return 0;
+    }
+
+    private function updateAgentId(PrivatePropertySyndicationService $service): int
+    {
+        $user = $this->getUser();
+        if (!$user) return 1;
+
+        $ppAgentId = $this->option('pp-agent-id');
+        if (!$ppAgentId) {
+            $this->error('--pp-agent-id is required');
+            return 1;
+        }
+
+        $this->info("Updating PP agent ID for user #{$user->id} ({$user->name})...");
+        $result = $service->updateUniqueAgentId($user, $ppAgentId);
+
+        $this->outputResult($result);
+        return $result['success'] ? 0 : 1;
+    }
+
+    private function updateListingId(PrivatePropertySyndicationService $service): int
+    {
+        $property = $this->getProperty();
+        if (!$property) return 1;
+
+        $ppListingId = $this->option('pp-listing-id');
+        if (!$ppListingId) {
+            $this->error('--pp-listing-id is required');
+            return 1;
+        }
+
+        $this->info("Updating PP listing ID for property #{$property->id}...");
+        $result = $service->updateUniqueListingId($property, $ppListingId);
+
+        $this->outputResult($result);
+        return $result['success'] ? 0 : 1;
+    }
+
+    private function addVideo(PrivatePropertySyndicationService $service): int
+    {
+        $property = $this->getProperty();
+        if (!$property) return 1;
+
+        $youtube   = $this->option('youtube');
+        $matterport = $this->option('matterport');
+
+        if (!$youtube && !$matterport) {
+            $this->error('At least one of --youtube or --matterport is required');
+            return 1;
+        }
+
+        if ($youtube && strlen($youtube) !== 11) {
+            $this->error("YouTube ID must be exactly 11 characters. Got: " . strlen($youtube));
+            return 1;
+        }
+
+        // Save to property record
+        $property->update(array_filter([
+            'youtube_video_id' => $youtube,
+            'matterport_id'    => $matterport,
+        ], fn($v) => $v !== null));
+        $property->refresh();
+
+        $this->info("Pushing video/Matterport for property #{$property->id}...");
+        $result = $service->pushVideoOrMatterport($property);
+
+        $this->outputResult($result);
+        return $result['success'] ? 0 : 1;
     }
 
     private function getProperty(): ?Property

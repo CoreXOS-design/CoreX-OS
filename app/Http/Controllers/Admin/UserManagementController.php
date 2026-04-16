@@ -7,7 +7,10 @@ use App\Mail\UserInviteMail;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Branch;
+use App\Services\Syndication\Property24\Property24ApiClient;
+use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -16,13 +19,14 @@ use Illuminate\Validation\Rule;
 
 class UserManagementController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
 
         $agencyId = auth()->user()->effectiveAgencyId();
 
-        $users = User::when($agencyId, function ($q) use ($agencyId) {
+        $users = User::agencyMembers()
+            ->when($agencyId, function ($q) use ($agencyId) {
                 $q->where(function ($q2) use ($agencyId) {
                     $q2->where('agency_id', $agencyId)
                         ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
@@ -42,7 +46,38 @@ class UserManagementController extends Controller
             ->orderBy('name')
             ->get(['id','name']);
 
-        return view('admin.users.index', compact('users','branches','designations'));
+        $p24AgentMap = $this->fetchP24AgentMap($request->boolean('refresh_p24'));
+
+        return view('admin.users.index', compact('users','branches','designations','p24AgentMap'));
+    }
+
+    /**
+     * Build map of [user_id => P24 agent id] from the P24 agent list.
+     * Cached for 10 minutes; pass refresh=true to bust the cache.
+     */
+    private function fetchP24AgentMap(bool $refresh = false): array
+    {
+        $cacheKey = 'p24:agent-map:by-source-ref';
+        if ($refresh) Cache::forget($cacheKey);
+
+        return Cache::remember($cacheKey, 600, function () {
+            try {
+                $client = app(Property24ApiClient::class);
+                $result = $client->getAgents();
+                if (!($result['success'] ?? false)) return [];
+
+                $map = [];
+                foreach ($result['data'] ?? [] as $agent) {
+                    $ref = $agent['sourceReference'] ?? '';
+                    if (preg_match('/^CoreX-Agent-(\d+)$/', $ref, $m)) {
+                        $map[(int) $m[1]] = (int) ($agent['id'] ?? 0);
+                    }
+                }
+                return $map;
+            } catch (\Throwable $e) {
+                return [];
+            }
+        });
     }
 
     public function create()
@@ -94,7 +129,10 @@ class UserManagementController extends Controller
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
+            'test_agent'      => ['nullable', 'in:0,1'],
         ]);
+
+        $isTestAgent = ($request->input('test_agent') === '1');
 
         $fullName = trim($data['name'] . ' ' . $data['surname']);
 
@@ -146,6 +184,30 @@ class UserManagementController extends Controller
             $ext = $request->file('ffc_certificate')->getClientOriginalExtension();
             $path = $request->file('ffc_certificate')->storeAs("agents/{$user->id}", "ffc.{$ext}", 'public');
             $user->update(['ffc_certificate_path' => $path]);
+        }
+
+        if ($isTestAgent) {
+            // Test-agent flow: mark verified immediately (bypass invite),
+            // force-fill because email_verified_at is not in $fillable.
+            $user->forceFill(['email_verified_at' => now()])->save();
+
+            // Register on P24 right away so the agent gets an ID.
+            $p24Note = '';
+            try {
+                $p24 = app(Property24SyndicationService::class);
+                $result = $p24->ensureAgentRegisteredByUser($user->fresh());
+                if ($result === true) {
+                    $agentId = $p24->getP24AgentId($user->fresh());
+                    Cache::forget('p24:agent-map:by-source-ref');
+                    $p24Note = $agentId ? " P24 agentId: {$agentId}." : ' Registered on P24.';
+                } else {
+                    $p24Note = ' P24 registration failed: ' . (is_string($result) ? $result : 'unknown');
+                }
+            } catch (\Throwable $e) {
+                $p24Note = ' P24 registration error: ' . $e->getMessage();
+            }
+
+            return redirect()->route('admin.users')->with('status', "Test agent \"{$fullName}\" created (no invite email sent).{$p24Note}");
         }
 
         // Send invitation email
@@ -258,7 +320,35 @@ class UserManagementController extends Controller
             $user->update(['ffc_certificate_path' => $path]);
         }
 
-        return redirect()->route('admin.users.edit', $user)->with('status', "User \"{$fullName}\" updated.");
+        $p24Note = $this->pushUserToP24($user->fresh());
+
+        return redirect()->route('admin.users.edit', $user)->with('status', "User \"{$fullName}\" updated.{$p24Note}");
+    }
+
+    /**
+     * Push the user's details to Property24.
+     * Returns a short status string to append to the flash message.
+     * Silent if the user hasn't been synced to P24 yet (no agent ID on file).
+     */
+    private function pushUserToP24(User $user): string
+    {
+        try {
+            $p24 = app(Property24SyndicationService::class);
+            $existingId = $p24->getP24AgentId($user);
+            if (!$existingId) {
+                // Not on P24 yet — don't auto-register on every edit; require explicit sync.
+                return '';
+            }
+
+            $result = $p24->updateAgentOnP24($user, pushPhoto: true);
+            Cache::forget('p24:agent-map:by-source-ref');
+
+            return $result === true
+                ? ' Synced to Property24 (agent #' . $existingId . ').'
+                : ' P24 sync warning: ' . (is_string($result) ? $result : 'unknown');
+        } catch (\Throwable $e) {
+            return ' P24 sync error: ' . $e->getMessage();
+        }
     }
 
     public function updateDefaults(Request $request, User $user)
@@ -457,7 +547,9 @@ class UserManagementController extends Controller
             $user->update(['ffc_certificate_path' => $path]);
         }
 
-        return back()->with('status', "Updated role/branch for {$user->name}.");
+        $p24Note = $this->pushUserToP24($user->fresh());
+
+        return back()->with('status', "Updated role/branch for {$user->name}.{$p24Note}");
     }
 
     public function resendInvite(User $user)
@@ -497,6 +589,34 @@ class UserManagementController extends Controller
         return back();
     }
 
+    /**
+     * Push a user to Property24 so they get a P24 agent ID.
+     * Safe to call repeatedly — if the agent already exists on P24
+     * (matched via sourceReference), no duplicate is created.
+     */
+    public function syncP24(User $user)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        try {
+            $p24 = app(Property24SyndicationService::class);
+            $result = $p24->ensureAgentRegisteredByUser($user);
+
+            if ($result !== true) {
+                return back()->withErrors('P24 sync failed: ' . (is_string($result) ? $result : 'unknown error'));
+            }
+
+            $agentId = $p24->getP24AgentId($user);
+            Cache::forget('p24:agent-map:by-source-ref');
+
+            return back()->with('status', $agentId
+                ? "Synced {$user->name} to Property24. Agent ID: {$agentId}."
+                : "Synced {$user->name} to Property24 (agent ID unavailable).");
+        } catch (\Throwable $e) {
+            return back()->withErrors('P24 sync error: ' . $e->getMessage());
+        }
+    }
+
     public function toggle(User $user)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
@@ -509,7 +629,10 @@ class UserManagementController extends Controller
             'is_active' => !$user->is_active
         ]);
 
-        return back();
+        $p24Note = $this->pushUserToP24($user->fresh());
+        $state = $user->fresh()->is_active ? 'activated' : 'deactivated';
+
+        return back()->with('status', "{$user->name} {$state}.{$p24Note}");
     }
 
     public function delete(User $user)
@@ -525,8 +648,12 @@ class UserManagementController extends Controller
         DB::table('branch_assignments')->where('user_id', $user->id)->delete();
 
         $user->update(['is_active' => false]);
+
+        // Mark inactive on P24 BEFORE soft-deleting so we still have the user to push.
+        $p24Note = $this->pushUserToP24($user->fresh());
+
         $user->delete(); // soft delete (sets deleted_at)
 
-        return redirect()->route('admin.users')->with('status', "User \"{$name}\" has been deleted.");
+        return redirect()->route('admin.users')->with('status', "User \"{$name}\" has been deleted.{$p24Note}");
     }
 }

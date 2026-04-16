@@ -12,11 +12,12 @@ class SplitterDocType extends Model
 
     protected $table = 'document_types';
 
-    protected $fillable = ['slug', 'label', 'sort_order', 'is_active'];
+    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'listing_types'];
 
     protected $casts = [
-        'sort_order' => 'integer',
-        'is_active'  => 'boolean',
+        'sort_order'    => 'integer',
+        'is_active'     => 'boolean',
+        'listing_types' => 'array',
     ];
 
     public function scopeActive($query)

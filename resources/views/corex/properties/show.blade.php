@@ -293,6 +293,10 @@
                                 'hideStreetNumber'=> (bool) ($property->pp_hide_street_number ?? false),
                                 'hideComplexName' => (bool) ($property->pp_hide_complex_name ?? false),
                                 'hideUnitNumber'  => (bool) ($property->pp_hide_unit_number ?? false),
+                                'youtubeVideoId'  => $property->youtube_video_id ?? '',
+                                'matterportId'    => $property->matterport_id ?? '',
+                                'ppDelayUntil'    => $property->pp_delay_until ? $property->pp_delay_until->format('d M Y') : '',
+                                'ppDelayUntilRaw' => $property->pp_delay_until ? $property->pp_delay_until->toIso8601String() : '',
                             ];
                         @endphp
                         <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-3">
@@ -343,6 +347,18 @@
                                 </template>
                             </div>
 
+                            {{-- PP Exclusive listing warning --}}
+                            <div x-show="isPpExclusiveActive()" x-cloak
+                                 class="rounded-md px-3 py-2.5 space-y-1"
+                                 style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25);">
+                                <p class="text-[11px] font-semibold" style="color:#f59e0b;">
+                                    PP Exclusive listing — do not publish elsewhere until <span x-text="ppDelayUntil"></span>
+                                </p>
+                                <p class="text-[10px]" style="color:#d97706;">
+                                    <span x-text="ppDelayDaysRemaining()"></span> days remaining
+                                </p>
+                            </div>
+
                             {{-- Missing fields warning --}}
                             <div x-show="enabled && missingFields.length > 0" x-cloak
                                  class="rounded-md px-3 py-2.5 space-y-1.5"
@@ -367,8 +383,8 @@
                             </div>
                             @endif
 
-                            {{-- Action buttons --}}
-                            <div x-show="enabled" x-cloak class="flex flex-wrap gap-2">
+                            {{-- Submit button — only shown before first successful submission --}}
+                            <div x-show="enabled && !ppRef && status !== 'active' && status !== 'submitted'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button"
                                         @click.stop="submitListing()"
                                         :disabled="loading || missingFields.length > 0"
@@ -379,25 +395,44 @@
                                     <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
                                     <span x-text="loading ? 'Submitting...' : 'Submit to PP'"></span>
                                 </button>
-                                {{-- Reactivate button (for deactivated listings) --}}
-                                <button type="button"
-                                        x-show="status === 'deactivated'"
-                                        @click.stop="reactivateListing()"
-                                        :disabled="loading"
+                                {{-- Reactivate (for deactivated, no ref yet edge case) --}}
+                                <button type="button" x-show="status === 'deactivated'" @click.stop="reactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
                                         style="background:rgba(0,212,170,0.10); color:#00d4aa; border:1px solid rgba(0,212,170,0.25);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Reactivate
                                 </button>
-                                {{-- Deactivate button --}}
-                                <button type="button"
-                                        x-show="status === 'submitted' || status === 'active'"
-                                        @click.stop="deactivateListing()"
-                                        :disabled="loading"
+                            </div>
+
+                            {{-- Active listing actions: View · Refresh · Deactivate --}}
+                            <div x-show="enabled && ppRef && (status === 'active' || status === 'submitted')" x-cloak class="flex flex-wrap gap-2">
+                                <a :href="ppListingUrl()" target="_blank"
+                                   class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
+                                   style="background:#00d4aa; color:#fff;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                    View on PP
+                                </a>
+                                <button type="button" @click.stop="refreshListing()" :disabled="loading"
+                                        class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(0,212,170,0.10); color:#00d4aa; border:1px solid rgba(0,212,170,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                    <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
+                                </button>
+                                <button type="button" @click.stop="deactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
                                         style="background:rgba(239,68,68,0.10); color:#ef4444; border:1px solid rgba(239,68,68,0.25);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
+                                </button>
+                            </div>
+
+                            {{-- Deactivated listing actions: Reactivate --}}
+                            <div x-show="enabled && ppRef && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
+                                <button type="button" @click.stop="reactivateListing()" :disabled="loading"
+                                        class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                        style="background:rgba(0,212,170,0.10); color:#00d4aa; border:1px solid rgba(0,212,170,0.25);"
+                                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                    Reactivate
                                 </button>
                             </div>
 
@@ -433,6 +468,7 @@
                                     </template>
                                 </ul>
                             </div>
+
                         </div>
 
                         {{-- Property24 Syndication Panel --}}
@@ -453,12 +489,21 @@
                                 'suburbId'        => $property->pp_suburb_id ? (\App\Models\P24Suburb::find($property->pp_suburb_id)?->p24_id ?? '') : (\App\Models\P24Suburb::lookup($property->suburb ?? '')?->p24_id ?? ''),
                                 'listingType'     => strtolower($property->listing_type ?? 'sale'),
                                 'missingFields'   => $p24MissingFields ?? [],
+                                'ppDelayUntilRaw' => $property->pp_delay_until ? $property->pp_delay_until->toIso8601String() : '',
+                                'ppDelayUntil'    => $property->pp_delay_until ? $property->pp_delay_until->format('d M Y') : '',
                             ];
                         @endphp
                         <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-3 mt-2">
-                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
+                            {{-- P24 exclusive lock warning --}}
+                            <div x-show="isPpExclusiveLocked()" x-cloak
+                                 class="rounded-md px-3 py-2 text-[11px] font-medium"
+                                 style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); color:#f59e0b;">
+                                Cannot enable P24 syndication during PP exclusive period (until <span x-text="ppDelayUntil"></span>)
+                            </div>
+                            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
                                  style="background:var(--surface-2); border:1px solid var(--border);"
-                                 @click="toggleEnabled()"
+                                 :class="isPpExclusiveLocked() ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'"
+                                 @click="!isPpExclusiveLocked() && toggleEnabled()"
                                  :style="enabled ? 'background:rgba(59,130,246,0.06); border-color:rgba(59,130,246,0.25);' : 'background:var(--surface-2); border-color:var(--border);'">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:#3b82f6' : 'color:var(--text-muted)'">
@@ -810,7 +855,8 @@
         <div x-show="activeTab === 'info'" {{ $isNew ? '' : 'x-cloak' }} class="p-6">
             <form id="prop-update-form" method="POST" enctype="multipart/form-data"
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
-                  class="space-y-6">
+                  class="space-y-6"
+                  novalidate>
                 @csrf
                 @if(!$isNew) @method('PUT') @endif
 
@@ -841,8 +887,8 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property Type</label>
-                            <select name="property_type" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property Type <span class="text-red-400">*</span></label>
+                            <select name="property_type" required class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                 <option value="">— None —</option>
                                 @foreach($settingItems['types'] as $item)
                                 <option value="{{ $item->name }}" {{ old('property_type', $property->property_type) === $item->name ? 'selected' : '' }}>
@@ -1944,34 +1990,99 @@
                 {{-- Agent / Branch --}}
                 <div>
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Assignment</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Primary Agent <span class="text-red-400">*</span></label>
-                            <select name="agent_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                @foreach($agents as $agent)
-                                <option value="{{ $agent->id }}" {{ (int) old('agent_id', $property->agent_id) === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
-                                @endforeach
-                            </select>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {{-- Primary Agent Card --}}
+                        <div class="rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-secondary);">Primary Agent <span class="text-red-400">*</span></label>
+                            <div class="flex items-start gap-3" x-data="{ agentId: {{ (int) old('agent_id', $property->agent_id) }} }">
+                                {{-- Agent photo preview --}}
+                                @php
+                                    $primaryAgent = $agents->firstWhere('id', $property->agent_id);
+                                    $primaryImgSrc = $property->pp_agent_image_path
+                                        ? asset('storage/' . $property->pp_agent_image_path)
+                                        : ($primaryAgent && $primaryAgent->agent_photo_path ? asset('storage/' . $primaryAgent->agent_photo_path) : null);
+                                @endphp
+                                <div class="flex-shrink-0">
+                                    @if($primaryImgSrc)
+                                        <img src="{{ $primaryImgSrc }}" alt="" class="w-14 h-14 rounded-md object-cover" style="border:1px solid var(--border);">
+                                    @else
+                                        <div class="w-14 h-14 rounded-md flex items-center justify-center" style="background:var(--surface-3); border:1px solid var(--border);">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                                        </div>
+                                    @endif
+                                </div>
+                                <div class="flex-1 space-y-2">
+                                    <select name="agent_id" x-model="agentId" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface-3); border:1px solid var(--border); color:var(--text-primary);">
+                                        @foreach($agents as $agent)
+                                        <option value="{{ $agent->id }}" {{ (int) old('agent_id', $property->agent_id) === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Second Agent</label>
-                            <select name="pp_second_agent_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— None —</option>
-                                @foreach($agents as $agent)
-                                <option value="{{ $agent->id }}" {{ (int) old('pp_second_agent_id', $property->pp_second_agent_id ?? '') === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
-                                @endforeach
-                            </select>
+
+                        {{-- Second Agent Card --}}
+                        <div class="rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-secondary);">Second Agent</label>
+                            <div class="flex items-start gap-3">
+                                {{-- Agent photo preview --}}
+                                @php
+                                    $secondAgent = $property->pp_second_agent_id ? $agents->firstWhere('id', $property->pp_second_agent_id) : null;
+                                    $secondImgSrc = $property->pp_second_agent_image_path
+                                        ? asset('storage/' . $property->pp_second_agent_image_path)
+                                        : ($secondAgent && $secondAgent->agent_photo_path ? asset('storage/' . $secondAgent->agent_photo_path) : null);
+                                @endphp
+                                <div class="flex-shrink-0">
+                                    @if($secondImgSrc)
+                                        <img src="{{ $secondImgSrc }}" alt="" class="w-14 h-14 rounded-md object-cover" style="border:1px solid var(--border);">
+                                    @else
+                                        <div class="w-14 h-14 rounded-md flex items-center justify-center" style="background:var(--surface-3); border:1px solid var(--border);">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
+                                        </div>
+                                    @endif
+                                </div>
+                                <div class="flex-1 space-y-2">
+                                    <select name="pp_second_agent_id" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface-3); border:1px solid var(--border); color:var(--text-primary);">
+                                        <option value="">— None —</option>
+                                        @foreach($agents as $agent)
+                                        <option value="{{ $agent->id }}" {{ (int) old('pp_second_agent_id', $property->pp_second_agent_id ?? '') === $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Branch</label>
-                            <select name="branch_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— None —</option>
-                                @foreach($branches as $branch)
-                                <option value="{{ $branch->id }}" {{ (int) old('branch_id', $property->branch_id) === $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
-                                @endforeach
-                            </select>
+                    </div>
+
+                    {{-- Video & Virtual Tour Links --}}
+                    <div class="mt-4">
+                        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Video & Virtual Tour</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">YouTube Video <span class="opacity-60">(URL or ID)</span></label>
+                                <input type="text" name="youtube_video_id" value="{{ old('youtube_video_id', $property->youtube_video_id) }}"
+                                       placeholder="https://www.youtube.com/watch?v=... or video ID"
+                                       class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Matterport ID</label>
+                                <input type="text" name="matterport_id" value="{{ old('matterport_id', $property->matterport_id) }}"
+                                       placeholder="Matterport scan ID"
+                                       class="w-full rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
                         </div>
-                        {{-- Publish to Website moved to syndication panel in sidebar --}}
+                    </div>
+
+                    {{-- Branch --}}
+                    <div class="mt-4" style="max-width:50%;">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Branch</label>
+                        <select name="branch_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <option value="">— None —</option>
+                            @foreach($branches as $branch)
+                            <option value="{{ $branch->id }}" {{ (int) old('branch_id', $property->branch_id) === $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
+                            @endforeach
+                        </select>
                     </div>
                 </div>
 
@@ -2094,14 +2205,14 @@
                 <form method="POST" action="{{ route('corex.properties.update', $property) }}"
                       enctype="multipart/form-data">
                     @csrf @method('PUT')
-                    {{-- Pass required fields silently --}}
-                    <input type="hidden" name="title" value="{{ $property->title }}">
-                    <input type="hidden" name="suburb" value="{{ $property->suburb }}">
-                    <input type="hidden" name="price" value="{{ $property->price }}">
-                    <input type="hidden" name="beds" value="{{ $property->beds }}">
-                    <input type="hidden" name="baths" value="{{ $property->baths }}">
-                    <input type="hidden" name="garages" value="{{ $property->garages }}">
-                    <input type="hidden" name="status" value="{{ $property->status }}">
+                    {{-- Pass required fields silently — fall back to safe defaults when null --}}
+                    <input type="hidden" name="title"   value="{{ $property->title ?: 'Untitled property' }}">
+                    <input type="hidden" name="suburb"  value="{{ $property->suburb ?: 'Unknown' }}">
+                    <input type="hidden" name="price"   value="{{ (int) ($property->price ?? 0) }}">
+                    <input type="hidden" name="beds"    value="{{ (int) ($property->beds ?? 0) }}">
+                    <input type="hidden" name="baths"   value="{{ (int) ($property->baths ?? 0) }}">
+                    <input type="hidden" name="garages" value="{{ (int) ($property->garages ?? 0) }}">
+                    <input type="hidden" name="status"  value="{{ $property->status }}">
 
                     <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
                            style="border-color:var(--border-hover); color:var(--text-secondary);"
@@ -2138,22 +2249,8 @@
                 if (empty($spacesList) && !empty($spacesData) && isset($spacesData[0]['type'])) {
                     $spacesList = $spacesData;
                 }
-                $availableTags = ['Exterior'];
-                if (empty($spacesList)) {
-                    for ($i = 1; $i <= (int)($property->beds ?? 0); $i++) $availableTags[] = 'Bedroom ' . $i;
-                    for ($i = 1; $i <= (int)($property->baths ?? 0); $i++) $availableTags[] = 'Bathroom ' . $i;
-                    if (($property->garages ?? 0) > 0) $availableTags[] = 'Garage';
-                    $availableTags = array_merge($availableTags, ['Kitchen', 'Lounge']);
-                } else {
-                    foreach ($spacesList as $sp) {
-                        $type = $sp['type'] ?? ''; $count = (int)($sp['count'] ?? 1);
-                        if (in_array($type, ['Bedroom','Bathroom','Kitchen','Lounge','Dining Room','Study','Patio','Garden','Pool','Flatlet','Garage'])) {
-                            if ($count > 1) { for ($i = 1; $i <= $count; $i++) $availableTags[] = $type . ' ' . $i; }
-                            else { $availableTags[] = $type; }
-                        }
-                    }
-                }
-                $availableTags = array_merge($availableTags, ['Garden / Pool', 'Views']);
+                // Single source of truth — see Property::getAvailableGalleryTags()
+                $availableTags = $property->getAvailableGalleryTags();
             @endphp
 
             <div x-data="smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }})" class="space-y-4">
@@ -2196,9 +2293,13 @@
                         </div>
                     </div>
                     <div class="flex flex-wrap gap-1.5">
-                        <template x-for="tag in availableTags" :key="tag">
+                        <template x-for="(tag, tIdx) in availableTags" :key="tag">
                             <button type="button" @click="tagSelected(tag)"
-                                    class="text-[10px] font-semibold px-2.5 py-1 rounded-full transition-colors"
+                                    draggable="true"
+                                    @dragstart="tagDragStart(tIdx, $event)"
+                                    @dragover.prevent="tagDragOver(tIdx, $event)"
+                                    @drop.prevent="tagDragDrop()"
+                                    class="text-[10px] font-semibold px-2.5 py-1 rounded-full transition-colors cursor-grab"
                                     :style="activeTag === tag ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);'"
                                     x-text="tag"></button>
                         </template>
@@ -2710,58 +2811,96 @@
                 </form>
             </div>
 
-            {{-- Grouped files list --}}
-            <div>
-                <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">
-                    Files ({{ $allDriveDocs->count() }})
+            {{-- Document folders by type --}}
+            <div class="space-y-3">
+                <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">
+                    Document Folders ({{ $allDriveDocs->count() }} file{{ $allDriveDocs->count() === 1 ? '' : 's' }})
                 </h3>
 
-                @if($allDriveDocs->isNotEmpty())
                 @php
-                    // Group: contact-linked vs property-only using Document model's contacts pivot
-                    $contactDocs = collect();
-                    $propertyOnlyDocs = collect();
-                    foreach ($allDriveDocs as $driveDoc) {
-                        $grouping = $driveDoc->documentType->grouping ?? 'shared';
-                        $firstContact = $driveDoc->contacts->first();
-                        if ($firstContact && in_array($grouping, ['contact', 'shared'])) {
-                            $contactDocs->push($driveDoc);
-                        } else {
-                            $propertyOnlyDocs->push($driveDoc);
-                        }
+                    // Group uploaded docs by document_type_id
+                    $docsByType = $allDriveDocs->groupBy('document_type_id');
+                    // Docs with no type go to "Unfiled"
+                    $unfiledDocs = $docsByType->pull('') ?? collect();
+                    if ($docsByType->has(null)) {
+                        $unfiledDocs = $unfiledDocs->merge($docsByType->pull(null));
                     }
-                    $byContact = $contactDocs->groupBy(fn($d) => $d->contacts->first()?->id);
                 @endphp
 
-                {{-- Contact groups --}}
-                @foreach($byContact as $contactId => $docs)
-                @php $linkedContact = $docs->first()->contacts->first(); @endphp
-                <div class="mb-3" style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
-                    <div class="px-4 py-2.5 flex items-center gap-2" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 opacity-50"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
-                        <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $linkedContact?->name ?? ($linkedContact?->first_name ? $linkedContact->first_name.' '.$linkedContact->last_name : 'Unknown Contact') }}</span>
+                {{-- Folder for each applicable document type --}}
+                @foreach(($driveFolders ?? $documentTypes) as $folder)
+                @php $folderDocs = $docsByType->get($folder->id, collect()); @endphp
+                <div x-data="{ open: {{ $folderDocs->isNotEmpty() ? 'true' : 'false' }} }"
+                     class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    <button type="button" @click="open = !open"
+                            class="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                            style="background:var(--surface-2);"
+                            onmouseover="this.style.background='rgba(14,165,233,0.04)'" onmouseout="this.style.background='var(--surface-2)'">
+                        <div class="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
+                            <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $folder->label }}</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                                  style="background:{{ $folderDocs->isNotEmpty() ? 'rgba(14,165,233,0.12)' : 'var(--surface)' }}; color:{{ $folderDocs->isNotEmpty() ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-muted)' }};">{{ $folderDocs->count() }}</span>
+                        </div>
+                        <svg class="w-3.5 h-3.5 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div x-show="open" x-cloak style="border-top:1px solid var(--border);">
+                        @if($folderDocs->isNotEmpty())
+                            @foreach($folderDocs as $doc)
+                            @include('corex.properties._drive-row', ['doc' => $doc, 'property' => $property, 'documentTypes' => $documentTypes])
+                            @endforeach
+                        @else
+                            <div class="px-4 py-4 flex items-center justify-between">
+                                <span class="text-xs italic" style="color:var(--text-muted);">No files uploaded</span>
+                            </div>
+                        @endif
                     </div>
-                    @foreach($docs as $doc)
-                    @include('corex.properties._drive-row', ['doc' => $doc, 'property' => $property, 'documentTypes' => $documentTypes])
-                    @endforeach
                 </div>
                 @endforeach
 
-                {{-- Property Documents group --}}
-                @if($propertyOnlyDocs->isNotEmpty())
-                <div class="mb-3" style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
-                    <div class="px-4 py-2.5" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <span class="text-xs font-semibold" style="color:var(--text-muted);">Property Documents</span>
+                {{-- Unfiled documents --}}
+                @if($unfiledDocs->isNotEmpty())
+                <div x-data="{ open: true }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    <button type="button" @click="open = !open"
+                            class="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                            style="background:var(--surface-2);">
+                        <div class="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                            <span class="text-xs font-semibold" style="color:var(--text-muted);">Unfiled</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded-full font-medium" style="background:var(--surface); color:var(--text-muted);">{{ $unfiledDocs->count() }}</span>
+                        </div>
+                        <svg class="w-3.5 h-3.5 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div x-show="open" x-cloak style="border-top:1px solid var(--border);">
+                        @foreach($unfiledDocs as $doc)
+                        @include('corex.properties._drive-row', ['doc' => $doc, 'property' => $property, 'documentTypes' => $documentTypes])
+                        @endforeach
                     </div>
-                    @foreach($propertyOnlyDocs as $doc)
-                    @include('corex.properties._drive-row', ['doc' => $doc, 'property' => $property, 'documentTypes' => $documentTypes])
-                    @endforeach
                 </div>
                 @endif
 
-                @else
-                <div class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
-                    <div class="text-sm" style="color:var(--text-secondary);">No files uploaded yet.</div>
+                {{-- Remaining docs that belong to types NOT in driveFolders --}}
+                @php
+                    $folderIds = ($driveFolders ?? $documentTypes)->pluck('id')->toArray();
+                    $otherDocs = $docsByType->filter(fn($docs, $typeId) => !in_array($typeId, $folderIds))->flatten();
+                @endphp
+                @if($otherDocs->isNotEmpty())
+                <div x-data="{ open: true }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    <button type="button" @click="open = !open"
+                            class="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                            style="background:var(--surface-2);">
+                        <div class="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
+                            <span class="text-xs font-semibold" style="color:var(--text-muted);">Other Documents</span>
+                            <span class="text-xs px-1.5 py-0.5 rounded-full font-medium" style="background:var(--surface); color:var(--text-muted);">{{ $otherDocs->count() }}</span>
+                        </div>
+                        <svg class="w-3.5 h-3.5 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div x-show="open" x-cloak style="border-top:1px solid var(--border);">
+                        @foreach($otherDocs as $doc)
+                        @include('corex.properties._drive-row', ['doc' => $doc, 'property' => $property, 'documentTypes' => $documentTypes])
+                        @endforeach
+                    </div>
                 </div>
                 @endif
             </div>
@@ -3366,10 +3505,22 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
             }
             this.dirty = true;
             this.selected = [];
-            // Keep tag mode on so they can continue tagging more
+            // Auto-save after tagging
+            this.save();
         },
 
-        // Sort images by category order
+        // Drag reorder tags
+        _dragTagIdx: null,
+        tagDragStart(idx, e) { this._dragTagIdx = idx; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', ''); },
+        tagDragOver(idx, e) {
+            if (this._dragTagIdx === null || this._dragTagIdx === idx) return;
+            const item = this.availableTags.splice(this._dragTagIdx, 1)[0];
+            this.availableTags.splice(idx, 0, item);
+            this._dragTagIdx = idx;
+        },
+        tagDragDrop() { this._dragTagIdx = null; },
+
+        // Sort images by category order (uses current tag button order)
         sortByCategory() {
             const order = {};
             this.availableTags.forEach((t, i) => order[t] = i);
@@ -3378,6 +3529,7 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
             tagged.sort((a, b) => (order[this.tags[a]] ?? 999) - (order[this.tags[b]] ?? 999));
             this.images = [...tagged, ...untagged];
             this.dirty = true;
+            this.save();
         },
 
         // Drag to reorder
@@ -3512,6 +3664,16 @@ function ppSyndication(config) {
         hideStreetNumber: config.hideStreetNumber || false,
         hideComplexName: config.hideComplexName || false,
         hideUnitNumber: config.hideUnitNumber || false,
+        // Video / Matterport
+        youtubeVideoId: config.youtubeVideoId || '',
+        matterportId: config.matterportId || '',
+        videoLoading: false, videoMsg: '', videoOk: null,
+        // Listing ownership
+        ppListingId: '',
+        listingIdLoading: false, listingIdMsg: '', listingIdOk: null,
+        // Exclusive delay
+        ppDelayUntil: config.ppDelayUntil || '',
+        ppDelayUntilRaw: config.ppDelayUntilRaw || '',
         // Showday
         showShowdayForm: false,
         showdayStart: '',
@@ -3542,6 +3704,10 @@ function ppSyndication(config) {
             };
             if (!this.enabled && !this.status) return styles[''];
             return styles[this.status] || styles[''];
+        },
+
+        ppListingUrl() {
+            return this.ppRef ? `https://www.privateproperty.co.za/search?q=${this.ppRef}` : '#';
         },
 
         showMessage(msg, type = 'success') {
@@ -3637,6 +3803,36 @@ function ppSyndication(config) {
             }
         },
 
+        async refreshListing() {
+            this.loading = true;
+            this.debugErrors = [];
+            this.showDebug = false;
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({}),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.status = data.pp_syndication_status || 'active';
+                    this.ppRef = data.pp_ref || this.ppRef;
+                    this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    this.lastError = '';
+                    this.showMessage('Listing synced to PP');
+                } else {
+                    this.lastError = data.message || 'Sync failed';
+                    this.debugErrors = data.errors || [data.message];
+                    this.showDebug = true;
+                }
+            } catch (e) {
+                this.debugErrors = ['Network error: ' + e.message];
+                this.showDebug = true;
+            } finally {
+                this.loading = false;
+            }
+        },
+
         async deactivateListing() {
             if (!confirm('Deactivate this listing on Private Property?')) return;
             this.loading = true;
@@ -3713,6 +3909,51 @@ function ppSyndication(config) {
             }
         },
 
+        async pushVideo() {
+            if (!this.youtubeVideoId && !this.matterportId) { this.videoOk = false; this.videoMsg = 'Enter a YouTube ID or Matterport ID'; return; }
+            if (this.youtubeVideoId && this.youtubeVideoId.length !== 11) { this.videoOk = false; this.videoMsg = 'YouTube ID must be exactly 11 characters'; return; }
+            this.videoLoading = true; this.videoMsg = '';
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/video`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ youtube_video_id: this.youtubeVideoId || null, matterport_id: this.matterportId || null }),
+                });
+                const data = await res.json();
+                this.videoOk = data.success;
+                this.videoMsg = data.message;
+            } catch (e) { this.videoOk = false; this.videoMsg = 'Network error'; }
+            this.videoLoading = false;
+        },
+
+        async claimListingOwnership() {
+            if (!this.ppListingId.trim()) { this.listingIdOk = false; this.listingIdMsg = 'Enter PP Encrypted Listing ID'; return; }
+            if (!confirm('This will permanently claim PP ownership of this listing. Continue?')) return;
+            this.listingIdLoading = true; this.listingIdMsg = '';
+            try {
+                const res = await fetch(`/corex/properties/${this.propertyId}/syndication/update-id`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ pp_listing_id: this.ppListingId }),
+                });
+                const data = await res.json();
+                this.listingIdOk = data.success;
+                this.listingIdMsg = data.message;
+                if (data.success) this.ppListingId = '';
+            } catch (e) { this.listingIdOk = false; this.listingIdMsg = 'Network error'; }
+            this.listingIdLoading = false;
+        },
+
+        ppDelayDaysRemaining() {
+            if (!this.ppDelayUntilRaw) return 0;
+            const diff = new Date(this.ppDelayUntilRaw) - new Date();
+            return Math.max(0, Math.ceil(diff / 86400000));
+        },
+
+        isPpExclusiveActive() {
+            return this.ppDelayDaysRemaining() > 0;
+        },
+
         async saveVisibility() {
             try {
                 await fetch(`/corex/properties/${this.propertyId}/syndication/visibility`, {
@@ -3737,7 +3978,12 @@ function p24Syndication(config) {
         lastError: config.lastError || '', csrfToken: config.csrfToken, isSandbox: config.isSandbox ?? true,
         suburb: config.suburb || '', city: config.city || '', province: config.province || '', suburbId: config.suburbId || '', listingType: config.listingType || 'sale',
         missingFields: config.missingFields || [],
+        ppDelayUntilRaw: config.ppDelayUntilRaw || '', ppDelayUntil: config.ppDelayUntil || '',
         loading: false, message: '', messageType: 'success', debugErrors: [], showDebug: false,
+        isPpExclusiveLocked() {
+            if (!this.ppDelayUntilRaw) return false;
+            return new Date(this.ppDelayUntilRaw) > new Date();
+        },
         statusLabel() {
             const labels = {'':'Disabled','pending':'Pending','submitted':'Submitted','active':'Active','error':'Error','rejected':'Rejected','deactivated':'Deactivated'};
             if (!this.enabled && !this.status) return 'Disabled';
@@ -3804,6 +4050,144 @@ function p24Syndication(config) {
         },
     };
 }
+
+// ── Property form: required-fields modal ────────────────────────────────
+(function() {
+    var form     = document.getElementById('prop-update-form');
+    var modal    = document.getElementById('prop-required-modal');
+    if (!form || !modal) return;
+
+    var listEl   = document.getElementById('prop-required-list');
+    var closeBtn = document.getElementById('prop-required-close');
+    var gotoBtn  = document.getElementById('prop-required-goto');
+    var firstMissingEl = null;
+
+    function labelFor(field) {
+        // Look up the closest wrapping div, find its label
+        var wrap = field.closest('div');
+        while (wrap) {
+            var lbl = wrap.querySelector('label');
+            if (lbl && lbl.textContent.trim()) {
+                return lbl.textContent.replace(/\*/g, '').trim();
+            }
+            wrap = wrap.parentElement && wrap.parentElement.closest('div');
+            if (!wrap) break;
+        }
+        return field.name || 'Required field';
+    }
+
+    function activateTabFor(el) {
+        // Walk up looking for x-show="activeTab === '...'" and switch the root Alpine tab
+        var node = el.parentElement;
+        while (node && node !== document.body) {
+            var attr = node.getAttribute('x-show');
+            if (attr) {
+                var m = attr.match(/activeTab\s*===\s*['"]([^'"]+)['"]/);
+                if (m) {
+                    try {
+                        var root = node.closest('[x-data]');
+                        while (root) {
+                            var data = window.Alpine && Alpine.$data ? Alpine.$data(root) : null;
+                            if (data && 'activeTab' in data) { data.activeTab = m[1]; break; }
+                            root = root.parentElement && root.parentElement.closest('[x-data]');
+                        }
+                    } catch (e) {}
+                    break;
+                }
+            }
+            node = node.parentElement;
+        }
+    }
+
+    function showModal(missing) {
+        listEl.innerHTML = '';
+        missing.forEach(function(item) {
+            var li = document.createElement('li');
+            li.textContent = item.label;
+            listEl.appendChild(li);
+        });
+        firstMissingEl = missing.length ? missing[0].el : null;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+
+    function hideModal() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    form.addEventListener('submit', function(e) {
+        var missing = [];
+        var seen = {};
+        form.querySelectorAll('[required]').forEach(function(f) {
+            // Skip duplicate hidden inputs sharing a name
+            if (f.type === 'hidden') return;
+            if (seen[f.name]) return;
+            var val = (f.value || '').trim();
+            if (!val) {
+                seen[f.name] = true;
+                missing.push({ el: f, label: labelFor(f) });
+            }
+        });
+        if (missing.length) {
+            e.preventDefault();
+            showModal(missing);
+        }
+    });
+
+    closeBtn.addEventListener('click', hideModal);
+    gotoBtn.addEventListener('click', function() {
+        hideModal();
+        if (firstMissingEl) {
+            activateTabFor(firstMissingEl);
+            setTimeout(function() {
+                firstMissingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                try { firstMissingEl.focus({ preventScroll: true }); } catch (e) { firstMissingEl.focus(); }
+            }, 80);
+        }
+    });
+    modal.addEventListener('click', function(e) { if (e.target === modal) hideModal(); });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && !modal.classList.contains('hidden')) hideModal();
+    });
+})();
 </script>
 @endpush
+
+{{-- ── Required Fields Modal ───────────────────────────────────────────── --}}
+<div id="prop-required-modal"
+     class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/60 px-4"
+     role="dialog" aria-modal="true" aria-labelledby="prop-required-title">
+    <div class="rounded-2xl shadow-xl max-w-md w-full overflow-hidden"
+         style="background:var(--surface,#fff); border:1px solid var(--border);">
+        <div class="px-6 py-4 flex items-start gap-3" style="border-bottom:1px solid var(--border);">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style="background:rgba(220,38,38,0.12);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:#dc2626;" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                </svg>
+            </div>
+            <div class="flex-1">
+                <h3 id="prop-required-title" class="text-base font-bold" style="color:var(--text-primary);">Missing Required Fields</h3>
+                <p class="text-xs mt-0.5" style="color:var(--text-muted);">Please complete the following before saving:</p>
+            </div>
+        </div>
+        <div class="px-6 py-4 max-h-64 overflow-y-auto">
+            <ul id="prop-required-list" class="list-disc list-inside space-y-1 text-sm" style="color:var(--text-primary);"></ul>
+        </div>
+        <div class="px-6 py-4 flex items-center justify-end gap-2" style="background:var(--surface-2); border-top:1px solid var(--border);">
+            <button type="button" id="prop-required-close"
+                    class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                    style="color:var(--text-secondary); border:1px solid var(--border);"
+                    onmouseover="this.style.background='var(--surface-3)'" onmouseout="this.style.background='transparent'">
+                Close
+            </button>
+            <button type="button" id="prop-required-goto"
+                    class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-colors"
+                    style="background:var(--brand-default,#0b2a4a);"
+                    onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                Take Me There
+            </button>
+        </div>
+    </div>
+</div>
 @endsection

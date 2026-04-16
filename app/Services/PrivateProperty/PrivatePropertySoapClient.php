@@ -285,6 +285,67 @@ class PrivatePropertySoapClient
         ]);
     }
 
+    /**
+     * Claim/update PP's internal agent record to map to a CoreX user ID.
+     * WSDL: UpdateUniqueAgentID { string PrivatePropertyAgentId, string AgentId, SecurityToken Token }
+     */
+    public function updateUniqueAgentId(string $ppAgentId, string $coreXUserId): array
+    {
+        return $this->call('UpdateUniqueAgentID', [
+            'PrivatePropertyAgentId' => $ppAgentId,
+            'AgentId'                => $coreXUserId,
+            'Token'                  => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Claim/update PP's internal listing record to map to a CoreX property ID.
+     * WSDL: UpdateUniqueListingID { string PrivatePropertyListingId, string PropertyId, string ListingType, SecurityToken Token }
+     */
+    public function updateUniqueListingId(string $ppListingId, string $coreXPropertyId, string $listingType = 'Sale'): array
+    {
+        return $this->call('UpdateUniqueListingID', [
+            'PrivatePropertyListingId' => $ppListingId,
+            'PropertyId'               => $coreXPropertyId,
+            'ListingType'              => $listingType,
+            'Token'                    => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Add YouTube video ID and/or Matterport ID to an active PP listing.
+     * WSDL: UpdateListingVideoOrMatterport { guid BranchId, string UniqueListingId, string MatterportId, string YoutubeVideoId, string ListingType, SecurityToken Token }
+     */
+    public function updateListingVideoOrMatterport(
+        string $uniqueListingId,
+        string $listingType,
+        ?string $youtubeVideoId = null,
+        ?string $matterportId = null
+    ): array {
+        if (!empty($youtubeVideoId) && strlen($youtubeVideoId) !== 11) {
+            return [
+                'error'   => true,
+                'message' => 'YoutubeVideoId must be exactly 11 characters. Received: ' . strlen($youtubeVideoId) . ' chars.',
+            ];
+        }
+
+        if (empty($youtubeVideoId) && empty($matterportId)) {
+            return [
+                'error'   => true,
+                'message' => 'No video or Matterport ID supplied — no-op prevented.',
+            ];
+        }
+
+        return $this->call('UpdateListingVideoOrMatterport', [
+            'BranchId'        => config('services.private_property.branch_guid'),
+            'UniqueListingId' => $uniqueListingId,
+            'MatterportId'    => $matterportId ?? '',
+            'YoutubeVideoId'  => $youtubeVideoId ?? '',
+            'ListingType'     => $listingType,
+            'Token'           => $this->buildToken(),
+        ]);
+    }
+
     private function log(string $level, string $message, array $context = []): void
     {
         Log::channel('private_property')->{$level}($message, $context);

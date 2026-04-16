@@ -180,7 +180,8 @@ class CommissionController extends Controller
         $netAgencyYear = $companyDollarYear - $revSharePaidYear;
 
         // ── Agent performance table ──
-        $agents = User::where('is_active', true)
+        $agents = User::agencyMembers()
+            ->where('is_active', true)
             ->whereNotNull('agency_id')
             ->orderBy('name')
             ->get()

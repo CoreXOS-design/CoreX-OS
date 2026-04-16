@@ -118,6 +118,16 @@ class PrivatePropertySyndicationService
             'listing_feed_ref' => $updateData['pp_listing_feed_ref'] ?? null,
         ]);
 
+        // Auto-submit agent images after successful listing submission
+        try {
+            $imgResult = $this->submitAgentImages($property);
+            if (!empty($imgResult['submitted'])) {
+                $this->log('info', "Auto-submitted agent images for property #{$property->id}", ['count' => count($imgResult['submitted'])]);
+            }
+        } catch (\Throwable $e) {
+            $this->log('warning', "Agent image auto-submit failed for property #{$property->id}: {$e->getMessage()}");
+        }
+
         return [
             'success' => true,
             'message' => 'Listing submitted to Private Property',
@@ -309,6 +319,170 @@ class PrivatePropertySyndicationService
         return [
             'success' => true,
             'message' => 'Agent image uploaded to Private Property',
+            'result'  => $result,
+        ];
+    }
+
+    /**
+     * Submit agent images for all agents assigned to a property.
+     * Uses agent_photo_path from the User model (profile photo).
+     */
+    public function submitAgentImages(Property $property): array
+    {
+        $submitted = [];
+        $skipped   = [];
+        $errors    = [];
+
+        $agentIds = array_filter([
+            $property->agent_id,
+            $property->pp_second_agent_id,
+        ]);
+
+        $override = config('services.private_property.image_base_url');
+        $baseUrl  = rtrim(!empty($override) ? $override : config('app.url'), '/');
+
+        foreach ($agentIds as $agentId) {
+            $user = User::find($agentId);
+            if (!$user) {
+                $skipped[] = ['user_id' => $agentId, 'name' => '(not found)', 'reason' => 'User not found'];
+                continue;
+            }
+
+            if (empty($user->agent_photo_path)) {
+                $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => 'No agent_photo_path set — upload a photo in CoreX first'];
+                continue;
+            }
+
+            $imageUrl = $baseUrl . '/storage/' . ltrim($user->agent_photo_path, '/');
+
+            if (!str_starts_with($imageUrl, 'https://')) {
+                $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => "Image URL is not HTTPS: {$imageUrl}"];
+                $this->log('warning', "Skipping agent image for #{$user->id} — not HTTPS: {$imageUrl}");
+                continue;
+            }
+
+            // Check file size if stored locally
+            $localPath = storage_path('app/public/' . $user->agent_photo_path);
+            if (file_exists($localPath) && filesize($localPath) > 1048576) {
+                $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => 'Image exceeds 1MB limit'];
+                $this->log('warning', "Skipping agent image for #{$user->id} — exceeds 1MB");
+                continue;
+            }
+
+            $result = $this->uploadAgentImage($user, $imageUrl);
+
+            if ($result['success']) {
+                $submitted[] = ['user_id' => $user->id, 'name' => $user->name, 'url' => $imageUrl];
+            } else {
+                $errors[] = ['user_id' => $user->id, 'name' => $user->name, 'message' => $result['message']];
+            }
+        }
+
+        return compact('submitted', 'skipped', 'errors');
+    }
+
+    /**
+     * Push YouTube video ID and/or Matterport ID to PP for an active listing.
+     */
+    public function pushVideoOrMatterport(Property $property): array
+    {
+        if (empty($property->pp_ref)) {
+            return [
+                'success' => false,
+                'message' => 'Listing has no PP Ref — must be active on PP before video/Matterport can be added.',
+            ];
+        }
+
+        $youtube    = $property->youtube_video_id ?? null;
+        $matterport = $property->matterport_id ?? null;
+
+        if (empty($youtube) && empty($matterport)) {
+            return [
+                'success' => false,
+                'message' => 'No YouTube ID or Matterport ID stored on this property. Add one first.',
+            ];
+        }
+
+        $listingType = in_array(strtolower($property->listing_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+
+        $result = $this->client->updateListingVideoOrMatterport(
+            $property->pp_ref,
+            $listingType,
+            $youtube,
+            $matterport
+        );
+
+        if (isset($result['error']) && $result['error'] === true) {
+            return [
+                'success' => false,
+                'message' => $result['message'] ?? 'Video/Matterport update failed',
+            ];
+        }
+
+        $this->log('info', "Video/Matterport pushed for property #{$property->id}", [
+            'pp_ref'    => $property->pp_ref,
+            'youtube'   => $youtube,
+            'matterport' => $matterport,
+        ]);
+
+        return [
+            'success' => true,
+            'message' => 'Video/Matterport updated on Private Property',
+            'result'  => $result,
+        ];
+    }
+
+    /**
+     * Claim PP ownership of an agent by updating their unique agent ID.
+     */
+    public function updateUniqueAgentId(User $user, string $ppAgentId): array
+    {
+        $result = $this->client->updateUniqueAgentId($ppAgentId, (string) $user->id);
+
+        if (isset($result['error']) && $result['error'] === true) {
+            return [
+                'success' => false,
+                'message' => $result['message'] ?? 'UpdateUniqueAgentID failed',
+            ];
+        }
+
+        $user->update(['pp_unique_agent_id' => $ppAgentId]);
+
+        $this->log('info', "PP ownership claimed for agent #{$user->id}", [
+            'pp_unique_agent_id' => $ppAgentId,
+        ]);
+
+        return [
+            'success'            => true,
+            'message'            => 'PP agent ownership updated',
+            'pp_unique_agent_id' => $ppAgentId,
+            'result'             => $result,
+        ];
+    }
+
+    /**
+     * Claim PP ownership of a listing by updating its unique listing ID.
+     */
+    public function updateUniqueListingId(Property $property, string $ppListingId): array
+    {
+        $listingType = in_array(strtolower($property->listing_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+
+        $result = $this->client->updateUniqueListingId($ppListingId, (string) $property->id, $listingType);
+
+        if (isset($result['error']) && $result['error'] === true) {
+            return [
+                'success' => false,
+                'message' => $result['message'] ?? 'UpdateUniqueListingID failed',
+            ];
+        }
+
+        $this->log('info', "PP listing ownership claimed for property #{$property->id}", [
+            'pp_listing_id' => $ppListingId,
+        ]);
+
+        return [
+            'success' => true,
+            'message' => 'PP listing ownership updated',
             'result'  => $result,
         ];
     }

@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Jobs\SubmitListingToProperty24;
 use App\Jobs\SyncPropertyToWebsite;
 use App\Models\Property;
+use App\Models\User;
 use App\Services\CommandCenter\AutoEventService;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use App\Services\Syndication\Property24\Property24ListingMapper;
@@ -12,6 +13,29 @@ use Illuminate\Support\Facades\Log;
 
 class PropertyObserver
 {
+    /**
+     * Reject owner-role users as listing agents. System Owners are
+     * platform identities — they don't own properties, they supervise
+     * every agency. This observer closes the write side; the read side
+     * is `User::scopeAgencyMembers()`.
+     */
+    public function saving(Property $property): void
+    {
+        if (!$property->agent_id) {
+            return;
+        }
+
+        $ownerRoleNames = User::ownerRoleNames();
+        if (empty($ownerRoleNames)) {
+            return;
+        }
+
+        $agentRole = \DB::table('users')->where('id', $property->agent_id)->value('role');
+        if ($agentRole && in_array($agentRole, $ownerRoleNames, true)) {
+            throw new \RuntimeException('System Owner accounts cannot be assigned as a property agent. Pick an agency member.');
+        }
+    }
+
     /**
      * Fired when a property is first created.
      * Auto-generates document expectation tasks via Command Center.

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,11 +11,12 @@ use Illuminate\Support\Facades\Storage;
 
 class Document extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, BelongsToAgency;
 
     protected $table = 'documents';
 
     protected $fillable = [
+        'agency_id',
         'original_name', 'storage_path', 'disk', 'mime_type', 'size',
         'document_type_id', 'source_type', 'source_id', 'uploaded_by',
     ];

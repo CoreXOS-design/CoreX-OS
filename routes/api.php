@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Http\Controllers\Api\CommandCenterApiController;
 use App\Http\Controllers\Api\ProspectingApiController;
+use App\Http\Controllers\Api\MobilePropertyController;
 use App\Http\Controllers\Api\PropertyPullController;
 use App\Http\Controllers\FaultReportController;
 use Illuminate\Support\Facades\Route;
@@ -65,6 +66,28 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/properties/pull-from-portal', [PropertyPullController::class, 'pullFromPortal']);
     Route::get('/properties/{propertyId}/pull-status', [PropertyPullController::class, 'pullStatus']);
+
+    // ── Mobile Properties ────────────────────────────────────────
+    Route::prefix('mobile/properties')->group(function () {
+        Route::get('/',         [MobilePropertyController::class, 'index']);
+        Route::post('/',        [MobilePropertyController::class, 'store']);
+
+        // Static catalogs (must be defined BEFORE /{property} so they
+        // aren't treated as a property id by the route binding).
+        Route::get('/options',        [MobilePropertyController::class, 'options']);
+        Route::get('/spaces/catalog', [MobilePropertyController::class, 'spacesCatalog']);
+
+        Route::get('/{property}',  [MobilePropertyController::class, 'show']);
+        Route::put('/{property}',  [MobilePropertyController::class, 'update']);
+        Route::post('/{property}/images', [MobilePropertyController::class, 'uploadImage']);
+
+        // Gallery tags (derived live from this property's spaces)
+        Route::get('/{property}/gallery/tags', [MobilePropertyController::class, 'galleryTags']);
+
+        // Spaces & features (Bedroom, Bathroom, Kitchen, …)
+        Route::get('/{property}/spaces', [MobilePropertyController::class, 'spacesShow']);
+        Route::put('/{property}/spaces', [MobilePropertyController::class, 'spacesUpdate']);
+    });
 
     // ── Command Center ────────────────────────────────────────────
     Route::prefix('command-center')->group(function () {

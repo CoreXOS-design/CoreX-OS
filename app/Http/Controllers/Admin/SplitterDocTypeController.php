@@ -69,18 +69,26 @@ class SplitterDocTypeController extends Controller
     public function bulkSave(Request $request)
     {
         $request->validate([
-            'types'              => 'required|array',
-            'types.*.id'         => 'required|integer|exists:document_types,id',
-            'types.*.label'      => 'required|string|max:100',
-            'types.*.sort_order' => 'required|integer|min:0',
-            'types.*.is_active'  => 'required',
+            'types'                     => 'required|array',
+            'types.*.id'                => 'required|integer|exists:document_types,id',
+            'types.*.label'             => 'required|string|max:100',
+            'types.*.sort_order'        => 'required|integer|min:0',
+            'types.*.is_active'         => 'required',
+            'types.*.listing_types'     => 'nullable|array',
+            'types.*.listing_types.*'   => 'in:sale,rental',
         ]);
 
         foreach ($request->input('types') as $data) {
-            SplitterDocType::where('id', $data['id'])->update([
-                'label'      => $data['label'],
-                'sort_order' => $data['sort_order'],
-                'is_active'  => filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN),
+            $docType = SplitterDocType::find($data['id']);
+            if (! $docType) continue;
+
+            $listingTypes = array_values(array_filter($data['listing_types'] ?? []));
+
+            $docType->update([
+                'label'         => $data['label'],
+                'sort_order'    => $data['sort_order'],
+                'is_active'     => filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN),
+                'listing_types' => !empty($listingTypes) ? $listingTypes : null,
             ]);
         }
 

@@ -23,6 +23,14 @@ Route::get('/', function () {
 Route::get('/shared/match/{token}', [\App\Http\Controllers\SharedMatchController::class, 'show'])->name('shared.match');
 Route::get('/shared/match/{token}/view/{property}', [\App\Http\Controllers\SharedMatchController::class, 'recordView'])->name('shared.match.view');
 
+// Public agency property listings (no auth) — /{slug}/properties
+Route::get('/{agencySlug}/properties', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'index'])
+    ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite|up)[a-z0-9-]+$')
+    ->name('public.agency.properties.index');
+Route::get('/{agencySlug}/properties/{property}', [\App\Http\Controllers\PublicAgencyPropertiesController::class, 'show'])
+    ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite|up)[a-z0-9-]+$')
+    ->name('public.agency.properties.show');
+
 Route::get('/dashboard', function () {
     return redirect()->route('corex.dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
@@ -124,7 +132,11 @@ Route::middleware('auth')->group(function () {
         ->middleware('permission:manage_users')->name('admin.users.defaults.update');
     Route::post('/admin/users/{user}/role', [App\Http\Controllers\Admin\UserManagementController::class, 'updateRole'])->middleware('permission:manage_users')->name('admin.users.role.update');
     Route::post('/admin/users/{user}/resend-invite', [App\Http\Controllers\Admin\UserManagementController::class, 'resendInvite'])->middleware('permission:manage_users')->name('admin.users.resend-invite');
+    Route::post('/admin/users/{user}/sync-p24', [App\Http\Controllers\Admin\UserManagementController::class, 'syncP24'])->middleware('permission:manage_users')->name('admin.users.sync-p24');
     Route::post('/admin/users/{user}/remove-file', [App\Http\Controllers\Admin\UserManagementController::class, 'removeAgentFile'])->middleware('permission:manage_users')->name('admin.users.remove-file');
+    // PP Agent ownership
+    Route::post('/admin/users/{user}/pp/sync', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'sync'])->middleware('permission:manage_users')->name('admin.users.pp.sync');
+    Route::post('/admin/users/{user}/pp/update-id', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateId'])->middleware('permission:manage_users')->name('admin.users.pp.update-id');
 
     Route::get('/admin/listing-targets', [ListingTargetController::class, 'index'])
         ->middleware('permission:manage_targets')->name('admin.listing-targets');
@@ -168,6 +180,49 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/view-as', [ViewAsController::class, 'update'])->name('admin.viewas.update');
     Route::post('/admin/view-as/reset', [ViewAsController::class, 'clear'])->name('admin.viewas.reset');
 
+});
+
+// ===== P24 IMPORTER (Admin) =====
+// P24 Importer — owner-only. The `owner_only` middleware sits alongside
+// `permission:access_importer` so even if the permission is mis-granted
+// to an agency admin they still 403 here.
+Route::prefix('admin/importer')->middleware(['auth', 'permission:access_importer'])->name('admin.importer.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\ImporterController::class, 'index'])->name('index');
+    Route::post('/agents/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadAgents'])->name('agents.upload');
+    Route::get('/runs/{run}/preview', [\App\Http\Controllers\Admin\ImporterController::class, 'preview'])->name('preview');
+    Route::post('/runs/{run}/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmAgents'])->name('confirm');
+    Route::post('/runs/{run}/cancel', [\App\Http\Controllers\Admin\ImporterController::class, 'cancelRun'])->name('cancel');
+    Route::get('/runs/{run}', [\App\Http\Controllers\Admin\ImporterController::class, 'show'])->name('show');
+    Route::post('/listings/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadListings'])->name('listings.upload');
+    Route::get('/review', [\App\Http\Controllers\Admin\ImporterController::class, 'review'])->name('review');
+    Route::get('/rows/{row}', [\App\Http\Controllers\Admin\ImporterController::class, 'rowDetails'])->name('row.details');
+    Route::post('/rows/{row}/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmRow'])->name('row.confirm');
+    Route::post('/rows/{row}/exclude', [\App\Http\Controllers\Admin\ImporterController::class, 'excludeRow'])->name('row.exclude');
+    Route::post('/rows/{row}/resolve-agent', [\App\Http\Controllers\Admin\ImporterController::class, 'resolveAgentRow'])->name('row.resolve-agent');
+    Route::post('/rows/bulk/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmBulk'])->name('rows.bulk-confirm');
+    Route::post('/rows/bulk/exclude', [\App\Http\Controllers\Admin\ImporterController::class, 'excludeBulk'])->name('rows.bulk-exclude');
+    Route::post('/agents/{user}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'sendInvite'])->name('agent.invite');
+    Route::post('/runs/{run}/invite-all', [\App\Http\Controllers\Admin\ImporterController::class, 'sendAllInvites'])->name('invite.all');
+
+    // Onboarding portals — admin management
+    Route::post('/portals', [\App\Http\Controllers\Admin\ImporterController::class, 'createPortal'])->name('portal.create');
+    Route::post('/portals/{portal}/revoke', [\App\Http\Controllers\Admin\ImporterController::class, 'revokePortal'])->name('portal.revoke');
+    Route::post('/portals/{portal}/extend', [\App\Http\Controllers\Admin\ImporterController::class, 'extendPortal'])->name('portal.extend');
+    Route::post('/portals/{portal}/invite', [\App\Http\Controllers\Admin\ImporterController::class, 'invitePortal'])->name('portal.invite');
+});
+
+// ===== PUBLIC ONBOARDING PORTAL (token-auth, no login) =====
+Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('onboarding.portal.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'welcome'])->name('welcome');
+    Route::get('/review', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'review'])->name('review');
+    Route::get('/status', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'status'])->name('status');
+    Route::get('/finish', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'finish'])->name('finish');
+    Route::post('/rows/{rowId}/confirm', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmRow'])->name('row.confirm');
+    Route::post('/rows/{rowId}/exclude', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'excludeRow'])->name('row.exclude');
+    Route::post('/rows/{rowId}/reassign', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'reassignAgent'])->name('row.reassign');
+    Route::post('/rows/bulk/confirm', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'bulkConfirm'])->name('rows.bulk-confirm');
+    Route::post('/rows/bulk/exclude', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'bulkExclude'])->name('rows.bulk-exclude');
+    Route::post('/rows/confirm-all', [\App\Http\Controllers\Public\OnboardingPortalController::class, 'confirmAllFiltered'])->name('rows.confirm-all');
 });
 
 // ===== P24 MARKET INTELLIGENCE =====
@@ -778,7 +833,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
         Route::get('/{agency}/edit', [\App\Http\Controllers\Admin\AgencyController::class, 'edit'])->name('edit');
         Route::put('/{agency}',      [\App\Http\Controllers\Admin\AgencyController::class, 'update'])->name('update');
+        Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
     });
+
+    // Company Settings (standalone admin page — separate from tabbed settings)
+    Route::get('/admin/company-settings',
+        [\App\Http\Controllers\Admin\CompanySettingsController::class, 'index'])
+        ->middleware('permission:manage_performance_settings')
+        ->name('admin.company-settings');
+    Route::put('/admin/company-settings/{agency}',
+        [\App\Http\Controllers\Admin\CompanySettingsController::class, 'update'])
+        ->middleware('permission:manage_performance_settings')
+        ->name('admin.company-settings.update');
 
     // Properties — listing sync to website
     Route::prefix('properties')->middleware('permission:access_properties')->name('corex.properties.')->group(function () {
@@ -826,6 +892,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/syndication/agent/register',        [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'registerAgent'])->name('syndication.agent.register');
         Route::post('/syndication/agent/deactivate',      [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'deactivateAgent'])->name('syndication.agent.deactivate');
         Route::post('/syndication/agent/image',           [\App\Http\Controllers\PrivateProperty\SyndicationController::class, 'uploadAgentImage'])->name('syndication.agent.image');
+        // PP Video/Matterport & Listing Ownership
+        Route::post('/{property}/syndication/video',     [\App\Http\Controllers\PrivateProperty\PropertyPpController::class, 'video'])->name('syndication.video');
+        Route::post('/{property}/syndication/update-id',  [\App\Http\Controllers\PrivateProperty\PropertyPpController::class, 'updateId'])->name('syndication.update-id');
         // Property24 ExDev Syndication
         Route::post('/{property}/p24-syndication/toggle',     [\App\Http\Controllers\Property24\P24SyndicationController::class, 'toggle'])->name('p24-syndication.toggle');
         Route::post('/{property}/p24-syndication/submit',     [\App\Http\Controllers\Property24\P24SyndicationController::class, 'submit'])->name('p24-syndication.submit');

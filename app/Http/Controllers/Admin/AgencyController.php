@@ -126,4 +126,61 @@ class AgencyController extends Controller
 
         return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" updated.");
     }
+
+    /**
+     * Permanently delete an agency. Unlike operational data (contacts,
+     * deals, documents) agencies are tenant definitions, and the `slug`
+     * column is uniquely indexed — a soft-deleted row keeps the slug
+     * reserved and blocks the admin from re-creating an agency with the
+     * same identifier. So this is a hard delete, guarded by:
+     *   - no remaining branches,
+     *   - no remaining users,
+     *   - never the last agency in the platform.
+     * The branch/user guard also prevents us from orphaning operational
+     * rows that still point at this agency_id.
+     */
+    public function destroy(Agency $agency)
+    {
+        $branchCount       = $agency->branches()->count();
+        $userCount         = $agency->users()->count();
+        $propertyCount     = \DB::table('properties')->where('agency_id', $agency->id)->whereNull('deleted_at')->count();
+        $contactCount      = \DB::table('contacts')->where('agency_id', $agency->id)->whereNull('deleted_at')->count();
+        $dealCount         = \DB::table('deals')->where('agency_id', $agency->id)->whereNull('deleted_at')->count();
+        $presentationCount = \DB::table('presentations')->where('agency_id', $agency->id)->whereNull('deleted_at')->count();
+
+        $blockers = array_filter([
+            $branchCount       ? "{$branchCount} branch(es)"          : null,
+            $userCount         ? "{$userCount} user(s)"               : null,
+            $propertyCount     ? "{$propertyCount} property(ies)"     : null,
+            $contactCount      ? "{$contactCount} contact(s)"         : null,
+            $dealCount         ? "{$dealCount} deal(s)"               : null,
+            $presentationCount ? "{$presentationCount} presentation(s)" : null,
+        ]);
+
+        if (!empty($blockers)) {
+            return redirect()->route('agencies.index')->with(
+                'error',
+                "Cannot delete \"{$agency->name}\": it still has " . implode(', ', $blockers) . ". Re-assign or remove them first."
+            );
+        }
+
+        if (Agency::count() <= 1) {
+            return redirect()->route('agencies.index')->with(
+                'error',
+                'You cannot delete the last remaining agency.'
+            );
+        }
+
+        if (session('active_agency_id') == $agency->id) {
+            session()->forget('active_agency_id');
+        }
+
+        if ($agency->logo_path) {
+            Storage::disk('public')->delete($agency->logo_path);
+        }
+
+        $agency->forceDelete();
+
+        return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" permanently deleted.");
+    }
 }

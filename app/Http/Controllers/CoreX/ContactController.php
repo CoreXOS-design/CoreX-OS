@@ -289,7 +289,7 @@ class ContactController extends Controller
         /** @var User $user */
         $user  = auth()->user();
         $role  = $user->effectiveRole();
-        $query = User::orderBy('name')->where('is_active', 1);
+        $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
 
         if ($role === 'branch_manager') {
             $branchId = $user->effectiveBranchId();
