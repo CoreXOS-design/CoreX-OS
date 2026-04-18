@@ -42,31 +42,37 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {{-- Agents card --}}
-        <div class="rounded-md bg-surface p-5">
+        <div class="rounded-md bg-surface p-5" x-data="importerUpload()">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-base font-semibold">1. Agents</h3>
                 <span class="text-xs text-muted">Stage 1</span>
             </div>
-            <form method="POST" action="{{ route('admin.importer.agents.upload') }}" enctype="multipart/form-data" class="space-y-3">
+            <form method="POST" action="{{ route('admin.importer.agents.upload') }}" enctype="multipart/form-data" class="space-y-3" @submit.prevent="submit($event)">
                 @csrf
                 <input type="hidden" name="agency_id" value="{{ $activeAgencyId }}">
                 <label class="block text-xs text-muted">Agents CSV (Agency-{AgencyId}-export-agents.csv)</label>
                 <input type="file" name="agents_csv" required accept=".csv,text/csv"
+                       :disabled="phase !== 'idle' && phase !== 'error'"
                        class="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-sm file:text-inherit">
                 <button type="submit"
-                        class="rounded-md px-4 py-2 text-sm font-medium text-white transition-colors duration-300"
+                        class="rounded-md px-4 py-2 text-sm font-medium text-white transition-colors duration-300 disabled:opacity-50"
                         style="background:var(--brand-button, #0ea5e9);"
-                        @disabled(!$activeAgencyId)>
-                    Parse &amp; Preview
+                        :disabled="!{{ $activeAgencyId ? 'true' : 'false' }} || (phase !== 'idle' && phase !== 'error')">
+                    <span x-show="phase === 'idle' || phase === 'error'">Parse &amp; Preview</span>
+                    <span x-show="phase === 'uploading'" x-cloak>Uploading…</span>
+                    <span x-show="phase === 'parsing'" x-cloak>Parsing CSV…</span>
+                    <span x-show="phase === 'done'" x-cloak>Redirecting…</span>
                 </button>
                 @if (!$activeAgencyId)
                     <div class="text-xs text-amber-400">Select a Target Agency first.</div>
                 @endif
+
+                @include('admin.importer.partials.upload-progress')
             </form>
         </div>
 
         {{-- Listings + Images card --}}
-        <div class="rounded-md bg-surface p-5 {{ !$hasAgentsRun ? 'opacity-60' : '' }}">
+        <div class="rounded-md bg-surface p-5 {{ !$hasAgentsRun ? 'opacity-60' : '' }}" x-data="importerUpload()">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-base font-semibold">2. Listings &amp; Images</h3>
                 <span class="text-xs text-muted">Stage 2</span>
@@ -76,25 +82,103 @@
                     Import agents for this agency first so listings can be linked.
                 </div>
             @endif
-            <form method="POST" action="{{ route('admin.importer.listings.upload') }}" enctype="multipart/form-data" class="space-y-3">
+            <form method="POST" action="{{ route('admin.importer.listings.upload') }}" enctype="multipart/form-data" class="space-y-3" @submit.prevent="submit($event)">
                 @csrf
                 <input type="hidden" name="agency_id" value="{{ $activeAgencyId }}">
                 <label class="block text-xs text-muted">Listings CSV</label>
                 <input type="file" name="listings_csv" required accept=".csv,text/csv"
+                       :disabled="phase !== 'idle' && phase !== 'error'"
                        class="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-sm file:text-inherit">
                 <label class="block text-xs text-muted">Images CSV</label>
                 <input type="file" name="images_csv" required accept=".csv,text/csv"
+                       :disabled="phase !== 'idle' && phase !== 'error'"
                        class="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-sm file:text-inherit">
                 <div class="text-xs text-muted">Images are matched to Listings by ListingNumber.</div>
                 <button type="submit"
-                        class="rounded-md px-4 py-2 text-sm font-medium text-white transition-colors duration-300"
+                        class="rounded-md px-4 py-2 text-sm font-medium text-white transition-colors duration-300 disabled:opacity-50"
                         style="background:var(--brand-button, #0ea5e9);"
-                        @disabled(!$activeAgencyId || !$hasAgentsRun)>
-                    Parse &amp; Send to Review Queue
+                        :disabled="!{{ ($activeAgencyId && $hasAgentsRun) ? 'true' : 'false' }} || (phase !== 'idle' && phase !== 'error')">
+                    <span x-show="phase === 'idle' || phase === 'error'">Parse &amp; Send to Review Queue</span>
+                    <span x-show="phase === 'uploading'" x-cloak>Uploading…</span>
+                    <span x-show="phase === 'parsing'" x-cloak>Parsing CSVs…</span>
+                    <span x-show="phase === 'done'" x-cloak>Redirecting…</span>
                 </button>
+
+                @include('admin.importer.partials.upload-progress')
             </form>
         </div>
     </div>
+
+    <script>
+        function importerUpload() {
+            return {
+                phase: 'idle',
+                progress: 0,
+                error: null,
+                bytesSent: 0,
+                bytesTotal: 0,
+                submit(event) {
+                    const form = event.target;
+                    const formData = new FormData(form);
+                    this.phase = 'uploading';
+                    this.progress = 0;
+                    this.error = null;
+                    this.bytesSent = 0;
+                    this.bytesTotal = 0;
+
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', form.action, true);
+                    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                    xhr.setRequestHeader('Accept', 'application/json');
+
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            this.bytesTotal = e.total;
+                            this.bytesSent = e.loaded;
+                            this.progress = Math.round((e.loaded / e.total) * 100);
+                        }
+                    };
+                    xhr.upload.onload = () => {
+                        this.progress = 100;
+                        this.phase = 'parsing';
+                    };
+                    xhr.onload = () => {
+                        let data = {};
+                        try { data = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+                        if (xhr.status >= 200 && xhr.status < 300 && data.redirect) {
+                            this.phase = 'done';
+                            window.location = data.redirect;
+                            return;
+                        }
+                        this.phase = 'error';
+                        if (data.errors) {
+                            this.error = Object.values(data.errors).flat().join(' · ');
+                        } else if (data.message) {
+                            this.error = data.message;
+                        } else {
+                            this.error = 'Upload failed (HTTP ' + xhr.status + ')';
+                        }
+                    };
+                    xhr.onerror = () => {
+                        this.phase = 'error';
+                        this.error = 'Network error — check your connection and try again.';
+                    };
+                    xhr.ontimeout = () => {
+                        this.phase = 'error';
+                        this.error = 'Upload timed out.';
+                    };
+                    xhr.send(formData);
+                },
+                formatBytes(n) {
+                    if (!n) return '0 B';
+                    const units = ['B','KB','MB','GB'];
+                    let i = 0; let v = n;
+                    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+                    return v.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+                }
+            };
+        }
+    </script>
 
     {{-- History --}}
     <div class="rounded-md bg-surface p-5">

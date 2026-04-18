@@ -81,9 +81,15 @@ class ImporterController extends Controller
             $run->update(['status' => 'pending_confirm', 'counts_json' => $counts]);
         } catch (\Throwable $e) {
             $run->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
+            if ($request->ajax() || $request->expectsJson()) {
+                return response()->json(['errors' => ['agents_csv' => ['Parse failed: ' . $e->getMessage()]]], 422);
+            }
             return back()->withErrors(['agents_csv' => 'Parse failed: ' . $e->getMessage()]);
         }
 
+        if ($request->ajax() || $request->expectsJson()) {
+            return response()->json(['redirect' => route('admin.importer.preview', $run)]);
+        }
         return redirect()->route('admin.importer.preview', $run);
     }
 
@@ -137,6 +143,9 @@ class ImporterController extends Controller
             ->whereIn('status', ['completed', 'pending_confirm'])
             ->exists();
         if (!$hasAgentsRun) {
+            if ($request->ajax() || $request->expectsJson()) {
+                return response()->json(['errors' => ['listings_csv' => ['Import agents for this agency first so listings can be linked.']]], 422);
+            }
             return back()->withErrors(['listings_csv' => 'Import agents for this agency first so listings can be linked.']);
         }
 
@@ -197,9 +206,15 @@ class ImporterController extends Controller
             $run->update(['status' => 'pending_confirm', 'counts_json' => $counts]);
         } catch (\Throwable $e) {
             $run->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
+            if ($request->ajax() || $request->expectsJson()) {
+                return response()->json(['errors' => ['listings_csv' => ['Parse failed: ' . $e->getMessage()]]], 422);
+            }
             return back()->withErrors(['listings_csv' => 'Parse failed: ' . $e->getMessage()]);
         }
 
+        if ($request->ajax() || $request->expectsJson()) {
+            return response()->json(['redirect' => route('admin.importer.review', ['run_id' => $run->id])]);
+        }
         return redirect()->route('admin.importer.review', ['run_id' => $run->id]);
     }
 

@@ -11,13 +11,20 @@
             </div>
         </div>
         @if ($run->kind === 'agents')
-            <form method="POST" action="{{ route('admin.importer.invite.all', $run) }}">
-                @csrf
-                <button class="rounded-md px-4 py-2 text-sm font-medium text-white"
-                        style="background:var(--brand-button, #0ea5e9);">
-                    Send All Invites
-                </button>
-            </form>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('admin.importer.index') }}"
+                   onclick="return confirm('Finish this run without sending any invites? Agents are already imported — you can send invites individually later.');"
+                   class="rounded-md px-4 py-2 text-sm font-medium bg-surface-2 border border-subtle text-muted hover:text-inherit">
+                    Complete without sending invites
+                </a>
+                <form method="POST" action="{{ route('admin.importer.invite.all', $run) }}">
+                    @csrf
+                    <button class="rounded-md px-4 py-2 text-sm font-medium text-white"
+                            style="background:var(--brand-button, #0ea5e9);">
+                        Send All Invites
+                    </button>
+                </form>
+            </div>
         @endif
     </div>
 
