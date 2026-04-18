@@ -49,10 +49,14 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     'external_id', 'title', 'headline', 'description',
                     'listing_type', 'status', 'price', 'rental_amount',
                     'address', 'street_name', 'street_number',
+                    'stand_number', 'unit_number',
                     'beds', 'baths', 'garages', 'erf_size_m2', 'size_m2',
-                    'property_type', 'expiry_date',
-                    'levy', 'rates_taxes', 'latitude', 'longitude',
-                    'features_json', 'lease_period', 'p24_listing_number',
+                    'property_type', 'category', 'expiry_date',
+                    'levy', 'special_levy', 'rates_taxes',
+                    'latitude', 'longitude',
+                    'youtube_video_id', 'matterport_id',
+                    'features_json', 'spaces_json', 'pet_friendly',
+                    'lease_period', 'p24_listing_number',
                 ];
                 $attrs = [];
                 foreach ($fillable as $k) {
@@ -90,7 +94,9 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
             });
 
             if ($propertyId && !empty($imageUrls)) {
-                DownloadP24RowImagesJob::dispatch($propertyId, $imageUrls);
+                // Run inline so the confirm response only returns once images
+                // are on disk. Keeps things working without a queue worker.
+                DownloadP24RowImagesJob::dispatchSync($propertyId, $imageUrls);
             }
         } catch (\Throwable $e) {
             Log::error('ConfirmP24PropertyRowJob failed', ['row_id' => $row->id, 'error' => $e->getMessage()]);

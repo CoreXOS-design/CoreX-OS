@@ -31,11 +31,35 @@ class P24PropertyTypeMap
         20 => 'Hotel',
     ];
 
+    private const CATEGORY = [
+        'House'        => 'Residential',
+        'Apartment'    => 'Residential',
+        'Townhouse'    => 'Residential',
+        'Flat'         => 'Residential',
+        'Duet'         => 'Residential',
+        'Cluster'      => 'Residential',
+        'Simplex'      => 'Residential',
+        'Studio'       => 'Residential',
+        'Penthouse'    => 'Residential',
+        'Guesthouse'   => 'Holiday',
+        'Hotel'        => 'Holiday',
+        'VacantLand'   => 'Residential',
+        'Farm'         => 'Agricultural',
+        'Smallholding' => 'Agricultural',
+        'Commercial'   => 'Commercial',
+        'Office'       => 'Commercial',
+        'Retail'       => 'Commercial',
+        'Mixed Use'    => 'Commercial',
+        'Industrial'   => 'Industrial',
+        'Warehouse'    => 'Industrial',
+    ];
+
     public static function resolve(?int $id): array
     {
         if ($id === null || !isset(self::MAP[$id])) {
-            return ['type' => 'Other', 'known' => false];
+            return ['type' => 'Other', 'category' => null, 'known' => false];
         }
-        return ['type' => self::MAP[$id], 'known' => true];
+        $type = self::MAP[$id];
+        return ['type' => $type, 'category' => self::CATEGORY[$type] ?? null, 'known' => true];
     }
 }

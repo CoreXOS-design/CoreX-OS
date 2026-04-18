@@ -63,13 +63,47 @@ class P24ListingsCsvParser
             $streetName = trim((string)($raw['StreetName'] ?? ''));
             $address = trim($streetNumber . ' ' . $streetName);
 
-            $features = [
-                'pool'          => $this->boolish($raw['Pool'] ?? null),
-                'flatlet'       => $this->boolish($raw['Flatlet'] ?? null),
-                'garden'        => $this->boolish($raw['Garden'] ?? null),
-                'furnished'     => $this->boolish($raw['Furnished'] ?? null),
-                'pets_allowed'  => $this->boolish($raw['PetsAllowed'] ?? null),
-            ];
+            $features = array_filter([
+                'pool'              => $this->boolish($raw['Pool'] ?? null),
+                'flatlet'           => $this->boolish($raw['Flatlet'] ?? null),
+                'garden'            => $this->boolish($raw['Garden'] ?? null),
+                'furnished'         => $this->boolish($raw['Furnished'] ?? null),
+                'pets_allowed'      => $this->boolish($raw['PetsAllowed'] ?? null),
+                'repossessed'       => $this->boolish($raw['Repossessed'] ?? null),
+                'show_location'     => $this->boolish($raw['ShowLocation'] ?? null),
+                'pool_description'  => trim((string)($raw['PoolDescription'] ?? '')) ?: null,
+                'flat_description'  => trim((string)($raw['FlatDescription'] ?? '')) ?: null,
+                'parking_description' => trim((string)($raw['ParkingDescription'] ?? '')) ?: null,
+                'beds_description'  => trim((string)($raw['BedroomsDescription'] ?? '')) ?: null,
+                'baths_description' => trim((string)($raw['BathroomsDescription'] ?? '')) ?: null,
+                'garages_description' => trim((string)($raw['GaragesDescription'] ?? '')) ?: null,
+                'deposit_requirements' => trim((string)($raw['DepositRequirementsComments'] ?? '')) ?: null,
+                'auction_date'      => trim((string)($raw['AuctionDate'] ?? '')) ?: null,
+                'auction_venue'     => trim((string)($raw['AuctionVenue'] ?? '')) ?: null,
+                'auction_description' => trim((string)($raw['AuctionDescription'] ?? '')) ?: null,
+                'age'               => is_numeric($raw['Age'] ?? null) ? (int)$raw['Age'] : null,
+                'listing_visibility' => trim((string)($raw['ListingVisibility'] ?? '')) ?: null,
+            ], fn ($v) => $v !== null && $v !== false && $v !== '');
+            // Re-stamp the boolean features so explicit `false` is kept (array_filter drops them).
+            $features = array_merge([
+                'pool'         => $this->boolish($raw['Pool'] ?? null),
+                'flatlet'      => $this->boolish($raw['Flatlet'] ?? null),
+                'garden'       => $this->boolish($raw['Garden'] ?? null),
+                'furnished'    => $this->boolish($raw['Furnished'] ?? null),
+                'pets_allowed' => $this->boolish($raw['PetsAllowed'] ?? null),
+            ], $features);
+
+            $spaces = array_filter([
+                'reception_rooms'  => is_numeric($raw['ReceptionRooms'] ?? null) ? (int)$raw['ReceptionRooms'] : null,
+                'studies'          => is_numeric($raw['Studies'] ?? null) ? (int)$raw['Studies'] : null,
+                'kitchens'         => is_numeric($raw['Kitchens'] ?? null) ? (int)$raw['Kitchens'] : null,
+                'secure_parkings'  => is_numeric($raw['SecureParkings'] ?? null) ? (int)$raw['SecureParkings'] : null,
+                'parking_spaces'   => is_numeric($raw['NumberOfParkingSpaces'] ?? null) ? (int)$raw['NumberOfParkingSpaces'] : null,
+                'domestic_rooms'   => is_numeric($raw['DomesticRooms'] ?? null) ? (int)$raw['DomesticRooms'] : null,
+                'domestic_bathrooms' => is_numeric($raw['DomesticBathrooms'] ?? null) ? (int)$raw['DomesticBathrooms'] : null,
+                'outside_toilets'  => is_numeric($raw['OutsideToilets'] ?? null) ? (int)$raw['OutsideToilets'] : null,
+                'parking_bay_number' => trim((string)($raw['ParkingBayNumber'] ?? '')) ?: null,
+            ], fn ($v) => $v !== null && $v !== '');
 
             $mapped = [
                 'external_id'          => (string)$listingNumber,
@@ -84,20 +118,28 @@ class P24ListingsCsvParser
                 'address'              => $address ?: null,
                 'street_number'        => $streetNumber ?: null,
                 'street_name'          => $streetName ?: null,
+                'stand_number'         => trim((string)($raw['StandNumber'] ?? '')) ?: null,
+                'unit_number'          => trim((string)($raw['ComplexUnitNumber'] ?? '')) ?: null,
                 'beds'                 => is_numeric($raw['Bedrooms'] ?? null) ? (int)$raw['Bedrooms'] : null,
                 'baths'                => is_numeric($raw['Bathrooms'] ?? null) ? (float)$raw['Bathrooms'] : null,
                 'garages'              => is_numeric($raw['Garages'] ?? null) ? (int)$raw['Garages'] : null,
                 'erf_size_m2'          => $erfSize,
                 'size_m2'              => $floorArea,
                 'property_type'        => $typeResolution['type'],
+                'category'             => $typeResolution['category'] ?? null,
                 'occupation_date'      => $raw['OccupationDate'] ?? null,
                 'expiry_date'          => $raw['ExpiryDate'] ?? null,
                 'levy'                 => is_numeric($raw['MonthlyLevy'] ?? null) ? (float)$raw['MonthlyLevy'] : null,
+                'special_levy'         => is_numeric($raw['ComplexSpecialLevy'] ?? null) ? (float)$raw['ComplexSpecialLevy'] : null,
                 'rates_taxes'          => is_numeric($raw['MunicipalRatesAndTaxes'] ?? null) ? (float)$raw['MunicipalRatesAndTaxes'] : null,
                 'source_reference'     => $raw['SourceReference'] ?? null,
                 'latitude'             => is_numeric($raw['Latitude'] ?? null) ? (float)$raw['Latitude'] : null,
                 'longitude'            => is_numeric($raw['Longitude'] ?? null) ? (float)$raw['Longitude'] : null,
+                'youtube_video_id'     => trim((string)($raw['YouTubeVideoId'] ?? '')) ?: null,
+                'matterport_id'        => trim((string)($raw['MatterportSpaceId'] ?? '')) ?: null,
                 'features_json'        => $features,
+                'spaces_json'          => $spaces,
+                'pet_friendly'         => $this->tribool($raw['PetsAllowed'] ?? null),
                 'lease_period'         => $raw['LeasePeriod'] ?? null,
                 'primary_agent_p24_id' => is_numeric($primaryAgentP24) ? (int)$primaryAgentP24 : null,
                 'contact_agent_p24_ids'=> array_map('intval', array_filter($contactAgentIds, 'is_numeric')),
@@ -121,6 +163,20 @@ class P24ListingsCsvParser
         if ($v === null) return false;
         $s = strtolower(trim((string)$v));
         return in_array($s, ['1', 'true', 'yes', 'y'], true);
+    }
+
+    /**
+     * Tri-state boolean: true / false / null (unknown).
+     * Used for fields like pet_friendly where "not specified" matters.
+     */
+    private function tribool($v): ?bool
+    {
+        if ($v === null) return null;
+        $s = strtolower(trim((string)$v));
+        if ($s === '') return null;
+        if (in_array($s, ['1', 'true', 'yes', 'y'], true)) return true;
+        if (in_array($s, ['0', 'false', 'no', 'n'], true)) return false;
+        return null;
     }
 
     private function normaliseStatus(string $s): string
