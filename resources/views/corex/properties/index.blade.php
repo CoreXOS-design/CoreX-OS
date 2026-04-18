@@ -4,20 +4,46 @@
 <div class="w-full space-y-5" x-data="{ view: localStorage.getItem('prop_view') || 'grid' }" x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5 flex items-center justify-between" style="background:var(--brand-default,#0b2a4a);">
+    <div class="rounded-md px-6 py-5 flex items-center justify-between flex-wrap gap-3" style="background:linear-gradient(135deg,var(--brand-default,#0b2a4a) 0%,#163a5c 100%);">
         <div>
             <h2 class="text-xl font-bold text-white tracking-tight">Properties</h2>
-            <p class="text-sm mt-0.5" style="color:rgba(255,255,255,0.55);">Manage listings &amp; publish to website</p>
+            <p class="text-sm mt-0.5" style="color:rgba(255,255,255,0.65);">Manage listings &amp; publish to website</p>
         </div>
-        <a href="{{ route('corex.properties.create') }}" class="corex-btn-primary text-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-            </svg>
-            New Property
-        </a>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('corex.properties.create') }}"
+               class="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all duration-200"
+               style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.15);"
+               title="Classic single-page form">
+                Classic form
+            </a>
+            <a href="{{ route('corex.properties.wizard') }}"
+               class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold transition-all duration-200"
+               style="background:#fff;color:var(--brand-default,#0b2a4a);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                </svg>
+                New Property
+            </a>
+        </div>
     </div>
 
     {{-- KPI stats --}}
+    @php
+        $kpiIcons = [
+            'Total'     => '<path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>',
+            'Active'    => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
+            'Draft'     => '<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>',
+            'Sold'      => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+            'Published' => '<path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918"/>',
+        ];
+        $kpiColors = [
+            'Total'     => ['bg' => 'rgba(14,165,233,0.10)',  'fg' => '#0284c7'],
+            'Active'    => ['bg' => 'rgba(34,197,94,0.10)',   'fg' => '#15803d'],
+            'Draft'     => ['bg' => 'rgba(245,158,11,0.10)',  'fg' => '#b45309'],
+            'Sold'      => ['bg' => 'rgba(99,102,241,0.10)',  'fg' => '#4338ca'],
+            'Published' => ['bg' => 'rgba(236,72,153,0.10)',  'fg' => '#be185d'],
+        ];
+    @endphp
     <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 xl:gap-4">
         @foreach([
             ['label' => 'Total',     'value' => $stats['total']],
@@ -26,9 +52,20 @@
             ['label' => 'Sold',      'value' => $stats['sold']],
             ['label' => 'Published', 'value' => $stats['synced']],
         ] as $kpi)
-        <div class="rounded-md px-4 py-3 text-center" style="background:var(--surface); border:1px solid var(--border);">
-            <div class="text-2xl font-bold leading-none" style="color:var(--brand-default,#0b2a4a);">{{ $kpi['value'] }}</div>
-            <div class="text-xs font-medium mt-1" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
+        @php $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)']; @endphp
+        <div class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-200 cursor-default"
+             style="background:var(--surface); border:1px solid var(--border);"
+             onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 16px rgba(0,0,0,0.06)'"
+             onmouseout="this.style.transform='';this.style.boxShadow=''">
+            <span class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0" style="background:{{ $c['bg'] }};color:{{ $c['fg'] }};">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    {!! $kpiIcons[$kpi['label']] ?? '' !!}
+                </svg>
+            </span>
+            <div class="min-w-0">
+                <div class="text-xl font-bold leading-none" style="color:var(--brand-default,#0b2a4a);">{{ $kpi['value'] }}</div>
+                <div class="text-[11px] font-medium mt-0.5 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
+            </div>
         </div>
         @endforeach
     </div>
@@ -374,15 +411,35 @@
 
     {{-- Cards grid --}}
     @if($properties->isEmpty())
-    <div class="rounded-md py-16 text-center" style="background:var(--surface); border:1px solid var(--border);">
-        <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto w-12 h-12 mb-3" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>
-        </svg>
-        <p class="text-sm" style="color:var(--text-secondary);">No properties found.</p>
-        <a href="{{ route('corex.properties.create') }}"
-           class="mt-3 inline-block text-sm font-semibold"
-           style="color:var(--brand-icon,#0ea5e9);">+ Create the first listing</a>
+    <div class="rounded-md py-14 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="relative mx-auto mb-4" style="width:96px;height:96px;">
+            <div class="absolute inset-0 rounded-full" style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent);"></div>
+            <svg xmlns="http://www.w3.org/2000/svg" class="absolute inset-0 m-auto w-14 h-14" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>
+            </svg>
+            <span class="absolute -right-1 -bottom-1 inline-flex items-center justify-center w-7 h-7 rounded-full text-white font-bold" style="background:var(--brand-icon,#0ea5e9);box-shadow:0 2px 6px rgba(14,165,233,0.4);">+</span>
+        </div>
+        @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
+            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No properties match these filters.</h3>
+            <p class="text-sm mt-1" style="color:var(--text-muted);">Try clearing some filters, or add a new listing.</p>
+        @else
+            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No properties yet.</h3>
+            <p class="text-sm mt-1" style="color:var(--text-muted);">Start with your first listing. Takes under 3 minutes.</p>
+        @endif
+        <div class="mt-5 flex items-center justify-center gap-2 flex-wrap">
+            <a href="{{ route('corex.properties.wizard') }}"
+               class="inline-flex items-center gap-2 px-5 py-2.5 rounded-md text-sm font-semibold text-white transition-all duration-200"
+               style="background:var(--brand-button,#0ea5e9);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                </svg>
+                Create my first listing
+            </a>
+            @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
+            <a href="{{ route('corex.properties.index') }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
+            @endif
+        </div>
     </div>
     @else
 

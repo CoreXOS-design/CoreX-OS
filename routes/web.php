@@ -858,6 +858,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create',                  [\App\Http\Controllers\CoreX\PropertyController::class, 'create'])->name('create');
         Route::post('/',                       [\App\Http\Controllers\CoreX\PropertyController::class, 'store'])->name('store');
         Route::get('/contacts/search',         [\App\Http\Controllers\CoreX\PropertyContactController::class, 'searchGlobal'])->name('contacts.search-global');
+        // Upload Wizard (parallel path — does not replace /create)
+        Route::get ('/wizard',                          [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'start'])->name('wizard');
+        Route::post('/wizard/draft',                    [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'createDraft'])->name('wizard.draft');
+        Route::post('/wizard/{property}/photos',        [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'uploadPhotos'])->name('wizard.photos');
+        Route::post('/wizard/{property}/photos/reorder',[\App\Http\Controllers\CoreX\PropertyWizardController::class, 'reorderPhotos'])->name('wizard.photos.reorder');
+        Route::post('/wizard/{property}/photos/remove', [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'removePhoto'])->name('wizard.photos.remove');
+        Route::post('/wizard/{property}/step',          [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'saveStep'])->name('wizard.step');
+        Route::post('/wizard/{property}/finalize',      [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'finalize'])->name('wizard.finalize');
+        Route::delete('/wizard/{property}',             [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'discardDraft'])->name('wizard.discard');
         Route::get('/{property}',              [\App\Http\Controllers\CoreX\PropertyController::class, 'show'])->name('show');
         Route::get('/{property}/edit',         [\App\Http\Controllers\CoreX\PropertyController::class, 'edit'])->name('edit');
         Route::get('/{property}/ad',           [\App\Http\Controllers\CoreX\PropertyController::class, 'ad'])->name('ad');
