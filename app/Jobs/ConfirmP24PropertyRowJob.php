@@ -61,6 +61,16 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 $attrs['agent_id']  = $row->resolved_agent_id;
                 $attrs['agency_id'] = $run->agency_id;
 
+                // These columns are NOT NULL with DEFAULT 0 in the schema, but
+                // the P24 CSV legitimately carries null for rentals (price) or
+                // land listings (beds/baths/garages). Drop nulls so the column
+                // default applies instead of triggering a NOT NULL violation.
+                foreach (['price', 'beds', 'baths', 'garages'] as $notNull) {
+                    if (array_key_exists($notNull, $attrs) && $attrs[$notNull] === null) {
+                        unset($attrs[$notNull]);
+                    }
+                }
+
                 if ($existing) {
                     $existing->fill($attrs)->save();
                     $property = $existing;
