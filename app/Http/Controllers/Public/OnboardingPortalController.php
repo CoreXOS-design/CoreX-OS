@@ -112,7 +112,7 @@ class OnboardingPortalController extends Controller
         ]);
     }
 
-    public function confirmRow(Request $request, $rowId)
+    public function confirmRow(Request $request, $token, $rowId)
     {
         $portal = $this->portal($request);
         $this->guardActive($portal);
@@ -144,7 +144,7 @@ class OnboardingPortalController extends Controller
         ]);
     }
 
-    public function excludeRow(Request $request, $rowId)
+    public function excludeRow(Request $request, $token, $rowId)
     {
         $portal = $this->portal($request);
         $this->guardActive($portal);
@@ -165,7 +165,7 @@ class OnboardingPortalController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function reassignAgent(Request $request, $rowId)
+    public function reassignAgent(Request $request, $token, $rowId)
     {
         $portal = $this->portal($request);
         $this->guardActive($portal);
