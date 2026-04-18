@@ -162,8 +162,14 @@ class AgencyController extends Controller
             'documents',
         ];
 
+        // Platform owners (is_owner = true roles) are never tied to a single
+        // agency — they administer the whole system. Never archive their
+        // accounts in a cascade, even if stray agency_id data leaked onto
+        // their row.
+        $ownerRoleNames = DB::table('roles')->where('is_owner', true)->pluck('name')->all();
+
         $counts = [];
-        DB::transaction(function () use ($cascadeTables, $agencyId, &$counts, $agency) {
+        DB::transaction(function () use ($cascadeTables, $agencyId, $ownerRoleNames, &$counts, $agency) {
             $now = now();
 
             foreach ($cascadeTables as $table) {
@@ -173,12 +179,25 @@ class AgencyController extends Controller
 
                 $query = DB::table($table)->where('agency_id', $agencyId);
 
+                if ($table === 'users' && ! empty($ownerRoleNames)) {
+                    $query->whereNotIn('role', $ownerRoleNames);
+                }
+
                 if (Schema::hasColumn($table, 'deleted_at')) {
                     $query->whereNull('deleted_at');
                     $counts[$table] = $query->update(['deleted_at' => $now]);
                 } else {
                     $counts[$table] = $query->delete();
                 }
+            }
+
+            // Detach any owners whose agency_id still pointed at the
+            // now-deleted agency so they don't end up orphaned.
+            if (! empty($ownerRoleNames)) {
+                DB::table('users')
+                    ->where('agency_id', $agencyId)
+                    ->whereIn('role', $ownerRoleNames)
+                    ->update(['agency_id' => null, 'branch_id' => null]);
             }
 
             if ($agency->logo_path) {
