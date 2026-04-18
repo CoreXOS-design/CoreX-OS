@@ -65,6 +65,7 @@
                         <div class="flex items-center justify-between mb-1">
                             <div class="font-semibold">
                                 <span x-text="err.externalId || ('Row #' + err.rowId)"></span>
+                                <span class="ml-2 text-muted font-normal text-[11px]" x-text="'(sent row_id=' + err.rowId + ')'"></span>
                             </div>
                             <div class="text-muted" x-text="'HTTP ' + (err.httpStatus ?? '—')"></div>
                         </div>
