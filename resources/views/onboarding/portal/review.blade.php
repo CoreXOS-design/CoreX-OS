@@ -180,9 +180,8 @@
                     :class="{'opacity-60': rowState[{{ $row->id }}]?.busy, 'hidden': rowState[{{ $row->id }}]?.hidden}"
                     data-row="{{ $row->id }}">
                     <td class="px-2 py-2">
-                        <template x-if="canSelect({{ $row->id }}, '{{ $row->status }}', {{ $isProcessing ? 'true' : 'false' }})">
-                            <input type="checkbox" value="{{ $row->id }}" @change="toggleRow({{ $row->id }}, $event)" :checked="selected.includes({{ $row->id }})">
-                        </template>
+                        <input x-show="canSelect({{ $row->id }}, '{{ $row->status }}', {{ $isProcessing ? 'true' : 'false' }})"
+                               type="checkbox" value="{{ $row->id }}" @change="toggleRow({{ $row->id }}, $event)" :checked="selected.includes({{ $row->id }})">
                     </td>
                     <td class="px-2 py-2">
                         @if ($firstImg)
@@ -250,16 +249,14 @@
                         </template>
                     </td>
                     <td class="px-2 py-2 text-right whitespace-nowrap">
-                        <template x-if="canAct({{ $row->id }}, '{{ $row->status }}', {{ $isProcessing ? 'true' : 'false' }})">
-                            <span>
-                                <button type="button" @click="confirmRow({{ $row->id }})"
-                                        class="portal-accent text-xs mr-2 font-semibold"
-                                        :disabled="rowState[{{ $row->id }}]?.busy">Confirm</button>
-                                <button type="button" @click="excludeRow({{ $row->id }})"
-                                        class="text-xs text-red-500"
-                                        :disabled="rowState[{{ $row->id }}]?.busy">Exclude</button>
-                            </span>
-                        </template>
+                        <span x-show="canAct({{ $row->id }}, '{{ $row->status }}', {{ $isProcessing ? 'true' : 'false' }})">
+                            <button type="button" @click.stop="confirmRow({{ $row->id }})"
+                                    class="portal-accent text-xs mr-2 font-semibold"
+                                    :disabled="rowState[{{ $row->id }}]?.busy === true">Confirm</button>
+                            <button type="button" @click.stop="excludeRow({{ $row->id }})"
+                                    class="text-xs text-red-500"
+                                    :disabled="rowState[{{ $row->id }}]?.busy === true">Exclude</button>
+                        </span>
                     </td>
                 </tr>
             @empty
