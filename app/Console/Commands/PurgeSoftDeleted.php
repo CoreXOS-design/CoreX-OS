@@ -47,19 +47,45 @@ class PurgeSoftDeleted extends Command
             return self::FAILURE;
         }
 
+        $this->disableForeignKeys($driver);
         $deleted = [];
-        foreach ($targets as $table => $_) {
-            try {
-                $deleted[$table] = DB::table($table)->whereNotNull('deleted_at')->delete();
-            } catch (\Throwable $e) {
-                $this->error("Failed to purge {$table}: " . $e->getMessage());
-                $deleted[$table] = 'ERROR';
+        try {
+            foreach ($targets as $table => $_) {
+                try {
+                    $deleted[$table] = DB::table($table)->whereNotNull('deleted_at')->delete();
+                } catch (\Throwable $e) {
+                    $this->error("Failed to purge {$table}: " . $e->getMessage());
+                    $deleted[$table] = 'ERROR';
+                }
             }
+        } finally {
+            $this->enableForeignKeys($driver);
         }
 
         $this->table(['Table', 'Rows deleted'], collect($deleted)->map(fn($n,$t) => [$t, $n])->values()->all());
-        $this->info('Purge complete.');
+        $this->info('Purge complete. Database: ' . DB::connection()->getDatabaseName());
+        $this->warn('Foreign-key checks were temporarily disabled. Some tables may now reference IDs that no longer exist — run `php artisan db:show` or your own sanity checks if unsure.');
         return self::SUCCESS;
+    }
+
+    private function disableForeignKeys(string $driver): void
+    {
+        match ($driver) {
+            'mysql', 'mariadb' => DB::statement('SET FOREIGN_KEY_CHECKS = 0'),
+            'sqlite' => DB::statement('PRAGMA foreign_keys = OFF'),
+            'pgsql' => DB::statement('SET session_replication_role = replica'),
+            default => null,
+        };
+    }
+
+    private function enableForeignKeys(string $driver): void
+    {
+        match ($driver) {
+            'mysql', 'mariadb' => DB::statement('SET FOREIGN_KEY_CHECKS = 1'),
+            'sqlite' => DB::statement('PRAGMA foreign_keys = ON'),
+            'pgsql' => DB::statement('SET session_replication_role = origin'),
+            default => null,
+        };
     }
 
     private function listTables(string $driver): array
