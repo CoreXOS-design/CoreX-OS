@@ -13,6 +13,23 @@ use Illuminate\Support\Str;
 
 class AgencyController extends Controller
 {
+    private const DESTROY_PASSWORD = 'Delete@corex@confirm!!';
+
+    public function toggleActive(Agency $agency)
+    {
+        $agency->update(['is_active' => !$agency->is_active]);
+
+        Log::info('Agency active toggled', [
+            'agency_id'  => $agency->id,
+            'is_active'  => $agency->is_active,
+            'changed_by' => auth()->id(),
+        ]);
+
+        $state = $agency->is_active ? 'enabled' : 'disabled';
+        return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" {$state}.");
+    }
+
+
     public function index()
     {
         $agencies = Agency::withCount(['branches', 'users'])->orderBy('name')->get();
@@ -131,16 +148,21 @@ class AgencyController extends Controller
     }
 
     /**
-     * Delete an agency. Soft-archives every tenant-owned row in the agency
-     * first (users, branches, properties, contacts, deals, presentations,
-     * documents) so they disappear from the UI but remain recoverable via
-     * `deleted_at`. The agency row itself is force-deleted so its unique
-     * `slug` is freed for re-use.
+     * Permanently delete an agency and every tenant-owned row belonging to it
+     * (users, branches, properties, contacts, deals, presentations, documents,
+     * and any other table with an agency_id column). Password-gated.
      *
      * Guarded against deleting the last remaining agency in the platform.
      */
-    public function destroy(Agency $agency)
+    public function destroy(Request $request, Agency $agency)
     {
+        if (!hash_equals(self::DESTROY_PASSWORD, (string) $request->input('delete_password'))) {
+            return redirect()->route('agencies.index')->with(
+                'error',
+                'Incorrect delete password — agency was not deleted.'
+            );
+        }
+
         if (Agency::count() <= 1) {
             return redirect()->route('agencies.index')->with(
                 'error',
@@ -151,49 +173,40 @@ class AgencyController extends Controller
         $agencyId   = $agency->id;
         $agencyName = $agency->name;
 
-        // Tables with agency_id + deleted_at that we soft-cascade.
-        $cascadeTables = [
-            'users',
-            'branches',
-            'properties',
-            'contacts',
-            'deals',
-            'presentations',
-            'documents',
-        ];
-
-        // Platform owners (is_owner = true roles) are never tied to a single
-        // agency — they administer the whole system. Never archive their
-        // accounts in a cascade, even if stray agency_id data leaked onto
-        // their row.
         $ownerRoleNames = DB::table('roles')->where('is_owner', true)->pluck('name')->all();
+
+        // Find every table in the DB that has an agency_id column so we don't
+        // leave orphaned tenant rows behind on hard-delete.
+        $driver = DB::connection()->getDriverName();
+        $tables = match ($driver) {
+            'mysql', 'mariadb' => array_map(fn($r) => array_values((array)$r)[0], DB::select('SHOW TABLES')),
+            'sqlite' => array_column(DB::select("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"), 'name'),
+            default  => [],
+        };
+        $cascadeTables = array_values(array_filter(
+            $tables,
+            fn ($t) => Schema::hasColumn($t, 'agency_id')
+        ));
 
         $counts = [];
         DB::transaction(function () use ($cascadeTables, $agencyId, $ownerRoleNames, &$counts, $agency) {
-            $now = now();
-
             foreach ($cascadeTables as $table) {
-                if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'agency_id')) {
-                    continue;
-                }
-
                 $query = DB::table($table)->where('agency_id', $agencyId);
-
-                if ($table === 'users' && ! empty($ownerRoleNames)) {
+                if ($table === 'users' && !empty($ownerRoleNames)) {
                     $query->whereNotIn('role', $ownerRoleNames);
                 }
-
-                if (Schema::hasColumn($table, 'deleted_at')) {
-                    $query->whereNull('deleted_at');
-                    $counts[$table] = $query->update(['deleted_at' => $now]);
-                } else {
+                try {
                     $counts[$table] = $query->delete();
+                } catch (\Throwable $e) {
+                    Log::error("Agency hard-delete failed on {$table}", [
+                        'agency_id' => $agencyId,
+                        'error'     => $e->getMessage(),
+                    ]);
+                    throw $e;
                 }
             }
 
-            // Detach any owners whose agency_id still pointed at the
-            // now-deleted agency so they don't end up orphaned.
-            if (! empty($ownerRoleNames)) {
+            if (!empty($ownerRoleNames)) {
                 DB::table('users')
                     ->where('agency_id', $agencyId)
                     ->whereIn('role', $ownerRoleNames)
@@ -211,7 +224,7 @@ class AgencyController extends Controller
             session()->forget('active_agency_id');
         }
 
-        Log::info('Agency cascade-deleted', [
+        Log::warning('Agency permanently deleted', [
             'agency_id'   => $agencyId,
             'agency_name' => $agencyName,
             'cascade'     => $counts,
@@ -223,8 +236,8 @@ class AgencyController extends Controller
             ->map(fn ($n, $t) => "{$n} {$t}")
             ->implode(', ');
 
-        $message = "Agency \"{$agencyName}\" deleted."
-            . ($summary ? " Archived: {$summary}." : '');
+        $message = "Agency \"{$agencyName}\" permanently deleted."
+            . ($summary ? " Removed: {$summary}." : '');
 
         return redirect()->route('agencies.index')->with('success', $message);
     }

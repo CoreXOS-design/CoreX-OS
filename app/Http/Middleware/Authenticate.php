@@ -19,9 +19,20 @@ class Authenticate extends Middleware
     {
         parent::authenticate($request, $guards);
 
-        if (auth()->check() && !auth()->user()->is_active) {
+        $user = auth()->user();
+        if (!$user) return;
+
+        if (!$user->is_active) {
             auth()->logout();
             abort(403, 'Account inactive');
+        }
+
+        if ($user->agency_id) {
+            $agency = \App\Models\Agency::find($user->agency_id);
+            if (!$agency || !$agency->is_active) {
+                auth()->logout();
+                abort(403, 'Your agency has been disabled. Contact your administrator.');
+            }
         }
     }
 }
