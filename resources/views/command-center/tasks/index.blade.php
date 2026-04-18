@@ -1,31 +1,77 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="space-y-4" x-data="taskBoard()">
+@php
+    // Shared chip colour lookup for pillar tags
+    $pillarStyle = [
+        'property' => ['bg' => 'rgba(249,115,22,0.15)',  'fg' => '#f97316', 'label' => 'Property'],
+        'deal'     => ['bg' => 'rgba(59,130,246,0.15)',  'fg' => '#3b82f6', 'label' => 'Deal'],
+        'contact'  => ['bg' => 'rgba(139,92,246,0.15)',  'fg' => '#8b5cf6', 'label' => 'Contact'],
+    ];
+@endphp
+
+<div class="space-y-3" x-data="taskBoard()">
 
     {{-- Header --}}
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
             <h1 class="text-xl font-bold" style="color:var(--text-primary);">Tasks</h1>
-            <div class="flex items-center gap-3 mt-1 text-xs" style="color:var(--text-muted);">
+            <div class="flex items-center gap-3 mt-0.5 text-xs" style="color:var(--text-muted);">
                 <span>{{ $summary['open'] }} open</span>
                 @if($summary['overdue'] > 0)
                     <span style="color:#ef4444;">{{ $summary['overdue'] }} overdue</span>
                 @endif
-                <span>{{ $summary['today'] }} due today</span>
+                <span>{{ $summary['today'] }} today</span>
                 <span>{{ $summary['thisWeek'] }} this week</span>
             </div>
         </div>
-        <div class="flex items-center gap-2">
-            @foreach(['kanban' => 'Board', 'list' => 'List'] as $vKey => $vLabel)
-                <a href="{{ route('command-center.tasks', ['view' => $vKey]) }}"
-                   class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
-                   style="{{ $currentView === $vKey ? 'background:var(--brand-button); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);' }}">
-                    {{ $vLabel }}
-                </a>
-            @endforeach
+
+        <div class="flex items-center gap-1.5 flex-wrap">
+            {{-- View mode: Board / List --}}
+            <div class="inline-flex rounded-md overflow-hidden" style="background:var(--surface-2);">
+                @foreach(['kanban' => 'Board', 'list' => 'List'] as $vKey => $vLabel)
+                    <a href="{{ route('command-center.tasks', array_merge(request()->query(), ['view' => $vKey])) }}"
+                       class="px-2.5 py-1 text-xs font-medium"
+                       style="{{ $currentView === $vKey ? 'background:var(--brand-button); color:#fff;' : 'color:var(--text-secondary);' }}">
+                        {{ $vLabel }}
+                    </a>
+                @endforeach
+            </div>
+
+            {{-- Group by (kanban only) --}}
+            @if($currentView === 'kanban')
+                <div class="inline-flex rounded-md overflow-hidden" style="background:var(--surface-2);">
+                    @php $group = request('group', 'status'); @endphp
+                    @foreach(['status' => 'Status', 'pillar' => 'Pillar'] as $gKey => $gLabel)
+                        <a href="{{ route('command-center.tasks', array_merge(request()->query(), ['group' => $gKey])) }}"
+                           class="px-2.5 py-1 text-xs font-medium"
+                           style="{{ $group === $gKey ? 'background:var(--brand-button); color:#fff;' : 'color:var(--text-secondary);' }}">
+                            {{ $gLabel }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
+
+            <a href="{{ route('command-center.tasks.archived') }}"
+               class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium"
+               style="background:var(--surface-2); color:var(--text-secondary);">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5-1.5 11.645a1.125 1.125 0 0 1-.964.544H4.214a1.125 1.125 0 0 1-.965-.544L1.5 7.5m18.75 0h-18m18.75 0A1.125 1.125 0 0 0 22.5 6.375v-1.5A1.125 1.125 0 0 0 21.375 3.75H2.625A1.125 1.125 0 0 0 1.5 4.875v1.5A1.125 1.125 0 0 0 2.625 7.5m0 0 .75 12.75A1.125 1.125 0 0 0 4.5 21.375h15a1.125 1.125 0 0 0 1.125-1.125l.75-12.75" /></svg>
+                Archived
+            </a>
+
+            <form method="POST" action="{{ route('command-center.tasks.archive-done') }}"
+                  onsubmit="return confirm('Archive all Done tasks? They can be restored from the Archived view.');"
+                  class="inline">
+                @csrf
+                <button type="submit"
+                        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium"
+                        style="background:var(--surface-2); color:var(--text-secondary);">
+                    Clear Done
+                </button>
+            </form>
+
             <button @click="showCreateTask = true"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-white"
                     style="background:var(--brand-button);">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                 New Task
@@ -34,125 +80,89 @@
     </div>
 
     @if($currentView === 'kanban')
-        {{-- ══════ KANBAN BOARD ══════ --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            @foreach(['todo' => 'To Do', 'in_progress' => 'In Progress', 'awaiting' => 'Awaiting', 'done' => 'Done'] as $statusKey => $statusLabel)
-                @php
-                    $colTasks = $columns[$statusKey] ?? collect();
-                    $headerColors = [
-                        'todo' => '#6b7280',
-                        'in_progress' => '#3b82f6',
-                        'awaiting' => '#f59e0b',
-                        'done' => '#10b981',
-                    ];
-                @endphp
-                <div class="flex flex-col">
-                    {{-- Column header --}}
-                    <div class="flex items-center justify-between px-3 py-2 rounded-t-md" style="background:{{ $headerColors[$statusKey] }}15;">
-                        <div class="flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full" style="background:{{ $headerColors[$statusKey] }};"></span>
-                            <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $statusLabel }}</span>
+        @php
+            $group  = request('group', 'status');
+            $allOpen = collect($columns)->flatten(1);
+        @endphp
+
+        @if($group === 'pillar')
+            {{-- ══════ GROUPED BY PILLAR ══════ --}}
+            @php
+                $pillarGroups = [
+                    'property' => $allOpen->filter(fn($t) => $t->pillarTag() === 'property')->values(),
+                    'deal'     => $allOpen->filter(fn($t) => $t->pillarTag() === 'deal')->values(),
+                    'contact'  => $allOpen->filter(fn($t) => $t->pillarTag() === 'contact')->values(),
+                    'other'    => $allOpen->filter(fn($t) => $t->pillarTag() === null)->values(),
+                ];
+            @endphp
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                @foreach($pillarGroups as $pKey => $pTasks)
+                    @php
+                        $pStyle = $pillarStyle[$pKey] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)', 'label' => 'Other'];
+                    @endphp
+                    <div class="flex flex-col">
+                        <div class="flex items-center justify-between px-2.5 py-1.5 rounded-t-md" style="background:{{ $pStyle['bg'] }};">
+                            <div class="flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full" style="background:{{ $pStyle['fg'] }};"></span>
+                                <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $pStyle['label'] }}</span>
+                            </div>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded-full" style="background:var(--surface-2); color:var(--text-muted);">{{ $pTasks->count() }}</span>
                         </div>
-                        <span class="text-xs px-1.5 py-0.5 rounded-full" style="background:var(--surface-2); color:var(--text-muted);">{{ $colTasks->count() }}</span>
+                        <div class="flex-1 space-y-1.5 p-1.5 rounded-b-md min-h-[8rem]" style="background:var(--surface-2); border:1px solid var(--border-default); border-top:none;">
+                            @forelse($pTasks as $task)
+                                @include('command-center.partials.task-card', ['task' => $task, 'compact' => true, 'showPillar' => false, 'pillarStyle' => $pillarStyle, 'statusKey' => $task->status])
+                            @empty
+                                <div class="py-4 text-center text-[11px]" style="color:var(--text-muted);">No tasks</div>
+                            @endforelse
+                        </div>
                     </div>
-
-                    {{-- Task cards --}}
-                    <div class="flex-1 space-y-2 p-2 rounded-b-md min-h-[12rem]" style="background:var(--surface-2); border:1px solid var(--border-default); border-top:none;">
-                        @forelse($colTasks as $task)
-                            @php
-                                $taskLink = $task->property ? route('corex.properties.show', $task->property)
-                                          : ($task->contact  ? route('corex.contacts.show',  $task->contact)
-                                          : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id) : null));
-                            @endphp
-                            <div class="corex-panel transition-shadow hover:shadow-md" style="margin:0;">
-                                <div class="p-3 space-y-2">
-                                    {{-- Title --}}
-                                    @if($taskLink)
-                                        <a href="{{ $taskLink }}" class="block text-sm font-medium leading-snug hover:underline" style="color:var(--text-primary);">{{ $task->title }}</a>
-                                    @else
-                                        <p class="text-sm font-medium leading-snug" style="color:var(--text-primary);">{{ $task->title }}</p>
-                                    @endif
-
-                                    {{-- Property / Contact link --}}
-                                    @if($task->property)
-                                        <a href="{{ route('corex.properties.show', $task->property) }}"
-                                           class="block text-xs truncate hover:underline" style="color:var(--text-muted);">
-                                            {{ $task->property->buildDisplayAddress() ?: ($task->property->title ?: '') }}
-                                        </a>
-                                    @elseif($task->contact)
-                                        <a href="{{ route('corex.contacts.show', $task->contact) }}"
-                                           class="block text-xs truncate hover:underline" style="color:var(--text-muted);">
-                                            {{ $task->contact->first_name }} {{ $task->contact->last_name }}
-                                        </a>
-                                    @endif
-
-                                    {{-- Footer: priority, due date, actions --}}
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center gap-1.5">
-                                            @if($task->priority === 'critical')
-                                                <span class="text-[10px] px-1.5 py-0.5 rounded font-medium" style="background:rgba(239,68,68,0.1); color:#ef4444;">Critical</span>
-                                            @elseif($task->priority === 'high')
-                                                <span class="text-[10px] px-1.5 py-0.5 rounded font-medium" style="background:rgba(245,158,11,0.1); color:#f59e0b;">High</span>
-                                            @endif
-                                            @if($task->due_date)
-                                                <span class="text-[10px]" style="color:{{ $task->isOverdue() ? '#ef4444' : 'var(--text-muted)' }};">
-                                                    {{ $task->due_date->isToday() ? 'Today' : ($task->due_date->isTomorrow() ? 'Tomorrow' : $task->due_date->format('d M')) }}
-                                                </span>
-                                            @endif
-                                        </div>
-
-                                        {{-- Status change buttons --}}
-                                        <div class="flex items-center gap-1">
-                                            @if($statusKey !== 'done')
-                                                @php
-                                                    $nextStatus = match($statusKey) {
-                                                        'todo' => 'in_progress',
-                                                        'in_progress' => 'awaiting',
-                                                        'awaiting' => 'done',
-                                                        default => null,
-                                                    };
-                                                @endphp
-                                                @if($nextStatus)
-                                                    <form method="POST" action="{{ route('command-center.tasks.update-status', $task) }}">
-                                                        @csrf @method('PATCH')
-                                                        <input type="hidden" name="status" value="{{ $nextStatus }}">
-                                                        <button type="submit" class="p-1 rounded transition-colors hover:bg-white/10" title="Move to {{ str_replace('_', ' ', $nextStatus) }}">
-                                                            <svg class="w-3.5 h-3.5" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
-                                                        </button>
-                                                    </form>
-                                                @endif
-                                                <form method="POST" action="{{ route('command-center.tasks.complete', $task) }}">
-                                                    @csrf
-                                                    <button type="submit" class="p-1 rounded transition-colors hover:bg-green-500/10" title="Complete">
-                                                        <svg class="w-3.5 h-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
-                                                    </button>
-                                                </form>
-                                            @endif
-                                        </div>
-                                    </div>
-                                </div>
+                @endforeach
+            </div>
+        @else
+            {{-- ══════ KANBAN BOARD (BY STATUS) — COMPACT ══════ --}}
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                @foreach(['todo' => 'To Do', 'in_progress' => 'In Progress', 'awaiting' => 'Awaiting', 'done' => 'Done'] as $statusKey => $statusLabel)
+                    @php
+                        $colTasks = $columns[$statusKey] ?? collect();
+                        $headerColors = [
+                            'todo' => '#6b7280',
+                            'in_progress' => '#3b82f6',
+                            'awaiting' => '#f59e0b',
+                            'done' => '#10b981',
+                        ];
+                    @endphp
+                    <div class="flex flex-col">
+                        <div class="flex items-center justify-between px-2.5 py-1.5 rounded-t-md" style="background:{{ $headerColors[$statusKey] }}15;">
+                            <div class="flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full" style="background:{{ $headerColors[$statusKey] }};"></span>
+                                <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $statusLabel }}</span>
                             </div>
-                        @empty
-                            <div class="py-6 text-center text-xs" style="color:var(--text-muted);">
-                                No tasks
-                            </div>
-                        @endforelse
+                            <span class="text-[10px] px-1.5 py-0.5 rounded-full" style="background:var(--surface-2); color:var(--text-muted);">{{ $colTasks->count() }}</span>
+                        </div>
+                        <div class="flex-1 space-y-1.5 p-1.5 rounded-b-md min-h-[8rem]" style="background:var(--surface-2); border:1px solid var(--border-default); border-top:none;">
+                            @forelse($colTasks as $task)
+                                @include('command-center.partials.task-card', ['task' => $task, 'compact' => true, 'showPillar' => true, 'pillarStyle' => $pillarStyle, 'statusKey' => $statusKey])
+                            @empty
+                                <div class="py-4 text-center text-[11px]" style="color:var(--text-muted);">No tasks</div>
+                            @endforelse
+                        </div>
                     </div>
-                </div>
-            @endforeach
-        </div>
+                @endforeach
+            </div>
+        @endif
     @else
         {{-- ══════ LIST VIEW ══════ --}}
         <div class="corex-panel">
-            <div class="corex-panel-body overflow-x-auto">
+            <div class="corex-panel-body overflow-x-auto p-0">
                 <table class="w-full text-sm">
                     <thead>
                         <tr class="border-b" style="border-color:var(--border-default);">
-                            <th class="text-left py-2 px-3 font-medium" style="color:var(--text-muted);">Task</th>
-                            <th class="text-left py-2 px-3 font-medium" style="color:var(--text-muted);">Status</th>
-                            <th class="text-left py-2 px-3 font-medium" style="color:var(--text-muted);">Priority</th>
-                            <th class="text-left py-2 px-3 font-medium" style="color:var(--text-muted);">Due</th>
-                            <th class="text-left py-2 px-3 font-medium" style="color:var(--text-muted);">Property</th>
+                            <th class="text-left py-2 px-3 font-medium text-xs" style="color:var(--text-muted);">Task</th>
+                            <th class="text-left py-2 px-3 font-medium text-xs" style="color:var(--text-muted);">Pillar</th>
+                            <th class="text-left py-2 px-3 font-medium text-xs" style="color:var(--text-muted);">Status</th>
+                            <th class="text-left py-2 px-3 font-medium text-xs" style="color:var(--text-muted);">Priority</th>
+                            <th class="text-left py-2 px-3 font-medium text-xs" style="color:var(--text-muted);">Due</th>
+                            <th class="text-left py-2 px-3 font-medium text-xs" style="color:var(--text-muted);">Property / Contact</th>
                             <th class="py-2 px-3"></th>
                         </tr>
                     </thead>
@@ -167,21 +177,29 @@
                                 $taskLink = $task->property ? route('corex.properties.show', $task->property)
                                           : ($task->contact  ? route('corex.contacts.show',  $task->contact)
                                           : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id) : null));
+                                $tag = $task->pillarTag();
                             @endphp
                             <tr class="border-b hover:bg-white/5 transition-colors" style="border-color:var(--border-default);">
-                                <td class="py-2.5 px-3" style="color:var(--text-primary);">
+                                <td class="py-2 px-3" style="color:var(--text-primary);">
                                     @if($taskLink)
-                                        <a href="{{ $taskLink }}" class="hover:underline {{ $task->status === 'done' ? 'line-through opacity-60' : '' }}">{{ $task->title }}</a>
+                                        <a href="{{ $taskLink }}" class="text-sm hover:underline {{ $task->status === 'done' ? 'line-through opacity-60' : '' }}">{{ $task->title }}</a>
                                     @else
-                                        <span class="{{ $task->status === 'done' ? 'line-through opacity-60' : '' }}">{{ $task->title }}</span>
+                                        <span class="text-sm {{ $task->status === 'done' ? 'line-through opacity-60' : '' }}">{{ $task->title }}</span>
                                     @endif
                                 </td>
-                                <td class="py-2.5 px-3">
-                                    <span class="text-xs px-2 py-0.5 rounded-full font-medium" style="background:{{ $statusColors[$task->status] ?? '#6b7280' }}20; color:{{ $statusColors[$task->status] ?? '#6b7280' }};">
+                                <td class="py-2 px-3">
+                                    @if($tag)
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:{{ $pillarStyle[$tag]['bg'] }}; color:{{ $pillarStyle[$tag]['fg'] }};">{{ $pillarStyle[$tag]['label'] }}</span>
+                                    @else
+                                        <span class="text-[10px]" style="color:var(--text-muted);">—</span>
+                                    @endif
+                                </td>
+                                <td class="py-2 px-3">
+                                    <span class="text-[11px] px-1.5 py-0.5 rounded-full font-medium" style="background:{{ $statusColors[$task->status] ?? '#6b7280' }}20; color:{{ $statusColors[$task->status] ?? '#6b7280' }};">
                                         {{ str_replace('_', ' ', ucfirst($task->status)) }}
                                     </span>
                                 </td>
-                                <td class="py-2.5 px-3">
+                                <td class="py-2 px-3">
                                     @if($task->priority === 'critical')
                                         <span class="text-xs font-medium" style="color:#ef4444;">Critical</span>
                                     @elseif($task->priority === 'high')
@@ -190,10 +208,10 @@
                                         <span class="text-xs" style="color:var(--text-muted);">{{ ucfirst($task->priority) }}</span>
                                     @endif
                                 </td>
-                                <td class="py-2.5 px-3 text-xs" style="color:{{ $task->isOverdue() ? '#ef4444' : 'var(--text-muted)' }};">
+                                <td class="py-2 px-3 text-xs" style="color:{{ $task->isOverdue() ? '#ef4444' : 'var(--text-muted)' }};">
                                     {{ $task->due_date ? $task->due_date->format('d M Y') : '—' }}
                                 </td>
-                                <td class="py-2.5 px-3 text-xs truncate max-w-[12rem]" style="color:var(--text-muted);">
+                                <td class="py-2 px-3 text-xs truncate max-w-[12rem]" style="color:var(--text-muted);">
                                     @if($task->property)
                                         <a href="{{ route('corex.properties.show', $task->property) }}" class="hover:underline">{{ $task->property->buildDisplayAddress() }}</a>
                                     @elseif($task->contact)
@@ -202,7 +220,7 @@
                                         —
                                     @endif
                                 </td>
-                                <td class="py-2.5 px-3">
+                                <td class="py-2 px-3">
                                     @if($task->status !== 'done')
                                         <form method="POST" action="{{ route('command-center.tasks.complete', $task) }}" class="inline">
                                             @csrf
@@ -213,7 +231,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="py-8 text-center text-sm" style="color:var(--text-muted);">No tasks</td>
+                                <td colspan="7" class="py-8 text-center text-sm" style="color:var(--text-muted);">No tasks</td>
                             </tr>
                         @endforelse
                     </tbody>

@@ -12,6 +12,13 @@
     } elseif ($item->kind === 'task' && !empty($model->deal_id)) {
         $titleLink = route('deals-v2.show', $model->deal_id);
     }
+
+    $tag = method_exists($model, 'pillarTag') ? $model->pillarTag() : null;
+    $tagStyles = [
+        'property' => ['bg' => 'rgba(249,115,22,0.15)',  'fg' => '#f97316', 'label' => 'Property'],
+        'deal'     => ['bg' => 'rgba(59,130,246,0.15)',  'fg' => '#3b82f6', 'label' => 'Deal'],
+        'contact'  => ['bg' => 'rgba(139,92,246,0.15)',  'fg' => '#8b5cf6', 'label' => 'Contact'],
+    ];
 @endphp
 <div class="flex items-start gap-3 py-2 px-2 rounded-md group hover:bg-white/5 transition-colors">
     <div class="flex-shrink-0 text-xs font-mono pt-0.5 tabular-nums" style="color:var(--text-muted); min-width:3.25rem;">
@@ -28,6 +35,11 @@
                 <p class="text-sm font-medium truncate" style="color:var(--text-primary);">
                     {{ $item->title }}
                 </p>
+            @endif
+            @if($tag && isset($tagStyles[$tag]))
+                <span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded" style="background:{{ $tagStyles[$tag]['bg'] }}; color:{{ $tagStyles[$tag]['fg'] }};">
+                    {{ $tagStyles[$tag]['label'] }}
+                </span>
             @endif
             @if($item->priority === 'critical')
                 <span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded" style="background:rgba(239,68,68,0.15); color:#ef4444;">crit</span>

@@ -87,6 +87,18 @@ class CalendarEvent extends Model
         return $this->hasMany(self::class, 'parent_event_id');
     }
 
+    /**
+     * Pillar tag for visual grouping: 'property' | 'contact' | 'deal' | null.
+     * Derived from FKs first, then event_type for deal/compliance signal.
+     */
+    public function pillarTag(): ?string
+    {
+        if ($this->property_id) return 'property';
+        if (in_array($this->event_type, ['deal', 'lease'], true)) return 'deal';
+        if ($this->contact_id)  return 'contact';
+        return null;
+    }
+
     public function remindersLog(): HasMany
     {
         return $this->hasMany(CalendarReminderLog::class);

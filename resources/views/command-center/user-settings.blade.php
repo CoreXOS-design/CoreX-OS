@@ -194,6 +194,40 @@
                 </div>
             </div>
 
+            {{-- ═══════ TASK BOARD ═══════ --}}
+            <div class="corex-panel">
+                <div class="corex-panel-header">
+                    <h3 class="corex-panel-title flex items-center gap-2">
+                        <svg class="w-4 h-4" style="color:#10b981;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                        Task Board
+                    </h3>
+                </div>
+                <div class="corex-panel-body space-y-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Auto-archive Done tasks after</label>
+                            <div class="flex items-center gap-2">
+                                <input type="number" name="auto_archive_done_days"
+                                       value="{{ $settings->auto_archive_done_days }}"
+                                       min="0" max="365" placeholder="Leave blank = never"
+                                       class="w-32 px-3 py-2 rounded-md text-sm border"
+                                       style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);"
+                                       {{ $isAgencyControlled ? 'disabled' : '' }}>
+                                <span class="text-xs" style="color:var(--text-muted);">day(s)</span>
+                            </div>
+                            <p class="text-[11px] mt-1 leading-relaxed" style="color:var(--text-muted);">
+                                Completed tasks older than this are moved to Archived automatically. <strong>0</strong> = archive immediately when marked Done. <strong>Blank</strong> = never auto-archive; you'll clear the Done column manually.
+                            </p>
+                        </div>
+                        <div class="flex items-end">
+                            <p class="text-[11px] leading-relaxed" style="color:var(--text-muted);">
+                                You can always restore an archived task from the <a href="{{ route('command-center.tasks.archived') }}" class="underline" style="color:var(--brand-icon);">Archived</a> view. Nothing is ever hard-deleted.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {{-- ═══════ CALENDAR PREFERENCES ═══════ --}}
             <div class="corex-panel">
                 <div class="corex-panel-header">

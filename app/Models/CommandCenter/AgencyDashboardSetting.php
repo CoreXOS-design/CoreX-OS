@@ -15,6 +15,7 @@ class AgencyDashboardSetting extends Model
         'lease_expiry_reminders', 'lease_reminder_days_before',
         'fica_reminders', 'ffc_reminders',
         'task_due_reminders', 'task_reminder_hours_before', 'event_reminder_hours_before',
+        'auto_archive_done_days',
         'overdue_daily_digest', 'digest_time',
         'default_calendar_view', 'weekend_visible',
         'working_hours_start', 'working_hours_end',

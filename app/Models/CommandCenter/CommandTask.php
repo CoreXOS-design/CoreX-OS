@@ -127,4 +127,17 @@ class CommandTask extends Model
             'started_at' => $this->started_at ?? now(),
         ]);
     }
+
+    /**
+     * Pillar tag for visual grouping on Today / Tasks:
+     * 'property' | 'contact' | 'deal' | null
+     * Priority: property → deal → contact (property is the physical asset, highest signal).
+     */
+    public function pillarTag(): ?string
+    {
+        if ($this->property_id) return 'property';
+        if ($this->deal_id)     return 'deal';
+        if ($this->contact_id)  return 'contact';
+        return null;
+    }
 }

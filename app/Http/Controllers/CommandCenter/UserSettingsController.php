@@ -53,6 +53,7 @@ class UserSettingsController extends Controller
             'task_due_reminders'         => 'nullable|boolean',
             'task_reminder_hours_before'  => 'required|integer|min:1|max:168',
             'event_reminder_hours_before' => 'required|integer|min:1|max:168',
+            'auto_archive_done_days'      => 'nullable|integer|min:0|max:365',
             'default_calendar_view'      => 'required|in:month,week,day,agenda',
             'weekend_visible'            => 'nullable|boolean',
             'working_hours_start'        => 'required|date_format:H:i,H:i:s',
@@ -75,6 +76,11 @@ class UserSettingsController extends Controller
             if (!empty($validated[$timeField])) {
                 $validated[$timeField] = substr($validated[$timeField], 0, 5);
             }
+        }
+
+        // Empty string → null for nullable integer fields
+        if (array_key_exists('auto_archive_done_days', $validated) && $validated['auto_archive_done_days'] === '') {
+            $validated['auto_archive_done_days'] = null;
         }
 
         UserDashboardSetting::updateOrCreate(

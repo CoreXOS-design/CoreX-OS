@@ -246,6 +246,63 @@ database/migrations/*                                    — no schema changes
 
 ---
 
+## 10.5 Phase 1.5 — Density + Archival + Pillar Tags (shipped 2026-04-18)
+
+Shipped as a follow-up to Phase 1 based on agent feedback.
+
+### 10.5.1 Compact Tasks board
+- Card padding reduced (`p-3` → `p-2`), gaps tightened, typography 1pt smaller
+- Column header padding reduced; inline action icons downsized to 12px
+- Priority + pillar chips on a single metadata row above the title
+- Status/priority badges use `9px` uppercase letter-spacing chips (fewer pixels, more scannable)
+- Footer action buttons (next-status arrow, complete) icon-only, 12px
+
+### 10.5.2 Pillar tags on Today + Tasks
+- Added `pillarTag()` on `CommandTask` and `CalendarEvent` models. Returns `'property' | 'deal' | 'contact' | null`. Priority: `property_id` → `deal` (by `deal_id` or `event_type`) → `contact_id`.
+- Timeline rows render a colored chip (Property orange / Deal blue / Contact purple) next to priority and kind.
+- Tasks kanban + list cards render the same chip, matching colour.
+- A new "Group by" toggle on the Tasks kanban switches columns from **Status** (default) to **Pillar** (Property / Deal / Contact / Other). Same cards, different grouping.
+
+### 10.5.3 Archive Done + Archived view
+- **Clear Done button** (manual) on Tasks page header → soft-deletes all current Done-column tasks for the user, with a confirm dialog.
+- **Archived view** at `/corex/command-center/tasks/archived` → lists soft-deleted tasks grouped by `deleted_at` date (Today / Yesterday / Friday 14 Apr 2026 etc.).
+- **Restore** button per archived row → `restore()` puts it back on the Done column.
+- Everything follows the no-hard-deletes rule: "archived" = soft-deleted.
+
+### 10.5.4 Auto-archive setting (per user, overridable by agency)
+- New column `auto_archive_done_days` on `user_dashboard_settings` and `agency_dashboard_settings` (unsigned smallint, nullable).
+- **null** = never auto-archive, **0** = archive immediately when marked Done, **N** = archive N days after completion.
+- New "Task Board" section on user-settings page with the numeric input + explanatory help.
+- New scheduled command `command-center:archive-done-tasks` runs daily at 03:00 (added to `routes/console.php`).
+- Agency override: when agency `dashboard_settings_mode = 'agency'`, the agency's value wins.
+
+### 10.5.5 Files added / modified in Phase 1.5
+
+Added:
+```
+database/migrations/2026_04_18_100001_add_auto_archive_done_to_dashboard_settings.php
+app/Console/Commands/CommandCenter/ArchiveDoneTasks.php
+resources/views/command-center/tasks/archived.blade.php
+resources/views/command-center/partials/task-card.blade.php
+```
+
+Modified:
+```
+app/Models/CommandCenter/UserDashboardSetting.php       — fillable + defaults
+app/Models/CommandCenter/AgencyDashboardSetting.php     — fillable
+app/Models/CommandCenter/CommandTask.php                — pillarTag()
+app/Models/CommandCenter/CalendarEvent.php              — pillarTag()
+app/Http/Controllers/CommandCenter/TaskController.php   — archiveDone, archived, restore
+app/Http/Controllers/CommandCenter/UserSettingsController.php — validate + save auto_archive_done_days
+resources/views/command-center/tasks/index.blade.php    — compact + group-by + tag chips + archive buttons
+resources/views/command-center/partials/timeline-row.blade.php — pillar chip
+resources/views/command-center/user-settings.blade.php  — new Task Board section
+routes/web.php                                          — archived, archive-done, restore routes
+routes/console.php                                      — daily 03:00 schedule
+```
+
+---
+
 ## 11. Mobile App Parity
 
 The CoreX mobile app consumes the same dashboard data. The mobile app must mirror this cockpit direction:

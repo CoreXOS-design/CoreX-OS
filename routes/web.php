@@ -700,6 +700,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/performance', [CommandCenterDashboardController::class, 'performance'])->middleware('permission:view_dashboard')->name('command-center.performance');
 
         Route::get('/tasks', [CommandCenterTaskController::class, 'index'])->name('command-center.tasks');
+        Route::get('/tasks/archived', [CommandCenterTaskController::class, 'archived'])->name('command-center.tasks.archived');
+        Route::post('/tasks/archive-done', [CommandCenterTaskController::class, 'archiveDone'])->name('command-center.tasks.archive-done');
+        Route::post('/tasks/{taskId}/restore', [CommandCenterTaskController::class, 'restore'])->name('command-center.tasks.restore');
         Route::post('/tasks', [CommandCenterTaskController::class, 'store'])->name('command-center.tasks.store');
         Route::put('/tasks/{task}', [CommandCenterTaskController::class, 'update'])->name('command-center.tasks.update');
         Route::delete('/tasks/{task}', [CommandCenterTaskController::class, 'destroy'])->name('command-center.tasks.destroy');

@@ -129,4 +129,51 @@ class TaskController extends Controller
 
         return response()->json($task);
     }
+
+    /**
+     * Archive all Done tasks for the user — soft-delete them off the board.
+     */
+    public function archiveDone(Request $request)
+    {
+        $count = CommandTask::forUser($request->user()->id)
+            ->where('status', CommandTask::STATUS_DONE)
+            ->get()
+            ->each(fn ($t) => $t->delete())
+            ->count();
+
+        return back()->with('success', "Archived {$count} done task(s).");
+    }
+
+    /**
+     * Archived tasks view — soft-deleted tasks grouped by the day they were archived.
+     */
+    public function archived(Request $request)
+    {
+        $user = $request->user();
+
+        $tasks = CommandTask::onlyTrashed()
+            ->where('assigned_to', $user->id)
+            ->with(['property', 'contact'])
+            ->orderByDesc('deleted_at')
+            ->get();
+
+        $grouped = $tasks->groupBy(fn ($t) => optional($t->deleted_at)->toDateString());
+
+        return view('command-center.tasks.archived', [
+            'user'    => $user,
+            'grouped' => $grouped,
+            'total'   => $tasks->count(),
+        ]);
+    }
+
+    /**
+     * Restore a soft-deleted task back to the Done column.
+     */
+    public function restore(int $taskId)
+    {
+        $task = CommandTask::onlyTrashed()->findOrFail($taskId);
+        $task->restore();
+
+        return back()->with('success', 'Task restored to Done column.');
+    }
 }

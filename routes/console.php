@@ -75,3 +75,6 @@ Schedule::command('command-center:scorecards')->dailyAt('02:30')->withoutOverlap
 
 // Flag idle properties — runs daily at 07:00
 Schedule::command('command-center:flag-idle')->dailyAt('07:00')->withoutOverlapping();
+
+// Auto-archive completed tasks per user setting — runs daily at 03:00
+Schedule::command('command-center:archive-done-tasks')->dailyAt('03:00')->withoutOverlapping();
