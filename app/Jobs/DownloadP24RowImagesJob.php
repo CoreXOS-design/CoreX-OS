@@ -102,7 +102,9 @@ class DownloadP24RowImagesJob implements ShouldQueue
                 $dest = "properties/{$property->id}/{$ordinal}.{$ext}";
                 try {
                     Storage::disk('public')->put($dest, $body);
-                    $stored[$idx] = $dest;
+                    // Store as a public URL (/storage/...) so the property UI
+                    // can render it directly via <img src>.
+                    $stored[$idx] = Storage::disk('public')->url($dest);
                 } catch (\Throwable $e) {
                     $failures[] = ['idx' => $idx, 'url' => $url, 'reason' => 'storage_put: ' . $e->getMessage()];
                 }
@@ -111,8 +113,13 @@ class DownloadP24RowImagesJob implements ShouldQueue
 
         if (!empty($stored)) {
             ksort($stored);
+            $paths = array_values($stored);
             $property->refresh();
-            $property->images_json = array_values($stored);
+            // gallery_images_json is what the internal property UI renders from
+            // (show, index, match, contacts). images_json is kept populated for
+            // legacy public agency pages that still read it.
+            $property->gallery_images_json = $paths;
+            $property->images_json = $paths;
             $property->saveQuietly();
         }
 
