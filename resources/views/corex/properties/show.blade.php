@@ -2099,36 +2099,6 @@
                     </div>
                 </div>
 
-                {{-- Pricing & Costs — only visible for rentals --}}
-                <div x-data="{ isRentalCosts: document.querySelector('[name=listing_type]')?.value === 'Rental' }"
-                     x-init="document.querySelector('[name=listing_type]')?.addEventListener('change', e => isRentalCosts = e.target.value === 'Rental')"
-                     x-show="isRentalCosts || '{{ strtolower($property->listing_type ?? '') }}' === 'rental'" x-cloak>
-                    <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Pricing & Costs</h3>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Commission (%)</label>
-                            <input type="number" name="commission_percent" value="{{ old('commission_percent', $property->commission_percent) }}"
-                                   placeholder="0.00" min="0" max="100" step="0.01"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Admin Fee (R)</label>
-                            <input type="number" name="admin_fee" value="{{ old('admin_fee', $property->admin_fee) }}"
-                                   placeholder="0.00" min="0" step="0.01"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Marketing Fee (R)</label>
-                            <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}"
-                                   placeholder="0.00" min="0" step="0.01"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                    </div>
-                </div>
-
                 {{-- Rental Details — only visible when listing type is rental --}}
                 <div x-data="{ isRental: document.querySelector('[name=listing_type]')?.value === 'Rental' }"
                      x-init="$watch('isRental', v => {}); document.querySelector('[name=listing_type]')?.addEventListener('change', e => isRental = e.target.value === 'Rental')"

@@ -435,29 +435,6 @@
                 </div>
             </div>
 
-            {{-- Financials (collapsible) --}}
-            <div x-data="{ open: false }" class="rounded-md" style="border:1px solid var(--border);">
-                <button type="button" @click="open = !open"
-                        class="w-full flex items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-wider"
-                        style="color:var(--text-secondary);">
-                    <span>Financials &middot; commission, admin fee</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 transition-transform duration-200" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                </button>
-                <div x-show="open" x-cloak class="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-4" style="border-top:1px solid var(--border);padding-top:1rem;">
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Commission %</label>
-                        <input type="number" x-model.number="s3.commission_percent" min="0" max="100" step="0.5"
-                               class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                               style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Admin fee (R)</label>
-                        <input type="number" x-model.number="s3.admin_fee" min="0"
-                               class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                               style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                    </div>
-                </div>
-            </div>
 
         </div>
         <footer class="px-6 py-4 flex items-center justify-between" style="background:var(--surface-2);border-top:1px solid var(--border);">
@@ -581,9 +558,9 @@ function propertyWizard(config) {
         uploadedCount: 0,
         uploadTotal: 0,
 
-        // Step data
+        // Step data — agent_id defaults to current user; the server enforces who can change it.
         s1: { listing_type: 'sale', title: '', property_type: '', suburb: '', street_number: '', street_name: '', price: null, beds: 0, baths: 0, garages: 0 },
-        s3: { description: '', mandate_type: '', branch_id: '', agent_id: '', size_m2: null, erf_size_m2: null, commission_percent: null, admin_fee: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
+        s3: { description: '', mandate_type: '', branch_id: '{{ auth()->user()->effectiveBranchId() ?? '' }}', agent_id: '{{ auth()->id() }}', size_m2: null, erf_size_m2: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
 
         get filteredSuburbs() {
             const q = (this.s1.suburb || '').toLowerCase();

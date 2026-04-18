@@ -292,24 +292,6 @@
                                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
                                placeholder="e.g. Ray Nkonyeni">
                     </div>
-                    <div>
-                        <label class="block text-sm font-semibold mb-1 text-slate-700">Commission (%)</label>
-                        <input type="number" name="commission_percent" value="{{ old('commission_percent', $property?->commission_percent) }}"
-                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                               placeholder="0.00" min="0" max="100" step="0.01">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold mb-1 text-slate-700">Admin Fee (R)</label>
-                        <input type="number" name="admin_fee" value="{{ old('admin_fee', $property?->admin_fee) }}"
-                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                               placeholder="0.00" min="0" step="0.01">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold mb-1 text-slate-700">Marketing Fee (R)</label>
-                        <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property?->marketing_fee) }}"
-                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                               placeholder="0.00" min="0" step="0.01">
-                    </div>
                 </div>
 
                 {{-- Rental-only fields --}}

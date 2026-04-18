@@ -182,8 +182,6 @@ class PropertyWizardController extends Controller
             'agent_id'           => 'nullable|exists:users,id',
             'size_m2'            => 'nullable|integer|min:0',
             'erf_size_m2'        => 'nullable|integer|min:0',
-            'commission_percent' => 'nullable|numeric|min:0|max:100',
-            'admin_fee'          => 'nullable|numeric|min:0',
             'rental_amount'      => 'nullable|numeric|min:0',
             'deposit_amount'     => 'nullable|numeric|min:0',
             'lease_start_date'   => 'nullable|date',
