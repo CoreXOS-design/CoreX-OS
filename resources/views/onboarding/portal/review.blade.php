@@ -2,7 +2,7 @@
 
 @section('portal-content')
 <div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4"
-     x-data="portalReview('{{ $portal->token }}')">
+     x-data="portalReview('{{ $portal->urlKey() }}')">
 
     {{-- Filters --}}
     <form method="GET" class="rounded-md bg-surface p-4 border border-subtle/30 sticky top-0 z-10">
@@ -38,12 +38,61 @@
                 </button>
                 <span class="text-xs text-muted" x-text="selected.length + ' selected'"></span>
             </div>
-            <a href="{{ route('onboarding.portal.finish', $portal->token) }}"
+            <a href="{{ route('onboarding.portal.finish', $portal->urlKey()) }}"
                class="rounded-md px-3 py-1.5 text-xs border border-subtle">
                 Finish review →
             </a>
         </div>
     </form>
+
+    {{-- Error debug modal --}}
+    <div x-show="errorModal.open" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+         @click.self="errorModal.open = false"
+         @keydown.escape.window="errorModal.open = false">
+        <div class="w-full max-w-2xl max-h-[85vh] bg-surface rounded-md border border-subtle shadow-xl flex flex-col">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-subtle/40">
+                <h3 class="text-base font-semibold">
+                    <span x-text="errorModal.errors.length"></span>
+                    listing(s) failed
+                </h3>
+                <button type="button" @click="errorModal.open = false"
+                        class="text-muted hover:text-inherit text-xl leading-none">&times;</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-5 space-y-3">
+                <template x-for="err in errorModal.errors" :key="err.rowId + '-' + err.at">
+                    <div class="rounded-md bg-surface-2 border border-red-500/30 p-3 text-xs">
+                        <div class="flex items-center justify-between mb-1">
+                            <div class="font-semibold">
+                                <span x-text="err.externalId || ('Row #' + err.rowId)"></span>
+                            </div>
+                            <div class="text-muted" x-text="'HTTP ' + (err.httpStatus ?? '—')"></div>
+                        </div>
+                        <div x-show="err.address" class="text-muted" x-text="err.address"></div>
+                        <div class="mt-2 whitespace-pre-wrap font-mono text-red-500" x-text="err.message"></div>
+                        <template x-if="err.serverErrors && err.serverErrors.length">
+                            <ul class="mt-2 list-disc list-inside text-red-500">
+                                <template x-for="(m, i) in err.serverErrors" :key="i">
+                                    <li x-text="m"></li>
+                                </template>
+                            </ul>
+                        </template>
+                    </div>
+                </template>
+                <div x-show="!errorModal.errors.length" class="text-muted text-sm">No errors.</div>
+            </div>
+            <div class="px-5 py-3 border-t border-subtle/40 flex justify-between">
+                <button type="button" @click="errorModal.errors = []"
+                        class="rounded-md px-3 py-1.5 text-xs bg-surface-2 border border-subtle">
+                    Clear log
+                </button>
+                <button type="button" @click="errorModal.open = false"
+                        class="portal-cta rounded-md px-3 py-1.5 text-xs font-semibold">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
 
     {{-- Progress bar --}}
     <div x-show="progress.active" x-cloak class="rounded-md bg-surface p-3 border border-subtle/30">
@@ -55,8 +104,10 @@
             <div class="h-full transition-all duration-200"
                  :style="'width: ' + (progress.total ? (progress.done / progress.total) * 100 : 0) + '%; background: var(--brand-button);'"></div>
         </div>
-        <div x-show="progress.errors > 0" class="mt-2 text-xs text-red-500"
-             x-text="progress.errors + ' listing(s) failed — check the Errors tab'"></div>
+        <div x-show="progress.errors > 0" class="mt-2 text-xs text-red-500 flex items-center gap-2">
+            <span x-text="progress.errors + ' listing(s) failed'"></span>
+            <button type="button" class="underline" @click="errorModal.open = true">view details</button>
+        </div>
     </div>
 
     {{-- Summary --}}
@@ -79,7 +130,7 @@
                     'search'       => $search !== '' ? $search : null,
                 ]);
                 $nextStatusSort = $sort === 'status_asc' ? 'status_desc' : 'status_asc';
-                $statusSortUrl  = route('onboarding.portal.review', $portal->token) . '?' . http_build_query(array_merge($baseSortParams, ['sort' => $nextStatusSort]));
+                $statusSortUrl  = route('onboarding.portal.review', $portal->urlKey()) . '?' . http_build_query(array_merge($baseSortParams, ['sort' => $nextStatusSort]));
                 $sortArrow = $sort === 'status_asc' ? '↑' : ($sort === 'status_desc' ? '↓' : '↕');
             @endphp
             <thead class="text-xs uppercase text-muted border-b border-subtle">
@@ -215,7 +266,26 @@ function portalReview(token) {
         rowState: {},
         counts: @json($counts),
         progress: { active: false, total: 0, done: 0, errors: 0, label: '' },
+        errorModal: { open: false, errors: [] },
         csrf: document.querySelector('meta[name=csrf-token]')?.content ?? '',
+
+        recordError(id, r) {
+            const tr = document.querySelector('tr[data-row="' + id + '"]');
+            const externalId = tr?.querySelector('td.font-mono')?.innerText?.trim() ?? '';
+            const addressCell = tr?.querySelectorAll('td')[4];
+            const address = addressCell?.innerText?.trim() ?? '';
+            this.errorModal.errors.push({
+                rowId: id,
+                externalId,
+                address,
+                httpStatus: r?.status ?? null,
+                message: r?.data?.message || r?.error || ('HTTP ' + (r?.status ?? '—')),
+                serverErrors: (r?.data?.errors && Array.isArray(r.data.errors)) ? r.data.errors
+                              : (r?.data?.errors ? Object.values(r.data.errors).flat() : []),
+                at: Date.now(),
+            });
+            this.errorModal.open = true;
+        },
 
         canSelect(id, status, isProcessing) {
             const st = this.rowState[id];
@@ -263,15 +333,23 @@ function portalReview(token) {
         },
         async confirmSingle(id) {
             this.setRow(id, { busy: true, status: 'processing' });
-            const r = await this.post(`/onboarding/${token}/rows/${id}/confirm`);
+            let r;
+            try {
+                r = await this.post(`/onboarding/${token}/rows/${id}/confirm`);
+            } catch (e) {
+                r = { ok: false, status: 0, data: null, error: e?.message ?? 'Network error' };
+            }
             if (r.ok && r.data?.status === 'confirmed') {
                 this.setRow(id, { busy: false, status: 'confirmed' });
                 if (r.data.counts) this.counts = r.data.counts;
                 this.selected = this.selected.filter(x => x !== id);
                 return { ok: true };
             }
-            const msg = r.data?.errors?.join?.('; ') || ('HTTP ' + r.status);
+            const serverErrors = Array.isArray(r.data?.errors) ? r.data.errors
+                                : (r.data?.errors ? Object.values(r.data.errors).flat() : []);
+            const msg = serverErrors.join('; ') || r.data?.message || r.error || ('HTTP ' + r.status);
             this.setRow(id, { busy: false, status: 'error', error: msg });
+            this.recordError(id, r);
             return { ok: false, error: msg };
         },
         async confirmRow(id) {

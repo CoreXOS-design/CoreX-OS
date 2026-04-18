@@ -34,7 +34,7 @@
             <p class="text-xs text-muted">
                 {{ $counts['pending'] + $counts['error'] }} listings still need attention. You can reopen this link any time until it expires.
             </p>
-            <a href="{{ route('onboarding.portal.review', $portal->token) }}"
+            <a href="{{ route('onboarding.portal.review', $portal->urlKey()) }}"
                class="inline-block mt-4 rounded-md px-4 py-2 text-xs border border-subtle">
                 ← Back to review
             </a>

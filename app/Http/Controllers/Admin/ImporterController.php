@@ -295,9 +295,11 @@ class ImporterController extends Controller
             ]);
         }
 
+        $label = $data['label'] ?? (Agency::find($data['agency_id'])?->name);
         $portal = P24OnboardingPortal::create([
             'agency_id'    => $data['agency_id'],
             'token'        => P24OnboardingPortal::generateToken(),
+            'slug'         => P24OnboardingPortal::generateSlug($label),
             'label'        => $data['label'] ?? null,
             'created_by'   => auth()->id(),
             'expires_at'   => now()->addDays((int) ($data['expires_in_days'] ?? 30)),

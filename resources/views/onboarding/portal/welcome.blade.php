@@ -33,7 +33,7 @@
         </div>
 
         <div class="mt-6 flex items-center gap-3">
-            <a href="{{ route('onboarding.portal.review', $portal->token) }}"
+            <a href="{{ route('onboarding.portal.review', $portal->urlKey()) }}"
                class="portal-cta rounded-md px-5 py-2.5 text-sm font-semibold">
                 Start review
             </a>

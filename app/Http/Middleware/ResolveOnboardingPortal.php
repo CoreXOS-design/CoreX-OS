@@ -17,8 +17,10 @@ class ResolveOnboardingPortal
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $token = $request->route('token');
-        $portal = P24OnboardingPortal::where('token', $token)->first();
+        $key = $request->route('token');
+        $portal = P24OnboardingPortal::where('slug', $key)
+            ->orWhere('token', $key)
+            ->first();
 
         if (!$portal) {
             abort(404);

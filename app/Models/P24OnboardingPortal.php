@@ -17,6 +17,7 @@ class P24OnboardingPortal extends Model
     protected $fillable = [
         'agency_id',
         'token',
+        'slug',
         'label',
         'created_by',
         'expires_at',
@@ -42,6 +43,26 @@ class P24OnboardingPortal extends Model
             $t = Str::random(40);
         } while (static::where('token', $t)->exists());
         return $t;
+    }
+
+    public static function generateSlug(?string $label, ?int $fallbackId = null): string
+    {
+        $base = Str::slug((string) $label) ?: ('portal-' . ($fallbackId ?? Str::random(6)));
+        $slug = $base;
+        $i = 2;
+        while (static::where('slug', $slug)->exists()) {
+            $slug = $base . '-' . $i++;
+        }
+        return $slug;
+    }
+
+    /**
+     * The URL segment we route by — prefers the human-readable slug if set,
+     * else falls back to the legacy token so old links still work.
+     */
+    public function urlKey(): string
+    {
+        return $this->slug ?: $this->token;
     }
 
     public function agency(): BelongsTo
@@ -77,7 +98,7 @@ class P24OnboardingPortal extends Model
 
     public function publicUrl(): string
     {
-        return url('/onboarding/' . $this->token);
+        return url('/onboarding/' . $this->urlKey());
     }
 
     /**
