@@ -202,19 +202,22 @@
                                 @php
                                     $taskLink = $task->property ? route('corex.properties.show', $task->property)
                                               : ($task->contact  ? route('corex.contacts.show',  $task->contact)
-                                              : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id)
-                                              : route('command-center.tasks')));
+                                              : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id) : null));
                                 @endphp
-                                <div class="rounded-md p-3 border-l-2 cursor-pointer hover:brightness-110 transition"
+                                <div class="rounded-md p-3 border-l-2 {{ $taskLink ? 'cursor-pointer hover:brightness-110 transition' : '' }}"
                                      style="background:var(--surface-2); border-left-color:#ef4444;"
                                      x-data="{ action: null, extDays: 7 }"
-                                     onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $taskLink }}'}">
+                                     @if($taskLink) onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $taskLink }}'}" @endif>
                                     <div class="flex items-start gap-2">
                                         <div class="flex-shrink-0 mt-0.5">
                                             <svg class="w-4 h-4" style="color:#f97316;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
                                         </div>
                                         <div class="flex-1 min-w-0">
-                                            <a href="{{ $taskLink }}" class="text-sm font-medium hover:underline" style="color:var(--text-primary);">{{ $task->title }}</a>
+                                            @if($taskLink)
+                                                <a href="{{ $taskLink }}" class="text-sm font-medium hover:underline" style="color:var(--text-primary);">{{ $task->title }}</a>
+                                            @else
+                                                <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $task->title }}</p>
+                                            @endif
                                             <p class="text-xs mt-0.5" style="color:#ef4444;">
                                                 Due {{ $task->due_date->diffForHumans() }}
                                                 @if($task->property)
@@ -266,17 +269,20 @@
                             @foreach($inboxOverdueEvents as $event)
                                 @php
                                     $eventLink = $event->property ? route('corex.properties.show', $event->property)
-                                               : ($event->contact ? route('corex.contacts.show',  $event->contact)
-                                               : route('command-center.calendar'));
+                                               : ($event->contact ? route('corex.contacts.show',  $event->contact) : null);
                                 @endphp
-                                <div class="rounded-md p-3 border-l-2 cursor-pointer hover:brightness-110 transition"
+                                <div class="rounded-md p-3 border-l-2 {{ $eventLink ? 'cursor-pointer hover:brightness-110 transition' : '' }}"
                                      style="background:var(--surface-2); border-left-color:{{ $event->colour ?? '#ef4444' }};"
                                      x-data="{ action: null, extDays: 7 }"
-                                     onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $eventLink }}'}">
+                                     @if($eventLink) onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $eventLink }}'}" @endif>
                                     <div class="flex items-start gap-2">
                                         <div class="flex-shrink-0 mt-0.5 w-3 h-3 rounded-full" style="background:{{ $event->colour ?? '#ef4444' }};"></div>
                                         <div class="flex-1 min-w-0">
-                                            <a href="{{ $eventLink }}" class="text-sm font-medium hover:underline" style="color:var(--text-primary);">{{ $event->title }}</a>
+                                            @if($eventLink)
+                                                <a href="{{ $eventLink }}" class="text-sm font-medium hover:underline" style="color:var(--text-primary);">{{ $event->title }}</a>
+                                            @else
+                                                <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $event->title }}</p>
+                                            @endif
                                             <p class="text-xs mt-0.5" style="color:#ef4444;">
                                                 Was {{ $event->event_date->diffForHumans() }}
                                                 @if($event->property)
