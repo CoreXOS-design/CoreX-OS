@@ -3,7 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Agency;
-use App\Models\Compliance\RmcpComplianceOfficer;
+use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\Compliance\RmcpSection;
 use App\Models\Compliance\RmcpVariable;
 use App\Models\Compliance\RmcpVersion;
@@ -32,26 +32,35 @@ class HfcRmcpMasterSeeder extends Seeder
             return;
         }
 
-        // ── 1. Compliance Officer ──
-        $coExists = RmcpComplianceOfficer::withoutGlobalScopes()
+        // ── 1. Compliance Officer (unified fica_officer_appointments table) ──
+        $coExists = FicaOfficerAppointment::withoutGlobalScopes()
             ->where('agency_id', $agency->id)
+            ->where('role', FicaOfficerAppointment::ROLE_PRIMARY)
             ->whereNull('ended_on')
             ->first();
 
         if (!$coExists) {
-            RmcpComplianceOfficer::withoutGlobalScopes()->create([
+            // Find Elize by email or name match within this agency
+            $elize = User::withoutGlobalScopes()
+                ->where('agency_id', $agency->id)
+                ->where(function ($q) {
+                    $q->where('email', 'like', '%elize%')
+                      ->orWhere('name', 'like', '%Elize%');
+                })->first();
+
+            FicaOfficerAppointment::withoutGlobalScopes()->create([
                 'agency_id'    => $agency->id,
-                'user_id'      => null,
-                'full_name'    => 'Elize Reichel',
+                'role'         => FicaOfficerAppointment::ROLE_PRIMARY,
+                'user_id'      => $elize?->id,
+                'full_name'    => $elize?->name ?? 'Elize Reichel',
                 'id_number'    => '7012310053085',
-                'cell'         => null,
-                'email'        => null,
+                'email'        => $elize?->email,
                 'title'        => 'FICA Compliance Officer',
                 'appointed_on' => '2026-03-01',
-                'appointed_by' => null,
-                'appointment_notes' => 'Initial appointment — seeded from existing RMCP.',
+                'appointed_by' => $elize ? null : null,
+                'notes'        => 'Initial appointment — seeded from existing RMCP.',
             ]);
-            $this->command->info('Created compliance officer: Elize Reichel');
+            $this->command->info('Created compliance officer: ' . ($elize?->name ?? 'Elize Reichel'));
         }
 
         // ── 2. Ensure FIC number on agency ──
