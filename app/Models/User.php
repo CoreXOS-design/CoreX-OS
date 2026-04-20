@@ -108,6 +108,16 @@ class User extends Authenticatable
         return $this->belongsTo(Branch::class);
     }
 
+    public function documents(): HasMany
+    {
+        return $this->hasMany(UserDocument::class);
+    }
+
+    public function verifiedDocuments(): HasMany
+    {
+        return $this->documents()->where('status', 'verified');
+    }
+
     public function effectiveBranchId(): ?int
     {
         $override = session('view_as_branch_id');

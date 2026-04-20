@@ -8,6 +8,7 @@ use App\Models\AgentCapPeriod;
 use App\Models\CommissionLedger;
 use App\Models\TrainingCompletion;
 use App\Models\TrainingCourse;
+use App\Models\UserDocument;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -166,23 +167,43 @@ class AgentPortalController extends Controller
         $path = $file->store('agent-docs/' . $user->id, 'public');
         $type = $request->document_type;
 
-        // Update user column if it maps to one
+        // Map incoming type to UserDocument document_type
+        $docTypeMap = [
+            'ffc_certificate' => UserDocument::DOCUMENT_TYPE_FFC_CERTIFICATE,
+            'photo'           => UserDocument::DOCUMENT_TYPE_PROFILE_PHOTO,
+            'id_copy'         => UserDocument::DOCUMENT_TYPE_ID_COPY,
+            'pi_insurance'    => UserDocument::DOCUMENT_TYPE_PI_INSURANCE,
+            'tax_clearance'   => UserDocument::DOCUMENT_TYPE_TAX_CLEARANCE,
+        ];
+
+        $documentType = $docTypeMap[$type] ?? UserDocument::DOCUMENT_TYPE_OTHER;
+        $isPhoto = $documentType === UserDocument::DOCUMENT_TYPE_PROFILE_PHOTO;
+
+        // Create UserDocument record (source of truth)
+        UserDocument::create([
+            'user_id'       => $user->id,
+            'agency_id'     => $user->agency_id,
+            'document_type' => $documentType,
+            'file_path'     => $path,
+            'file_name'     => $file->getClientOriginalName(),
+            'file_size'     => $file->getSize(),
+            'mime_type'     => $file->getMimeType(),
+            'status'        => $isPhoto ? 'verified' : 'pending',
+            'verified_at'   => $isPhoto ? now() : null,
+            'verified_by'   => $isPhoto ? $user->id : null,
+            'uploaded_by'   => $user->id,
+        ]);
+
+        // Update legacy user columns for backward compatibility
         if ($type === 'ffc_certificate') {
             $user->update(['ffc_certificate_path' => $path]);
         } elseif ($type === 'photo') {
             $user->update(['agent_photo_path' => $path]);
         }
 
-        // If user was onboarded, also store in application_documents
-        $application = AgentApplication::where('user_id', $user->id)->first();
-        if ($application && in_array($type, ['id_copy', 'pi_insurance', 'tax_clearance', 'ffc_certificate'])) {
-            \App\Models\ApplicationDocument::updateOrCreate(
-                ['application_id' => $application->id, 'document_type' => $type],
-                ['file_path' => $path, 'file_name' => $file->getClientOriginalName()]
-            );
-        }
+        $message = $isPhoto ? 'Photo uploaded.' : 'Document uploaded — pending verification.';
 
-        return back()->with('success', 'Document uploaded.');
+        return back()->with('success', $message);
     }
 
     private function calculateFfcStatus($user): array
