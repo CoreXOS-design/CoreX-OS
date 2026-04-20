@@ -892,6 +892,25 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{userDocument}/expire', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'markExpired'])->name('expire');
     });
 
+    // ── Agency Compliance Provisions (Settings) ──
+    Route::middleware(['permission:manage_agency_compliance', 'agency.required'])->prefix('compliance/agency-settings')->name('compliance.agency-settings.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'index'])->name('index');
+        Route::post('/', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'store'])->name('store');
+        Route::get('/{provision}/edit', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'edit'])->name('edit');
+        Route::patch('/{provision}', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'update'])->name('update');
+        Route::delete('/{provision}', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'destroy'])->name('destroy');
+    });
+
+    // ── Admin Upload on Behalf + Per-User Compliance Overrides ──
+    Route::middleware(['permission:manage_user_compliance', 'agency.required'])->prefix('admin/users/{user}')->group(function () {
+        Route::get('/documents/upload', [\App\Http\Controllers\Compliance\UserDocumentAdminController::class, 'uploadForUser'])->name('admin.user.documents.upload');
+        Route::post('/documents', [\App\Http\Controllers\Compliance\UserDocumentAdminController::class, 'storeForUser'])->name('admin.user.documents.store');
+        Route::post('/compliance-overrides', [\App\Http\Controllers\Compliance\UserComplianceOverrideController::class, 'store'])->name('admin.user.overrides.store');
+    });
+    Route::middleware(['permission:manage_user_compliance', 'agency.required'])
+        ->post('admin/compliance-overrides/{override}/revoke', [\App\Http\Controllers\Compliance\UserComplianceOverrideController::class, 'revoke'])
+        ->name('admin.user.overrides.revoke');
+
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
     // Training placeholder replaced by LMS module (training.index route above)
     Route::get('/communication', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'communication')->middleware('permission:access_communication')->name('corex.communication');

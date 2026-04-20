@@ -121,7 +121,7 @@
             {{-- Quick compliance card --}}
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:3px; padding:20px 24px;">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary); font-family:'Plus Jakarta Sans',sans-serif;">Compliance Overview</h3>
-                @php $dotColors = ['green' => '#00d4aa', 'amber' => '#f59e0b', 'red' => '#ef4444', 'missing' => '#64748b']; @endphp
+                @php $dotColors = ['green' => '#00d4aa', 'amber' => '#f59e0b', 'red' => '#ef4444', 'grey' => '#64748b', 'missing' => '#64748b']; @endphp
                 <div class="space-y-2">
                     @foreach([
                         'ffc_number' => 'FFC Number',
@@ -623,11 +623,23 @@
                         <div>
                             <div class="text-xs font-semibold" style="color:var(--text-primary);">{{ $ci['label'] }}</div>
                             <div class="text-[10px]" style="color:var(--text-muted);">{{ $ciData['label'] }}</div>
+                            @if(!empty($ciData['override']))
+                            <div class="text-[9px] mt-0.5" style="color:var(--text-muted);">Set by {{ $ciData['override_by'] ?? 'Admin' }}{{ !empty($ciData['override_date']) ? ' on ' . $ciData['override_date'] : '' }}</div>
+                            @endif
+                            @if(!empty($ciData['admin_upload']))
+                            <div class="text-[9px] mt-0.5" style="color:var(--text-muted);">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 inline-block" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
+                                Admin verified
+                            </div>
+                            @endif
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
-                        <span style="display:inline-block; font-size:0.6rem; font-weight:600; padding:2px 8px; border-radius:3px; background:{{ $dotColors[$ciData['status']] ?? '#64748b' }}1a; color:{{ $dotColors[$ciData['status']] ?? '#64748b' }};">{{ ucfirst($ciData['status']) }}</span>
-                        @if($ciData['status'] !== 'green')
+                        @php
+                            $badgeLabel = $ciData['status'] === 'grey' ? 'Override' : ucfirst($ciData['status']);
+                        @endphp
+                        <span style="display:inline-block; font-size:0.6rem; font-weight:600; padding:2px 8px; border-radius:3px; background:{{ $dotColors[$ciData['status']] ?? '#64748b' }}1a; color:{{ $dotColors[$ciData['status']] ?? '#64748b' }};">{{ $badgeLabel }}</span>
+                        @if(!in_array($ciData['status'], ['green', 'grey']))
                             @if(!empty($ci['action_route']) && $ci['key'] === 'rmcp_acknowledged')
                                 @if($rmcpAckStatus === 'in_progress')
                                 <a href="{{ route('rmcp.ack.step', 1) }}" style="font-size:0.65rem; padding:3px 8px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; text-decoration:none; font-weight:600;">Continue</a>

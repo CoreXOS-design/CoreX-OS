@@ -125,6 +125,10 @@ return [
         ['key' => 'manage_employee_screenings', 'label' => 'Manage Employee Screenings',    'section' => 'compliance',       'type' => 'action',  'module' => 'screening',        'sort_order' => 30],
         ['key' => 'view_own_screening',         'label' => 'View Own Screening Records',    'section' => 'compliance',       'type' => 'access',  'module' => 'screening',        'sort_order' => 31],
 
+        // ── Agency Compliance Provisions ──
+        ['key' => 'manage_agency_compliance',   'label' => 'Manage Agency Compliance Provisions', 'section' => 'compliance', 'type' => 'action', 'module' => 'compliance', 'sort_order' => 40],
+        ['key' => 'manage_user_compliance',     'label' => 'Upload on Behalf / Override User Compliance', 'section' => 'compliance', 'type' => 'action', 'module' => 'compliance', 'sort_order' => 41],
+
         // ── My Portal ──
         ['key' => 'access_my_portal',        'label' => 'Access My Portal',                'section' => 'my-portal',        'type' => 'access',  'module' => 'my_portal',        'sort_order' => 1],
         ['key' => 'upload_own_documents',    'label' => 'Upload Compliance Documents',     'section' => 'my-portal',        'type' => 'action',  'module' => 'my_portal',        'sort_order' => 2],

@@ -60,6 +60,8 @@ class UserDocument extends Model
         'rejected_by',
         'rejected_at',
         'uploaded_by',
+        'uploaded_by_admin',
+        'admin_upload_reason',
         'notes',
     ];
 

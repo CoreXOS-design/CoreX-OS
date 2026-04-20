@@ -8,6 +8,8 @@ use App\Models\AgentApplication;
 use App\Models\AgentCapPeriod;
 use App\Models\AgentSocialAccount;
 use App\Models\CommissionLedger;
+use App\Models\Compliance\AgencyComplianceProvision;
+use App\Models\Compliance\UserComplianceOverride;
 use App\Models\TrainingCompletion;
 use App\Models\TrainingCourse;
 use App\Models\User;
@@ -226,74 +228,134 @@ class AgentPortalController extends Controller
     {
         $items = [];
 
-        // FFC Number
-        $items['ffc_number'] = [
-            'status' => !empty($user->ffc_number) ? 'green' : 'red',
-            'label' => !empty($user->ffc_number) ? $user->ffc_number : 'Not set',
+        // Document-based compliance items — check with override → provision → individual precedence
+        $docItems = [
+            'ffc_certificate' => 'FFC Certificate',
+            'id_copy'         => 'ID Copy',
+            'pi_insurance'    => 'PI Insurance',
+            'tax_clearance'   => 'Tax Clearance',
         ];
 
-        // FFC Certificate
-        $ffcDoc = $documents->get('ffc_certificate');
-        $items['ffc_certificate'] = $this->documentStatus($ffcDoc, 'FFC Certificate');
+        foreach ($docItems as $docType => $label) {
+            // 1. Check per-user override
+            $override = UserComplianceOverride::forUserAndItem($user->id, $docType);
+            if ($override) {
+                $overrideLabel = UserComplianceOverride::OVERRIDE_TYPE_LABELS[$override->override_type] ?? ucfirst($override->override_type);
+                $items[$docType] = [
+                    'status'   => 'grey',
+                    'label'    => $overrideLabel . ': ' . \Illuminate\Support\Str::limit($override->reason, 60),
+                    'override' => true,
+                    'override_by' => $override->creator?->name,
+                    'override_date' => $override->created_at?->format('d M Y'),
+                ];
+                continue;
+            }
 
-        // FFC Expiry
-        $items['ffc_expiry'] = $this->expiryStatus($user->ffc_expiry_date, 'FFC');
+            // 2. Check agency provision
+            $provision = AgencyComplianceProvision::coversUser($user, $docType);
+            if ($provision) {
+                $provLabel = 'Covered by agency';
+                if ($provision->policy_reference) {
+                    $provLabel .= ': ' . $provision->policy_reference;
+                }
+                if ($provision->effective_until) {
+                    $provLabel .= ', valid to ' . $provision->effective_until->format('d M Y');
+                }
+                $items[$docType] = [
+                    'status'    => 'green',
+                    'label'     => $provLabel,
+                    'provision' => true,
+                ];
+                continue;
+            }
 
-        // ID Copy
-        $idDoc = $documents->get('id_copy');
-        $items['id_copy'] = $this->documentStatus($idDoc, 'ID Copy');
+            // 3. Check individual document
+            $doc = $documents->get($docType);
+            $items[$docType] = $this->documentStatus($doc, $label);
 
-        // PI Insurance
-        $piDoc = $documents->get('pi_insurance');
-        $items['pi_insurance'] = $this->documentStatus($piDoc, 'PI Insurance');
-        if ($piDoc && $piDoc->expiry_date) {
-            $items['pi_insurance'] = array_merge($items['pi_insurance'], $this->expiryOverlay($piDoc->expiry_date));
+            // Expiry overlay for PI Insurance and Tax Clearance
+            if (in_array($docType, ['pi_insurance', 'tax_clearance']) && $doc && $doc->expiry_date) {
+                $items[$docType] = array_merge($items[$docType], $this->expiryOverlay($doc->expiry_date));
+            }
+
+            // Show admin upload indicator
+            if ($doc && $doc->uploaded_by_admin) {
+                $adminName = $doc->uploader?->name ?? 'Admin';
+                $items[$docType]['label'] = 'Verified — uploaded by ' . $adminName . ' on ' . $doc->created_at->format('d M Y');
+                $items[$docType]['admin_upload'] = true;
+            }
         }
 
-        // Tax Clearance
-        $taxDoc = $documents->get('tax_clearance');
-        $items['tax_clearance'] = $this->documentStatus($taxDoc, 'Tax Clearance');
-        if ($taxDoc && $taxDoc->expiry_date) {
-            $items['tax_clearance'] = array_merge($items['tax_clearance'], $this->expiryOverlay($taxDoc->expiry_date));
+        // FFC Number — no override/provision logic, just direct check
+        $ffcOverride = UserComplianceOverride::forUserAndItem($user->id, 'ffc_number');
+        if ($ffcOverride) {
+            $overrideLabel = UserComplianceOverride::OVERRIDE_TYPE_LABELS[$ffcOverride->override_type] ?? ucfirst($ffcOverride->override_type);
+            $items['ffc_number'] = ['status' => 'grey', 'label' => $overrideLabel . ': ' . \Illuminate\Support\Str::limit($ffcOverride->reason, 60), 'override' => true];
+        } else {
+            $items['ffc_number'] = [
+                'status' => !empty($user->ffc_number) ? 'green' : 'red',
+                'label' => !empty($user->ffc_number) ? $user->ffc_number : 'Not set',
+            ];
+        }
+
+        // FFC Expiry — check override, then standard
+        $ffcExpiryOverride = UserComplianceOverride::forUserAndItem($user->id, 'ffc_expiry');
+        if ($ffcExpiryOverride) {
+            $overrideLabel = UserComplianceOverride::OVERRIDE_TYPE_LABELS[$ffcExpiryOverride->override_type] ?? ucfirst($ffcExpiryOverride->override_type);
+            $items['ffc_expiry'] = ['status' => 'grey', 'label' => $overrideLabel . ': ' . \Illuminate\Support\Str::limit($ffcExpiryOverride->reason, 60), 'override' => true];
+        } else {
+            $items['ffc_expiry'] = $this->expiryStatus($user->ffc_expiry_date, 'FFC');
         }
 
         // RMCP — from the structured acknowledgement system
-        $rmcpAckSt = $user->rmcpAcknowledgementStatus();
-        $items['rmcp_acknowledged'] = [
-            'status' => match ($rmcpAckSt) {
-                'valid'       => 'green',
-                'in_progress' => 'amber',
-                default       => 'red',
-            },
-            'label' => match ($rmcpAckSt) {
-                'valid'       => 'Acknowledged',
-                'in_progress' => 'In progress',
-                'expired'     => 'Expired',
-                'not_started' => 'Not acknowledged',
-                default       => 'No active RMCP',
-            },
-        ];
+        $rmcpOverride = UserComplianceOverride::forUserAndItem($user->id, 'rmcp_acknowledged');
+        if ($rmcpOverride) {
+            $overrideLabel = UserComplianceOverride::OVERRIDE_TYPE_LABELS[$rmcpOverride->override_type] ?? ucfirst($rmcpOverride->override_type);
+            $items['rmcp_acknowledged'] = ['status' => 'grey', 'label' => $overrideLabel . ': ' . \Illuminate\Support\Str::limit($rmcpOverride->reason, 60), 'override' => true];
+        } else {
+            $rmcpAckSt = $user->rmcpAcknowledgementStatus();
+            $items['rmcp_acknowledged'] = [
+                'status' => match ($rmcpAckSt) {
+                    'valid'       => 'green',
+                    'in_progress' => 'amber',
+                    default       => 'red',
+                },
+                'label' => match ($rmcpAckSt) {
+                    'valid'       => 'Acknowledged',
+                    'in_progress' => 'In progress',
+                    'expired'     => 'Expired',
+                    'not_started' => 'Not acknowledged',
+                    default       => 'No active RMCP',
+                },
+            ];
+        }
 
         // Employee Screening
-        $screeningSt = $user->currentScreeningStatus();
-        $items['employee_screening'] = [
-            'status' => match ($screeningSt) {
-                'clear'                  => 'green',
-                'pre_employment_pending' => 'amber',
-                default                  => 'red',
-            },
-            'label' => match ($screeningSt) {
-                'clear'                  => 'Clear' . ($user->screening_due_on ? ' — next review ' . \Carbon\Carbon::parse($user->screening_due_on)->format('d M Y') : ''),
-                'pre_employment_pending' => 'Screening in progress',
-                'concerns_flagged'       => 'Concerns flagged',
-                'overdue'                => 'Overdue — review pending',
-                'expired'                => 'Expired — re-screen required',
-                'never_screened'         => 'Pre-employment screening pending',
-                default                  => 'Not screened',
-            },
-        ];
+        $screeningOverride = UserComplianceOverride::forUserAndItem($user->id, 'employee_screening');
+        if ($screeningOverride) {
+            $overrideLabel = UserComplianceOverride::OVERRIDE_TYPE_LABELS[$screeningOverride->override_type] ?? ucfirst($screeningOverride->override_type);
+            $items['employee_screening'] = ['status' => 'grey', 'label' => $overrideLabel . ': ' . \Illuminate\Support\Str::limit($screeningOverride->reason, 60), 'override' => true];
+        } else {
+            $screeningSt = $user->currentScreeningStatus();
+            $items['employee_screening'] = [
+                'status' => match ($screeningSt) {
+                    'clear'                  => 'green',
+                    'pre_employment_pending' => 'amber',
+                    default                  => 'red',
+                },
+                'label' => match ($screeningSt) {
+                    'clear'                  => 'Clear' . ($user->screening_due_on ? ' — next review ' . \Carbon\Carbon::parse($user->screening_due_on)->format('d M Y') : ''),
+                    'pre_employment_pending' => 'Screening in progress',
+                    'concerns_flagged'       => 'Concerns flagged',
+                    'overdue'                => 'Overdue — review pending',
+                    'expired'                => 'Expired — re-screen required',
+                    'never_screened'         => 'Pre-employment screening pending',
+                    default                  => 'Not screened',
+                },
+            ];
+        }
 
-        // Overall = worst status
+        // Overall = worst status (grey = neutral, does not count as issue)
         $statuses = collect($items)->pluck('status');
         $overall = 'green';
         if ($statuses->contains('red')) {
@@ -303,7 +365,7 @@ class AgentPortalController extends Controller
         }
 
         $items['overall'] = $overall;
-        $items['issues_count'] = $statuses->filter(fn ($s) => $s !== 'green')->count();
+        $items['issues_count'] = $statuses->filter(fn ($s) => !in_array($s, ['green', 'grey']))->count();
 
         return $items;
     }
