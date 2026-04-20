@@ -346,4 +346,51 @@ class User extends Authenticatable
             ->exists();
     }
 
+    // ── RMCP Acknowledgement ──
+
+    public function rmcpAcknowledgements(): HasMany
+    {
+        return $this->hasMany(Compliance\RmcpAcknowledgement::class);
+    }
+
+    public function currentRmcpAcknowledgement(): ?Compliance\RmcpAcknowledgement
+    {
+        $agencyId = $this->effectiveAgencyId();
+        if (!$agencyId) return null;
+
+        $activeVersion = Compliance\RmcpVersion::where('agency_id', $agencyId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$activeVersion) return null;
+
+        return $this->rmcpAcknowledgements()
+            ->where('rmcp_version_id', $activeVersion->id)
+            ->whereIn('status', ['in_progress', 'completed'])
+            ->latest()
+            ->first();
+    }
+
+    public function rmcpAcknowledgementStatus(): string
+    {
+        $agencyId = $this->effectiveAgencyId();
+        if (!$agencyId) return 'no_rmcp';
+
+        $activeVersion = Compliance\RmcpVersion::where('agency_id', $agencyId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$activeVersion) return 'no_rmcp';
+
+        $ack = $this->rmcpAcknowledgements()
+            ->where('rmcp_version_id', $activeVersion->id)
+            ->whereIn('status', ['in_progress', 'completed'])
+            ->latest()
+            ->first();
+
+        if (!$ack) return 'not_started';
+        if ($ack->isValid()) return 'valid';
+        if ($ack->isComplete()) return 'expired';
+        return 'in_progress';
+    }
 }

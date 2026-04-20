@@ -609,7 +609,7 @@
                     ['key' => 'id_copy', 'label' => 'ID Copy', 'action_tab' => 'documents', 'action_text' => 'Upload document'],
                     ['key' => 'pi_insurance', 'label' => 'PI Insurance', 'action_tab' => 'documents', 'action_text' => 'Upload document'],
                     ['key' => 'tax_clearance', 'label' => 'Tax Clearance', 'action_tab' => 'documents', 'action_text' => 'Upload document'],
-                    ['key' => 'rmcp_acknowledged', 'label' => 'RMCP Acknowledgement', 'action_tab' => 'training', 'action_text' => 'Complete training'],
+                    ['key' => 'rmcp_acknowledged', 'label' => 'RMCP Acknowledgement', 'action_tab' => null, 'action_text' => 'Acknowledge RMCP', 'action_route' => true],
                 ];
             @endphp
 
@@ -627,7 +627,17 @@
                     <div class="flex items-center gap-2">
                         <span style="display:inline-block; font-size:0.6rem; font-weight:600; padding:2px 8px; border-radius:3px; background:{{ $dotColors[$ciData['status']] ?? '#64748b' }}1a; color:{{ $dotColors[$ciData['status']] ?? '#64748b' }};">{{ ucfirst($ciData['status']) }}</span>
                         @if($ciData['status'] !== 'green')
-                        <button @click="setTab('{{ $ci['action_tab'] }}')" style="font-size:0.65rem; padding:3px 8px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; border:none; cursor:pointer;">{{ $ci['action_text'] }}</button>
+                            @if(!empty($ci['action_route']) && $ci['key'] === 'rmcp_acknowledged')
+                                @if($rmcpAckStatus === 'in_progress')
+                                <a href="{{ route('rmcp.ack.step', 1) }}" style="font-size:0.65rem; padding:3px 8px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; text-decoration:none; font-weight:600;">Continue</a>
+                                @else
+                                <form method="POST" action="{{ route('rmcp.ack.start') }}" style="display:inline;">@csrf
+                                <button type="submit" style="font-size:0.65rem; padding:3px 8px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; border:none; cursor:pointer; font-weight:600;">{{ $ci['action_text'] }}</button>
+                                </form>
+                                @endif
+                            @else
+                            <button @click="setTab('{{ $ci['action_tab'] }}')" style="font-size:0.65rem; padding:3px 8px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; border:none; cursor:pointer;">{{ $ci['action_text'] }}</button>
+                            @endif
                         @endif
                     </div>
                 </div>
@@ -677,8 +687,14 @@
                         <div class="text-xs" style="color:var(--text-muted);">{{ $rmcpLabel }}</div>
                     </div>
                 </div>
-                @if($rmcpStatus === 'red' && $rmcpCourse)
-                <a href="{{ route('training.show', $rmcpCourse) }}" style="font-size:0.7rem; padding:5px 12px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; text-decoration:none; font-weight:600;">Read RMCP</a>
+                @if($rmcpAckStatus === 'valid' && $rmcpAck)
+                <a href="{{ route('rmcp.ack.receipt', $rmcpAck) }}" style="font-size:0.7rem; padding:5px 12px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; text-decoration:none; font-weight:600;">View Receipt</a>
+                @elseif($rmcpAckStatus === 'in_progress')
+                <a href="{{ route('rmcp.ack.step', 1) }}" style="font-size:0.7rem; padding:5px 12px; border-radius:3px; background:rgba(234,179,8,0.12); color:#eab308; text-decoration:none; font-weight:600;">Continue</a>
+                @elseif(in_array($rmcpAckStatus, ['not_started', 'expired']))
+                <form method="POST" action="{{ route('rmcp.ack.start') }}" style="display:inline;">@csrf
+                <button type="submit" style="font-size:0.7rem; padding:5px 12px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; border:none; cursor:pointer; font-weight:600;">Start Acknowledgement</button>
+                </form>
                 @endif
             </div>
         </div>

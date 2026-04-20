@@ -78,19 +78,21 @@ class AgentPortalController extends Controller
             ];
         });
 
-        // RMCP acknowledgement
-        $rmcpCourse = TrainingCourse::where('title', 'like', '%RMCP%')->published()->first();
-        $rmcpStatus = 'red';
-        $rmcpLabel = 'Not acknowledged';
-        if ($rmcpCourse) {
-            $rmcpCompletion = TrainingCompletion::where('user_id', $user->id)
-                ->where('course_id', $rmcpCourse->id)
-                ->first();
-            if ($rmcpCompletion) {
-                $rmcpStatus = 'green';
-                $rmcpLabel = 'Acknowledged ' . $rmcpCompletion->completed_at->format('d M Y');
-            }
-        }
+        // RMCP acknowledgement — reads from the new structured ack system
+        $rmcpAckStatus = $user->rmcpAcknowledgementStatus();
+        $rmcpAck = $user->currentRmcpAcknowledgement();
+        $rmcpStatus = match ($rmcpAckStatus) {
+            'valid'       => 'green',
+            'in_progress' => 'amber',
+            default       => 'red',
+        };
+        $rmcpLabel = match ($rmcpAckStatus) {
+            'valid'       => 'Valid until ' . ($rmcpAck?->valid_until?->format('d M Y') ?? ''),
+            'in_progress' => 'In progress (' . ($rmcpAck?->progressPercent() ?? 0) . '%)',
+            'expired'     => 'Expired — re-acknowledge required',
+            'not_started' => 'Not acknowledged',
+            default       => 'No active RMCP',
+        };
 
         // ── Earnings snapshot ──
         $thisMonthEarnings = (float) (CommissionLedger::forUser($user->id)->thisMonth()
@@ -136,7 +138,8 @@ class AgentPortalController extends Controller
             'trainingItems',
             'rmcpStatus',
             'rmcpLabel',
-            'rmcpCourse',
+            'rmcpAck',
+            'rmcpAckStatus',
             'thisMonthEarnings',
             'thisYearEarnings',
             'capPercent',
@@ -254,17 +257,21 @@ class AgentPortalController extends Controller
             $items['tax_clearance'] = array_merge($items['tax_clearance'], $this->expiryOverlay($taxDoc->expiry_date));
         }
 
-        // RMCP
-        $rmcpCourse = TrainingCourse::where('title', 'like', '%RMCP%')->published()->first();
-        $rmcpCompleted = false;
-        if ($rmcpCourse) {
-            $rmcpCompleted = TrainingCompletion::where('user_id', $user->id)
-                ->where('course_id', $rmcpCourse->id)
-                ->exists();
-        }
+        // RMCP — from the structured acknowledgement system
+        $rmcpAckSt = $user->rmcpAcknowledgementStatus();
         $items['rmcp_acknowledged'] = [
-            'status' => $rmcpCompleted ? 'green' : 'red',
-            'label' => $rmcpCompleted ? 'Acknowledged' : 'Not acknowledged',
+            'status' => match ($rmcpAckSt) {
+                'valid'       => 'green',
+                'in_progress' => 'amber',
+                default       => 'red',
+            },
+            'label' => match ($rmcpAckSt) {
+                'valid'       => 'Acknowledged',
+                'in_progress' => 'In progress',
+                'expired'     => 'Expired',
+                'not_started' => 'Not acknowledged',
+                default       => 'No active RMCP',
+            },
         ];
 
         // Overall = worst status

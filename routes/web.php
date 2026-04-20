@@ -728,6 +728,33 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
 
+    // ── RMCP Acknowledgement Flow ──
+    Route::middleware('permission:access_rmcp')->group(function () {
+        Route::post('/my-portal/rmcp/acknowledge/start', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'start'])
+            ->name('rmcp.ack.start');
+        Route::get('/my-portal/rmcp/acknowledge/step/{order}', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'step'])
+            ->name('rmcp.ack.step')->where('order', '[0-9]+');
+        Route::post('/my-portal/rmcp/acknowledge/confirm/{order}', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'confirmSection'])
+            ->name('rmcp.ack.confirm')->where('order', '[0-9]+');
+        Route::get('/my-portal/rmcp/acknowledge/sign', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'sign'])
+            ->name('rmcp.ack.sign');
+        Route::post('/my-portal/rmcp/acknowledge/submit', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'submit'])
+            ->name('rmcp.ack.submit');
+        Route::get('/my-portal/rmcp/acknowledge/receipt/{ack}', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'receipt'])
+            ->name('rmcp.ack.receipt');
+        Route::get('/my-portal/rmcp/acknowledge/receipt/{ack}/pdf', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'downloadReceipt'])
+            ->name('rmcp.ack.receipt.pdf');
+        Route::get('/my-portal/rmcp/my-acknowledgements', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'index'])
+            ->name('rmcp.ack.index');
+    });
+
+    // ── RMCP Compliance Dashboard ──
+    Route::middleware('permission:access_compliance_dashboard')->prefix('compliance/rmcp-dashboard')->name('compliance.rmcp.dashboard.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'index'])->name('index');
+        Route::post('/reminder', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'sendReminder'])->name('reminder');
+        Route::get('/report.pdf', [\App\Http\Controllers\Compliance\RmcpDashboardController::class, 'report'])->name('report');
+    });
+
     // ── Commission Engine ──
     Route::get('/my-earnings', [\App\Http\Controllers\Commission\CommissionController::class, 'dashboard'])
         ->name('commission.dashboard');
