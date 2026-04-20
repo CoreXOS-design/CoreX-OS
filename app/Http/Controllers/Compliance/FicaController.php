@@ -23,14 +23,14 @@ class FicaController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        $agencyId = $user->effectiveAgencyId();
         $isCO = $user->isComplianceOfficer();
         $isAdmin = $user->isOwnerRole() || $user->hasPermission('manage_compliance');
         $canSeeAll = $isCO || $isAdmin;
         $tab = $request->query('tab', $canSeeAll ? 'all' : 'submitted');
 
-        // Base query scoped by role
-        $baseQuery = FicaSubmission::where('agency_id', $agencyId);
+        // Base query — AgencyScope on FicaSubmission handles tenancy:
+        // super_admin/owner with no switcher sees all, others see their agency.
+        $baseQuery = FicaSubmission::query();
         if (! $canSeeAll) {
             $baseQuery->where('requested_by', $user->id);
         }
@@ -45,9 +45,9 @@ class FicaController extends Controller
             'corrections_requested'  => (clone $countBase)->where('status', 'corrections_requested')->count(),
             'rejected'               => (clone $countBase)->where('status', 'rejected')->count(),
         ];
-        // CO queue count (always agency-wide for COs)
+        // CO queue count (agency-scoped via global scope)
         $coQueueCount = $isCO
-            ? FicaSubmission::where('agency_id', $agencyId)->where('status', 'agent_approved')->count()
+            ? FicaSubmission::where('status', 'agent_approved')->count()
             : 0;
 
         // Build filtered query
@@ -56,9 +56,8 @@ class FicaController extends Controller
             ->latest();
 
         if ($tab === 'co_queue') {
-            // CO queue: always agency-wide, only agent_approved
-            $query = FicaSubmission::where('agency_id', $agencyId)
-                ->where('status', 'agent_approved')
+            // CO queue: agency-scoped via global scope, only agent_approved
+            $query = FicaSubmission::where('status', 'agent_approved')
                 ->with(['contact', 'requestedBy', 'agentVerifiedBy'])
                 ->oldest('agent_verified_at');
         } elseif ($tab !== 'all') {
@@ -80,8 +79,7 @@ class FicaController extends Controller
         // CO queue stats
         $coQueueStats = null;
         if ($isCO && $coQueueCount > 0) {
-            $oldest = FicaSubmission::where('agency_id', $agencyId)
-                ->where('status', 'agent_approved')
+            $oldest = FicaSubmission::where('status', 'agent_approved')
                 ->min('agent_verified_at');
             $coQueueStats = [
                 'count'       => $coQueueCount,
@@ -426,9 +424,14 @@ class FicaController extends Controller
 
     /**
      * Ensure submission belongs to the user's agency.
+     * Super-admin / owner-role users bypass (they can access any agency).
      */
     private function authorizeAgency(FicaSubmission $submission): void
     {
-        abort_unless($submission->agency_id === Auth::user()->effectiveAgencyId(), 403);
+        $user = Auth::user();
+        if ($user->isOwnerRole()) {
+            return;
+        }
+        abort_unless($submission->agency_id === $user->effectiveAgencyId(), 403);
     }
 }

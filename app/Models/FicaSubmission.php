@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 
 class FicaSubmission extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, BelongsToAgency;
 
     protected $fillable = [
         'contact_id',
@@ -60,11 +61,6 @@ class FicaSubmission extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class);
-    }
-
-    public function agency(): BelongsTo
-    {
-        return $this->belongsTo(Agency::class);
     }
 
     public function requestedBy(): BelongsTo
