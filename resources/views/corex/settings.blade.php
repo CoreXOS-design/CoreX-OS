@@ -375,6 +375,19 @@
             @permission('manage_compliance_officer')
             @php
                 $settingsAgencyId = auth()->user()->effectiveAgencyId();
+            @endphp
+
+            @if(!$settingsAgencyId)
+            <div>
+                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">FICA Officers</h3>
+                <div class="p-4 rounded-md" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:3px;">
+                    <div class="text-xs font-semibold" style="color:#ca8a04;">Agency context required.</div>
+                    <div class="text-xs mt-1" style="color:#a16207;">You are logged in as a system-level user with no agency assigned. Use the agency switcher to select an agency before managing FICA officers.</div>
+                </div>
+            </div>
+            @else
+
+            @php
                 $agencyUsers = \App\Models\User::where('agency_id', $settingsAgencyId)
                     ->where('is_active', true)->whereNull('deleted_at')
                     ->orderBy('name')->get(['id', 'name', 'email', 'role', 'branch_id']);

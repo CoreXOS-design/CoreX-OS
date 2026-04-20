@@ -126,16 +126,20 @@ class FicaOfficerAppointment extends Model
 
     // ── Static helpers ──
 
-    public static function currentPrimary(int $agencyId): ?self
+    public static function currentPrimary(?int $agencyId): ?self
     {
+        if ($agencyId === null) return null;
+
         return static::where('agency_id', $agencyId)
             ->primary()
             ->active()
             ->first();
     }
 
-    public static function activeMlrosFor(int $agencyId, ?int $branchId = null): \Illuminate\Database\Eloquent\Collection
+    public static function activeMlrosFor(?int $agencyId, ?int $branchId = null): \Illuminate\Database\Eloquent\Collection
     {
+        if ($agencyId === null) return new \Illuminate\Database\Eloquent\Collection();
+
         $query = static::where('agency_id', $agencyId)
             ->mlro()
             ->active();
