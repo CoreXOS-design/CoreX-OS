@@ -28,7 +28,14 @@
     $switchUsers = collect();
     if ($canSwitchUsers) {
         $agencyFilterId = $user?->effectiveAgencyId();
-        $query = \Illuminate\Support\Facades\DB::table('users')->where('is_active', 1);
+        // Owner-role users are platform identities and must never appear in
+        // the impersonation picker — that's the privilege-escalation path
+        // closed by ImpersonateController::start() and codified in
+        // .ai/specs/multi-tenancy.md.
+        $ownerRoleNames = \App\Models\User::ownerRoleNames();
+        $query = \Illuminate\Support\Facades\DB::table('users')
+            ->where('is_active', 1)
+            ->when(!empty($ownerRoleNames), fn($q) => $q->whereNotIn('role', $ownerRoleNames));
 
         if ($agencyFilterId) {
             $branchIds = \Illuminate\Support\Facades\DB::table('branches')

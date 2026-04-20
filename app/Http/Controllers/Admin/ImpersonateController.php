@@ -17,6 +17,14 @@ class ImpersonateController extends Controller
             abort(403);
         }
 
+        // Privilege escalation guard: nobody may impersonate a System Owner.
+        // Only an owner-role caller may impersonate at all if the target also
+        // happens to be an owner — otherwise an admin with impersonate_users
+        // could "log in" as Andre/Johan and inherit platform-wide access.
+        if ($user->isOwnerRole() && !$admin->isOwnerRole()) {
+            abort(403, 'Cannot impersonate System Owner accounts.');
+        }
+
         // Prevent nesting / switching while already impersonating
         if (session()->has('impersonator_id')) {
             return redirect('/')->with('status', 'Already impersonating. Switch back first.');

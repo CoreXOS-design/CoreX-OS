@@ -164,6 +164,15 @@ are **not members of any agency**. This matters because:
 6. **Sidebar separation.** The sidebar renders a dedicated "Platform
    Admin" section (Agency Management, Company Settings) visible only to
    owners, above the regular Admin block.
+7. **Impersonation guard.** `ImpersonateController::start()` rejects any
+   attempt by a non-owner caller to impersonate an owner-role target —
+   otherwise an `admin` with `impersonate_users` could `Auth::login()` as
+   Andre/Johan and inherit platform-wide access (privilege escalation).
+   The sidebar impersonation picker (`corex-sidebar.blade.php`) also
+   filters out owner-role users via `ownerRoleNames()` so they don't
+   appear as targets in the first place. The "View As" controller
+   (`ViewAsController`) already validates `Rule::in(Role::where('is_owner', false))`
+   on its `role` input — same pattern applied to actual login swaps.
 
 ### Rules when adding new features
 
@@ -189,3 +198,33 @@ are **not members of any agency**. This matters because:
 - Cross-agency reporting for owners (platform KPIs) currently requires
   `queryWithoutAgencyScope()`. Any new reporting query that needs this
   must be code-reviewed specifically for leak safety.
+
+---
+
+## Permissions sync after deploy
+
+When new permission keys are added to `config/corex-permissions.php`,
+`SyncPermissions` (`php artisan corex:sync-permissions`) upserts them
+into `nexus_permissions` (the catalog). It does **not** automatically
+grant them to existing roles — `role_permissions` rows are the source
+of truth once the system is past first install.
+
+Operational rules:
+
+- **First install only:** `--seed-defaults` wipes `role_permissions` and
+  re-seeds from the config. Never run on a live database — it destroys
+  Role Manager customisations.
+- **After every deploy that adds permissions:** run
+  `--merge-defaults`. This inserts any config-defined defaults that the
+  role does not yet have, without touching existing rows or scope
+  customisations. Idempotent and safe to re-run. Owner-flagged roles
+  are skipped (they bypass permission checks). Custom roles created via
+  Role Manager (no entry in `role_defaults`) are also skipped — leave
+  them under the operator's control.
+- **Without either flag:** the command prints any new keys not yet
+  granted to any role. Use this as a sanity check before merging.
+
+Without `--merge-defaults` in the deploy pipeline, every new permission
+key silently locks the corresponding feature for every non-owner role
+until someone hand-ticks each box in Role Manager. This is what caused
+the April 2026 "admin can't open My Portal / Command Center" incident.

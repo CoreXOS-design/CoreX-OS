@@ -17,7 +17,8 @@
             'sort_time' => $ev->all_day ? '00:00' : $ev->event_date->format('H:i'),
             'time_label'=> $ev->all_day ? 'All day' : $ev->event_date->format('H:i'),
             'title'     => $ev->title,
-            'colour'    => $ev->colour ?? '#0ea5e9',
+            // User-selected event colour (DB) falls back to brand icon token.
+            'colour'    => $ev->colour ?: 'var(--brand-icon)',
             'property'  => $ev->property,
             'priority'  => $ev->priority ?? 'normal',
             'model'     => $ev,
@@ -33,11 +34,12 @@
             'sort_time'  => $hasTime ? $tk->due_date->format('H:i') : '99:99',
             'time_label' => $hasTime ? $tk->due_date->format('H:i') : 'Unscheduled',
             'title'      => $tk->title,
+            // Semantic priority colours — tokens only. Never red for non-danger.
             'colour'     => match ($tk->priority) {
-                'critical' => '#ef4444',
-                'high'     => '#f59e0b',
-                'low'      => '#94a3b8',
-                default    => '#10b981',
+                'critical' => 'var(--ds-crimson)',
+                'high'     => 'var(--ds-amber)',
+                'low'      => 'var(--text-muted)',
+                default    => 'var(--ds-green)',
             },
             'property'   => $tk->property,
             'priority'   => $tk->priority,
@@ -68,28 +70,22 @@
                 {{ $today->format('l, d F Y') }}
                 @if($inboxTotal > 0)
                     <span class="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-                          style="background:rgba(239,68,68,0.10); color:#ef4444;">
+                          style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber);">
                         {{ $inboxTotal }} need action
                     </span>
                 @endif
             </p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" @click="showQuickAdd = true; quickAddKind = 'task'"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold text-white shadow-sm"
-                    style="background:var(--brand-button);">
+            <button type="button" @click="showQuickAdd = true; quickAddKind = 'task'" class="corex-btn-primary">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                 Quick Add
             </button>
-            <a href="{{ route('command-center.calendar') }}"
-               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium"
-               style="background:var(--surface-2); color:var(--text-secondary);">
+            <a href="{{ route('command-center.calendar') }}" class="corex-btn-outline">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg>
                 Calendar
             </a>
-            <a href="{{ route('command-center.tasks') }}"
-               class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium"
-               style="background:var(--surface-2); color:var(--text-secondary);">
+            <a href="{{ route('command-center.tasks') }}" class="corex-btn-outline">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
                 Tasks
             </a>
@@ -122,20 +118,22 @@
                 <div class="corex-panel-body">
                     @if($timelineEmpty)
                         <div class="py-12 text-center">
-                            <svg class="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg>
-                            <p class="text-sm" style="color:var(--text-primary);">Your day is clear.</p>
-                            <p class="text-xs mt-1" style="color:var(--text-muted);">Nothing scheduled — use Quick Add to plan the day.</p>
-                            <button type="button" @click="showQuickAdd = true; quickAddKind = 'event'"
-                                    class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium"
-                                    style="background:var(--surface-2); color:var(--brand-icon);">
-                                + Add Event
+                            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                                 style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon);">
+                                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg>
+                            </div>
+                            <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">Your day is clear</h3>
+                            <p class="text-sm mb-4" style="color:var(--text-muted);">Nothing scheduled — use Quick Add to plan the day.</p>
+                            <button type="button" @click="showQuickAdd = true; quickAddKind = 'event'" class="corex-btn-outline">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                                Add Event
                             </button>
                         </div>
                     @else
 
                         {{-- All-day row --}}
                         @if($timelineAllDay->isNotEmpty())
-                            <div class="mb-4 pb-3 border-b" style="border-color:var(--border-default);">
+                            <div class="mb-4 pb-3 border-b" style="border-color:var(--border);">
                                 <p class="text-xs font-medium mb-2" style="color:var(--text-muted);">ALL DAY</p>
                                 <div class="space-y-1.5">
                                     @foreach($timelineAllDay as $item)
@@ -156,7 +154,7 @@
 
                         {{-- Unscheduled tasks --}}
                         @if($timelineUnscheduled->isNotEmpty())
-                            <div class="mt-4 pt-3 border-t" style="border-color:var(--border-default);">
+                            <div class="mt-4 pt-3 border-t" style="border-color:var(--border);">
                                 <p class="text-xs font-medium mb-2" style="color:var(--text-muted);">UNSCHEDULED</p>
                                 <div class="space-y-1">
                                     @foreach($timelineUnscheduled as $item)
@@ -179,19 +177,20 @@
                         Inbox
                     </h3>
                     @if($inboxTotal > 0)
-                        <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                              style="background:rgba(239,68,68,0.10); color:#ef4444;">{{ $inboxTotal }}</span>
+                        <span class="ds-badge ds-badge-warning">{{ $inboxTotal }}</span>
                     @else
-                        <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                              style="background:rgba(16,185,129,0.10); color:#10b981;">clear</span>
+                        <span class="ds-badge ds-badge-success">Clear</span>
                     @endif
                 </div>
 
                 <div class="corex-panel-body">
                     @if($inboxTotal === 0)
                         <div class="py-8 text-center">
-                            <svg class="w-10 h-10 mx-auto mb-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
-                            <p class="text-sm" style="color:var(--text-primary);">Inbox clear.</p>
+                            <div class="w-10 h-10 rounded-full mx-auto mb-3 flex items-center justify-center"
+                                 style="background:color-mix(in srgb, var(--ds-green) 12%, transparent); color:var(--ds-green);">
+                                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                            </div>
+                            <p class="text-sm font-medium" style="color:var(--text-primary);">Inbox clear</p>
                             <p class="text-xs mt-1" style="color:var(--text-muted);">You're on top of things.</p>
                         </div>
                     @else
@@ -200,25 +199,24 @@
                             {{-- Overdue tasks --}}
                             @foreach($inboxOverdueTasks as $task)
                                 @php
+                                    // Resolve click destination: pillar first (property → contact → deal),
+                                    // falling back to the tasks index so every inbox item is actionable.
                                     $taskLink = $task->property ? route('corex.properties.show', $task->property)
                                               : ($task->contact  ? route('corex.contacts.show',  $task->contact)
-                                              : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id) : null));
+                                              : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id)
+                                              : route('command-center.tasks')));
                                 @endphp
-                                <div class="rounded-md p-3 border-l-2 {{ $taskLink ? 'cursor-pointer hover:brightness-110 transition' : '' }}"
-                                     style="background:var(--surface-2); border-left-color:#ef4444;"
+                                <div class="rounded-md p-3 border-l-2 cursor-pointer hover:brightness-110 transition"
+                                     style="background:var(--surface-2); border-left-color:var(--ds-crimson);"
                                      x-data="{ action: null, extDays: 7 }"
-                                     @if($taskLink) onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $taskLink }}'}" @endif>
+                                     onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $taskLink }}'}">
                                     <div class="flex items-start gap-2">
                                         <div class="flex-shrink-0 mt-0.5">
-                                            <svg class="w-4 h-4" style="color:#f97316;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                                            <svg class="w-4 h-4" style="color:var(--ds-amber);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
                                         </div>
                                         <div class="flex-1 min-w-0">
-                                            @if($taskLink)
-                                                <a href="{{ $taskLink }}" class="text-sm font-medium hover:underline" style="color:var(--text-primary);">{{ $task->title }}</a>
-                                            @else
-                                                <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $task->title }}</p>
-                                            @endif
-                                            <p class="text-xs mt-0.5" style="color:#ef4444;">
+                                            <a href="{{ $taskLink }}" class="text-sm font-medium hover:underline" style="color:var(--text-primary);">{{ $task->title }}</a>
+                                            <p class="text-xs mt-0.5" style="color:var(--ds-crimson);">
                                                 Due {{ $task->due_date->diffForHumans() }}
                                                 @if($task->property)
                                                     <span style="color:var(--text-muted);"> · <a href="{{ route('corex.properties.show', $task->property) }}" class="hover:underline" style="color:var(--text-muted);">{{ $task->property->buildDisplayAddress() }}</a></span>
@@ -231,18 +229,20 @@
                                                 <form method="POST" action="{{ route('command-center.resolve-task', $task) }}" class="inline">
                                                     @csrf
                                                     <input type="hidden" name="resolution" value="completed">
-                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium text-white" style="background:#10b981;">
+                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-white" style="background:var(--ds-green);">
                                                         <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                                                         Done
                                                     </button>
                                                 </form>
-                                                <button type="button" @click="action = 'extend'" class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium" style="background:rgba(59,130,246,0.15); color:#3b82f6;">
+                                                <button type="button" @click="action = 'extend'" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium"
+                                                        style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon);">
                                                     Reschedule
                                                 </button>
                                                 <form method="POST" action="{{ route('command-center.resolve-task', $task) }}" class="inline">
                                                     @csrf
                                                     <input type="hidden" name="resolution" value="did_not_happen">
-                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium" style="background:rgba(107,114,128,0.15); color:var(--text-muted);">
+                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium"
+                                                            style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
                                                         Skip
                                                     </button>
                                                 </form>
@@ -253,10 +253,10 @@
                                                     @csrf
                                                     <input type="hidden" name="resolution" value="extended">
                                                     <input type="number" name="extend_days" x-model="extDays" min="1" max="90"
-                                                           class="w-16 px-2 py-1 rounded text-xs border"
-                                                           style="background:var(--surface); border-color:var(--border-default); color:var(--text-primary);">
+                                                           class="w-16 px-2 py-1 rounded-md text-xs"
+                                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                                     <span class="text-xs" style="color:var(--text-muted);">days</span>
-                                                    <button type="submit" class="px-2.5 py-1 rounded text-xs font-medium text-white" style="background:#3b82f6;">Save</button>
+                                                    <button type="submit" class="px-2.5 py-1 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button);">Save</button>
                                                     <button type="button" @click="action = null" class="text-xs" style="color:var(--text-muted);">Cancel</button>
                                                 </form>
                                             </div>
@@ -268,22 +268,21 @@
                             {{-- Overdue events --}}
                             @foreach($inboxOverdueEvents as $event)
                                 @php
+                                    // Resolve click destination: pillar first (property → contact),
+                                    // falling back to the calendar so every inbox item is actionable.
                                     $eventLink = $event->property ? route('corex.properties.show', $event->property)
-                                               : ($event->contact ? route('corex.contacts.show',  $event->contact) : null);
+                                               : ($event->contact ? route('corex.contacts.show',  $event->contact)
+                                               : route('command-center.calendar'));
                                 @endphp
-                                <div class="rounded-md p-3 border-l-2 {{ $eventLink ? 'cursor-pointer hover:brightness-110 transition' : '' }}"
-                                     style="background:var(--surface-2); border-left-color:{{ $event->colour ?? '#ef4444' }};"
+                                <div class="rounded-md p-3 border-l-2 cursor-pointer hover:brightness-110 transition"
+                                     style="background:var(--surface-2); border-left-color:{{ $event->colour ?: 'var(--ds-crimson)' }};"
                                      x-data="{ action: null, extDays: 7 }"
-                                     @if($eventLink) onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $eventLink }}'}" @endif>
+                                     onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $eventLink }}'}">
                                     <div class="flex items-start gap-2">
-                                        <div class="flex-shrink-0 mt-0.5 w-3 h-3 rounded-full" style="background:{{ $event->colour ?? '#ef4444' }};"></div>
+                                        <div class="flex-shrink-0 mt-0.5 w-3 h-3 rounded-full" style="background:{{ $event->colour ?: 'var(--ds-crimson)' }};"></div>
                                         <div class="flex-1 min-w-0">
-                                            @if($eventLink)
-                                                <a href="{{ $eventLink }}" class="text-sm font-medium hover:underline" style="color:var(--text-primary);">{{ $event->title }}</a>
-                                            @else
-                                                <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $event->title }}</p>
-                                            @endif
-                                            <p class="text-xs mt-0.5" style="color:#ef4444;">
+                                            <a href="{{ $eventLink }}" class="text-sm font-medium hover:underline" style="color:var(--text-primary);">{{ $event->title }}</a>
+                                            <p class="text-xs mt-0.5" style="color:var(--ds-crimson);">
                                                 Was {{ $event->event_date->diffForHumans() }}
                                                 @if($event->property)
                                                     <span style="color:var(--text-muted);"> · <a href="{{ route('corex.properties.show', $event->property) }}" class="hover:underline" style="color:var(--text-muted);">{{ $event->property->buildDisplayAddress() }}</a></span>
@@ -296,18 +295,20 @@
                                                 <form method="POST" action="{{ route('command-center.resolve-event', $event) }}" class="inline">
                                                     @csrf
                                                     <input type="hidden" name="resolution" value="completed">
-                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium text-white" style="background:#10b981;">
+                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-white" style="background:var(--ds-green);">
                                                         <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                                                         Done
                                                     </button>
                                                 </form>
-                                                <button type="button" @click="action = 'extend'" class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium" style="background:rgba(59,130,246,0.15); color:#3b82f6;">
+                                                <button type="button" @click="action = 'extend'" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium"
+                                                        style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon);">
                                                     Reschedule
                                                 </button>
                                                 <form method="POST" action="{{ route('command-center.resolve-event', $event) }}" class="inline">
                                                     @csrf
                                                     <input type="hidden" name="resolution" value="did_not_happen">
-                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium" style="background:rgba(107,114,128,0.15); color:var(--text-muted);">
+                                                    <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium"
+                                                            style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
                                                         Skip
                                                     </button>
                                                 </form>
@@ -318,10 +319,10 @@
                                                     @csrf
                                                     <input type="hidden" name="resolution" value="extended">
                                                     <input type="number" name="extend_days" x-model="extDays" min="1" max="90"
-                                                           class="w-16 px-2 py-1 rounded text-xs border"
-                                                           style="background:var(--surface); border-color:var(--border-default); color:var(--text-primary);">
+                                                           class="w-16 px-2 py-1 rounded-md text-xs"
+                                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                                     <span class="text-xs" style="color:var(--text-muted);">days</span>
-                                                    <button type="submit" class="px-2.5 py-1 rounded text-xs font-medium text-white" style="background:#3b82f6;">Save</button>
+                                                    <button type="submit" class="px-2.5 py-1 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button);">Save</button>
                                                     <button type="button" @click="action = null" class="text-xs" style="color:var(--text-muted);">Cancel</button>
                                                 </form>
                                             </div>
@@ -334,11 +335,11 @@
                             @foreach($candidateDocs as $doc)
                                 @php $docLink = route('docuperfect.signatures.review', $doc->document_id); @endphp
                                 <div class="rounded-md p-3 border-l-2 cursor-pointer hover:brightness-110 transition"
-                                     style="background:var(--surface-2); border-left-color:#f59e0b;"
+                                     style="background:var(--surface-2); border-left-color:var(--ds-amber);"
                                      onclick="if(!event.target.closest('form,button,input,a')){window.location.href='{{ $docLink }}'}">
                                     <div class="flex items-start gap-2">
                                         <div class="flex-shrink-0 mt-0.5">
-                                            <svg class="w-4 h-4" style="color:#f59e0b;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                                            <svg class="w-4 h-4" style="color:var(--ds-amber);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
                                         </div>
                                         <div class="flex-1 min-w-0">
                                             <a href="{{ $docLink }}" class="block text-sm font-medium truncate hover:underline" style="color:var(--text-primary);">{{ $doc->document->name ?? 'Untitled Document' }}</a>
@@ -348,9 +349,9 @@
                                             </p>
                                             <div class="mt-2">
                                                 <a href="{{ route('docuperfect.signatures.review', $doc->document_id) }}"
-                                                   class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium text-white"
-                                                   style="background:#f59e0b;">
-                                                    Review & Authorise
+                                                   class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold text-white"
+                                                   style="background:var(--ds-amber);">
+                                                    Review &amp; Authorise
                                                 </a>
                                             </div>
                                         </div>
@@ -374,11 +375,11 @@
                 <div class="flex items-center gap-6 flex-wrap">
                     @if($scorecard)
                         @php
+                            // Neutral score — never red. Per UI_DESIGN_SYSTEM.md §5 rule 3.
                             $scoreColor = match(true) {
-                                $scorecard->overall_score >= 90 => '#10b981',
-                                $scorecard->overall_score >= 70 => '#3b82f6',
-                                $scorecard->overall_score >= 50 => '#f59e0b',
-                                default                         => '#ef4444',
+                                $scorecard->overall_score >= 90 => 'var(--ds-green)',
+                                $scorecard->overall_score >= 70 => 'var(--brand-icon)',
+                                default                         => 'var(--ds-amber)',
                             };
                         @endphp
                         <div class="flex items-center gap-2">
@@ -388,7 +389,7 @@
                             <div>
                                 <p class="text-xs" style="color:var(--text-muted);">Weekly score</p>
                                 <p class="text-xs font-medium" style="color:var(--text-primary);">
-                                    {{ $scorecard->tasks_completed }}/{{ $scorecard->tasks_total }} tasks
+                                    {{ number_format($scorecard->tasks_completed) }}/{{ number_format($scorecard->tasks_total) }} tasks
                                 </p>
                             </div>
                         </div>
@@ -400,8 +401,8 @@
                             {{ number_format($mtdPoints) }}@if($monthlyTarget > 0) <span class="font-normal text-xs" style="color:var(--text-muted);"> / {{ number_format($monthlyTarget) }}</span>@endif
                         </p>
                         @if($monthlyTarget > 0)
-                            <div class="w-32 h-1 rounded-full mt-1" style="background:var(--surface-2);">
-                                <div class="h-1 rounded-full" style="width:{{ $pct }}%; background:var(--brand-icon,#0ea5e9);"></div>
+                            <div class="ds-progress-track w-32 mt-1" style="height:4px;">
+                                <div class="ds-progress-bar" style="width:{{ $pct }}%; background:var(--brand-icon);"></div>
                             </div>
                         @endif
                     </div>
@@ -426,14 +427,13 @@
          QUICK-ADD MODAL — task OR event toggle
     ═══════════════════════════════════════════════════════════════ --}}
     <div x-show="showQuickAdd" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center p-4"
-         style="background:rgba(0,0,0,0.5);"
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
          @keydown.escape.window="showQuickAdd = false">
-        <div class="w-full max-w-lg rounded-lg shadow-xl" style="background:var(--surface);"
+        <div class="w-full max-w-lg rounded-md shadow-xl" style="background:var(--surface);"
              @click.outside="showQuickAdd = false">
 
             {{-- Toggle header --}}
-            <div class="px-6 py-4 border-b flex items-center justify-between" style="border-color:var(--border-default);">
+            <div class="px-6 py-4 border-b flex items-center justify-between" style="border-color:var(--border);">
                 <h3 class="text-lg font-semibold" style="color:var(--text-primary);">Quick Add</h3>
                 <div class="inline-flex rounded-md overflow-hidden" style="background:var(--surface-2);">
                     <button type="button" @click="quickAddKind = 'task'"
@@ -456,15 +456,15 @@
                 @csrf
                 <div class="px-6 py-4 space-y-4">
                     <div>
-                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Title</label>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Title</label>
                         <input type="text" name="title" required autofocus
-                               class="w-full px-3 py-2 rounded-md text-sm border"
-                               style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);">
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
-                    <div class="grid grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Priority</label>
-                            <select name="priority" class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);">
+                            <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Priority</label>
+                            <select name="priority" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                 <option value="normal">Normal</option>
                                 <option value="low">Low</option>
                                 <option value="high">High</option>
@@ -472,17 +472,17 @@
                             </select>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Due date</label>
+                            <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Due date</label>
                             <input type="date" name="due_date"
-                                   class="w-full px-3 py-2 rounded-md text-sm border"
-                                   style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);">
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Description</label>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Description</label>
                         <textarea name="description" rows="2"
-                                  class="w-full px-3 py-2 rounded-md text-sm border"
-                                  style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);"></textarea>
+                                  class="w-full rounded-md px-3 py-2 text-sm"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
                     </div>
                     <label class="flex items-center gap-2 text-sm" style="color:var(--text-secondary);">
                         <input type="hidden" name="send_reminder" value="0">
@@ -490,13 +490,9 @@
                         Remind me before due
                     </label>
                 </div>
-                <div class="px-6 py-4 border-t flex justify-end gap-2" style="border-color:var(--border-default);">
-                    <button type="button" @click="showQuickAdd = false"
-                            class="px-4 py-2 rounded-md text-sm font-medium"
-                            style="background:var(--surface-2); color:var(--text-secondary);">Cancel</button>
-                    <button type="submit"
-                            class="px-4 py-2 rounded-md text-sm font-semibold text-white"
-                            style="background:var(--brand-button);">Create Task</button>
+                <div class="px-6 py-4 border-t flex justify-end gap-2" style="border-color:var(--border);">
+                    <button type="button" @click="showQuickAdd = false" class="corex-btn-outline">Cancel</button>
+                    <button type="submit" class="corex-btn-primary">Create Task</button>
                 </div>
             </form>
 
@@ -505,21 +501,21 @@
                 @csrf
                 <div class="px-6 py-4 space-y-4">
                     <div>
-                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Title</label>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Title</label>
                         <input type="text" name="title" required
-                               class="w-full px-3 py-2 rounded-md text-sm border"
-                               style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);">
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
-                    <div class="grid grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">When</label>
+                            <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">When</label>
                             <input type="datetime-local" name="event_date" required
-                                   class="w-full px-3 py-2 rounded-md text-sm border"
-                                   style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);">
+                                   class="w-full rounded-md px-3 py-2 text-sm"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Priority</label>
-                            <select name="priority" class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);">
+                            <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Priority</label>
+                            <select name="priority" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                 <option value="normal">Normal</option>
                                 <option value="low">Low</option>
                                 <option value="high">High</option>
@@ -528,10 +524,10 @@
                         </div>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Description</label>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Description</label>
                         <textarea name="description" rows="2"
-                                  class="w-full px-3 py-2 rounded-md text-sm border"
-                                  style="background:var(--surface-2); border-color:var(--border-default); color:var(--text-primary);"></textarea>
+                                  class="w-full rounded-md px-3 py-2 text-sm"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
                     </div>
                     <label class="flex items-center gap-2 text-sm" style="color:var(--text-secondary);">
                         <input type="hidden" name="send_reminder" value="0">
@@ -539,13 +535,9 @@
                         Remind me before the event
                     </label>
                 </div>
-                <div class="px-6 py-4 border-t flex justify-end gap-2" style="border-color:var(--border-default);">
-                    <button type="button" @click="showQuickAdd = false"
-                            class="px-4 py-2 rounded-md text-sm font-medium"
-                            style="background:var(--surface-2); color:var(--text-secondary);">Cancel</button>
-                    <button type="submit"
-                            class="px-4 py-2 rounded-md text-sm font-semibold text-white"
-                            style="background:var(--brand-button);">Add Event</button>
+                <div class="px-6 py-4 border-t flex justify-end gap-2" style="border-color:var(--border);">
+                    <button type="button" @click="showQuickAdd = false" class="corex-btn-outline">Cancel</button>
+                    <button type="submit" class="corex-btn-primary">Add Event</button>
                 </div>
             </form>
         </div>
