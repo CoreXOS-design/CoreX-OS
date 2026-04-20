@@ -438,7 +438,7 @@ class HfcRmcpMasterSeeder extends Seeder
             [
                 'type' => 'section', 'number' => '26', 'title' => 'FICA Compliance Officer',
                 'ack' => true, 'prompt' => 'I know who the Compliance Officer is and their duties.',
-                'body' => '<p>Until further notice, our FICA compliance officer shall be: <strong>{{compliance_officer.full_name}}</strong> ({{compliance_officer.id_number}})</p>
+                'body' => '<p>Our FICA compliance officer is: <strong>{{compliance_officer.full_name}}</strong> ({{compliance_officer.id_number}})</p>
 <p>It is the duty of our FICA compliance officer:</p>
 <ul>
 <li>To ensure that our registration with the FIC is and remains up-to-date.</li>

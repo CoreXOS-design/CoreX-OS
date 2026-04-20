@@ -29,48 +29,55 @@
 
     {{-- Fixed footer bar --}}
     <div class="fixed bottom-0 left-0 right-0 z-40" style="background:var(--surface, #fff); border-top:1px solid var(--border, #e5e7eb); box-shadow:0 -2px 8px rgba(0,0,0,0.05);">
-        <div class="max-w-3xl mx-auto px-4 lg:px-6 py-3 flex items-center justify-between gap-4">
-            {{-- Left: progress --}}
-            <div class="text-xs" style="color:#64748b;">
-                <span class="font-semibold" style="color:#00d4aa;">{{ $ackedCount }}</span> of {{ $total }} complete
-            </div>
+        <div class="max-w-3xl mx-auto px-4 lg:px-6 py-3">
+            {{-- Error banner --}}
+            <div x-show="errorMessage" x-cloak x-transition class="mb-2 px-3 py-2 text-xs" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:3px; color:#ef4444;" x-text="errorMessage"></div>
 
-            {{-- Right: controls --}}
-            <div class="flex items-center gap-3">
-                @if($order > 1)
-                <a href="{{ route('rmcp.ack.step', $order - 1) }}" class="text-xs font-semibold px-3 py-2" style="border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-secondary, #6b7280);">Previous</a>
-                @endif
+            <div class="flex items-center justify-between gap-4">
+                {{-- Left: progress --}}
+                <div class="text-xs" style="color:#64748b;">
+                    <span class="font-semibold" style="color:#00d4aa;">{{ $ackedCount }}</span> of {{ $total }} complete
+                </div>
 
-                @if($section->acknowledgement_prompt && !$isAcked)
-                <label class="flex items-center gap-2 text-xs font-semibold cursor-pointer" style="color:var(--text-primary, #1f2937);">
-                    <input type="checkbox" x-model="checked" @change="if(checked) confirmAndNext()" style="accent-color:#00d4aa; width:16px; height:16px;">
-                    <span class="max-w-xs truncate">{{ $section->acknowledgement_prompt }}</span>
-                </label>
-                @endif
+                {{-- Right: controls --}}
+                <div class="flex items-center gap-3">
+                    @if($order > 1)
+                    <a href="{{ route('rmcp.ack.step', $order - 1) }}" class="text-xs font-semibold px-3 py-2" style="border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-secondary, #6b7280);">Previous</a>
+                    @endif
 
-                @if($isAcked)
-                @if($isLast)
-                <a href="{{ route('rmcp.ack.sign') }}" class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition" style="background:#00d4aa; color:#0f172a; border-radius:3px;">
-                    Continue to Signature
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                </a>
-                @else
-                <a href="{{ route('rmcp.ack.step', $order + 1) }}" class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition" style="background:#00d4aa; color:#0f172a; border-radius:3px;">
-                    Next
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                </a>
-                @endif
-                @else
-                <span class="px-4 py-2 text-xs font-semibold" style="background:#e5e7eb; color:#94a3b8; border-radius:3px; cursor:not-allowed;" x-show="!confirmed">
-                    @if($isLast) Continue to Signature @else Next @endif
-                </span>
-                <a x-show="confirmed" x-cloak
-                   :href="nextUrl"
-                   class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition" style="background:#00d4aa; color:#0f172a; border-radius:3px;">
-                    @if($isLast) Continue to Signature @else Next @endif
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                </a>
-                @endif
+                    @if($section->acknowledgement_prompt && !$isAcked)
+                    <label class="flex items-center gap-2 text-xs font-semibold cursor-pointer p-2 -m-2" style="color:var(--text-primary, #1f2937);"
+                           :class="isSubmitting ? 'opacity-50 cursor-wait' : ''">
+                        <input type="checkbox" x-model="checked" @change="if(checked) confirmAndNext()" :disabled="isSubmitting"
+                               style="accent-color:#00d4aa; width:24px; height:24px; flex-shrink:0;">
+                        <span class="max-w-xs truncate">{{ $section->acknowledgement_prompt }}</span>
+                    </label>
+                    @endif
+
+                    @if($isAcked)
+                    @if($isLast)
+                    <a href="{{ route('rmcp.ack.sign') }}" class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition" style="background:#00d4aa; color:#0f172a; border-radius:3px;">
+                        Continue to Signature
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </a>
+                    @else
+                    <a href="{{ route('rmcp.ack.step', $order + 1) }}" class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition" style="background:#00d4aa; color:#0f172a; border-radius:3px;">
+                        Next
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </a>
+                    @endif
+                    @else
+                    <span class="px-4 py-2 text-xs font-semibold" style="background:#e5e7eb; color:#94a3b8; border-radius:3px; cursor:not-allowed;" x-show="!confirmed">
+                        @if($isLast) Continue to Signature @else Next @endif
+                    </span>
+                    <a x-show="confirmed" x-cloak
+                       :href="nextUrl"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition" style="background:#00d4aa; color:#0f172a; border-radius:3px;">
+                        @if($isLast) Continue to Signature @else Next @endif
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </a>
+                    @endif
+                </div>
             </div>
         </div>
     </div>
@@ -82,7 +89,13 @@ function rmcpStep() {
         checked: false,
         confirmed: false,
         nextUrl: '',
+        isSubmitting: false,
+        errorMessage: '',
+
         async confirmAndNext() {
+            this.isSubmitting = true;
+            this.errorMessage = '';
+
             try {
                 const res = await fetch('{{ route("rmcp.ack.confirm", $order) }}', {
                     method: 'POST',
@@ -93,12 +106,26 @@ function rmcpStep() {
                     },
                     body: JSON.stringify({}),
                 });
+
+                if (!res.ok) {
+                    throw new Error('Server returned ' + res.status);
+                }
+
                 const data = await res.json();
                 if (data.success) {
                     this.confirmed = true;
                     this.nextUrl = data.next_url;
+                } else {
+                    throw new Error('Save failed');
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) {
+                this.checked = false;
+                this.confirmed = false;
+                this.errorMessage = 'Could not save. Please check your connection and try again.';
+                setTimeout(() => this.errorMessage = '', 6000);
+            } finally {
+                this.isSubmitting = false;
+            }
         }
     };
 }

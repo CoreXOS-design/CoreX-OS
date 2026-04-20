@@ -653,35 +653,8 @@
          TAB: TRAINING
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'training'" x-cloak>
+        {{-- RMCP Acknowledgement — primary card --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:3px; padding:20px 24px;">
-            <h3 style="font-size:0.9rem; font-weight:700; color:var(--text-primary); margin:0 0 16px; font-family:'Plus Jakarta Sans',sans-serif;">Required Training</h3>
-
-            @if($trainingItems->isEmpty())
-            <div class="text-xs text-center py-6" style="color:var(--text-muted);">No required courses at this time.</div>
-            @else
-            <div class="space-y-3">
-                @foreach($trainingItems as $item)
-                <div class="flex items-center justify-between py-3 px-4" style="border:1px solid var(--border); border-radius:3px;">
-                    <div class="flex items-center gap-3">
-                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ $dotColors[$item['status']] }};"></span>
-                        <div>
-                            <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $item['title'] }}</div>
-                            <div class="text-xs" style="color:var(--text-muted);">{{ $item['label'] }}</div>
-                        </div>
-                    </div>
-                    @if($item['status'] !== 'green')
-                    <a href="{{ route('training.show', $item['id']) }}" style="font-size:0.7rem; padding:5px 12px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; text-decoration:none; font-weight:600;">Continue</a>
-                    @else
-                    <span style="font-size:0.7rem; padding:5px 12px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; font-weight:600;">Completed</span>
-                    @endif
-                </div>
-                @endforeach
-            </div>
-            @endif
-        </div>
-
-        {{-- RMCP Acknowledgement --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:3px; padding:20px 24px; margin-top:20px;">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ $dotColors[$rmcpStatus] }};"></span>
@@ -701,6 +674,31 @@
                 @endif
             </div>
         </div>
+
+        {{-- Other training courses --}}
+        @if($trainingItems->isNotEmpty())
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:3px; padding:20px 24px; margin-top:20px;">
+            <h3 style="font-size:0.9rem; font-weight:700; color:var(--text-primary); margin:0 0 16px; font-family:'Plus Jakarta Sans',sans-serif;">Other Training</h3>
+            <div class="space-y-3">
+                @foreach($trainingItems as $item)
+                <div class="flex items-center justify-between py-3 px-4" style="border:1px solid var(--border); border-radius:3px;">
+                    <div class="flex items-center gap-3">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ $dotColors[$item['status']] }};"></span>
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $item['title'] }}</div>
+                            <div class="text-xs" style="color:var(--text-muted);">{{ $item['label'] }}</div>
+                        </div>
+                    </div>
+                    @if($item['status'] !== 'green')
+                    <a href="{{ route('training.show', $item['id']) }}" style="font-size:0.7rem; padding:5px 12px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; text-decoration:none; font-weight:600;">Continue</a>
+                    @else
+                    <span style="font-size:0.7rem; padding:5px 12px; border-radius:3px; background:rgba(0,212,170,0.12); color:#00d4aa; font-weight:600;">Completed</span>
+                    @endif
+                </div>
+                @endforeach
+            </div>
+        </div>
+        @endif
     </div>
 
     {{-- ═══════════════════════════════════════════
