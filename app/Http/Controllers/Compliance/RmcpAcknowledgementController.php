@@ -236,7 +236,7 @@ class RmcpAcknowledgementController extends Controller
             $decoded = base64_decode($imageData);
             $filename = "{$user->id}-v{$version->version_number}-" . now()->format('Ymd-His') . '.png';
             $path = "rmcp/{$ack->agency_id}/acknowledgements/{$filename}";
-            Storage::disk('local')->put($path, $decoded);
+            Storage::disk('public')->put($path, $decoded);
             $signaturePath = $path;
         } elseif ($validated['signature_type'] === 'typed') {
             $signaturePath = 'typed:' . $validated['typed_name'];

@@ -74,20 +74,22 @@
                     </div>
 
                     {{-- Signature --}}
-                    @if($ack->signature_path)
                     <div>
                         <h4 class="text-xs font-bold uppercase mb-2" style="color:#94a3b8; letter-spacing:0.05em;">Signature</h4>
-                        @if($ack->signature_type === 'typed')
+                        @if($ack->signature_type === 'typed' && $ack->typed_signature_name)
                         <div class="px-4 py-3 text-center" style="border:1px dashed var(--border, #e5e7eb); border-radius:3px;">
                             <span style="font-family:'Dancing Script',cursive; font-size:1.5rem; color:#0f172a;">{{ $ack->typed_signature_name }}</span>
                         </div>
-                        @elseif($ack->signature_type === 'drawn')
+                        @elseif($ack->signature_type === 'drawn' && $ack->signature_path && !str_starts_with($ack->signature_path, 'typed:'))
                         <div class="px-4 py-3 text-center" style="border:1px dashed var(--border, #e5e7eb); border-radius:3px;">
-                            <img src="{{ Storage::url($ack->signature_path) }}" alt="Signature" style="max-height:80px; margin:0 auto;">
+                            <img src="{{ asset('storage/' . $ack->signature_path) }}" alt="Signature" style="max-height:80px; margin:0 auto;">
+                        </div>
+                        @else
+                        <div class="px-4 py-3 text-center text-xs" style="border:1px dashed var(--border, #e5e7eb); border-radius:3px; color:#94a3b8; font-style:italic;">
+                            Signature not captured
                         </div>
                         @endif
                     </div>
-                    @endif
                 </div>
 
                 {{-- Footer --}}

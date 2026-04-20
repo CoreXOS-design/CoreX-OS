@@ -5,7 +5,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
 
 <div class="-m-4 lg:-m-6" x-data="rmcpSign()" x-init="init()">
-    <x-page-header title="Complete RMCP Acknowledgement" :back-route="route('rmcp.ack.step', $ack->sections_total_count)" back-label="Back" :flush="true" />
+    <x-page-header title="Complete RMCP Acknowledgement" :back-route="route('agent.portal') . '#compliance'" back-label="My Portal" :flush="true" />
 
     <div class="p-4 lg:p-6">
         <div class="max-w-2xl mx-auto space-y-5">
@@ -93,8 +93,8 @@
 
             {{-- Submit button row --}}
             <div class="flex items-center justify-between gap-4 pb-24">
-                <a href="{{ route('rmcp.ack.step', $ack->sections_total_count) }}" class="text-sm" style="color:#64748b;">
-                    Back to sections
+                <a href="{{ route('agent.portal') }}#compliance" class="text-sm" style="color:#64748b;">
+                    Back to My Portal
                 </a>
                 <button type="button"
                         data-sign-submit
