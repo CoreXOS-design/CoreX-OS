@@ -32,11 +32,11 @@
             <table class="w-full text-sm" style="font-family:'Plus Jakarta Sans',sans-serif;">
                 <thead>
                     <tr style="background:var(--surface-alt, #f8fafc); border-bottom:1px solid var(--border, #e5e7eb);">
-                        <x-sort-header column="version_number" :current-sort="$sort" :current-direction="$direction" label="Version" />
-                        <x-sort-header column="status" :current-sort="$sort" :current-direction="$direction" label="Status" />
+                        <x-sort-header field="version_number" :current-sort="$sort" :current-direction="$direction" label="Version" />
+                        <x-sort-header field="status" :current-sort="$sort" :current-direction="$direction" label="Status" />
                         <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Approved By</th>
-                        <x-sort-header column="approved_at" :current-sort="$sort" :current-direction="$direction" label="Approved" />
-                        <x-sort-header column="effective_from" :current-sort="$sort" :current-direction="$direction" label="Effective From" />
+                        <x-sort-header field="approved_at" :current-sort="$sort" :current-direction="$direction" label="Approved" />
+                        <x-sort-header field="effective_from" :current-sort="$sort" :current-direction="$direction" label="Effective From" />
                         <x-sort-header column="next_review_due" :current-sort="$sort" :current-direction="$direction" label="Next Review" />
                         <th class="px-4 py-3 text-right font-semibold" style="color:var(--text-secondary, #6b7280);">Actions</th>
                     </tr>
