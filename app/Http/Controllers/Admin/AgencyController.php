@@ -193,14 +193,43 @@ class AgencyController extends Controller
         ));
 
         $counts = [];
-        DB::transaction(function () use ($cascadeTables, $agencyId, $ownerRoleNames, &$counts, $agency) {
+        DB::transaction(function () use ($cascadeTables, $tables, $agencyId, $ownerRoleNames, &$counts, $agency) {
+            // Cascade rows referencing users we're about to delete (e.g. agent_scorecards)
+            // which don't carry agency_id directly and would otherwise trip FK constraints.
+            $userIdsToDelete = DB::table('users')
+                ->where('agency_id', $agencyId)
+                ->when(!empty($ownerRoleNames), fn ($q) => $q->whereNotIn('role', $ownerRoleNames))
+                ->pluck('id')
+                ->all();
+
+            if (!empty($userIdsToDelete)) {
+                $userRefTables = array_values(array_filter(
+                    $tables,
+                    fn ($t) => $t !== 'users' && Schema::hasColumn($t, 'user_id')
+                ));
+                foreach ($userRefTables as $table) {
+                    try {
+                        $deleted = DB::table($table)->whereIn('user_id', $userIdsToDelete)->delete();
+                        if ($deleted > 0) {
+                            $counts[$table] = ($counts[$table] ?? 0) + $deleted;
+                        }
+                    } catch (\Throwable $e) {
+                        Log::error("Agency hard-delete failed on user-ref {$table}", [
+                            'agency_id' => $agencyId,
+                            'error'     => $e->getMessage(),
+                        ]);
+                        throw $e;
+                    }
+                }
+            }
+
             foreach ($cascadeTables as $table) {
                 $query = DB::table($table)->where('agency_id', $agencyId);
                 if ($table === 'users' && !empty($ownerRoleNames)) {
                     $query->whereNotIn('role', $ownerRoleNames);
                 }
                 try {
-                    $counts[$table] = $query->delete();
+                    $counts[$table] = ($counts[$table] ?? 0) + $query->delete();
                 } catch (\Throwable $e) {
                     Log::error("Agency hard-delete failed on {$table}", [
                         'agency_id' => $agencyId,
