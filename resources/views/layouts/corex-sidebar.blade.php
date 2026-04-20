@@ -97,7 +97,10 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 flex-shrink-0">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
             </svg>
-            <span class="flex-1 text-left truncate">{{ $activeAgency?->name ?? ($_userAgency?->name ?? 'Select Agency') }}</span>
+            <span class="flex-1 text-left truncate">{{ $activeAgency ? $activeAgency->name : 'All Agencies' }}</span>
+            @if(!$activeAgency)
+            <span class="w-2 h-2 rounded-full flex-shrink-0 animate-pulse" style="background:#eab308;"></span>
+            @endif
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 flex-shrink-0 transition-transform duration-150" :class="agencyOpen && 'rotate-90'"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
         </button>
         <div x-show="agencyOpen" x-cloak @click.outside="agencyOpen = false" x-transition
@@ -152,6 +155,7 @@
         {{-- ═══════════════════════════════════════════
              MY PORTAL
              ═══════════════════════════════════════════ --}}
+        @permission('access_my_portal')
         @php
             $portalNeedsAttention = false;
             if ($user) {
@@ -171,6 +175,7 @@
             <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
             @endif
         </a>
+        @endpermission
 
         {{-- ═══════════════════════════════════════════
              MY EARNINGS
@@ -466,7 +471,15 @@
                  x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
                  class="corex-nav-children">
                 <a href="{{ route('compliance.fica.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.fica.*') ? 'active' : '' }}">FICA</a>
-                <a href="{{ route('compliance.rmcp') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp') ? 'active' : '' }}">RMCP</a>
+                @permission('access_rmcp')
+                <a href="{{ route('compliance.rmcp.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.*') && !request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP</a>
+                @endpermission
+                @permission('access_compliance_dashboard')
+                <a href="{{ route('compliance.rmcp.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP Dashboard</a>
+                @endpermission
+                @permission('manage_employee_screenings')
+                <a href="{{ route('compliance.screening.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.screening.*') || request()->routeIs('compliance.screenings.*') ? 'active' : '' }}">Staff Screening</a>
+                @endpermission
                 @if($isOwner || $effectiveRole === 'super_admin')
                 @php $nonCompliantAgents = \App\Models\User::where('is_active', true)->whereNull('deleted_at')->whereNull('ffc_number')->count(); @endphp
                 <a href="{{ route('compliance.agents') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agents') ? 'active' : '' }}">
@@ -476,6 +489,18 @@
                     @endif
                 </a>
                 @endif
+                @permission('verify_user_documents')
+                @php $pendingVerificationCount = cache()->remember('pending-verification-count-' . (auth()->user()->agency_id ?? 'all'), 60, fn() => \App\Models\UserDocument::pending()->count()); @endphp
+                <a href="{{ route('compliance.verification.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.verification.*') ? 'active' : '' }}">
+                    Verification Queue
+                    @if($pendingVerificationCount > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center" style="min-width:18px; height:18px; border-radius:9px; background:rgba(0,212,170,0.15); color:#00d4aa; font-size:0.6rem; font-weight:700; padding:0 5px;">{{ $pendingVerificationCount }}</span>
+                    @endif
+                </a>
+                @endpermission
+                @permission('manage_agency_compliance')
+                <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Provisions</a>
+                @endpermission
             </div>
         </div>
         @endpermission
@@ -858,7 +883,7 @@
 
         {{-- Fault Reports (super_admin / owner only) --}}
         @if($isOwner || $effectiveRole === 'super_admin')
-        @php $faultNewCount = \App\Models\FaultReport::where('status','new')->count(); @endphp
+        @php $faultNewCount = \App\Models\FaultReport::whereIn('status', ['new', 'investigating'])->count(); @endphp
         <a href="{{ route('admin.fault-reports') }}" class="corex-nav-item {{ request()->routeIs('admin.fault-reports*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.866.966 1.866 2.013 0 3.728-2.35 6.75-5.25 6.75S6.75 18.728 6.75 15c0-1.046.83-1.867 1.866-2.013A24.204 24.204 0 0 1 12 12.75Zm0 0c2.883 0 5.647.508 8.207 1.44a23.91 23.91 0 0 1-1.152-6.135c-.117-1.427-.245-2.88-.465-4.305-.074-.477-.513-.826-.998-.826H6.408c-.485 0-.924.35-.998.826-.22 1.424-.348 2.878-.465 4.305A23.91 23.91 0 0 1 3.793 14.19 24.467 24.467 0 0 1 12 12.75ZM2.695 18.678a25.411 25.411 0 0 1 .122-2.428c.24-.84.598-1.628 1.058-2.347M21.305 18.678a25.12 25.12 0 0 0-.122-2.428 7.667 7.667 0 0 0-1.058-2.347" />
@@ -957,7 +982,7 @@
 
         {{-- Dropdown menu --}}
         <div x-show="userMenu" x-cloak @click.outside="userMenu = false" x-transition class="corex-user-dropdown">
-            <a href="{{ route('profile.edit') }}" class="corex-user-dropdown-item">Profile</a>
+            <a href="{{ route('agent.portal') }}#profile" class="corex-user-dropdown-item">Profile</a>
             @if($canSwitchUsers)
             <button type="button" @click="switchPanel = !switchPanel; userMenu = false" class="corex-user-dropdown-item w-full text-left">Switch User</button>
             @endif

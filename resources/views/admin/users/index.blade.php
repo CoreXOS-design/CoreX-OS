@@ -329,9 +329,9 @@
                                 <label class="block text-xs mb-1" style="color:var(--text-secondary);">
                                     Agent Photo <span style="color:var(--text-muted);">(jpg/png/webp, max 2MB)</span>
                                 </label>
-                                @if($u->agent_photo_path)
+                                @if($u->profilePhotoUrl())
                                 <div class="flex items-center gap-3 mb-2">
-                                    <img src="{{ asset('storage/'.$u->agent_photo_path) }}" alt="Photo"
+                                    <img src="{{ $u->profilePhotoUrl() }}" alt="Photo"
                                          class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
                                          style="border:1px solid var(--border);">
                                     <form method="POST" action="{{ route('admin.users.remove-file', $u) }}" class="inline" onsubmit="return confirm('Remove agent photo?')">

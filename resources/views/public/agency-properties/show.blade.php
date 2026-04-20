@@ -70,8 +70,10 @@
                 <div class="rounded-md bg-surface-2 border border-subtle/30 p-4">
                     <div class="text-xs text-muted">Marketed by</div>
                     <div class="flex items-center gap-3 mt-2">
-                        @if($property->agent->agent_photo_path)
-                            <img src="{{ asset('storage/'.$property->agent->agent_photo_path) }}" class="w-12 h-12 rounded-full object-cover">
+                        @if($property->agent->profilePhotoUrl())
+                            <img src="{{ $property->agent->profilePhotoUrl() }}" class="w-12 h-12 rounded-full object-cover">
+                        @else
+                            <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);">{{ $property->agent->initials() }}</div>
                         @endif
                         <div>
                             <div class="font-semibold">{{ $property->agent->name }}</div>

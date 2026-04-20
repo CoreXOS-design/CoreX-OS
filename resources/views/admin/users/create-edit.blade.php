@@ -18,13 +18,13 @@
     {{-- Page header --}}
     <div class="rounded-2xl px-6 py-5 flex items-center justify-between" style="background:var(--brand-default, #0b2a4a);">
         <div class="flex items-center gap-4">
-            @if($isEdit && $user->agent_photo_path)
-                <img src="{{ asset('storage/'.$user->agent_photo_path) }}" alt=""
+            @if($isEdit && $user->profilePhotoUrl())
+                <img src="{{ $user->profilePhotoUrl() }}" alt=""
                      class="w-12 h-12 rounded-xl object-cover flex-shrink-0" style="border:2px solid rgba(255,255,255,0.2);">
             @elseif($isEdit)
                 <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 text-base font-bold"
                      style="background:rgba(255,255,255,0.15); color:#fff;">
-                    {{ strtoupper(substr($user->name,0,1)) }}{{ strtoupper(substr(strstr($user->name,' ') ?: '',1,1)) }}
+                    {{ $user->initials() }}
                 </div>
             @endif
             <div>
@@ -327,9 +327,9 @@
                                 Agent Photo
                             </label>
                             <div class="text-[11px] mb-2" style="color:var(--text-muted);">jpg/png/webp, max 2MB</div>
-                            @if($isEdit && $user->agent_photo_path)
+                            @if($isEdit && $user->profilePhotoUrl())
                             <div class="flex items-center gap-3 mb-3 p-2.5 rounded-lg" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <img src="{{ asset('storage/'.$user->agent_photo_path) }}" alt="Photo"
+                                <img src="{{ $user->profilePhotoUrl() }}" alt="Photo"
                                      class="w-10 h-10 rounded-lg object-cover flex-shrink-0" style="border:1px solid var(--border);">
                                 <span class="text-xs flex-1 truncate" style="color:var(--text-secondary);">Current photo</span>
                                 <button type="button" class="text-xs font-medium px-2 py-1 rounded-md transition-colors"
@@ -365,6 +365,127 @@
                         </div>
                     </div>
                 </div>
+
+                {{-- Card: Compliance Documents (edit only) --}}
+                @if($isEdit)
+                @php
+                    $compDocTypes = \App\Models\UserDocument::$documentTypeLabels;
+                    unset($compDocTypes['other'], $compDocTypes['profile_photo']);
+                    $userDocs = $user->documents()->orderByDesc('created_at')->get()->groupBy('document_type')->map(fn ($g) => $g->first());
+                    $userOverrides = \App\Models\Compliance\UserComplianceOverride::where('user_id', $user->id)->active()->get()->keyBy('compliance_item');
+                    $agencyProvisions = [];
+                    foreach (\App\Models\Compliance\AgencyComplianceProvision::TYPES as $pt) {
+                        $agencyProvisions[$pt] = \App\Models\Compliance\AgencyComplianceProvision::coversUser($user, $pt);
+                    }
+                @endphp
+                <div class="rounded-xl p-6" style="background:var(--surface); border:1px solid var(--border);"
+                     x-data="{ overrideModal: false, overrideItem: '', overrideLabel: '', overrideType: 'not_applicable', revokeModal: false, revokeId: null, revokeLabel: '' }">
+                    <div class="flex items-center gap-2 mb-5">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
+                        <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Compliance Documents</h3>
+                    </div>
+                    <div class="space-y-1.5">
+                        @foreach($compDocTypes as $docType => $docLabel)
+                        @php
+                            $doc = $userDocs->get($docType);
+                            $override = $userOverrides->get($docType);
+                            $provision = $agencyProvisions[$docType] ?? null;
+                            if ($override) {
+                                $dotColor = '#64748b'; $statusText = ucfirst(str_replace('_', ' ', $override->override_type)) . ': ' . \Illuminate\Support\Str::limit($override->reason, 40);
+                            } elseif ($provision) {
+                                $dotColor = '#00d4aa'; $statusText = 'Covered by agency' . ($provision->policy_reference ? ': ' . $provision->policy_reference : '');
+                            } elseif ($doc && $doc->status === 'verified') {
+                                $dotColor = '#00d4aa'; $statusText = 'Verified' . ($doc->uploaded_by_admin ? ' (admin upload)' : '');
+                            } elseif ($doc && $doc->status === 'pending') {
+                                $dotColor = '#eab308'; $statusText = 'Pending verification';
+                            } else {
+                                $dotColor = '#ef4444'; $statusText = 'Not uploaded';
+                            }
+                        @endphp
+                        <div class="flex items-center gap-2 py-1.5">
+                            <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ $dotColor }};"></span>
+                            <span class="text-xs font-medium flex-1" style="color:var(--text-primary);">{{ $docLabel }}</span>
+                            <span class="text-[10px] mr-2" style="color:var(--text-muted);">{{ $statusText }}</span>
+
+                            @if($override)
+                            {{-- Show revoke button for active overrides --}}
+                            <button type="button" @click="revokeModal=true; revokeId={{ $override->id }}; revokeLabel='{{ addslashes($docLabel) }}'"
+                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:3px;">Revoke</button>
+                            @else
+                            {{-- Action buttons --}}
+                            <a href="{{ route('admin.user.documents.upload', ['user' => $user, 'type' => $docType]) }}"
+                               class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:#00d4aa; border:1px solid rgba(0,212,170,0.3); border-radius:3px;">Upload</a>
+                            <button type="button" @click="overrideModal=true; overrideItem='{{ $docType }}'; overrideLabel='{{ addslashes($docLabel) }}'; overrideType='not_applicable'"
+                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:var(--text-muted); border:1px solid var(--border); border-radius:3px;">N/A</button>
+                            <button type="button" @click="overrideModal=true; overrideItem='{{ $docType }}'; overrideLabel='{{ addslashes($docLabel) }}'; overrideType='exempt'"
+                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:var(--text-muted); border:1px solid var(--border); border-radius:3px;">Exempt</button>
+                            @endif
+                        </div>
+                        @endforeach
+                    </div>
+
+                    {{-- Override Modal --}}
+                    <div x-show="overrideModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.5);">
+                        <div class="rounded-xl p-6 w-full max-w-md mx-4" style="background:var(--surface); border:1px solid var(--border);" @click.outside="overrideModal=false">
+                            <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary); font-family:'Plus Jakarta Sans',sans-serif;">
+                                Set Override: <span x-text="overrideLabel"></span>
+                            </h3>
+                            <form method="POST" action="{{ route('admin.user.overrides.store', $user) }}">
+                                @csrf
+                                <input type="hidden" name="compliance_item" :value="overrideItem">
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Override Type</label>
+                                        <select name="override_type" x-model="overrideType" class="w-full rounded px-3 py-2 text-sm"
+                                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;">
+                                            <option value="not_applicable">Not Applicable</option>
+                                            <option value="exempt">Exempt</option>
+                                            <option value="waived">Waived</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Reason <span class="text-red-500">*</span></label>
+                                        <textarea name="reason" required minlength="15" rows="3" placeholder="Minimum 15 characters - explain why this item is exempt/not applicable"
+                                                  class="w-full rounded px-3 py-2 text-sm"
+                                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;"></textarea>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Expires (optional)</label>
+                                        <input type="date" name="expires_at" class="w-full rounded px-3 py-2 text-sm"
+                                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;">
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3 mt-4">
+                                    <button type="submit" class="px-4 py-2 rounded text-sm font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save Override</button>
+                                    <button type="button" @click="overrideModal=false" class="px-4 py-2 rounded text-sm" style="color:var(--text-secondary); border:1px solid var(--border); border-radius:3px;">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    {{-- Revoke Modal --}}
+                    <div x-show="revokeModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.5);">
+                        <div class="rounded-xl p-6 w-full max-w-md mx-4" style="background:var(--surface); border:1px solid var(--border);" @click.outside="revokeModal=false">
+                            <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary); font-family:'Plus Jakarta Sans',sans-serif;">
+                                Revoke Override: <span x-text="revokeLabel"></span>
+                            </h3>
+                            <form method="POST" :action="'/corex/admin/compliance-overrides/' + revokeId + '/revoke'">
+                                @csrf
+                                <div>
+                                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Reason for Revocation <span class="text-red-500">*</span></label>
+                                    <textarea name="revoke_reason" required minlength="10" rows="3" placeholder="Minimum 10 characters"
+                                              class="w-full rounded px-3 py-2 text-sm"
+                                              style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;"></textarea>
+                                </div>
+                                <div class="flex items-center gap-3 mt-4">
+                                    <button type="submit" class="px-4 py-2 rounded text-sm font-semibold text-white" style="background:#ef4444; border-radius:3px;">Revoke</button>
+                                    <button type="button" @click="revokeModal=false" class="px-4 py-2 rounded text-sm" style="color:var(--text-secondary); border:1px solid var(--border); border-radius:3px;">Cancel</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                @endif
 
                 {{-- Card: Pending Invite (only for users who haven't set up yet) --}}
                 @if($isEdit && $user->is_active && !$user->email_verified_at)

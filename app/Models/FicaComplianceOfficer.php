@@ -5,6 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @deprecated 2026-04-21 — Replaced by App\Models\Compliance\FicaOfficerAppointment.
+ * Table renamed to fica_compliance_officers_deprecated_20260421.
+ * Kept for reference only — do not use in new code.
+ */
 class FicaComplianceOfficer extends Model
 {
     protected $fillable = [

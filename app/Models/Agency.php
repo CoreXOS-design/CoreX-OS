@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Compliance\FicaOfficerAppointment;
+use App\Models\Compliance\RmcpVersion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Agency extends Model
 {
@@ -51,5 +54,22 @@ class Agency extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    public function rmcpVersions(): HasMany
+    {
+        return $this->hasMany(RmcpVersion::class);
+    }
+
+    public function currentRmcpVersion(): HasOne
+    {
+        return $this->hasOne(RmcpVersion::class)->where('status', 'active');
+    }
+
+    public function complianceOfficer(): HasOne
+    {
+        return $this->hasOne(FicaOfficerAppointment::class)
+            ->where('role', FicaOfficerAppointment::ROLE_PRIMARY)
+            ->whereNull('ended_on');
     }
 }

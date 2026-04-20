@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -42,6 +43,9 @@ class User extends Authenticatable
         // Agent document uploads
         'agent_photo_path',
         'ffc_certificate_path',
+        'id_document_path',
+        'pi_insurance_path',
+        'tax_clearance_path',
 
         // Flags
         'can_capture_rentals',
@@ -52,6 +56,11 @@ class User extends Authenticatable
         'cell',
         'fax',
         'ffc_number',
+        'ffc_expiry_date',
+        'id_number',
+        'ppra_status',
+        'pi_insurance_expiry',
+        'tax_clearance_expiry',
         'website',
         'theme',
 
@@ -61,6 +70,11 @@ class User extends Authenticatable
         // Property24 importer
         'p24_agent_id',
         'source_reference',
+
+        // Employee screening
+        'risk_tier',
+        'screening_status',
+        'screening_due_on',
     ];
 
     protected $hidden = [
@@ -81,6 +95,10 @@ class User extends Authenticatable
         'sliding_tier1_cut_percent' => 'decimal:2',
         'sliding_tier2_cut_percent' => 'decimal:2',
         'sliding_tier3_cut_percent' => 'decimal:2',
+
+        'ffc_expiry_date' => 'date',
+        'pi_insurance_expiry' => 'date',
+        'tax_clearance_expiry' => 'date',
     ];
 
     // --- View-As support (session override) ---
@@ -94,6 +112,51 @@ class User extends Authenticatable
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(UserDocument::class);
+    }
+
+    public function verifiedDocuments(): HasMany
+    {
+        return $this->documents()->where('status', 'verified');
+    }
+
+    /**
+     * Returns the public URL for the user's profile photo, or null if no valid file exists.
+     * Checks user_documents (profile_photo type) first, then legacy agent_photo_path.
+     */
+    public function profilePhotoUrl(): ?string
+    {
+        // Priority: user_documents profile_photo
+        $doc = $this->documents()
+            ->where('document_type', 'profile_photo')
+            ->latest()
+            ->first();
+
+        if ($doc && $doc->file_path && Storage::disk('public')->exists($doc->file_path)) {
+            return asset('storage/' . $doc->file_path);
+        }
+
+        // Fallback: legacy agent_photo_path column
+        if ($this->agent_photo_path && Storage::disk('public')->exists($this->agent_photo_path)) {
+            return asset('storage/' . $this->agent_photo_path);
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns the user's initials (first + last name initial) for avatar placeholders.
+     */
+    public function initials(): string
+    {
+        $parts = explode(' ', trim($this->name ?? ''));
+        $first = strtoupper(substr($parts[0] ?? '', 0, 1));
+        $last = count($parts) > 1 ? strtoupper(substr(end($parts), 0, 1)) : '';
+        return $first . $last;
     }
 
     public function effectiveBranchId(): ?int
@@ -127,11 +190,39 @@ class User extends Authenticatable
         return $this->agency_id ? (int) $this->agency_id : null;
     }
 
-    // ── Compliance Officer check ──
+    // ── Compliance Officer checks ──
 
+    /**
+     * True if this user holds ANY active FICA officer appointment
+     * (primary CO or MLRO). Used by FICA approval workflow.
+     */
     public function isComplianceOfficer(): bool
     {
-        return FicaComplianceOfficer::where('user_id', $this->id)->exists();
+        return Compliance\FicaOfficerAppointment::where('user_id', $this->id)
+            ->active()
+            ->exists();
+    }
+
+    public function isPrimaryComplianceOfficer(?int $agencyId = null): bool
+    {
+        $query = Compliance\FicaOfficerAppointment::where('user_id', $this->id)
+            ->primary()
+            ->active();
+        if ($agencyId) {
+            $query->where('agency_id', $agencyId);
+        }
+        return $query->exists();
+    }
+
+    public function isMlro(?int $branchId = null): bool
+    {
+        $query = Compliance\FicaOfficerAppointment::where('user_id', $this->id)
+            ->mlro()
+            ->active();
+        if ($branchId) {
+            $query->where(fn($q) => $q->where('branch_id', $branchId)->orWhereNull('branch_id'));
+        }
+        return $query->exists();
     }
 
     // ── Owner role checks (the ONLY hardcoded concept) ──
@@ -296,4 +387,75 @@ class User extends Authenticatable
             ->exists();
     }
 
+    // ── RMCP Acknowledgement ──
+
+    public function rmcpAcknowledgements(): HasMany
+    {
+        return $this->hasMany(Compliance\RmcpAcknowledgement::class);
+    }
+
+    public function currentRmcpAcknowledgement(): ?Compliance\RmcpAcknowledgement
+    {
+        $agencyId = $this->effectiveAgencyId();
+        if (!$agencyId) return null;
+
+        $activeVersion = Compliance\RmcpVersion::where('agency_id', $agencyId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$activeVersion) return null;
+
+        return $this->rmcpAcknowledgements()
+            ->where('rmcp_version_id', $activeVersion->id)
+            ->whereIn('status', ['in_progress', 'completed'])
+            ->latest()
+            ->first();
+    }
+
+    public function rmcpAcknowledgementStatus(): string
+    {
+        $agencyId = $this->effectiveAgencyId();
+        if (!$agencyId) return 'no_rmcp';
+
+        $activeVersion = Compliance\RmcpVersion::where('agency_id', $agencyId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$activeVersion) return 'no_rmcp';
+
+        $ack = $this->rmcpAcknowledgements()
+            ->where('rmcp_version_id', $activeVersion->id)
+            ->whereIn('status', ['in_progress', 'completed'])
+            ->latest()
+            ->first();
+
+        if (!$ack) return 'not_started';
+        if ($ack->isValid()) return 'valid';
+        if ($ack->isComplete()) return 'expired';
+        return 'in_progress';
+    }
+
+    // ── Employee Screening ──
+
+    public function screenings(): HasMany
+    {
+        return $this->hasMany(Compliance\EmployeeScreening::class);
+    }
+
+    public function latestScreening(): ?Compliance\EmployeeScreening
+    {
+        return $this->screenings()->latest('initiated_on')->first();
+    }
+
+    public function currentScreeningStatus(): string
+    {
+        return $this->screening_status ?? 'never_screened';
+    }
+
+    public function needsScreening(): bool
+    {
+        return in_array($this->screening_status, [
+            'never_screened', 'pre_employment_pending', 'overdue', 'expired',
+        ]);
+    }
 }

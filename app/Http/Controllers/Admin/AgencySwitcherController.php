@@ -39,6 +39,40 @@ class AgencySwitcherController extends Controller
         return back()->with('success', 'Viewing all agencies.');
     }
 
+    /**
+     * Interstitial page — owner/super_admin must pick an agency before
+     * accessing agency-scoped pages when they have no context.
+     */
+    public function selectPage()
+    {
+        $user = Auth::user();
+        abort_unless($user && ($user->isOwnerRole() || $user->role === 'super_admin'), 403);
+
+        $agencies = Agency::orderBy('name')->get();
+
+        return view('agency.select', compact('agencies'));
+    }
+
+    /**
+     * Set agency context and redirect to the originally intended page.
+     */
+    public function selectAndRedirect(Agency $agency)
+    {
+        $user = Auth::user();
+        abort_unless($user, 403);
+
+        if (!$this->userCanSwitchTo($user, $agency)) {
+            abort(403, 'You do not have access to that agency.');
+        }
+
+        session(['active_agency_id' => $agency->id]);
+
+        $intended = session()->pull('intended_after_agency_select');
+
+        return redirect($intended ?: route('corex.dashboard'))
+            ->with('success', "Switched to {$agency->name}.");
+    }
+
     private function userCanSwitchTo($user, Agency $agency): bool
     {
         if (method_exists($user, 'isOwnerRole') && $user->isOwnerRole()) {

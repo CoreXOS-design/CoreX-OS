@@ -124,6 +124,34 @@ class FaultReportController extends Controller
     }
 
     /**
+     * Bulk update status on multiple fault reports.
+     */
+    public function bulkAction(Request $request)
+    {
+        $validated = $request->validate([
+            'action' => 'required|in:fixed,ignored,investigating',
+            'ids'    => 'required|array|max:50',
+            'ids.*'  => 'integer|exists:fault_reports,id',
+            'notes'  => 'nullable|string|max:5000',
+        ]);
+
+        $updates = ['status' => $validated['action']];
+
+        if (in_array($validated['action'], ['fixed', 'ignored'])) {
+            $updates['resolved_by'] = auth()->id();
+            $updates['resolved_at'] = now();
+        }
+
+        if (!empty($validated['notes'])) {
+            $updates['notes'] = $validated['notes'];
+        }
+
+        $count = FaultReport::whereIn('id', $validated['ids'])->update($updates);
+
+        return back()->with('success', "{$count} fault report(s) updated to {$validated['action']}.");
+    }
+
+    /**
      * Create a manual fault report from the "Report Issue" modal.
      */
     public function manualReport(Request $request)

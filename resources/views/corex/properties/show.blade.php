@@ -2013,7 +2013,7 @@
                                     $primaryAgent = $agents->firstWhere('id', $property->agent_id);
                                     $primaryImgSrc = $property->pp_agent_image_path
                                         ? asset('storage/' . $property->pp_agent_image_path)
-                                        : ($primaryAgent && $primaryAgent->agent_photo_path ? asset('storage/' . $primaryAgent->agent_photo_path) : null);
+                                        : ($primaryAgent ? $primaryAgent->profilePhotoUrl() : null);
                                 @endphp
                                 <div class="flex-shrink-0">
                                     @if($primaryImgSrc)
@@ -2043,7 +2043,7 @@
                                     $secondAgent = $property->pp_second_agent_id ? $agents->firstWhere('id', $property->pp_second_agent_id) : null;
                                     $secondImgSrc = $property->pp_second_agent_image_path
                                         ? asset('storage/' . $property->pp_second_agent_image_path)
-                                        : ($secondAgent && $secondAgent->agent_photo_path ? asset('storage/' . $secondAgent->agent_photo_path) : null);
+                                        : ($secondAgent ? $secondAgent->profilePhotoUrl() : null);
                                 @endphp
                                 <div class="flex-shrink-0">
                                     @if($secondImgSrc)

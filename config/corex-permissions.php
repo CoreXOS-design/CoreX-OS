@@ -112,6 +112,31 @@ return [
         ['key' => 'compliance.fica.send',    'label' => 'Send FICA Requests',              'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 12],
         ['key' => 'compliance.fica.review',  'label' => 'Review FICA Submissions',         'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 13],
         ['key' => 'compliance.fica.approve', 'label' => 'Approve/Reject FICA',             'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 14],
+        ['key' => 'verify_user_documents',   'label' => 'Verify/Reject User Documents',    'section' => 'compliance',       'type' => 'action',  'module' => 'compliance',       'sort_order' => 15],
+        ['key' => 'access_compliance_dashboard','label' => 'Access Compliance Dashboard',   'section' => 'compliance',       'type' => 'access',  'module' => 'compliance',       'sort_order' => 16],
+
+        // ── RMCP ──
+        ['key' => 'access_rmcp',                 'label' => 'View RMCP',                       'section' => 'compliance',       'type' => 'access',  'module' => 'rmcp',             'sort_order' => 20],
+        ['key' => 'edit_rmcp',                   'label' => 'Edit RMCP Drafts',                'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 21],
+        ['key' => 'approve_rmcp',                'label' => 'Approve RMCP (Board)',             'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 22],
+        ['key' => 'manage_compliance_officer',   'label' => 'Manage Compliance Officer',       'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 23],
+
+        // ── Employee Screening ──
+        ['key' => 'manage_employee_screenings', 'label' => 'Manage Employee Screenings',    'section' => 'compliance',       'type' => 'action',  'module' => 'screening',        'sort_order' => 30],
+        ['key' => 'view_own_screening',         'label' => 'View Own Screening Records',    'section' => 'compliance',       'type' => 'access',  'module' => 'screening',        'sort_order' => 31],
+
+        // ── Agency Compliance Provisions ──
+        ['key' => 'manage_agency_compliance',   'label' => 'Manage Agency Compliance Provisions', 'section' => 'compliance', 'type' => 'action', 'module' => 'compliance', 'sort_order' => 40],
+        ['key' => 'manage_user_compliance',     'label' => 'Upload on Behalf / Override User Compliance', 'section' => 'compliance', 'type' => 'action', 'module' => 'compliance', 'sort_order' => 41],
+
+        // ── My Portal ──
+        ['key' => 'access_my_portal',        'label' => 'Access My Portal',                'section' => 'my-portal',        'type' => 'access',  'module' => 'my_portal',        'sort_order' => 1],
+        ['key' => 'upload_own_documents',    'label' => 'Upload Compliance Documents',     'section' => 'my-portal',        'type' => 'action',  'module' => 'my_portal',        'sort_order' => 2],
+        ['key' => 'edit_own_profile',        'label' => 'Edit Own Profile',                'section' => 'my-portal',        'type' => 'action',  'module' => 'my_portal',        'sort_order' => 3],
+
+        // ── User Management — Granular ──
+        ['key' => 'edit_user_designation',   'label' => 'Change User Designation',         'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 14],
+        ['key' => 'assign_user_branch',      'label' => 'Assign User Branch',              'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 15],
 
         // ── Supervision ──
         ['key' => 'access_supervision',      'label' => 'Access Supervision',              'section' => 'supervision',      'type' => 'access',  'module' => 'supervision',      'sort_order' => 1],
@@ -369,6 +394,11 @@ return [
                 'calculators.manage',
                 'access_compliance', 'manage_compliance', 'view_compliance_reports',
                 'compliance.view', 'compliance.manage',
+                'verify_user_documents', 'access_compliance_dashboard',
+                'access_rmcp', 'edit_rmcp', 'manage_compliance_officer',
+                'manage_employee_screenings', 'view_own_screening',
+                'access_my_portal', 'upload_own_documents', 'edit_own_profile',
+                'assign_user_branch',
                 'access_supervision', 'manage_supervision',
                 'supervision.view', 'supervision.manage',
                 'access_training', 'assign_training',
@@ -424,6 +454,7 @@ return [
                 'rentals.view', 'rentals.create', 'rentals.edit',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
+                'access_my_portal', 'upload_own_documents', 'edit_own_profile',
                 'access_training', 'training.view',
                 'access_communication', 'send_messages',
                 'communication.view', 'communication.send',
@@ -457,11 +488,14 @@ return [
                 'view_own_stats',
                 'access_deal_register_v2',
                 'deals_v2.view', 'deals_v2.create', 'deals_v2.edit',
+                'access_rmcp',
+                'view_own_screening',
             ],
         ],
 
         'viewer' => [
             'include' => [
+                'access_my_portal',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
                 'view_worksheet', 'view_deals', 'view_listings', 'view_performance',
@@ -485,6 +519,8 @@ return [
                 'access_knowledge_base', 'knowledge.view',
                 'settings.view',
                 'view_own_stats',
+                'access_rmcp',
+                'view_own_screening',
             ],
         ],
     ],

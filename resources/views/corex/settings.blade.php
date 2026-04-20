@@ -371,28 +371,130 @@
                 </div>
             </div>
 
-            {{-- FICA Compliance Officers --}}
-            @permission('access_settings')
+            {{-- FICA Officers — Primary CO + MLROs --}}
+            @permission('manage_compliance_officer')
+            @php
+                $settingsAgencyId = auth()->user()->effectiveAgencyId();
+                $agencyUsers = \App\Models\User::where('agency_id', $settingsAgencyId)
+                    ->where('is_active', true)->whereNull('deleted_at')
+                    ->orderBy('name')->get(['id', 'name', 'email', 'role', 'branch_id']);
+                $currentPrimary = \App\Models\Compliance\FicaOfficerAppointment::currentPrimary($settingsAgencyId);
+                $primaryHistory = \App\Models\Compliance\FicaOfficerAppointment::where('agency_id', $settingsAgencyId)
+                    ->primary()->whereNotNull('ended_on')->orderByDesc('ended_on')->get();
+                $activeMlros = \App\Models\Compliance\FicaOfficerAppointment::where('agency_id', $settingsAgencyId)
+                    ->mlro()->active()->get();
+                $activeMlroUserIds = $activeMlros->pluck('user_id')->filter()->toArray();
+            @endphp
+
+            {{-- Section A: Primary Compliance Officer --}}
             <div>
-                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">FICA Compliance Officers</h3>
+                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Primary Compliance Officer (Section 43)</h3>
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                    <div class="text-xs font-semibold mb-2" style="color:var(--text-secondary);">Select users who can perform final FICA compliance approval</div>
-                    <form method="POST" action="{{ route('corex.settings.compliance-officers') }}">
+                    @if($currentPrimary)
+                    <div class="flex items-start justify-between mb-3">
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $currentPrimary->full_name }}</div>
+                            <div class="text-xs mt-0.5" style="color:var(--text-muted);">
+                                {{ $currentPrimary->title }} — appointed {{ $currentPrimary->appointed_on->format('d M Y') }}
+                                @if($currentPrimary->id_number) | ID: {{ $currentPrimary->id_number }} @endif
+                            </div>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold" style="background:rgba(0,212,170,0.15); color:#00d4aa; border-radius:3px;">Active</span>
+                    </div>
+                    @else
+                    <div class="mb-3 px-3 py-2 text-xs font-semibold" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:3px; color:#ef4444;">
+                        No primary compliance officer appointed. Appoint one to remain FICA compliant.
+                    </div>
+                    @endif
+
+                    <div class="mb-2 px-3 py-2 text-xs" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.2); border-radius:3px; color:#ca8a04;">
+                        This person is named in RMCP Section 26 and registered with the FIC. Changing requires a new RMCP version to be issued.
+                    </div>
+
+                    <form method="POST" action="{{ route('corex.settings.fica-officers.primary') }}" enctype="multipart/form-data" class="space-y-3 mt-3">
                         @csrf
-                        @php
-                            $allUsers = \App\Models\User::orderBy('name')->whereNull('deleted_at')->get(['id', 'name', 'role']);
-                            $currentOfficerIds = \App\Models\FicaComplianceOfficer::pluck('user_id')->toArray();
-                        @endphp
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Link to user</label>
+                                <select name="user_id" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                                    <option value="">-- External person --</option>
+                                    @foreach($agencyUsers as $u)
+                                    <option value="{{ $u->id }}">{{ $u->name }} ({{ $u->email }})</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Full Name *</label>
+                                <input type="text" name="full_name" required class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">ID Number</label>
+                                <input type="text" name="id_number" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Cell</label>
+                                <input type="text" name="cell" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Email</label>
+                                <input type="email" name="email" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Appointed On *</label>
+                                <input type="date" name="appointed_on" value="{{ now()->format('Y-m-d') }}" required class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Appointment Letter (PDF)</label>
+                                <input type="file" name="appointment_letter" accept=".pdf" class="w-full px-2 py-1.5 text-xs border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Notes</label>
+                            <textarea name="notes" rows="2" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);"></textarea>
+                        </div>
+                        <button type="submit" class="px-4 py-1.5 text-xs font-semibold rounded transition-all" style="background:#00d4aa; color:#0f172a; border-radius:3px;">Appoint Primary CO</button>
+                    </form>
+
+                    @if($primaryHistory->isNotEmpty())
+                    <div x-data="{ showHistory: false }" class="mt-3">
+                        <button @click="showHistory = !showHistory" class="text-xs font-semibold flex items-center gap-1" style="color:var(--text-muted);">
+                            <svg class="w-3 h-3 transition-transform" :class="showHistory && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 5 7 7-7 7"/></svg>
+                            Previous appointments ({{ $primaryHistory->count() }})
+                        </button>
+                        <div x-show="showHistory" x-cloak class="mt-2 space-y-1">
+                            @foreach($primaryHistory as $prev)
+                            <div class="flex items-center justify-between px-2 py-1 text-xs" style="background:var(--surface); border-radius:3px;">
+                                <span style="color:var(--text-primary);">{{ $prev->full_name }}</span>
+                                <span style="color:var(--text-muted);">{{ $prev->appointed_on->format('d M Y') }} — {{ $prev->ended_on->format('d M Y') }}</span>
+                            </div>
+                            @endforeach
+                        </div>
+                    </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- Section B: MLROs / Reporting Officers --}}
+            <div>
+                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">MLROs / Reporting Officers (PCC 5C)</h3>
+                <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="text-xs font-semibold mb-2" style="color:var(--text-secondary);">Select users who can perform FICA compliance reviews and approvals</div>
+                    <form method="POST" action="{{ route('corex.settings.fica-officers.mlros') }}">
+                        @csrf
                         <div class="space-y-1 max-h-48 overflow-y-auto mb-3" style="border:1px solid var(--border); padding:0.5rem; border-radius:4px; background:var(--surface);">
-                            @foreach($allUsers as $u)
+                            @foreach($agencyUsers as $u)
                             <label class="flex items-center gap-2 py-1 px-1 text-sm cursor-pointer hover:bg-white/5 rounded">
-                                <input type="checkbox" name="officer_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $currentOfficerIds) ? 'checked' : '' }} style="accent-color: #0d9488;">
+                                <input type="checkbox" name="mlro_user_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $activeMlroUserIds) ? 'checked' : '' }} style="accent-color: #0d9488;">
                                 <span style="color:var(--text-primary);">{{ $u->name }}</span>
                                 <span class="text-xs" style="color:var(--text-muted);">{{ $u->role }}</span>
                             </label>
                             @endforeach
                         </div>
-                        <button type="submit" class="px-4 py-1.5 text-xs font-semibold rounded-md transition-all" style="background:var(--brand-button, #0ea5e9); color:#fff;">Save Compliance Officers</button>
+                        <button type="submit" class="px-4 py-1.5 text-xs font-semibold rounded transition-all" style="background:#00d4aa; color:#0f172a; border-radius:3px;">Save MLROs</button>
                     </form>
                 </div>
             </div>

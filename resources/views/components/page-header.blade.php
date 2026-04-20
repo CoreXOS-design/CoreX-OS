@@ -31,18 +31,19 @@
     'flush' => false,
 ])
 
-<div class="{{ $sticky ? 'sticky top-0 z-30' : '' }} bg-white border-b border-gray-200 shadow-sm {{ $flush ? '' : '-mx-4 -mt-4 mb-4 lg:-mx-6 lg:-mt-6 lg:mb-6' }}">
+<div class="{{ $sticky ? 'sticky top-0 z-30' : '' }} {{ $flush ? '' : '-mx-4 -mt-4 mb-4 lg:-mx-6 lg:-mt-6 lg:mb-6' }}"
+     style="background:var(--surface, #fff); border-bottom:1px solid var(--border, #e5e7eb); box-shadow:0 1px 2px rgba(0,0,0,0.05);">
     <div class="flex items-center justify-between h-14 px-4 sm:px-6 lg:px-8">
         {{-- Left: back button + title --}}
         <div class="flex items-center gap-3 min-w-0">
             @if($backRoute)
-            <a href="{{ $backRoute }}" class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 flex-shrink-0">
+            <a href="{{ $backRoute }}" class="inline-flex items-center gap-1 text-sm flex-shrink-0" style="color:var(--text-muted, #6b7280);">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                 {{ $backLabel }}
             </a>
-            <span class="text-gray-300 flex-shrink-0">|</span>
+            <span class="flex-shrink-0" style="color:var(--border, #d1d5db);">|</span>
             @endif
-            <h1 class="text-lg font-semibold text-gray-800 truncate">{{ $title }}</h1>
+            <h1 class="text-lg font-semibold truncate" style="color:var(--text-primary, #1f2937); font-family:'Plus Jakarta Sans',sans-serif;">{{ $title }}</h1>
         </div>
 
         {{-- Right: action buttons --}}

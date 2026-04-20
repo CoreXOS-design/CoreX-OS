@@ -265,15 +265,15 @@
                     <div class="p-5">
                         <p class="text-xs font-bold uppercase tracking-wider mb-3" style="color:#9ca3af;">Listed by</p>
                         <div class="flex items-center gap-3 mb-4">
-                            @if($displayAgent->agent_photo_path)
-                            <img src="{{ asset('storage/'.$displayAgent->agent_photo_path) }}"
+                            @if($displayAgent->profilePhotoUrl())
+                            <img src="{{ $displayAgent->profilePhotoUrl() }}"
                                  alt="{{ $displayAgent->name }}"
                                  class="w-14 h-14 rounded-full object-cover flex-shrink-0"
                                  style="border:2px solid #e5e7eb;">
                             @else
                             <div class="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 text-lg font-bold text-white"
                                  style="background:#00b4d8;">
-                                {{ strtoupper(substr($displayAgent->name, 0, 1)) }}
+                                {{ $displayAgent->initials() }}
                             </div>
                             @endif
                             <div class="min-w-0">
