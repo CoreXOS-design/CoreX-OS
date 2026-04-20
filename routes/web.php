@@ -328,6 +328,8 @@ Route::middleware(['auth'])->group(function () {
         ->name('admin.fault-reports.show');
     Route::post('/admin/fault-reports/{id}/status', [\App\Http\Controllers\FaultReportController::class, 'updateStatus'])
         ->name('admin.fault-reports.update-status');
+    Route::post('/admin/fault-reports/bulk', [\App\Http\Controllers\FaultReportController::class, 'bulkAction'])
+        ->name('admin.fault-reports.bulk');
     Route::get('/admin/fault-reports', [\App\Http\Controllers\FaultReportController::class, 'index'])
         ->name('admin.fault-reports');
 });
