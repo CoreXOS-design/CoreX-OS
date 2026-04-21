@@ -60,7 +60,19 @@ class ImpersonateController extends Controller
 
         $targetUserId = Auth::id();
 
-        Auth::loginUsingId($impersonatorId);
+        // Bypass the AgencyScope global scope when loading the impersonator.
+        // While Auth::user() is still the impersonated (non-owner) user, the
+        // scope filters the query to that user's agency — and System Owner
+        // accounts have agency_id = NULL, so the scoped query returns no
+        // result and Auth::loginUsingId() silently fails.
+        $admin = User::withoutGlobalScopes()->find($impersonatorId);
+
+        if (!$admin) {
+            session()->forget('impersonator_id');
+            return redirect()->route('corex.dashboard')->with('status', 'Admin account not found.');
+        }
+
+        Auth::login($admin);
 
         // Audit log — record after switching back
         ImpersonationLog::create([
@@ -72,7 +84,7 @@ class ImpersonateController extends Controller
         ]);
 
         session()->regenerate();
-        session()->forget('impersonator_id');
+        session()->forget(['impersonator_id', 'view_as_role', 'view_as_branch_id']);
         session()->save();
 
         return redirect()->route('corex.dashboard')->with('status', 'Returned to admin account');
