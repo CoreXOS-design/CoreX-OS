@@ -41,6 +41,10 @@ class FicaSubmission extends Model
         'co_verification_data',
         'co_notes',
         'co_signature_data',
+        // Wet-ink intake
+        'intake_type',
+        'wet_ink_received_date',
+        'wet_ink_confirmed_by',
     ];
 
     protected $casts = [
@@ -54,6 +58,7 @@ class FicaSubmission extends Model
         'agent_verified_at'        => 'datetime',
         'co_verified_at'           => 'datetime',
         'risk_rating'              => 'integer',
+        'wet_ink_received_date'    => 'date',
     ];
 
     // ── Relationships ──
@@ -81,6 +86,11 @@ class FicaSubmission extends Model
     public function coVerifiedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'co_verified_by');
+    }
+
+    public function wetInkConfirmedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'wet_ink_confirmed_by');
     }
 
     public function documents(): HasMany
@@ -112,9 +122,14 @@ class FicaSubmission extends Model
 
     // ── Helpers ──
 
+    public function isWetInk(): bool
+    {
+        return $this->intake_type === 'wet_ink';
+    }
+
     public function isExpired(): bool
     {
-        return $this->token_expires_at->isPast();
+        return $this->token_expires_at && $this->token_expires_at->isPast();
     }
 
     public function isSubmitted(): bool

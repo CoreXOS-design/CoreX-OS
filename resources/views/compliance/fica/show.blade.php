@@ -13,13 +13,23 @@
             <span class="inline-flex items-center px-2.5 py-1 text-xs font-semibold {{ $colors[$submission->status] ?? 'bg-slate-100 text-slate-600' }}">
                 {{ $submission->status_label }}
             </span>
+            @if($submission->isWetInk())
+                <span class="inline-flex items-center px-2.5 py-1 text-xs font-semibold" style="background:rgba(245,158,11,0.12); color:#d97706; border-radius:3px;">
+                    Wet-Ink Intake — Received {{ $submission->wet_ink_received_date?->format('d M Y') }}
+                </span>
+            @else
+                <span class="inline-flex items-center px-2.5 py-1 text-xs font-semibold" style="background:rgba(0,212,170,0.12); color:#00d4aa; border-radius:3px;">
+                    Online Intake
+                </span>
+            @endif
         </div>
         <p class="text-sm text-slate-500 mt-1">
             {{ $submission->contact ? $submission->contact->full_name : 'Unknown contact' }}
             — Requested by {{ $submission->requestedBy->name ?? 'Unknown' }} on {{ $submission->created_at->format('d M Y') }}
         </p>
 
-        {{-- Recipient Form Link --}}
+        {{-- Recipient Form Link (online intake only) --}}
+        @if(!$submission->isWetInk() && $submission->token)
         <div class="mt-3 flex items-center gap-2">
             <span class="text-xs font-semibold text-slate-500 whitespace-nowrap">Recipient Form Link:</span>
             <input type="text" value="{{ url('/fica/' . $submission->token) }}" readonly
@@ -31,6 +41,7 @@
                 <span>Copy Link</span>
             </button>
         </div>
+        @endif
 
         {{-- Action buttons row --}}
         <div class="mt-3 flex gap-2">
@@ -67,7 +78,57 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {{-- LEFT PANEL: Submitted Data --}}
         <div class="lg:col-span-2 space-y-4">
-            @include('compliance.fica.partials.submitted-data', ['submission' => $submission, 'personal' => $personal, 'entity' => $entity, 'service' => $service, 'pepData' => $pepData, 'principalData' => $principalData, 'repData' => $repData, 'declData' => $declData])
+            @if($submission->isWetInk())
+                {{-- Wet-ink: contact basics + uploaded documents --}}
+                <div class="bg-white border border-slate-200 p-5">
+                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #d97706; font-family:'Plus Jakarta Sans',sans-serif;">Client Details (from contact record)</h3>
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div><span class="text-xs text-slate-400">Name</span><div class="text-slate-900 font-medium">{{ $personal['first_name'] ?? '' }} {{ $personal['last_name'] ?? '' }}</div></div>
+                        <div><span class="text-xs text-slate-400">ID Number</span><div class="text-slate-900">{{ $personal['id_number'] ?? 'Not set' }}</div></div>
+                        <div><span class="text-xs text-slate-400">Email</span><div class="text-slate-900">{{ $personal['email'] ?? 'Not set' }}</div></div>
+                        <div><span class="text-xs text-slate-400">Phone</span><div class="text-slate-900">{{ $personal['cell'] ?? 'Not set' }}</div></div>
+                        <div><span class="text-xs text-slate-400">Entity Type</span><div class="text-slate-900 capitalize">{{ $entity['type'] ?? $submission->entity_type ?? '—' }}</div></div>
+                        <div><span class="text-xs text-slate-400">Received By</span><div class="text-slate-900">{{ $submission->form_data['intake']['received_by'] ?? '—' }}</div></div>
+                    </div>
+                </div>
+
+                {{-- Uploaded documents --}}
+                <div class="bg-white border border-slate-200 p-5">
+                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #d97706; font-family:'Plus Jakarta Sans',sans-serif;">Uploaded Documents</h3>
+                    @if($submission->documents->isEmpty())
+                        <p class="text-sm text-slate-400">No documents uploaded.</p>
+                    @else
+                        <div class="space-y-3">
+                            @foreach($submission->documents as $doc)
+                            <div style="border:1px solid var(--border, #e2e8f0); border-radius:3px; overflow:hidden;">
+                                <div class="flex items-center justify-between px-4 py-2" style="background:var(--surface-2, #f8fafc);">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs font-semibold text-slate-700">{{ $doc->document_type_label }}</span>
+                                        <span class="text-[10px] text-slate-400">{{ $doc->file_name }}</span>
+                                    </div>
+                                    <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" class="text-xs font-medium" style="color:#00d4aa; text-decoration:none;">Open in new tab</a>
+                                </div>
+                                @php $isImage = in_array($doc->mime_type, ['image/jpeg', 'image/png', 'image/jpg']); @endphp
+                                <div style="max-height:400px; overflow:auto;">
+                                    @if($isImage)
+                                        <img src="{{ asset('storage/' . $doc->file_path) }}" alt="{{ $doc->document_type_label }}" style="width:100%; display:block;">
+                                    @else
+                                        <iframe src="{{ asset('storage/' . $doc->file_path) }}" style="width:100%; height:350px; border:none;"></iframe>
+                                    @endif
+                                </div>
+                            </div>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Paper form notice --}}
+                <div class="p-4 text-sm" style="background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.2); border-radius:3px; color:#92400e;">
+                    Client data captured on signed paper form — see uploaded FICA form above for full client responses.
+                </div>
+            @else
+                @include('compliance.fica.partials.submitted-data', ['submission' => $submission, 'personal' => $personal, 'entity' => $entity, 'service' => $service, 'pepData' => $pepData, 'principalData' => $principalData, 'repData' => $repData, 'declData' => $declData])
+            @endif
         </div>
 
         {{-- RIGHT PANEL: Verification --}}

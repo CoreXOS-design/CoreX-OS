@@ -4,9 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class FicaDocument extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'fica_submission_id',
         'document_type',
@@ -18,6 +21,7 @@ class FicaDocument extends Model
         'rejection_reason',
         'uploaded_at',
         'reviewed_at',
+        'uploaded_by',
     ];
 
     protected $casts = [
@@ -31,9 +35,15 @@ class FicaDocument extends Model
         return $this->belongsTo(FicaSubmission::class, 'fica_submission_id');
     }
 
+    public function uploader(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'uploaded_by');
+    }
+
     public function getDocumentTypeLabelAttribute(): string
     {
         return match ($this->document_type) {
+            'fica_form'              => 'FICA Form (Wet-Ink)',
             'id_copy'                => 'ID Copy',
             'proof_of_address'       => 'Proof of Address',
             'authority'              => 'Authority Letter',

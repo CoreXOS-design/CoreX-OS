@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Mail\FicaRequestMail;
 use App\Models\Contact;
 use App\Models\FicaComplianceOfficer;
+use App\Models\FicaDocument;
 use App\Models\FicaSubmission;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -146,6 +148,106 @@ class FicaController extends Controller
 
         return redirect()->route('compliance.fica.index')
             ->with('success', "FICA request sent to {$contact->full_name}.");
+    }
+
+    /**
+     * Show wet-ink intake form.
+     */
+    public function createWetInk()
+    {
+        $contacts = Contact::orderBy('first_name')
+            ->orderBy('last_name')
+            ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'cell', 'id_number']);
+
+        return view('compliance.fica.create-wet-ink', compact('contacts'));
+    }
+
+    /**
+     * Store a wet-ink FICA submission with uploaded documents.
+     */
+    public function storeWetInk(Request $request)
+    {
+        $validated = $request->validate([
+            'contact_id'              => 'required|exists:contacts,id',
+            'entity_type'             => 'required|in:natural,company,trust,partnership',
+            'wet_ink_received_date'   => 'required|date|before_or_equal:today',
+            'confirmed_signed_paper'  => 'required|accepted',
+            'fica_form_file'          => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'id_copy_file'            => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'proof_of_address_file'   => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'supporting_docs.*'       => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+        ]);
+
+        $contact = Contact::findOrFail($validated['contact_id']);
+        $agencyId = Auth::user()->effectiveAgencyId() ?? $contact->agency_id;
+
+        if (!$agencyId) {
+            return back()->withErrors(['contact_id' => 'Cannot determine the agency. Pick an active agency in the switcher and try again.'])->withInput();
+        }
+
+        $submission = null;
+
+        DB::transaction(function () use ($request, $validated, $contact, $agencyId, &$submission) {
+            $submission = FicaSubmission::create([
+                'contact_id'            => $contact->id,
+                'agency_id'             => $agencyId,
+                'requested_by'          => Auth::id(),
+                'status'                => 'submitted',
+                'intake_type'           => 'wet_ink',
+                'entity_type'           => $validated['entity_type'],
+                'wet_ink_received_date' => $validated['wet_ink_received_date'],
+                'wet_ink_confirmed_by'  => Auth::id(),
+                'signed_at'             => $validated['wet_ink_received_date'],
+                'form_data'             => [
+                    'personal' => [
+                        'first_name' => $contact->first_name,
+                        'last_name'  => $contact->last_name,
+                        'id_number'  => $contact->id_number ?? null,
+                        'email'      => $contact->email ?? null,
+                        'cell'       => $contact->cell ?? $contact->phone ?? null,
+                    ],
+                    'entity' => ['type' => $validated['entity_type']],
+                    'intake' => [
+                        'method'        => 'wet_ink',
+                        'received_date' => $validated['wet_ink_received_date'],
+                        'received_by'   => Auth::user()->name,
+                    ],
+                ],
+            ]);
+
+            $this->storeWetInkDocument($submission, $request->file('fica_form_file'), 'fica_form');
+            $this->storeWetInkDocument($submission, $request->file('id_copy_file'), 'id_copy');
+            $this->storeWetInkDocument($submission, $request->file('proof_of_address_file'), 'proof_of_address');
+
+            if ($request->hasFile('supporting_docs')) {
+                foreach ($request->file('supporting_docs') as $file) {
+                    $this->storeWetInkDocument($submission, $file, 'supporting');
+                }
+            }
+        });
+
+        return redirect()->route('compliance.fica.show', $submission)
+            ->with('success', 'Wet-ink FICA created. Complete Section 10 verification next.');
+    }
+
+    /**
+     * Store a single document for a wet-ink submission.
+     */
+    private function storeWetInkDocument(FicaSubmission $submission, $file, string $type): void
+    {
+        $path = $file->store("fica/wet-ink/{$submission->id}", 'public');
+
+        FicaDocument::create([
+            'fica_submission_id' => $submission->id,
+            'document_type'      => $type,
+            'file_path'          => $path,
+            'file_name'          => $file->getClientOriginalName(),
+            'file_size'          => $file->getSize(),
+            'mime_type'          => $file->getMimeType(),
+            'status'             => 'uploaded',
+            'uploaded_at'        => now(),
+            'uploaded_by'        => Auth::id(),
+        ]);
     }
 
     /**

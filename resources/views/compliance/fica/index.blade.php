@@ -21,7 +21,11 @@
             </a>
             <a href="{{ route('compliance.fica.create') }}" class="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                Send FICA Request
+                Send Online FICA
+            </a>
+            <a href="{{ route('compliance.fica.wet-ink.create') }}" class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold transition" style="background:#00d4aa; color:#0f172a; border-radius:3px;">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                Create Wet-Ink FICA
             </a>
         </div>
     </div>
@@ -120,6 +124,7 @@
             <thead>
                 <tr class="bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     <th class="px-4 py-3">Contact</th>
+                    <th class="px-4 py-3">Intake</th>
                     <th class="px-4 py-3">Entity</th>
                     <th class="px-4 py-3">Submitted</th>
                     <th class="px-4 py-3">Agent Review</th>
@@ -138,6 +143,13 @@
                                 <div class="text-xs text-slate-400">{{ $sub->contact->email }}</div>
                             @else
                                 <span class="text-slate-400">No contact</span>
+                            @endif
+                        </td>
+                        <td class="px-4 py-3">
+                            @if($sub->intake_type === 'wet_ink')
+                                <span class="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(245,158,11,0.12); color:#d97706; border-radius:3px;">Wet-Ink</span>
+                            @else
+                                <span class="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.12); color:#00d4aa; border-radius:3px;">Online</span>
                             @endif
                         </td>
                         <td class="px-4 py-3 text-slate-600 capitalize">{{ $sub->entity_type }}</td>
@@ -191,12 +203,14 @@
                             </span>
                         </td>
                         <td class="px-4 py-3 text-right whitespace-nowrap">
+                            @if($sub->intake_type !== 'wet_ink' && $sub->token)
                             <button type="button" title="Copy form link"
                                     onclick="ficaCopyLink('{{ url('/fica/' . $sub->token) }}', this)"
                                     class="inline-flex items-center justify-center w-6 h-6 text-slate-400 hover:text-teal-600 transition">
                                 <svg class="fica-link-icon w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg>
                                 <svg class="fica-check-icon w-3.5 h-3.5 text-emerald-500" style="display:none;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                             </button>
+                            @endif
                             @if($tab === 'co_queue' && $isCO)
                                 <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="text-indigo-600 hover:text-indigo-800 font-semibold text-xs ml-1">Review & Approve</a>
                             @else
@@ -209,7 +223,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="px-4 py-12 text-center text-slate-400">
+                        <td colspan="9" class="px-4 py-12 text-center text-slate-400">
                             @if($tab === 'co_queue')
                                 No submissions awaiting compliance officer review.
                             @elseif($tab === 'submitted')
