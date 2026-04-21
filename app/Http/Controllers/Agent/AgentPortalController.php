@@ -10,6 +10,7 @@ use App\Models\AgentSocialAccount;
 use App\Models\CommissionLedger;
 use App\Models\Compliance\AgencyComplianceProvision;
 use App\Models\Compliance\UserComplianceOverride;
+use App\Models\ImpersonationLog;
 use App\Models\TrainingCompletion;
 use App\Models\TrainingCourse;
 use App\Models\User;
@@ -125,6 +126,15 @@ class AgentPortalController extends Controller
         // ── Social accounts ──
         $socialAccounts = AgentSocialAccount::where('user_id', $user->id)->active()->get();
 
+        // ── Impersonation audit (recent logins-as-this-user in last 30 days) ──
+        $impersonationLogs = ImpersonationLog::forUser($user->id)
+            ->recent(30)
+            ->where('action', 'start')
+            ->with('admin')
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get();
+
         // Determine if attention needed (for sidebar dot)
         $needsAttention = $profilePercent < 100
             || $complianceStatus['overall'] !== 'green'
@@ -148,6 +158,7 @@ class AgentPortalController extends Controller
             'isCapped',
             'recentActivity',
             'socialAccounts',
+            'impersonationLogs',
             'needsAttention'
         ));
     }
@@ -165,7 +176,7 @@ class AgentPortalController extends Controller
 
         $user->save();
 
-        return redirect('/my-portal#profile')->with('success', 'Profile updated.');
+        return redirect()->route('agent.portal')->withFragment('profile')->with('success', 'Profile updated.');
     }
 
     public function uploadDocument(Request $request)

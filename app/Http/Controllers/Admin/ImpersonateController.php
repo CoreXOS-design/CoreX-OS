@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\ImpersonationLog;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 
@@ -27,8 +28,17 @@ class ImpersonateController extends Controller
 
         // Prevent nesting / switching while already impersonating
         if (session()->has('impersonator_id')) {
-            return redirect('/')->with('status', 'Already impersonating. Switch back first.');
+            return redirect()->route('corex.dashboard')->with('status', 'Already impersonating. Switch back first.');
         }
+
+        // Audit log — record before switching auth context
+        ImpersonationLog::create([
+            'admin_user_id'  => $admin->id,
+            'target_user_id' => $user->id,
+            'action'         => 'start',
+            'ip_address'     => request()->ip(),
+            'user_agent'     => request()->userAgent(),
+        ]);
 
         Auth::login($user);
 
@@ -45,10 +55,21 @@ class ImpersonateController extends Controller
         $impersonatorId = (int) session('impersonator_id', 0);
 
         if ($impersonatorId <= 0) {
-            return redirect('/');
+            return redirect()->route('corex.dashboard');
         }
 
+        $targetUserId = Auth::id();
+
         Auth::loginUsingId($impersonatorId);
+
+        // Audit log — record after switching back
+        ImpersonationLog::create([
+            'admin_user_id'  => $impersonatorId,
+            'target_user_id' => $targetUserId,
+            'action'         => 'stop',
+            'ip_address'     => request()->ip(),
+            'user_agent'     => request()->userAgent(),
+        ]);
 
         session()->regenerate();
         session()->forget('impersonator_id');

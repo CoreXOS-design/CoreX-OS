@@ -181,6 +181,27 @@
         </div>
     </div>
 
+    {{-- Impersonation audit (visible to all users on Overview tab) --}}
+    <div x-show="tab === 'overview'" x-cloak>
+        @if($impersonationLogs->count() > 0)
+        <div class="mt-4 rounded" style="background:rgba(217,119,6,0.08); border:1px solid rgba(217,119,6,0.2); border-radius:3px; padding:16px 20px;">
+            <div class="flex items-center gap-2 mb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:#d97706;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>
+                <span class="text-xs font-bold uppercase tracking-wider" style="color:#d97706; font-family:'Plus Jakarta Sans',sans-serif;">Admin Access Log</span>
+            </div>
+            <p class="text-[11px] mb-3" style="color:var(--text-muted);">An administrator accessed your account on the following occasions. This is normal for support and compliance review.</p>
+            <div class="space-y-1">
+                @foreach($impersonationLogs as $log)
+                <div class="flex items-center justify-between text-[11px] py-1" style="border-bottom:1px solid rgba(217,119,6,0.1);">
+                    <span style="color:var(--text-primary);">{{ $log->admin?->name ?? 'Unknown admin' }}</span>
+                    <span style="color:var(--text-muted);">{{ $log->created_at->format('d M Y, H:i') }}</span>
+                </div>
+                @endforeach
+            </div>
+        </div>
+        @endif
+    </div>
+
     {{-- ═══════════════════════════════════════════
          TAB: PROFILE
          ═══════════════════════════════════════════ --}}
@@ -427,7 +448,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                     Download Extension
                 </a>
-                <a href="/downloads/portal-capture-extension.zip" style="display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:3px; background:#7c3aed; color:#fff; font-size:0.8rem; font-weight:600; text-decoration:none;" download>Portal Capture Extension</a>
+                <a href="{{ asset('downloads/portal-capture-extension.zip') }}" style="display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:3px; background:#7c3aed; color:#fff; font-size:0.8rem; font-weight:600; text-decoration:none;" download>Portal Capture Extension</a>
             </div>
         </div>
 
