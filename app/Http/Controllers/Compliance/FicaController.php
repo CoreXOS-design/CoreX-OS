@@ -157,7 +157,7 @@ class FicaController extends Controller
     {
         $contacts = Contact::orderBy('first_name')
             ->orderBy('last_name')
-            ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'cell', 'id_number']);
+            ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'id_number']);
 
         return view('compliance.fica.create-wet-ink', compact('contacts'));
     }
@@ -204,7 +204,7 @@ class FicaController extends Controller
                         'last_name'  => $contact->last_name,
                         'id_number'  => $contact->id_number ?? null,
                         'email'      => $contact->email ?? null,
-                        'cell'       => $contact->cell ?? $contact->phone ?? null,
+                        'phone'      => $contact->phone ?? null,
                     ],
                     'entity' => ['type' => $validated['entity_type']],
                     'intake' => [

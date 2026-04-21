@@ -53,7 +53,7 @@
                             $info = json_encode([
                                 'name' => $label,
                                 'email' => $c->email ?? 'No email',
-                                'phone' => $c->phone ?? $c->cell ?? 'No phone',
+                                'phone' => $c->phone ?? 'No phone',
                                 'id_number' => $c->id_number ?? 'Not set',
                             ]);
                         @endphp

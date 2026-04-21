@@ -86,7 +86,7 @@
                         <div><span class="text-xs text-slate-400">Name</span><div class="text-slate-900 font-medium">{{ $personal['first_name'] ?? '' }} {{ $personal['last_name'] ?? '' }}</div></div>
                         <div><span class="text-xs text-slate-400">ID Number</span><div class="text-slate-900">{{ $personal['id_number'] ?? 'Not set' }}</div></div>
                         <div><span class="text-xs text-slate-400">Email</span><div class="text-slate-900">{{ $personal['email'] ?? 'Not set' }}</div></div>
-                        <div><span class="text-xs text-slate-400">Phone</span><div class="text-slate-900">{{ $personal['cell'] ?? 'Not set' }}</div></div>
+                        <div><span class="text-xs text-slate-400">Phone</span><div class="text-slate-900">{{ $personal['phone'] ?? 'Not set' }}</div></div>
                         <div><span class="text-xs text-slate-400">Entity Type</span><div class="text-slate-900 capitalize">{{ $entity['type'] ?? $submission->entity_type ?? '—' }}</div></div>
                         <div><span class="text-xs text-slate-400">Received By</span><div class="text-slate-900">{{ $submission->form_data['intake']['received_by'] ?? '—' }}</div></div>
                     </div>
