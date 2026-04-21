@@ -24,6 +24,17 @@ class AgentPortalController extends Controller
     {
         $user = auth()->user()->load(['documents', 'branch', 'agency']);
 
+        // ── Ensure own user_documents have correct agency_id (self-heal) ──
+        if ($user->agency_id) {
+            \DB::table('user_documents')
+                ->where('user_id', $user->id)
+                ->where(function ($q) use ($user) {
+                    $q->whereNull('agency_id')
+                      ->orWhere('agency_id', '!=', $user->agency_id);
+                })
+                ->update(['agency_id' => $user->agency_id]);
+        }
+
         // ── User documents grouped by type (latest per type) ──
         $documents = $user->documents()
             ->orderByDesc('created_at')

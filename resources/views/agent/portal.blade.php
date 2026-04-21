@@ -604,7 +604,15 @@
                         @csrf
                         <input type="hidden" name="document_type" value="{{ $docCfg['type'] }}">
                         @if($docCfg['has_expiry'])
-                        <input type="date" name="expiry_date" placeholder="Expiry" title="Document expiry date"
+                        @php
+                            $prefilledExpiry = null;
+                            if ($doc && $doc->expiry_date) {
+                                $prefilledExpiry = $doc->expiry_date instanceof \Carbon\Carbon ? $doc->expiry_date->format('Y-m-d') : $doc->expiry_date;
+                            } elseif ($docCfg['type'] === 'ffc_certificate' && $user->ffc_expiry_date) {
+                                $prefilledExpiry = $user->ffc_expiry_date instanceof \Carbon\Carbon ? $user->ffc_expiry_date->format('Y-m-d') : $user->ffc_expiry_date;
+                            }
+                        @endphp
+                        <input type="date" name="expiry_date" value="{{ $prefilledExpiry }}" placeholder="Expiry" title="Document expiry date"
                                style="font-size:0.65rem; padding:4px 6px; border-radius:3px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); width:120px;">
                         @endif
                         <label style="font-size:0.7rem; padding:4px 10px; border-radius:3px; cursor:pointer; background:rgba(0,212,170,0.12); color:#00d4aa; border:1px solid rgba(0,212,170,0.25); white-space:nowrap;">
