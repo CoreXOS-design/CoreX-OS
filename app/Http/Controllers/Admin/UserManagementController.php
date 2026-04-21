@@ -245,6 +245,9 @@ class UserManagementController extends Controller
             'cell'          => ['required', 'string', 'max:50'],
             'fax'           => ['nullable', 'string', 'max:50'],
             'ffc_number'    => ['nullable', 'string', 'max:100'],
+            'ffc_expiry_date' => ['nullable', 'date'],
+            'id_number'     => ['nullable', 'string', 'max:20'],
+            'ppra_status'   => ['nullable', 'string', 'in:active,pending,expired,suspended'],
             'website'       => ['nullable', 'string', 'max:255'],
             'role'          => ['required', Rule::in(Role::roleNames())],
             'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
@@ -286,13 +289,34 @@ class UserManagementController extends Controller
         $user->cell        = $data['cell'] ?? null;
         $user->fax         = $data['fax'] ?? null;
         $user->ffc_number  = $data['ffc_number'] ?? null;
+        $user->ffc_expiry_date = $data['ffc_expiry_date'] ?? null;
+        $user->id_number   = $data['id_number'] ?? null;
         $user->website     = $data['website'] ?? null;
+
+        // PPRA Status — admin-editable only
+        if (array_key_exists('ppra_status', $data)) {
+            $oldPpra = $user->getOriginal('ppra_status');
+            $user->ppra_status = $data['ppra_status'] ?: null;
+            if ($user->ppra_status !== $oldPpra && $user->ppra_status) {
+                $user->ppra_last_verified_at = now()->toDateString();
+            }
+        }
 
         if (!empty($data['password'])) {
             $user->password = Hash::make($data['password']);
         }
 
         $user->save();
+
+        // Sync FFC expiry date to latest FFC certificate document
+        if (isset($data['ffc_expiry_date'])) {
+            $latestFfcDoc = $user->documents()
+                ->where('document_type', 'ffc_certificate')
+                ->latest()->first();
+            if ($latestFfcDoc) {
+                $latestFfcDoc->update(['expiry_date' => $data['ffc_expiry_date']]);
+            }
+        }
 
         // Sync branch_assignments
         if ($user->branch_id) {

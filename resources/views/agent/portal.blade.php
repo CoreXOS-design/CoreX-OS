@@ -360,7 +360,12 @@
                         </div>
                         <div>
                             <div style="font-size:0.7rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">PPRA Status</div>
-                            <div style="padding:9px 12px; border-radius:3px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem; opacity:0.7;">{{ ucfirst($user->ppra_status ?? 'Not set') }}</div>
+                            <div style="padding:9px 12px; border-radius:3px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.85rem; opacity:0.7;">
+                                {{ ucfirst($user->ppra_status ?? 'Not set') }}
+                                @if($user->ppra_last_verified_at)
+                                <span style="font-size:0.65rem; color:var(--text-muted); margin-left:6px;">(verified {{ \Carbon\Carbon::parse($user->ppra_last_verified_at)->format('d M Y') }})</span>
+                                @endif
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -555,6 +560,16 @@
                     <div style="flex:1; min-width:0;">
                         <div style="font-size:0.8rem; font-weight:700; color:var(--text-primary); font-family:'Plus Jakarta Sans',sans-serif;">{{ $docCfg['label'] }}</div>
                         <span style="display:inline-block; font-size:0.6rem; font-weight:600; padding:1px 6px; border-radius:3px; background:{{ $pill['bg'] }}; color:{{ $pill['color'] }}; margin-top:2px;">{{ $pill['text'] }}</span>
+                        @if($docCfg['type'] === 'ffc_certificate' && $user->ffc_number)
+                        <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px;">FFC #{{ $user->ffc_number }}
+                            <button type="button" @click="setTab('profile')" style="color:#00d4aa; background:none; border:none; cursor:pointer; font-size:0.6rem; padding:0; text-decoration:underline;">Edit in Profile</button>
+                        </div>
+                        @endif
+                        @if($docCfg['type'] === 'id_copy' && $user->id_number)
+                        <div style="font-size:0.65rem; color:var(--text-muted); margin-top:2px;">ID: {{ $user->id_number }}
+                            <button type="button" @click="setTab('profile')" style="color:#00d4aa; background:none; border:none; cursor:pointer; font-size:0.6rem; padding:0; text-decoration:underline;">Edit in Profile</button>
+                        </div>
+                        @endif
                     </div>
                 </div>
 

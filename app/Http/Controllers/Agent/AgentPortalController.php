@@ -180,6 +180,16 @@ class AgentPortalController extends Controller
 
         $user->save();
 
+        // Sync FFC expiry date to latest FFC certificate document
+        if ($request->has('ffc_expiry_date')) {
+            $latestFfcDoc = $user->documents()
+                ->where('document_type', 'ffc_certificate')
+                ->latest()->first();
+            if ($latestFfcDoc) {
+                $latestFfcDoc->update(['expiry_date' => $request->ffc_expiry_date]);
+            }
+        }
+
         return redirect()->route('agent.portal')->withFragment('profile')->with('success', 'Profile updated.');
     }
 
@@ -229,7 +239,12 @@ class AgentPortalController extends Controller
 
         // Update legacy user columns for backward compatibility
         if ($type === 'ffc_certificate') {
-            $user->update(['ffc_certificate_path' => $path]);
+            $updates = ['ffc_certificate_path' => $path];
+            // Sync FFC expiry date to users table
+            if ($request->expiry_date) {
+                $updates['ffc_expiry_date'] = $request->expiry_date;
+            }
+            $user->update($updates);
         } elseif ($type === 'photo') {
             $user->update(['agent_photo_path' => $path]);
         }

@@ -254,6 +254,24 @@
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         </div>
                         <div>
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">FFC Expiry Date</label>
+                            <input type="date" name="ffc_expiry_date" value="{{ old('ffc_expiry_date', $isEdit ? ($user->ffc_expiry_date?->format('Y-m-d') ?? '') : '') }}"
+                                   autocomplete="off"
+                                   class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                   onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">ID Number</label>
+                            <input type="text" name="id_number" value="{{ old('id_number', $isEdit ? $user->id_number : '') }}" placeholder="SA ID number"
+                                   autocomplete="off"
+                                   class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                   onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        </div>
+                        <div>
                             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Website</label>
                             <input type="url" name="website" value="{{ old('website', $isEdit ? $user->website : '') }}" placeholder="https://..."
                                    autocomplete="off"
@@ -262,6 +280,28 @@
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         </div>
                     </div>
+                    @if($isEdit)
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">PPRA Status</label>
+                            @php $ppraVal = old('ppra_status', $user->ppra_status ?? ''); @endphp
+                            <select name="ppra_status"
+                                    class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                                <option value="" {{ $ppraVal === '' ? 'selected' : '' }}>-- Not set --</option>
+                                <option value="active" {{ $ppraVal === 'active' ? 'selected' : '' }}>Active</option>
+                                <option value="pending" {{ $ppraVal === 'pending' ? 'selected' : '' }}>Pending</option>
+                                <option value="expired" {{ $ppraVal === 'expired' ? 'selected' : '' }}>Expired</option>
+                                <option value="suspended" {{ $ppraVal === 'suspended' ? 'selected' : '' }}>Suspended</option>
+                            </select>
+                            <p class="text-[10px] mt-1" style="color:var(--text-muted);">
+                                Verified against <a href="https://www.ppra.org.za" target="_blank" style="color:var(--brand-icon, #0ea5e9); text-decoration:underline;">PPRA public register</a>.
+                                Last verified: {{ $user->ppra_last_verified_at ? \Carbon\Carbon::parse($user->ppra_last_verified_at)->format('d M Y') : 'never' }}
+                            </p>
+                        </div>
+                    </div>
+                    @endif
                 </div>
             </div>
 
