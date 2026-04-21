@@ -39,9 +39,9 @@
         <div class="flex items-center justify-between text-center text-xs">
             @php
                 $stages = [
-                    ['label' => 'Submitted', 'count' => $counts['submitted'], 'color' => '#3b82f6'],
-                    ['label' => 'Agent Review', 'count' => $counts['agent_approved'], 'color' => '#6366f1'],
-                    ['label' => 'CO Approval', 'count' => $coQueueCount, 'color' => '#8b5cf6'],
+                    ['label' => 'Awaiting Client', 'count' => $counts['draft'], 'color' => '#64748b'],
+                    ['label' => 'Awaiting Agent Review', 'count' => $counts['submitted'], 'color' => '#3b82f6'],
+                    ['label' => 'Awaiting CO Approval', 'count' => $coQueueCount, 'color' => '#f59e0b'],
                     ['label' => 'Complete', 'count' => $counts['approved'], 'color' => '#059669'],
                 ];
             @endphp
@@ -84,21 +84,29 @@
            class="px-4 py-2 {{ $tab === 'all' ? 'border-b-2 border-teal-600 text-teal-700' : 'text-slate-500 hover:text-slate-700' }}">
             All <span class="ml-1 text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{{ $counts['all'] }}</span>
         </a>
+        <a href="{{ route('compliance.fica.index', ['tab' => 'draft']) }}"
+           class="px-4 py-2 {{ $tab === 'draft' ? 'border-b-2 border-slate-600 text-slate-700' : 'text-slate-500 hover:text-slate-700' }}">
+            Awaiting Client <span class="ml-1 text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{{ $counts['draft'] }}</span>
+        </a>
         <a href="{{ route('compliance.fica.index', ['tab' => 'submitted']) }}"
            class="px-4 py-2 {{ $tab === 'submitted' ? 'border-b-2 border-blue-600 text-blue-700' : 'text-slate-500 hover:text-slate-700' }}">
-            Awaiting Review <span class="ml-1 text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">{{ $counts['submitted'] }}</span>
+            Awaiting Agent Review <span class="ml-1 text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">{{ $counts['submitted'] }}</span>
         </a>
         <a href="{{ route('compliance.fica.index', ['tab' => 'agent_approved']) }}"
-           class="px-4 py-2 {{ $tab === 'agent_approved' ? 'border-b-2 border-indigo-600 text-indigo-700' : 'text-slate-500 hover:text-slate-700' }}">
-            Agent Approved <span class="ml-1 text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">{{ $counts['agent_approved'] }}</span>
+           class="px-4 py-2 {{ $tab === 'agent_approved' ? 'border-b-2 border-amber-600 text-amber-700' : 'text-slate-500 hover:text-slate-700' }}">
+            Awaiting CO Approval <span class="ml-1 text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full">{{ $counts['agent_approved'] }}</span>
         </a>
         <a href="{{ route('compliance.fica.index', ['tab' => 'approved']) }}"
            class="px-4 py-2 {{ $tab === 'approved' ? 'border-b-2 border-emerald-600 text-emerald-700' : 'text-slate-500 hover:text-slate-700' }}">
             Approved <span class="ml-1 text-xs bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-full">{{ $counts['approved'] }}</span>
         </a>
         <a href="{{ route('compliance.fica.index', ['tab' => 'corrections_requested']) }}"
-           class="px-4 py-2 {{ $tab === 'corrections_requested' ? 'border-b-2 border-amber-600 text-amber-700' : 'text-slate-500 hover:text-slate-700' }}">
-            Corrections <span class="ml-1 text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full">{{ $counts['corrections_requested'] }}</span>
+           class="px-4 py-2 {{ $tab === 'corrections_requested' ? 'border-b-2 border-orange-600 text-orange-700' : 'text-slate-500 hover:text-slate-700' }}">
+            Corrections Needed <span class="ml-1 text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">{{ $counts['corrections_requested'] }}</span>
+        </a>
+        <a href="{{ route('compliance.fica.index', ['tab' => 'cancelled']) }}"
+           class="px-4 py-2 {{ $tab === 'cancelled' ? 'border-b-2 border-slate-600 text-slate-700' : 'text-slate-500 hover:text-slate-700' }}">
+            Cancelled <span class="ml-1 text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{{ $counts['cancelled'] }}</span>
         </a>
         <a href="{{ route('compliance.fica.index', ['tab' => 'rejected']) }}"
            class="px-4 py-2 {{ $tab === 'rejected' ? 'border-b-2 border-red-600 text-red-700' : 'text-slate-500 hover:text-slate-700' }}">
@@ -191,11 +199,12 @@
                                 $sc = [
                                     'draft' => 'bg-slate-100 text-slate-600',
                                     'submitted' => 'bg-blue-100 text-blue-700',
-                                    'under_review' => 'bg-yellow-100 text-yellow-700',
-                                    'agent_approved' => 'bg-indigo-100 text-indigo-700',
-                                    'corrections_requested' => 'bg-amber-100 text-amber-700',
+                                    'under_review' => 'bg-blue-100 text-blue-700',
+                                    'agent_approved' => 'bg-amber-100 text-amber-700',
+                                    'corrections_requested' => 'bg-orange-100 text-orange-700',
                                     'approved' => 'bg-emerald-100 text-emerald-700',
                                     'rejected' => 'bg-red-100 text-red-700',
+                                    'cancelled' => 'bg-slate-100 text-slate-500',
                                 ];
                             @endphp
                             <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold {{ $sc[$sub->status] ?? 'bg-slate-100 text-slate-600' }}">
@@ -203,22 +212,47 @@
                             </span>
                         </td>
                         <td class="px-4 py-3 text-right whitespace-nowrap">
-                            @if($sub->intake_type !== 'wet_ink' && $sub->token)
-                            <button type="button" title="Copy form link"
-                                    onclick="ficaCopyLink('{{ url('/fica/' . $sub->token) }}', this)"
-                                    class="inline-flex items-center justify-center w-6 h-6 text-slate-400 hover:text-teal-600 transition">
-                                <svg class="fica-link-icon w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg>
-                                <svg class="fica-check-icon w-3.5 h-3.5 text-emerald-500" style="display:none;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
-                            </button>
-                            @endif
-                            @if($tab === 'co_queue' && $isCO)
-                                <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="text-indigo-600 hover:text-indigo-800 font-semibold text-xs ml-1">Review & Approve</a>
-                            @else
-                                <a href="{{ route('compliance.fica.show', $sub) }}" class="text-teal-600 hover:text-teal-800 font-medium text-xs ml-1">View</a>
-                            @endif
-                            @if($sub->status === 'approved')
-                                <a href="{{ route('compliance.fica.pdf', $sub) }}" target="_blank" class="text-slate-400 hover:text-slate-600 text-xs ml-1" title="Download PDF">PDF</a>
-                            @endif
+                            @php
+                                $authUser = auth()->user();
+                                $isMySubmission = $sub->requested_by === $authUser->id;
+                                $canCoReview = $isCO || $isAdmin;
+                            @endphp
+                            <div class="flex items-center justify-end gap-1">
+                                {{-- Copy link (online draft/corrections only) --}}
+                                @if($sub->intake_type !== 'wet_ink' && $sub->token && in_array($sub->status, ['draft', 'corrections_requested']))
+                                <button type="button" title="Copy form link"
+                                        onclick="ficaCopyLink('{{ url('/fica/' . $sub->token) }}', this)"
+                                        class="inline-flex items-center justify-center w-6 h-6 text-slate-400 hover:text-teal-600 transition">
+                                    <svg class="fica-link-icon w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg>
+                                    <svg class="fica-check-icon w-3.5 h-3.5 text-emerald-500" style="display:none;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                                </button>
+                                @endif
+
+                                {{-- View always --}}
+                                <a href="{{ route('compliance.fica.show', $sub) }}" class="px-2 py-1 text-xs font-medium" style="color:#00d4aa;">View</a>
+
+                                {{-- Action button per status --}}
+                                @if($sub->status === 'draft' && $sub->intake_type !== 'wet_ink')
+                                    <form method="POST" action="{{ route('compliance.fica.resend', $sub) }}" class="inline">@csrf
+                                        <button type="submit" class="px-2 py-1 text-xs font-semibold" style="color:#3b82f6;">Resend</button>
+                                    </form>
+                                    <form method="POST" action="{{ route('compliance.fica.cancel', $sub) }}" class="inline"
+                                          onsubmit="return confirm('Cancel this FICA request? The client link will be voided.')">@csrf
+                                        <button type="submit" class="px-2 py-1 text-xs font-semibold" style="color:#ef4444;">Cancel</button>
+                                    </form>
+                                @elseif($sub->status === 'submitted' && $isMySubmission)
+                                    <a href="{{ route('compliance.fica.show', $sub) }}" class="px-2 py-1 text-xs font-semibold" style="color:#3b82f6;">Verify</a>
+                                @elseif($sub->status === 'agent_approved' && $canCoReview)
+                                    <a href="{{ route('compliance.fica.compliance-review', $sub) }}" class="px-2 py-1 text-xs font-semibold" style="color:#f59e0b;">Review & Approve</a>
+                                @elseif($sub->status === 'corrections_requested' && $isMySubmission)
+                                    <a href="{{ route('compliance.fica.show', $sub) }}" class="px-2 py-1 text-xs font-semibold" style="color:#f97316;">Fix</a>
+                                @endif
+
+                                {{-- PDF download for approved --}}
+                                @if($sub->status === 'approved')
+                                    <a href="{{ route('compliance.fica.pdf', $sub) }}" target="_blank" class="px-2 py-1 text-xs text-slate-400 hover:text-slate-600" title="Download PDF">PDF</a>
+                                @endif
+                            </div>
                         </td>
                     </tr>
                 @empty
@@ -226,8 +260,12 @@
                         <td colspan="9" class="px-4 py-12 text-center text-slate-400">
                             @if($tab === 'co_queue')
                                 No submissions awaiting compliance officer review.
+                            @elseif($tab === 'draft')
+                                No submissions awaiting client response.
                             @elseif($tab === 'submitted')
-                                No submissions awaiting review.
+                                No submissions awaiting agent review.
+                            @elseif($tab === 'cancelled')
+                                No cancelled submissions.
                             @else
                                 No FICA submissions found.
                             @endif

@@ -7,6 +7,7 @@ use App\Mail\FicaRequestMail;
 use App\Models\Contact;
 use App\Models\FicaComplianceOfficer;
 use App\Models\FicaDocument;
+use App\Models\FicaResendLog;
 use App\Models\FicaSubmission;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -41,11 +42,13 @@ class FicaController extends Controller
         $countBase = (clone $baseQuery);
         $counts = [
             'all'                    => (clone $countBase)->count(),
+            'draft'                  => (clone $countBase)->where('status', 'draft')->count(),
             'submitted'              => (clone $countBase)->where('status', 'submitted')->count(),
             'agent_approved'         => (clone $countBase)->where('status', 'agent_approved')->count(),
             'approved'               => (clone $countBase)->where('status', 'approved')->count(),
             'corrections_requested'  => (clone $countBase)->where('status', 'corrections_requested')->count(),
             'rejected'               => (clone $countBase)->where('status', 'rejected')->count(),
+            'cancelled'              => (clone $countBase)->where('status', 'cancelled')->count(),
         ];
         // CO queue count (agency-scoped via global scope)
         $coQueueCount = $isCO
@@ -443,6 +446,57 @@ class FicaController extends Controller
 
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'Corrections requested — email sent to recipient.');
+    }
+
+    /**
+     * Resend FICA link email (draft/corrections_requested only, online intake only).
+     */
+    public function resend(FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        abort_if($submission->isWetInk(), 400, 'Cannot resend wet-ink submissions.');
+        abort_unless(in_array($submission->status, ['draft', 'corrections_requested']), 400, 'Cannot resend at this stage.');
+
+        $submission->update([
+            'token'            => Str::random(64),
+            'token_expires_at' => now()->addDays(14),
+        ]);
+
+        FicaResendLog::create([
+            'fica_submission_id' => $submission->id,
+            'resent_by'          => Auth::id(),
+            'resent_at'          => now(),
+        ]);
+
+        if ($submission->contact && $submission->contact->email) {
+            Mail::to($submission->contact->email)->send(
+                new FicaRequestMail($submission, Auth::user())
+            );
+        }
+
+        return back()->with('success', "FICA link resent to {$submission->contact->email}.");
+    }
+
+    /**
+     * Cancel a FICA request (voids the client link).
+     */
+    public function cancel(Request $request, FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        abort_if(in_array($submission->status, ['approved', 'rejected', 'cancelled']), 400, 'Cannot cancel a completed submission.');
+
+        $reason = $request->input('reason', 'No reason provided');
+
+        $submission->update([
+            'status'           => 'cancelled',
+            'token'            => null,
+            'token_expires_at' => null,
+            'reviewer_notes'   => ($submission->reviewer_notes ? $submission->reviewer_notes . "\n\n" : '')
+                . '[CANCELLED by ' . Auth::user()->name . ' on ' . now()->format('d M Y H:i') . '] ' . $reason,
+        ]);
+
+        return redirect()->route('compliance.fica.index', ['tab' => 'cancelled'])
+            ->with('success', 'FICA request cancelled.');
     }
 
     /**

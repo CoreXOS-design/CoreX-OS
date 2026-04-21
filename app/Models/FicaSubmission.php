@@ -98,6 +98,11 @@ class FicaSubmission extends Model
         return $this->hasMany(FicaDocument::class);
     }
 
+    public function resendLogs(): HasMany
+    {
+        return $this->hasMany(FicaResendLog::class);
+    }
+
     // ── Scopes ──
 
     public function scopePending(Builder $query): Builder
@@ -147,31 +152,38 @@ class FicaSubmission extends Model
         return $this->status === 'approved';
     }
 
+    public function isCancelled(): bool
+    {
+        return $this->status === 'cancelled';
+    }
+
     public function getStatusLabelAttribute(): string
     {
         return match ($this->status) {
-            'draft'                 => 'Draft',
-            'submitted'             => 'Submitted',
+            'draft'                 => 'Awaiting Client',
+            'submitted'             => 'Awaiting Agent Review',
             'under_review'          => 'Under Review',
-            'agent_approved'        => 'Agent Approved',
-            'corrections_requested' => 'Corrections Requested',
+            'agent_approved'        => 'Awaiting CO Approval',
+            'corrections_requested' => 'Corrections Needed',
             'approved'              => 'Approved',
             'rejected'              => 'Rejected',
-            default                 => ucfirst($this->status),
+            'cancelled'             => 'Cancelled',
+            default                 => ucfirst(str_replace('_', ' ', $this->status)),
         };
     }
 
     public function getStatusColorAttribute(): string
     {
         return match ($this->status) {
-            'draft'                 => 'gray',
+            'draft'                 => 'slate',
             'submitted'             => 'blue',
-            'under_review'          => 'yellow',
-            'agent_approved'        => 'indigo',
-            'corrections_requested' => 'amber',
+            'under_review'          => 'blue',
+            'agent_approved'        => 'amber',
+            'corrections_requested' => 'orange',
             'approved'              => 'green',
             'rejected'              => 'red',
-            default                 => 'gray',
+            'cancelled'             => 'slate',
+            default                 => 'slate',
         };
     }
 }
