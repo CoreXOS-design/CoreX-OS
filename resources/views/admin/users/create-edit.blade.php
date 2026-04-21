@@ -506,7 +506,7 @@
                                     </div>
                                     <div>
                                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Reason <span class="text-red-500">*</span></label>
-                                        <textarea name="reason" required minlength="15" rows="3" placeholder="Minimum 15 characters - explain why this item is exempt/not applicable"
+                                        <textarea name="reason" :required="overrideModal" minlength="15" rows="3" placeholder="Minimum 15 characters - explain why this item is exempt/not applicable"
                                                   class="w-full rounded px-3 py-2 text-sm"
                                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;"></textarea>
                                     </div>
