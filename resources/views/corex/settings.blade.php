@@ -94,6 +94,58 @@
                 </a>
             </div>
             @endif
+
+            {{-- Data Isolation — Split Branches toggle (branch-isolation phase 2) --}}
+            @if(isset($agency) && $agency && auth()->user()?->hasPermission('manage_performance_settings'))
+            <div>
+                <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Data Isolation</h3>
+                <form method="POST" action="{{ route('corex.settings.split-branches') }}"
+                      class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf
+                    @method('PUT')
+
+                    <div class="flex items-start gap-4">
+                        <div class="flex-1">
+                            <div class="text-sm font-semibold mb-1" style="color:var(--text-primary);">Split Branches</div>
+                            <div class="text-xs leading-relaxed" style="color:var(--text-secondary);">
+                                When ON, users only see data belonging to their own branch (contacts, properties, deals, documents, etc.).
+                                Principals and users with <code>branches.view_all</code> continue to see everything across the agency.
+                                Flip freely — no data loss.
+                            </div>
+                        </div>
+
+                        {{-- Toggle switch bound to a hidden value the controller reads as a boolean --}}
+                        <label class="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-1">
+                            <input type="hidden" name="split_branches_enabled" value="0">
+                            <input type="checkbox" name="split_branches_enabled" value="1"
+                                   {{ $agency->split_branches_enabled ? 'checked' : '' }}
+                                   onchange="this.form.submit()"
+                                   class="sr-only peer">
+                            <div class="w-11 h-6 rounded-full transition-colors duration-300"
+                                 style="background:var(--border);"
+                                 :class=""></div>
+                            <style>
+                                input[type=checkbox]:checked + div { background: var(--brand-icon, #0ea5e9) !important; }
+                                input[type=checkbox] + div::after {
+                                    content:''; position:absolute; top:2px; left:2px; width:20px; height:20px;
+                                    border-radius:50%; background:#fff; transition:transform .25s ease;
+                                }
+                                input[type=checkbox]:checked + div::after { transform: translateX(20px); }
+                            </style>
+                        </label>
+                    </div>
+
+                    <div class="mt-3 text-xs" style="color:var(--text-muted);">
+                        Currently: <strong style="color:{{ $agency->split_branches_enabled ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-secondary)' }};">
+                            {{ $agency->split_branches_enabled ? 'ON' : 'OFF' }}
+                        </strong>
+                        — {{ $agency->split_branches_enabled
+                            ? 'Branch isolation is active.'
+                            : 'All users see all agency data (current/default behaviour).' }}
+                    </div>
+                </form>
+            </div>
+            @endif
             @if(false)
             <div>
                 <form method="POST" action="{{ route('corex.settings.agency.update') }}" enctype="multipart/form-data"

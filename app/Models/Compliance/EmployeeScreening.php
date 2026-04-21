@@ -3,6 +3,7 @@
 namespace App\Models\Compliance;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class EmployeeScreening extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     const TYPE_PRE_EMPLOYMENT = 'pre_employment';
     const TYPE_PERIODIC       = 'periodic';

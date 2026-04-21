@@ -4,6 +4,7 @@ namespace App\Models\Compliance;
 
 use App\Models\Branch;
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,7 @@ use Illuminate\Support\Facades\Log;
 
 class FicaOfficerAppointment extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     const ROLE_PRIMARY = 'primary_compliance_officer';
     const ROLE_MLRO    = 'mlro';

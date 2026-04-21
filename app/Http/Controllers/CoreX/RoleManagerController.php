@@ -213,6 +213,14 @@ class RoleManagerController extends Controller
 
         $matrix = $request->input('permissions', []);
         $scopes  = $request->input('scopes', []);
+
+        // Branch isolation: `branches.edit_all` implies `branches.view_all`.
+        // Enforced server-side so no request (even a crafted one) can land
+        // edit-without-view and silently leak a cross-branch edit path.
+        if (!empty($matrix['branches.edit_all']) && $matrix['branches.edit_all'] !== '0') {
+            $matrix['branches.view_all'] = '1';
+        }
+
         $rows    = [];
         $now     = now();
 

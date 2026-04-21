@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Presentation extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     // Status values: draft | presented | locked
     protected $fillable = [

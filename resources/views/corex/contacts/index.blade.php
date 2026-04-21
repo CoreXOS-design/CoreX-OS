@@ -290,6 +290,33 @@
                 @endforeach
             </select>
 
+            {{-- Mine / All pill toggle (role must grant scope='branch' or 'all' on contacts.view) --}}
+            @if($canPickAgent)
+            @php
+                $cuId      = (string) auth()->id();
+                $vtIsMine  = (string) $filterAgentId === $cuId;
+                $vtIsAll   = $filterAgentId === '';
+                $vtDScope  = \App\Services\PermissionService::getDataScope(auth()->user(), 'contacts');
+                $vtCarry   = request()->except(['agent_id', 'page']);
+                $vtMineUrl = route('corex.contacts.index', array_merge($vtCarry, ['agent_id' => $cuId]));
+                $vtAllUrl  = route('corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));
+            @endphp
+            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <a href="{{ $vtMineUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="{{ $vtIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show only my contacts">
+                    My Contacts
+                </a>
+                <a href="{{ $vtAllUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $vtIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all {{ $vtDScope === 'branch' ? 'branch' : 'agency' }} contacts">
+                    All Contacts
+                </a>
+            </div>
+            @endif
+
             {{-- Agent picker (admin/BM only) --}}
             @if($canPickAgent)
             <div class="relative" @click.outside="agentPicker = false">

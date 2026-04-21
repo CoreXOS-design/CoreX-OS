@@ -3,6 +3,7 @@
 namespace App\Models\Compliance;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class RmcpAcknowledgement extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     const STATUS_IN_PROGRESS = 'in_progress';
     const STATUS_COMPLETED   = 'completed';

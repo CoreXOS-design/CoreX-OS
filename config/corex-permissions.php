@@ -362,6 +362,14 @@ return [
         ['key' => 'command_center.automation.view',  'label' => 'View Automation Rules',        'section' => 'command-center',   'type' => 'access',  'module' => 'command_center',   'sort_order' => 15],
         ['key' => 'command_center.automation.manage','label' => 'Manage Automation Rules',      'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 16],
         ['key' => 'command_center.settings',         'label' => 'Manage Command Center Settings','section' => 'command-center',  'type' => 'access',  'module' => 'command_center',   'sort_order' => 17],
+
+        // ── Branches — Split Branches (Phase 2 branch isolation) ──
+        // view_all = bypass BranchScope (see all branches in the agency)
+        // switch   = use the "View as Branch" dropdown to impersonate a branch
+        // edit_all = write to records in any branch (implies view_all — enforced UI-side)
+        ['key' => 'branches.view_all',               'label' => 'View Across All Branches',      'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 1],
+        ['key' => 'branches.switch',                 'label' => 'Switch Branch View',            'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 2],
+        ['key' => 'branches.edit_all',               'label' => 'Edit Across All Branches',      'section' => 'branches',        'type' => 'action',  'module' => 'branches',         'sort_order' => 3],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -441,6 +449,9 @@ return [
                 'access_deal_register_v2',
                 'deals_v2.view', 'deals_v2.create', 'deals_v2.edit', 'deals_v2.archive',
                 'deals_v2.manage_pipeline', 'deals_v2.override_dates',
+                // Branches — can switch between branches of their own agency
+                // (testing / training), but does NOT bypass BranchScope by default.
+                'branches.switch',
             ],
         ],
 

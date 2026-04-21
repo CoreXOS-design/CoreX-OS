@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class UserDocument extends Model
 {
-    use HasFactory, SoftDeletes, BelongsToAgency;
+    use HasFactory, SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     // ── Document type constants ──
 

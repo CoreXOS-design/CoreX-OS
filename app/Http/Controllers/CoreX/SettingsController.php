@@ -376,6 +376,33 @@ class SettingsController extends Controller
             ->with('success', 'Dashboard settings mode updated to "' . ucfirst($request->dashboard_settings_mode) . '".');
     }
 
+    // ── Split Branches toggle ──────────────────────────────────────────
+
+    public function updateSplitBranches(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
+
+        $request->validate([
+            'split_branches_enabled' => ['nullable', 'boolean'],
+        ]);
+
+        $user     = auth()->user();
+        $agencyId = $user?->effectiveAgencyId();
+        $agency   = $agencyId ? Agency::find($agencyId) : Agency::first();
+
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
+
+        $agency->update([
+            'split_branches_enabled' => $request->boolean('split_branches_enabled'),
+        ]);
+
+        $state = $agency->split_branches_enabled ? 'ON' : 'OFF';
+        return redirect()->route('corex.settings', ['tab' => 'agency'])
+            ->with('success', "Split Branches turned {$state}.");
+    }
+
     public function updateAgencyDashboardSettings(Request $request)
     {
         $user     = auth()->user();

@@ -478,6 +478,14 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('permission:access_agencies')->name('agency.switch.clear');
         Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('permission:access_agencies')->name('agency.switch');
 
+        // Branch switcher (Split Branches Phase 2) — gated by branches.switch permission
+        Route::post('/branch/switch/clear', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'clear'])->name('branch.switch.clear');
+        Route::post('/branch/switch/{branch}', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'switch'])->name('branch.switch');
+
+        // Cross-branch deal attach/detach (Split Branches Phase 2 — spec §11)
+        Route::post('/admin/deals/{deal}/branches/attach', [\App\Http\Controllers\Admin\DealBranchController::class, 'attach'])->name('admin.deals.branches.attach');
+        Route::delete('/admin/deals/{deal}/branches/{branch}', [\App\Http\Controllers\Admin\DealBranchController::class, 'detach'])->name('admin.deals.branches.detach');
+
         // Agency select interstitial (no agency.required — that would cause a loop)
         Route::get('/agency/select', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'selectPage'])->name('agency.select');
         Route::post('/agency/select/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'selectAndRedirect'])->name('agency.select.submit');
@@ -944,6 +952,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/fica-officers/{appointment}/end', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'endAppointment'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.end');
     Route::put('/settings/agency', [CoreXSettingsController::class, 'updateAgency'])->middleware('permission:access_settings')->name('corex.settings.agency.update');
+
+    // Split Branches toggle (Agency Settings tab)
+    Route::put('/settings/agency/split-branches', [CoreXSettingsController::class, 'updateSplitBranches'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.split-branches');
     Route::get('/settings/preview-header', [CoreXSettingsController::class, 'previewHeader'])->middleware('permission:access_settings')->name('corex.settings.preview-header');
     Route::get('/settings/preview-signature', [CoreXSettingsController::class, 'previewSignature'])->middleware('permission:access_settings')->name('corex.settings.preview-signature');
 
