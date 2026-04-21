@@ -64,6 +64,32 @@
         <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">{{ session('success') }}</div>
     @endif
 
+    {{-- CO Corrections Banner --}}
+    @if($submission->status === 'corrections_requested' && $submission->co_notes)
+        <div class="mb-4 p-4" style="background:rgba(245,158,11,0.08); border:2px solid rgba(245,158,11,0.4); border-radius:3px;">
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex-1">
+                    <h4 class="text-sm font-bold text-amber-800 mb-1" style="font-family:'Plus Jakarta Sans',sans-serif;">Compliance Officer Requested Corrections</h4>
+                    <p class="text-sm text-amber-900">{{ $submission->co_notes }}</p>
+                    @if($submission->coVerifiedBy)
+                        <p class="text-xs text-amber-600 mt-2">— {{ $submission->coVerifiedBy->name }}, {{ $submission->co_verified_at?->format('d M Y H:i') }}</p>
+                    @endif
+                </div>
+                @php
+                    $canResubmit = $submission->requested_by === auth()->id() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('manage_compliance');
+                @endphp
+                @if($canResubmit)
+                    <form method="POST" action="{{ route('compliance.fica.resubmit-corrections', $submission) }}" class="flex-shrink-0">
+                        @csrf
+                        <button type="submit" class="px-4 py-2 text-white text-xs font-semibold transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" onclick="return confirm('Resubmit this FICA for compliance officer review?')">
+                            Resubmit for CO Review
+                        </button>
+                    </form>
+                @endif
+            </div>
+        </div>
+    @endif
+
     @php
         $data = $submission->form_data ?? [];
         $personal = $data['personal'] ?? [];
@@ -129,12 +155,57 @@
             @else
                 @include('compliance.fica.partials.submitted-data', ['submission' => $submission, 'personal' => $personal, 'entity' => $entity, 'service' => $service, 'pepData' => $pepData, 'principalData' => $principalData, 'repData' => $repData, 'declData' => $declData])
             @endif
+
+            {{-- Agent Upload Panel --}}
+            @php
+                $canUpload = in_array($submission->status, ['submitted', 'under_review', 'corrections_requested'])
+                    && ($submission->requested_by === auth()->id() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('manage_compliance'));
+            @endphp
+            @if($canUpload)
+                <div class="bg-white border border-slate-200 p-5" x-data="{ uploading: false }">
+                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #00d4aa; font-family:'Plus Jakarta Sans',sans-serif;">Upload Supporting Document</h3>
+                    <p class="text-xs text-slate-500 mb-3">Attach documents received from the client (e.g. WhatsApp photos of ID, proof of address).</p>
+                    <form method="POST" action="{{ route('compliance.fica.agent-upload', $submission) }}" enctype="multipart/form-data" @submit="uploading = true">
+                        @csrf
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">Document Type *</label>
+                                <select name="document_type" required class="w-full px-2 py-1.5 border border-slate-300 text-sm focus:outline-none focus:border-teal-500" style="border-radius:3px;">
+                                    <option value="">Select type...</option>
+                                    <option value="id_copy">ID Copy</option>
+                                    <option value="proof_of_address">Proof of Address</option>
+                                    <option value="fica_form">FICA Form</option>
+                                    <option value="authority">Authority Document</option>
+                                    <option value="bank_statement">Bank Statement</option>
+                                    <option value="tax_clearance">Tax Clearance</option>
+                                    <option value="company_registration">Company Registration</option>
+                                    <option value="trust_deed">Trust Deed</option>
+                                    <option value="supporting">Supporting Document</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">File * <span class="text-slate-400 font-normal">(PDF, JPG, PNG — max 10 MB)</span></label>
+                                <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.heic" class="w-full text-sm text-slate-700 file:mr-2 file:py-1 file:px-3 file:border file:border-slate-300 file:text-xs file:font-semibold file:bg-slate-50 file:text-slate-700 hover:file:bg-slate-100">
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button type="submit" class="px-4 py-1.5 text-white text-xs font-semibold transition" style="background:#00d4aa; border-radius:3px;" :disabled="uploading" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                                <span x-show="!uploading">Upload Document</span>
+                                <span x-show="uploading" x-cloak>Uploading...</span>
+                            </button>
+                        </div>
+                    </form>
+                    @error('file') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    @error('document_type') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                </div>
+            @endif
         </div>
 
         {{-- RIGHT PANEL: Verification --}}
         <div class="space-y-4">
             {{-- Agent verification summary (visible when agent has approved) --}}
-            @if(in_array($submission->status, ['agent_approved', 'approved', 'rejected']) && $submission->agent_verified_by)
+            @if(in_array($submission->status, ['agent_approved', 'corrections_requested', 'approved', 'rejected']) && $submission->agent_verified_by)
                 <div class="bg-white border border-slate-200 p-5">
                     <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-indigo-500">Agent Verification</h3>
                     <dl class="space-y-2 text-sm">

@@ -885,6 +885,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/request-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'requestCorrections'])->name('request-corrections');
         Route::post('/{submission}/resend', [\App\Http\Controllers\Compliance\FicaController::class, 'resend'])->name('resend');
         Route::post('/{submission}/cancel', [\App\Http\Controllers\Compliance\FicaController::class, 'cancel'])->name('cancel');
+        Route::post('/{submission}/resubmit-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'resubmitCorrections'])->name('resubmit-corrections');
+        Route::post('/{submission}/agent-upload', [\App\Http\Controllers\Compliance\FicaController::class, 'agentUpload'])->name('agent-upload');
     });
 
     // ── Document Verification Queue ──

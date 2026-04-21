@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Compliance;
 use App\Http\Controllers\Controller;
 use App\Mail\FicaRequestMail;
 use App\Models\Contact;
+use App\Models\Document;
+use App\Models\DocumentType;
 use App\Models\FicaComplianceOfficer;
 use App\Models\FicaDocument;
 use App\Models\FicaResendLog;
@@ -342,8 +344,11 @@ class FicaController extends Controller
             'co_signature_data'    => $validated['co_signature_data'],
         ]);
 
-        // NOW update the contact
+        // Update the contact record with form data
         $this->updateContactFromSubmission($submission);
+
+        // File FICA documents to the contact's document drive
+        $this->fileDocumentsToContact($submission);
 
         Log::info('FICA compliance officer approved', [
             'submission_id' => $submission->id,
@@ -352,7 +357,7 @@ class FicaController extends Controller
         ]);
 
         return redirect()->route('compliance.fica.show', $submission)
-            ->with('success', 'FICA submission approved by compliance officer. Contact record updated.');
+            ->with('success', 'FICA submission approved by compliance officer. Contact record updated and documents filed.');
     }
 
     /**
@@ -370,18 +375,20 @@ class FicaController extends Controller
 
         if ($validated['action'] === 'return_to_agent') {
             $submission->update([
-                'status'        => 'submitted',
-                'co_notes'      => $validated['reviewer_notes'],
+                'status'         => 'corrections_requested',
+                'co_notes'       => $validated['reviewer_notes'],
                 'co_verified_by' => Auth::id(),
-                // Clear agent approval so agent must re-review
-                'agent_verified_by'       => null,
-                'agent_verified_at'       => null,
-                'agent_verification_data' => null,
-                'agent_notes'             => null,
+                'co_verified_at' => now(),
             ]);
 
-            return redirect()->route('compliance.fica.show', $submission)
-                ->with('success', 'Returned to agent for re-review.');
+            Log::info('FICA corrections requested by CO', [
+                'submission_id' => $submission->id,
+                'co_id'         => Auth::id(),
+                'notes'         => $validated['reviewer_notes'],
+            ]);
+
+            return redirect()->route('compliance.fica.index', ['tab' => 'corrections_requested'])
+                ->with('success', 'Corrections requested — returned to agent for re-review.');
         }
 
         $submission->update([
@@ -537,6 +544,171 @@ class FicaController extends Controller
         }
 
         return back()->with('success', 'Compliance officers updated.')->with('tab', 'user');
+    }
+
+    /**
+     * Agent resubmits after addressing CO corrections.
+     */
+    public function resubmitCorrections(Request $request, FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless($submission->status === 'corrections_requested', 400, 'Submission is not in corrections requested state.');
+
+        $user = Auth::user();
+        abort_unless(
+            $submission->requested_by === $user->id || $user->isOwnerRole() || $user->hasPermission('manage_compliance'),
+            403,
+            'Only the requesting agent or an admin can resubmit corrections.'
+        );
+
+        $submission->update([
+            'status' => 'agent_approved',
+        ]);
+
+        Log::info('FICA corrections resubmitted by agent', [
+            'submission_id' => $submission->id,
+            'agent_id'      => Auth::id(),
+        ]);
+
+        return redirect()->route('compliance.fica.show', $submission)
+            ->with('success', 'Corrections addressed — resubmitted for compliance officer review.');
+    }
+
+    /**
+     * Agent uploads a document to a FICA submission.
+     */
+    public function agentUpload(Request $request, FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless(
+            in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']),
+            400,
+            'Cannot upload documents at this stage.'
+        );
+
+        $user = Auth::user();
+        abort_unless(
+            $submission->requested_by === $user->id || $user->isOwnerRole() || $user->hasPermission('manage_compliance'),
+            403,
+            'Only the requesting agent or an admin can upload documents.'
+        );
+
+        $validated = $request->validate([
+            'file'          => 'required|file|max:10240|mimes:pdf,jpg,jpeg,png,heic',
+            'document_type' => 'required|string|in:id_copy,proof_of_address,fica_form,authority,bank_statement,tax_clearance,company_registration,trust_deed,supporting,other',
+            'notes'         => 'nullable|string|max:500',
+        ]);
+
+        $file = $request->file('file');
+        $path = $file->store("fica/{$submission->id}", 'public');
+
+        $doc = FicaDocument::create([
+            'fica_submission_id' => $submission->id,
+            'document_type'      => $validated['document_type'],
+            'file_path'          => $path,
+            'file_name'          => $file->getClientOriginalName(),
+            'file_size'          => $file->getSize(),
+            'mime_type'          => $file->getMimeType(),
+            'status'             => 'uploaded',
+            'uploaded_at'        => now(),
+            'uploaded_by'        => Auth::id(),
+        ]);
+
+        Log::info('FICA agent uploaded document', [
+            'submission_id' => $submission->id,
+            'document_id'   => $doc->id,
+            'type'          => $validated['document_type'],
+            'agent_id'      => Auth::id(),
+        ]);
+
+        return back()->with('success', 'Document uploaded successfully.');
+    }
+
+    /**
+     * File approved FICA documents to the contact's document drive.
+     */
+    private function fileDocumentsToContact(FicaSubmission $submission): void
+    {
+        $contact = $submission->contact;
+        if (! $contact) {
+            return;
+        }
+
+        $submission->loadMissing('documents');
+        if ($submission->documents->isEmpty()) {
+            return;
+        }
+
+        $typeMap = [
+            'fica_form'            => 'fica',
+            'id_copy'              => 'ids',
+            'proof_of_address'     => 'por',
+            'authority'            => 'power_of_attorney',
+            'bank_statement'       => 'bank_statement',
+            'tax_clearance'        => 'tax_clearance',
+            'company_registration' => 'company_registration',
+            'trust_deed'           => 'trust_deed',
+            'supporting'           => 'other',
+            'other'                => 'other',
+        ];
+
+        $slugToId = DocumentType::pluck('id', 'slug')->toArray();
+        $filed = [];
+
+        foreach ($submission->documents as $ficaDoc) {
+            $slug = $typeMap[$ficaDoc->document_type] ?? 'other';
+            $docTypeId = $slugToId[$slug] ?? ($slugToId['other'] ?? null);
+
+            if (! $docTypeId) {
+                continue;
+            }
+
+            // Copy file to contact-documents directory
+            $sourceDisk = Storage::disk('public');
+            $localDisk  = Storage::disk('local');
+
+            if (! $sourceDisk->exists($ficaDoc->file_path)) {
+                // Try local disk (online uploads use local)
+                $sourceDisk = $localDisk;
+                if (! $sourceDisk->exists($ficaDoc->file_path)) {
+                    Log::warning('FICA document file not found for contact filing', [
+                        'fica_document_id' => $ficaDoc->id,
+                        'file_path'        => $ficaDoc->file_path,
+                    ]);
+                    continue;
+                }
+            }
+
+            $ext = pathinfo($ficaDoc->file_name, PATHINFO_EXTENSION) ?: 'pdf';
+            $newPath = "contact-documents/{$contact->id}/" . Str::uuid() . ".{$ext}";
+            $localDisk->put($newPath, $sourceDisk->get($ficaDoc->file_path));
+
+            $document = Document::create([
+                'agency_id'        => $submission->agency_id,
+                'original_name'    => $ficaDoc->file_name,
+                'storage_path'     => $newPath,
+                'disk'             => 'local',
+                'mime_type'        => $ficaDoc->mime_type,
+                'size'             => $ficaDoc->file_size,
+                'document_type_id' => $docTypeId,
+                'source_type'      => 'fica',
+                'source_id'        => $submission->id,
+                'uploaded_by'      => Auth::id(),
+            ]);
+
+            $document->contacts()->attach($contact->id);
+            $filed[] = $document->id;
+        }
+
+        if (! empty($filed)) {
+            Log::info('FICA documents filed to contact drive', [
+                'contact_id'    => $contact->id,
+                'submission_id' => $submission->id,
+                'documents'     => $filed,
+                'filed_by'      => Auth::id(),
+                'filed_at'      => now()->toDateTimeString(),
+            ]);
+        }
     }
 
     /**
