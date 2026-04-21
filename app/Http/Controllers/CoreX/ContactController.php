@@ -55,13 +55,16 @@ class ContactController extends Controller
         }
 
         if ($request->filled('search')) {
-            $s = $request->search;
-            $query->where(function ($q) use ($s) {
-                $q->where('first_name', 'like', "%{$s}%")
-                  ->orWhere('last_name',  'like', "%{$s}%")
-                  ->orWhere('phone',      'like', "%{$s}%")
-                  ->orWhere('email',      'like', "%{$s}%");
-            });
+            $words = array_filter(explode(' ', trim($request->search)));
+            foreach ($words as $word) {
+                $query->where(function ($q) use ($word) {
+                    $q->where('first_name', 'like', "%{$word}%")
+                      ->orWhere('last_name',  'like', "%{$word}%")
+                      ->orWhere('phone',      'like', "%{$word}%")
+                      ->orWhere('email',      'like', "%{$word}%")
+                      ->orWhere('id_number',  'like', "%{$word}%");
+                });
+            }
         }
 
         if ($request->filled('type')) {
