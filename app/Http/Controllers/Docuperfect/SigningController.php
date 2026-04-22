@@ -1793,7 +1793,7 @@ class SigningController extends Controller
         // Puppeteer (Chromium) — primary PDF generator on all platforms
         // Build command — same pattern as WebTemplatePdfService::runPuppeteerFlatten()
         $scriptPath = base_path('scripts/html-to-pdf.mjs');
-        $browserPath = env('PUPPETEER_BROWSER_PATH', '');
+        $browserPath = config('services.pdf.puppeteer_browser_path', '');
         $isWindows = DIRECTORY_SEPARATOR === '\\';
 
         // Resolve full node path — proc_open may not have PATH on Windows

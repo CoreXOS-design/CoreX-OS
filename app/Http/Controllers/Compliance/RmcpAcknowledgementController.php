@@ -323,7 +323,7 @@ class RmcpAcknowledgementController extends Controller
         file_put_contents($htmlPath, $fullHtml);
 
         $scriptPath  = base_path('scripts/html-to-pdf.mjs');
-        $browserPath = env('PUPPETEER_BROWSER_PATH', '');
+        $browserPath = config('services.pdf.puppeteer_browser_path', '');
         $isWindows   = DIRECTORY_SEPARATOR === '\\';
 
         $nodePath = 'node';

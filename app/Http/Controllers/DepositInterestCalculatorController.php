@@ -307,8 +307,8 @@ class DepositInterestCalculatorController extends Controller
         $tmpPath = storage_path('app/tmp_deposit_interest_' . uniqid() . '.pdf');
         $scriptPath = base_path('scripts/html-to-pdf.mjs');
 
-        $wrapper = env('PDF_NODE_WRAPPER', '');
-        $browserPath = env('PUPPETEER_BROWSER_PATH', '');
+        $wrapper = config('services.pdf.node_wrapper', '');
+        $browserPath = config('services.pdf.puppeteer_browser_path', '');
         $isWindows = DIRECTORY_SEPARATOR === '\\';
 
         $scriptArg = escapeshellarg(str_replace('\\', '/', $scriptPath));
