@@ -134,6 +134,7 @@ return [
         ['key' => 'access_my_portal',        'label' => 'Access My Portal',                'section' => 'my-portal',        'type' => 'access',  'module' => 'my_portal',        'sort_order' => 1],
         ['key' => 'upload_own_documents',    'label' => 'Upload Compliance Documents',     'section' => 'my-portal',        'type' => 'action',  'module' => 'my_portal',        'sort_order' => 2],
         ['key' => 'edit_own_profile',        'label' => 'Edit Own Profile',                'section' => 'my-portal',        'type' => 'action',  'module' => 'my_portal',        'sort_order' => 3],
+        ['key' => 'view_agency_documents',  'label' => 'View Agency Compliance Documents', 'section' => 'my-portal',        'type' => 'access',  'module' => 'my_portal',        'sort_order' => 4],
 
         // ── User Management — Granular ──
         ['key' => 'edit_user_designation',   'label' => 'Change User Designation',         'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 14],
@@ -408,7 +409,7 @@ return [
                 'access_rmcp', 'edit_rmcp', 'manage_compliance_officer',
                 'manage_employee_screenings', 'view_own_screening', 'manage_branch_compliance',
                 'edit_user_ppra_status',
-                'access_my_portal', 'upload_own_documents', 'edit_own_profile',
+                'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',
                 'assign_user_branch',
                 'access_supervision', 'manage_supervision',
                 'supervision.view', 'supervision.manage',
@@ -468,7 +469,7 @@ return [
                 'rentals.view', 'rentals.create', 'rentals.edit',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
-                'access_my_portal', 'upload_own_documents', 'edit_own_profile',
+                'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',
                 'access_training', 'training.view',
                 'access_communication', 'send_messages',
                 'communication.view', 'communication.send',

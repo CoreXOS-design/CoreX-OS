@@ -743,6 +743,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
 
+    // ── Agency Documents (staff read-only view) ──
+    Route::middleware(['permission:view_agency_documents', 'agency.required'])->group(function () {
+        Route::get('/my-portal/agency-documents', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'index'])->name('my-portal.agency-documents');
+        Route::get('/my-portal/agency-documents/download/{provision}', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'download'])->name('my-portal.agency-documents.download');
+    });
+
     // ── RMCP Acknowledgement Flow ──
     Route::middleware(['permission:access_rmcp', 'agency.required'])->group(function () {
         Route::post('/my-portal/rmcp/acknowledge/start', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'start'])
