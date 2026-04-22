@@ -127,7 +127,8 @@ return [
 
         // ── Agency Compliance Provisions ──
         ['key' => 'manage_agency_compliance',   'label' => 'Manage Agency Compliance Provisions', 'section' => 'compliance', 'type' => 'action', 'module' => 'compliance', 'sort_order' => 40],
-        ['key' => 'manage_user_compliance',     'label' => 'Upload on Behalf / Override User Compliance', 'section' => 'compliance', 'type' => 'action', 'module' => 'compliance', 'sort_order' => 41],
+        ['key' => 'manage_branch_compliance',  'label' => 'Manage Branch Compliance Documents', 'section' => 'compliance', 'type' => 'action', 'module' => 'compliance', 'sort_order' => 41],
+        ['key' => 'manage_user_compliance',     'label' => 'Upload on Behalf / Override User Compliance', 'section' => 'compliance', 'type' => 'action', 'module' => 'compliance', 'sort_order' => 42],
 
         // ── My Portal ──
         ['key' => 'access_my_portal',        'label' => 'Access My Portal',                'section' => 'my-portal',        'type' => 'access',  'module' => 'my_portal',        'sort_order' => 1],
@@ -397,7 +398,7 @@ return [
                 'compliance.view', 'compliance.manage',
                 'verify_user_documents', 'access_compliance_dashboard',
                 'access_rmcp', 'edit_rmcp', 'manage_compliance_officer',
-                'manage_employee_screenings', 'view_own_screening',
+                'manage_employee_screenings', 'view_own_screening', 'manage_branch_compliance',
                 'edit_user_ppra_status',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile',
                 'assign_user_branch',

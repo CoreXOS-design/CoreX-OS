@@ -42,7 +42,6 @@
                             <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Slug</th>
                             <th class="text-center px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Expiry</th>
                             <th class="text-center px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Renewal Reminder</th>
-                            <th class="text-center px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Branch Override</th>
                             <th class="text-center px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Required</th>
                             <th class="text-center px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Status</th>
                             <th class="text-right px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Actions</th>
@@ -65,13 +64,6 @@
                                     {{ $type->renewal_days }} days before
                                 @else
                                     No auto-reminder
-                                @endif
-                            </td>
-                            <td class="px-3 py-2.5 text-center text-xs">
-                                @if($type->allows_branch_override)
-                                    <span style="color:#00d4aa;">Yes</span>
-                                @else
-                                    <span style="color:var(--text-secondary, #94a3b8);">No</span>
                                 @endif
                             </td>
                             <td class="px-3 py-2.5 text-center text-xs">

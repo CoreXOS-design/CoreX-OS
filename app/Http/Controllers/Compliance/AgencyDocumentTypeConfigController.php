@@ -50,7 +50,6 @@ class AgencyDocumentTypeConfigController extends Controller
             'has_expiry'             => 'boolean',
             'renewal_days'           => 'nullable|integer|min:1|max:3650',
             'required'               => 'boolean',
-            'allows_branch_override' => 'boolean',
             'sort_order'             => 'integer|min:0',
         ]);
 
@@ -85,7 +84,6 @@ class AgencyDocumentTypeConfigController extends Controller
             'has_expiry'             => 'boolean',
             'renewal_days'           => 'nullable|integer|min:1|max:3650',
             'required'               => 'boolean',
-            'allows_branch_override' => 'boolean',
             'sort_order'             => 'integer|min:0',
         ]);
 

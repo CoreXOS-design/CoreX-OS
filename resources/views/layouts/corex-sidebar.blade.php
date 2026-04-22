@@ -494,9 +494,9 @@
                 @permission('manage_agency_compliance')
                 <a href="{{ route('compliance.document-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.document-types.*') ? 'active' : '' }}">Document Types</a>
                 @endpermission
-                @permission('manage_agency_compliance')
+                @if(auth()->user()->hasPermission('manage_agency_compliance') || auth()->user()->hasPermission('manage_branch_compliance'))
                 <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Documents</a>
-                @endpermission
+                @endif
             </div>
         </div>
         @endpermission
