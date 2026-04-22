@@ -18,8 +18,12 @@ class AgencyDocumentsViewerController extends Controller
         abort_unless($agency, 403, 'No agency context.');
 
         $branchId = $user->effectiveBranchId();
+
+        // Compliance doc resolution always respects branch overrides.
+        // If admin uploaded a branch override, branch users get it.
+        // Otherwise they fall through to the company-wide document.
+        $resolveBranch = $branchId;
         $splitEnabled = (bool) ($agency->split_branches_enabled ?? false);
-        $resolveBranch = $splitEnabled ? $branchId : null;
 
         $configs = AgencyDocumentTypeConfig::active()->ordered()->get();
 
@@ -49,23 +53,16 @@ class AgencyDocumentsViewerController extends Controller
         abort_unless($provision->agency_id === $user->effectiveAgencyId(), 403);
 
         $branchId = $user->effectiveBranchId();
-        $splitEnabled = (bool) ($agency->split_branches_enabled ?? false);
 
-        // Branch scope check
-        if ($splitEnabled) {
-            if ($provision->branch_id && $provision->branch_id !== $branchId) {
-                abort(403, 'You can only access your own branch documents.');
-            }
-        } else {
-            if ($provision->branch_id !== null) {
-                abort(403, 'Branch-specific documents are not accessible when branch splitting is disabled.');
-            }
+        // Cross-branch guard: if provision is branch-specific, user must be in that branch
+        if ($provision->branch_id && $provision->branch_id !== $branchId) {
+            abort(403, 'You can only access your own branch documents.');
         }
 
-        // Must be the currently resolved version (prevent downloading superseded docs)
+        // Anti-tamper: must be the currently resolved version (rejects superseded docs)
         $resolved = AgencyComplianceProvision::resolveForUser(
             $provision->document_type_config_id,
-            $splitEnabled ? $branchId : null
+            $branchId
         );
         abort_unless($resolved && $resolved->id === $provision->id, 403);
 

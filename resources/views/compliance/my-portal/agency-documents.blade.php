@@ -62,11 +62,9 @@
                             </a>
                             <div class="text-[10px] space-y-0.5" style="color:var(--text-secondary, #94a3b8);">
                                 <div>Updated {{ $prov->created_at->format('d M Y') }}</div>
-                                @if($splitEnabled)
-                                    <span class="inline-block px-1 py-0.5 font-semibold" style="background:{{ $doc->scope === 'branch' ? 'rgba(99,102,241,0.1)' : 'rgba(148,163,184,0.1)' }}; color:{{ $doc->scope === 'branch' ? '#6366f1' : '#94a3b8' }}; border-radius:2px;">
-                                        {{ $doc->scope === 'branch' ? 'Branch' : 'Company' }}
+                                    <span class="inline-block px-1 py-0.5 font-semibold" style="background:{{ $doc->scope === 'branch' ? 'rgba(0,212,170,0.1)' : 'rgba(148,163,184,0.1)' }}; color:{{ $doc->scope === 'branch' ? '#00d4aa' : '#94a3b8' }}; border-radius:3px;">
+                                        {{ $doc->scope === 'branch' ? ($branchName ?? 'Branch') : 'Company' }}
                                     </span>
-                                @endif
                             </div>
                         @else
                             <div class="text-xs" style="color:var(--text-secondary, #94a3b8);">
