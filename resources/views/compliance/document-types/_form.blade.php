@@ -2,7 +2,7 @@
     name: '{{ old('name', $type->name ?? '') }}',
     slug: '{{ old('slug', $type->slug ?? '') }}',
     hasExpiry: {{ old('has_expiry', $type->has_expiry ?? true) ? 'true' : 'false' }},
-    autoSlug: {{ isset($type) ? 'false' : 'true' }}
+    autoSlug: {{ isset($type) && $type->exists ? 'false' : 'true' }}
 }">
     {{-- Name + Slug --}}
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -36,18 +36,14 @@
     <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em; font-family:'Plus Jakarta Sans',sans-serif;">Expiry & Renewal</h4>
         <div class="space-y-3">
-            <label class="flex items-center gap-3 cursor-pointer">
-                <div class="relative" style="width:36px; height:20px;">
-                    <input type="hidden" name="has_expiry" value="0">
-                    <input type="checkbox" name="has_expiry" value="1" x-model="hasExpiry"
-                           class="sr-only peer">
-                    <div class="w-9 h-5 rounded-full transition-colors peer-checked:bg-[#00d4aa]" style="background:var(--border, #cbd5e1); border-radius:10px;"></div>
-                    <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4" style="border-radius:50%;"></div>
-                </div>
+            <label class="relative inline-flex items-center cursor-pointer gap-3">
+                <input type="hidden" name="has_expiry" value="0">
+                <input type="checkbox" name="has_expiry" value="1" x-model="hasExpiry" class="sr-only peer">
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="hasExpiry ? 'background:#00d4aa' : ''"></div>
                 <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">This document expires</span>
             </label>
 
-            <div x-show="hasExpiry" x-cloak class="ml-12">
+            <div x-show="hasExpiry" x-cloak class="ml-[52px]">
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Auto-create renewal task X days before expiry</label>
                 <input type="number" name="renewal_days" min="1" max="3650"
                        value="{{ old('renewal_days', $type->renewal_days ?? '') }}"
@@ -62,29 +58,21 @@
     {{-- Options --}}
     <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em; font-family:'Plus Jakarta Sans',sans-serif;">Options</h4>
-        <div class="space-y-3">
-            <label class="flex items-center gap-3 cursor-pointer">
-                <div class="relative" style="width:36px; height:20px;">
-                    <input type="hidden" name="required" value="0">
-                    <input type="checkbox" name="required" value="1" {{ old('required', $type->required ?? true) ? 'checked' : '' }}
-                           class="sr-only peer">
-                    <div class="w-9 h-5 rounded-full transition-colors peer-checked:bg-[#00d4aa]" style="background:var(--border, #cbd5e1); border-radius:10px;"></div>
-                    <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4" style="border-radius:50%;"></div>
-                </div>
+        <div class="space-y-4">
+            <label class="relative inline-flex items-center cursor-pointer gap-3" x-data="{ on: {{ old('required', $type->required ?? true) ? 'true' : 'false' }} }">
+                <input type="hidden" name="required" value="0">
+                <input type="checkbox" name="required" value="1" x-model="on" class="sr-only peer">
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="on ? 'background:#00d4aa' : ''"></div>
                 <div>
                     <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Required</span>
                     <p class="text-[10px]" style="color:var(--text-secondary, #94a3b8);">Mark document as mandatory for compliance</p>
                 </div>
             </label>
 
-            <label class="flex items-center gap-3 cursor-pointer">
-                <div class="relative" style="width:36px; height:20px;">
-                    <input type="hidden" name="allows_branch_override" value="0">
-                    <input type="checkbox" name="allows_branch_override" value="1" {{ old('allows_branch_override', $type->allows_branch_override ?? false) ? 'checked' : '' }}
-                           class="sr-only peer">
-                    <div class="w-9 h-5 rounded-full transition-colors peer-checked:bg-[#00d4aa]" style="background:var(--border, #cbd5e1); border-radius:10px;"></div>
-                    <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4" style="border-radius:50%;"></div>
-                </div>
+            <label class="relative inline-flex items-center cursor-pointer gap-3" x-data="{ on: {{ old('allows_branch_override', $type->allows_branch_override ?? false) ? 'true' : 'false' }} }">
+                <input type="hidden" name="allows_branch_override" value="0">
+                <input type="checkbox" name="allows_branch_override" value="1" x-model="on" class="sr-only peer">
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="on ? 'background:#00d4aa' : ''"></div>
                 <div>
                     <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Allow branch override</span>
                     <p class="text-[10px]" style="color:var(--text-secondary, #94a3b8);">Branches can upload their own version; falls back to company version if not set</p>
