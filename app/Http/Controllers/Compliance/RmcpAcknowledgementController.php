@@ -11,7 +11,9 @@ use App\Models\Compliance\RmcpVersion;
 use App\Services\Compliance\RmcpVariableResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class RmcpAcknowledgementController extends Controller
 {
@@ -268,17 +270,124 @@ class RmcpAcknowledgementController extends Controller
     }
 
     /**
-     * Download receipt as PDF.
+     * Download receipt as Puppeteer-generated PDF.
      */
     public function downloadReceipt(RmcpAcknowledgement $ack)
     {
-        abort_unless($ack->user_id === Auth::id() || Auth::user()->isOwnerRole(), 403);
+        $user = Auth::user();
+        abort_unless(
+            $ack->user_id === $user->id
+            || $user->isOwnerRole()
+            || $user->isComplianceOfficer()
+            || $user->hasPermission('manage_compliance'),
+            403
+        );
+
         $ack->load(['version', 'sectionAcknowledgements.section', 'user']);
 
-        return view('compliance.rmcp-ack.receipt', [
-            'ack'     => $ack,
-            'pdfMode' => true,
+        $html = view('compliance.rmcp-ack.receipt-print', compact('ack'))->render();
+
+        $pdfPath = $this->generateReceiptPdf($html, $ack->id);
+
+        if (! $pdfPath || ! file_exists($pdfPath)) {
+            Log::error('RMCP receipt PDF generation failed', [
+                'acknowledgement_id' => $ack->id,
+                'user_id'            => $ack->user_id,
+            ]);
+            return back()->with('error', 'PDF generation failed. Please contact admin.');
+        }
+
+        $filename = sprintf(
+            'rmcp-acknowledgement-%s-%s.pdf',
+            Str::slug($ack->user->name),
+            ($ack->completed_at ?? $ack->created_at)->format('Ymd')
+        );
+
+        return response()->download($pdfPath, $filename)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Generate PDF from full HTML via Puppeteer (reuses scripts/html-to-pdf.mjs).
+     */
+    private function generateReceiptPdf(string $fullHtml, int $ackId): ?string
+    {
+        $tempDir = storage_path('app/temp');
+        if (! is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        $timestamp = time();
+        $htmlPath = $tempDir . '/rmcp_ack_' . $ackId . '_' . $timestamp . '.html';
+        $pdfPath  = $tempDir . '/rmcp_ack_' . $ackId . '_' . $timestamp . '.pdf';
+
+        file_put_contents($htmlPath, $fullHtml);
+
+        $scriptPath  = base_path('scripts/html-to-pdf.mjs');
+        $browserPath = env('PUPPETEER_BROWSER_PATH', '');
+        $isWindows   = DIRECTORY_SEPARATOR === '\\';
+
+        $nodePath = 'node';
+        if ($isWindows) {
+            $candidates = [
+                'C:\\Program Files\\nodejs\\node.exe',
+                'C:\\Program Files (x86)\\nodejs\\node.exe',
+                trim(shell_exec('where node 2>NUL') ?? ''),
+            ];
+            foreach ($candidates as $candidate) {
+                $candidate = trim($candidate);
+                if ($candidate && file_exists($candidate)) {
+                    $nodePath = $candidate;
+                    break;
+                }
+            }
+        }
+
+        $nodeArg   = escapeshellarg(str_replace('\\', '/', $nodePath));
+        $scriptArg = escapeshellarg(str_replace('\\', '/', $scriptPath));
+        $htmlArg   = escapeshellarg(str_replace('\\', '/', $htmlPath));
+        $outArg    = escapeshellarg(str_replace('\\', '/', $pdfPath));
+
+        $envPrefix = '';
+        if (! $isWindows) {
+            $envPrefix = 'HOME=/tmp';
+            if ($browserPath) {
+                $envPrefix .= sprintf(' PUPPETEER_BROWSER_PATH=%s', escapeshellarg($browserPath));
+            }
+            $envPrefix .= ' ';
+        }
+
+        $command = sprintf('%s%s %s %s %s', $envPrefix, $nodeArg, $scriptArg, $htmlArg, $outArg);
+        $logPath = $tempDir . DIRECTORY_SEPARATOR . 'rmcp_pdf_' . $ackId . '.log';
+
+        Log::info('RMCP receipt PDF generation starting', ['ack_id' => $ackId, 'command' => $command]);
+
+        $fullCommand = $command . ' > ' . escapeshellarg(str_replace('/', DIRECTORY_SEPARATOR, $logPath)) . ' 2>&1';
+        shell_exec($fullCommand);
+
+        $logContent = file_exists($logPath) ? file_get_contents($logPath) : '';
+        @unlink($logPath);
+
+        clearstatcache();
+        $normalizedOutput = str_replace('/', DIRECTORY_SEPARATOR, $pdfPath);
+
+        if (! file_exists($normalizedOutput) || filesize($normalizedOutput) === 0) {
+            @unlink($htmlPath);
+            Log::error('RMCP receipt PDF not generated', [
+                'ack_id' => $ackId,
+                'log'    => substr($logContent, 0, 500),
+            ]);
+            return null;
+        }
+
+        @unlink($htmlPath);
+
+        Log::info('RMCP receipt PDF complete', [
+            'ack_id' => $ackId,
+            'path'   => $normalizedOutput,
+            'size'   => filesize($normalizedOutput),
         ]);
+
+        return $normalizedOutput;
     }
 
     /**
