@@ -13,56 +13,67 @@ class AgencyComplianceSettingsController extends Controller
 {
     public function index()
     {
-        abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
+        $user = auth()->user();
+        $isAdmin = $user->hasPermission('manage_agency_compliance');
+        $isBranchManager = $user->hasPermission('manage_branch_compliance');
 
-        $docTypes = AgencyDocumentTypeConfig::active()->ordered()->get();
+        abort_unless($isAdmin || $isBranchManager, 403);
 
-        // For each configured type, load the latest active provision
-        $activeProvisions = AgencyComplianceProvision::with(['creator', 'documentType'])
-            ->where('status', 'active')
-            ->get()
-            ->keyBy('document_type_config_id');
+        $agencyId = $user->effectiveAgencyId();
+        $matrix = AgencyComplianceProvision::stateMatrixForAgency($agencyId);
 
-        $typeCards = $docTypes->map(function ($type) use ($activeProvisions) {
-            $provision = $activeProvisions->get($type->id);
-            return (object) [
-                'config'    => $type,
-                'provision' => $provision,
-            ];
-        });
+        $userBranchId = $user->effectiveBranchId();
 
-        return view('compliance.agency.index', compact('typeCards'));
+        return view('compliance.agency.index', compact('matrix', 'isAdmin', 'isBranchManager', 'userBranchId'));
     }
 
     public function store(Request $request)
     {
-        abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId();
+        $branchId = $request->input('branch_id') ?: null;
 
-        $agencyId = auth()->user()->effectiveAgencyId();
+        // Permission check
+        if ($branchId === null) {
+            abort_unless($user->hasPermission('manage_agency_compliance'), 403, 'Only admin/CO can upload company-wide documents.');
+        } else {
+            $canAdmin = $user->hasPermission('manage_agency_compliance');
+            $canBranch = $user->hasPermission('manage_branch_compliance')
+                && (int) $branchId === $user->effectiveBranchId();
+            abort_unless($canAdmin || $canBranch, 403, 'You can only upload documents for your own branch.');
+        }
 
         $validated = $request->validate([
             'document_type_config_id' => [
                 'required', 'integer',
                 Rule::exists('agency_document_type_configs', 'id')->where('agency_id', $agencyId),
             ],
-            'document'            => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
-            'policy_reference'    => ['nullable', 'string', 'max:200'],
-            'effective_from'      => ['required', 'date'],
-            'effective_until'     => ['nullable', 'date', 'after:effective_from'],
-            'notes'               => ['nullable', 'string', 'max:2000'],
+            'branch_id' => [
+                'nullable', 'integer',
+                Rule::exists('branches', 'id')->where('agency_id', $agencyId),
+            ],
+            'document'         => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'policy_reference' => ['nullable', 'string', 'max:200'],
+            'effective_from'   => ['required', 'date'],
+            'effective_until'  => ['nullable', 'date', 'after:effective_from'],
+            'notes'            => ['nullable', 'string', 'max:2000'],
         ]);
 
         $file = $request->file('document');
         $path = $file->store('agency-compliance', 'public');
 
-        // Supersede any existing active provision of the same type for this agency
+        // Supersede previous active provision for same (type, branch) tuple
         AgencyComplianceProvision::where('document_type_config_id', $validated['document_type_config_id'])
             ->where('status', 'active')
+            ->where(function ($q) use ($branchId) {
+                $branchId ? $q->where('branch_id', $branchId) : $q->whereNull('branch_id');
+            })
             ->update(['status' => 'superseded']);
 
         $provision = AgencyComplianceProvision::create([
             'document_type_config_id' => $validated['document_type_config_id'],
-            'provision_type'          => '', // deprecated column, kept for schema compat
+            'branch_id'               => $branchId,
+            'provision_type'          => '',
             'policy_reference'        => $validated['policy_reference'] ?? null,
             'effective_from'          => $validated['effective_from'],
             'effective_until'         => $validated['effective_until'] ?? null,
@@ -74,20 +85,28 @@ class AgencyComplianceSettingsController extends Controller
         ]);
 
         $typeName = AgencyDocumentTypeConfig::find($validated['document_type_config_id'])?->name ?? 'Document';
+        $label = $branchId
+            ? "{$typeName} (branch override) uploaded."
+            : "{$typeName} uploaded.";
 
         logger()->info('Agency compliance provision created', [
-            'provision_id'           => $provision->id,
+            'provision_id'            => $provision->id,
             'document_type_config_id' => $validated['document_type_config_id'],
-            'created_by'             => auth()->id(),
+            'branch_id'               => $branchId,
+            'created_by'              => auth()->id(),
         ]);
 
-        return redirect()->route('compliance.agency-settings.index')
-            ->with('success', "{$typeName} uploaded successfully.");
+        return redirect()->route('compliance.agency-settings.index')->with('success', $label);
     }
 
     public function edit(AgencyComplianceProvision $provision)
     {
-        abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
+        $user = auth()->user();
+        $isAdmin = $user->hasPermission('manage_agency_compliance');
+        $isBranchOwner = $user->hasPermission('manage_branch_compliance')
+            && $provision->branch_id === $user->effectiveBranchId();
+
+        abort_unless($isAdmin || $isBranchOwner, 403);
 
         $provision->load('documentType');
 
@@ -96,7 +115,12 @@ class AgencyComplianceSettingsController extends Controller
 
     public function update(Request $request, AgencyComplianceProvision $provision)
     {
-        abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
+        $user = auth()->user();
+        $isAdmin = $user->hasPermission('manage_agency_compliance');
+        $isBranchOwner = $user->hasPermission('manage_branch_compliance')
+            && $provision->branch_id === $user->effectiveBranchId();
+
+        abort_unless($isAdmin || $isBranchOwner, 403);
 
         $validated = $request->validate([
             'document'         => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
@@ -127,13 +151,17 @@ class AgencyComplianceSettingsController extends Controller
             'updated_by'   => auth()->id(),
         ]);
 
-        return redirect()->route('compliance.agency-settings.index')
-            ->with('success', 'Document updated.');
+        return redirect()->route('compliance.agency-settings.index')->with('success', 'Document updated.');
     }
 
     public function destroy(AgencyComplianceProvision $provision)
     {
-        abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
+        $user = auth()->user();
+        $isAdmin = $user->hasPermission('manage_agency_compliance');
+        $isBranchOwner = $user->hasPermission('manage_branch_compliance')
+            && $provision->branch_id === $user->effectiveBranchId();
+
+        abort_unless($isAdmin || $isBranchOwner, 403);
 
         $provision->update(['status' => 'expired']);
         $provision->delete();
@@ -143,7 +171,6 @@ class AgencyComplianceSettingsController extends Controller
             'ended_by'     => auth()->id(),
         ]);
 
-        return redirect()->route('compliance.agency-settings.index')
-            ->with('success', 'Document removed.');
+        return redirect()->route('compliance.agency-settings.index')->with('success', 'Document removed.');
     }
 }

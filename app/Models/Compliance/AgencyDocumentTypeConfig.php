@@ -21,7 +21,6 @@ class AgencyDocumentTypeConfig extends Model
         'has_expiry',
         'renewal_days',
         'required',
-        'allows_branch_override',
         'sort_order',
         'is_active',
     ];
@@ -30,7 +29,6 @@ class AgencyDocumentTypeConfig extends Model
         'has_expiry'              => 'boolean',
         'renewal_days'            => 'integer',
         'required'                => 'boolean',
-        'allows_branch_override'  => 'boolean',
         'sort_order'              => 'integer',
         'is_active'               => 'boolean',
     ];

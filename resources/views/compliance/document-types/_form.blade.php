@@ -69,15 +69,6 @@
                 </div>
             </label>
 
-            <label class="relative inline-flex items-center cursor-pointer gap-3" x-data="{ on: {{ old('allows_branch_override', $type->allows_branch_override ?? false) ? 'true' : 'false' }} }">
-                <input type="hidden" name="allows_branch_override" value="0">
-                <input type="checkbox" name="allows_branch_override" value="1" x-model="on" class="sr-only peer">
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="on ? 'background:#00d4aa' : ''"></div>
-                <div>
-                    <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Allow branch override</span>
-                    <p class="text-[10px]" style="color:var(--text-secondary, #94a3b8);">Branches can upload their own version; falls back to company version if not set</p>
-                </div>
-            </label>
         </div>
     </div>
 

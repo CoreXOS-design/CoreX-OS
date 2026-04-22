@@ -2,11 +2,13 @@
 
 namespace App\Models\Compliance;
 
+use App\Models\Branch;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Collection;
 
 class AgencyComplianceProvision extends Model
 {
@@ -16,12 +18,8 @@ class AgencyComplianceProvision extends Model
      * @deprecated Use AgencyDocumentTypeConfig per-agency configurable types instead.
      */
     public const TYPES = [
-        'pi_insurance',
-        'tax_clearance',
-        'ffc_certificate',
-        'id_copy',
-        'proof_of_address',
-        'bank_confirmation',
+        'pi_insurance', 'tax_clearance', 'ffc_certificate',
+        'id_copy', 'proof_of_address', 'bank_confirmation',
     ];
 
     /**
@@ -40,6 +38,7 @@ class AgencyComplianceProvision extends Model
         'agency_id',
         'provision_type',
         'document_type_config_id',
+        'branch_id',
         'status',
         'document_path',
         'document_original_name',
@@ -71,6 +70,11 @@ class AgencyComplianceProvision extends Model
         return $this->belongsTo(AgencyDocumentTypeConfig::class, 'document_type_config_id');
     }
 
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
     // ── Scopes ──
 
     public function scopeActive($query)
@@ -87,23 +91,74 @@ class AgencyComplianceProvision extends Model
         return $query->where('document_type_config_id', $configId);
     }
 
-    public function scopeForUser($query, User $user)
+    public function scopeCompanyWide($query)
     {
-        return $query->where('agency_id', $user->agency_id)
-            ->active()
-            ->where(function ($q) use ($user) {
-                $q->whereNull('applies_to_roles')
-                  ->orWhereJsonLength('applies_to_roles', 0)
-                  ->orWhereJsonContains('applies_to_roles', $user->role);
-            })
-            ->where(function ($q) use ($user) {
-                $q->whereNull('applies_to_branches')
-                  ->orWhereJsonLength('applies_to_branches', 0)
-                  ->orWhereJsonContains('applies_to_branches', (string) $user->branch_id);
-            });
+        return $query->whereNull('branch_id');
     }
 
-    // ── Helpers ──
+    public function scopeForBranch($query, int $branchId)
+    {
+        return $query->where('branch_id', $branchId);
+    }
+
+    // ── Resolvers ──
+
+    /**
+     * Resolve the effective provision for a user: branch override first, company fallback.
+     */
+    public static function resolveForUser(int $typeConfigId, ?int $branchId): ?self
+    {
+        if ($branchId) {
+            $branchVersion = static::active()
+                ->where('document_type_config_id', $typeConfigId)
+                ->where('branch_id', $branchId)
+                ->latest('effective_from')
+                ->first();
+            if ($branchVersion) {
+                return $branchVersion;
+            }
+        }
+
+        return static::active()
+            ->where('document_type_config_id', $typeConfigId)
+            ->whereNull('branch_id')
+            ->latest('effective_from')
+            ->first();
+    }
+
+    /**
+     * Build the full state matrix for the agency documents index.
+     */
+    public static function stateMatrixForAgency(int $agencyId): Collection
+    {
+        $types = AgencyDocumentTypeConfig::active()->ordered()->get();
+        $branches = Branch::where('agency_id', $agencyId)->orderBy('name')->get();
+
+        $provisions = static::with(['creator', 'documentType', 'branch'])
+            ->where('status', 'active')
+            ->get();
+
+        return $types->map(function ($type) use ($provisions, $branches) {
+            $typeProvisions = $provisions->where('document_type_config_id', $type->id);
+
+            $company = $typeProvisions->whereNull('branch_id')->first();
+
+            $branchRows = $branches->map(function ($branch) use ($typeProvisions) {
+                return (object) [
+                    'branch'    => $branch,
+                    'provision' => $typeProvisions->where('branch_id', $branch->id)->first(),
+                ];
+            });
+
+            return (object) [
+                'type_config' => $type,
+                'company'     => $company,
+                'branches'    => $branchRows,
+            ];
+        });
+    }
+
+    // ── Accessors ──
 
     public function getStatusLabelAttribute(): string
     {
@@ -128,6 +183,22 @@ class AgencyComplianceProvision extends Model
             if ($daysLeft <= 30) return 'amber';
         }
         return 'teal';
+    }
+
+    public function scopeForUser($query, User $user)
+    {
+        return $query->where('agency_id', $user->agency_id)
+            ->active()
+            ->where(function ($q) use ($user) {
+                $q->whereNull('applies_to_roles')
+                  ->orWhereJsonLength('applies_to_roles', 0)
+                  ->orWhereJsonContains('applies_to_roles', $user->role);
+            })
+            ->where(function ($q) use ($user) {
+                $q->whereNull('applies_to_branches')
+                  ->orWhereJsonLength('applies_to_branches', 0)
+                  ->orWhereJsonContains('applies_to_branches', (string) $user->branch_id);
+            });
     }
 
     /**
