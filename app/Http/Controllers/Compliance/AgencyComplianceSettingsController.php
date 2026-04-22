@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Compliance;
 
 use App\Http\Controllers\Controller;
 use App\Models\Compliance\AgencyComplianceProvision;
+use App\Models\Compliance\AgencyDocumentTypeConfig;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class AgencyComplianceSettingsController extends Controller
 {
@@ -13,93 +15,83 @@ class AgencyComplianceSettingsController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
 
-        $provisions = AgencyComplianceProvision::with('creator')
-            ->orderByDesc('created_at')
-            ->get();
+        $docTypes = AgencyDocumentTypeConfig::active()->ordered()->get();
 
-        $types = AgencyComplianceProvision::TYPES;
-        $typeLabels = AgencyComplianceProvision::TYPE_LABELS;
+        // For each configured type, load the latest active provision
+        $activeProvisions = AgencyComplianceProvision::with(['creator', 'documentType'])
+            ->where('status', 'active')
+            ->get()
+            ->keyBy('document_type_config_id');
 
-        // Group active provisions by type for quick lookup
-        $activeByType = $provisions->where('status', 'active')
-            ->filter(fn ($p) => !$p->effective_until || $p->effective_until->gte(now()))
-            ->keyBy('provision_type');
+        $typeCards = $docTypes->map(function ($type) use ($activeProvisions) {
+            $provision = $activeProvisions->get($type->id);
+            return (object) [
+                'config'    => $type,
+                'provision' => $provision,
+            ];
+        });
 
-        $branches = \App\Models\Branch::orderBy('name')->get(['id', 'name']);
-        $roles = \App\Models\Role::orderBy('label')->get(['id', 'name', 'label']);
-
-        return view('compliance.agency.index', compact(
-            'provisions',
-            'types',
-            'typeLabels',
-            'activeByType',
-            'branches',
-            'roles'
-        ));
+        return view('compliance.agency.index', compact('typeCards'));
     }
 
     public function store(Request $request)
     {
         abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
 
+        $agencyId = auth()->user()->effectiveAgencyId();
+
         $validated = $request->validate([
-            'provision_type'      => ['required', 'string', 'in:' . implode(',', AgencyComplianceProvision::TYPES)],
-            'document'            => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'document_type_config_id' => [
+                'required', 'integer',
+                Rule::exists('agency_document_type_configs', 'id')->where('agency_id', $agencyId),
+            ],
+            'document'            => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
             'policy_reference'    => ['nullable', 'string', 'max:200'],
             'effective_from'      => ['required', 'date'],
             'effective_until'     => ['nullable', 'date', 'after:effective_from'],
-            'applies_to_roles'    => ['nullable', 'array'],
-            'applies_to_roles.*'  => ['string'],
-            'applies_to_branches' => ['nullable', 'array'],
-            'applies_to_branches.*' => ['string'],
             'notes'               => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $data = [
-            'provision_type'      => $validated['provision_type'],
-            'policy_reference'    => $validated['policy_reference'] ?? null,
-            'effective_from'      => $validated['effective_from'],
-            'effective_until'     => $validated['effective_until'] ?? null,
-            'applies_to_roles'    => $validated['applies_to_roles'] ?? null,
-            'applies_to_branches' => $validated['applies_to_branches'] ?? null,
-            'notes'               => $validated['notes'] ?? null,
-            'status'              => 'active',
-            'created_by'          => auth()->id(),
-        ];
-
-        if ($request->hasFile('document')) {
-            $file = $request->file('document');
-            $path = $file->store('agency-compliance', 'public');
-            $data['document_path'] = $path;
-            $data['document_original_name'] = $file->getClientOriginalName();
-        }
+        $file = $request->file('document');
+        $path = $file->store('agency-compliance', 'public');
 
         // Supersede any existing active provision of the same type for this agency
-        AgencyComplianceProvision::where('provision_type', $validated['provision_type'])
+        AgencyComplianceProvision::where('document_type_config_id', $validated['document_type_config_id'])
             ->where('status', 'active')
             ->update(['status' => 'superseded']);
 
-        $provision = AgencyComplianceProvision::create($data);
+        $provision = AgencyComplianceProvision::create([
+            'document_type_config_id' => $validated['document_type_config_id'],
+            'provision_type'          => '', // deprecated column, kept for schema compat
+            'policy_reference'        => $validated['policy_reference'] ?? null,
+            'effective_from'          => $validated['effective_from'],
+            'effective_until'         => $validated['effective_until'] ?? null,
+            'notes'                   => $validated['notes'] ?? null,
+            'status'                  => 'active',
+            'created_by'              => auth()->id(),
+            'document_path'           => $path,
+            'document_original_name'  => $file->getClientOriginalName(),
+        ]);
+
+        $typeName = AgencyDocumentTypeConfig::find($validated['document_type_config_id'])?->name ?? 'Document';
 
         logger()->info('Agency compliance provision created', [
-            'provision_id' => $provision->id,
-            'type' => $provision->provision_type,
-            'created_by' => auth()->id(),
+            'provision_id'           => $provision->id,
+            'document_type_config_id' => $validated['document_type_config_id'],
+            'created_by'             => auth()->id(),
         ]);
 
         return redirect()->route('compliance.agency-settings.index')
-            ->with('success', AgencyComplianceProvision::TYPE_LABELS[$provision->provision_type] . ' provision added.');
+            ->with('success', "{$typeName} uploaded successfully.");
     }
 
     public function edit(AgencyComplianceProvision $provision)
     {
         abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
 
-        $typeLabels = AgencyComplianceProvision::TYPE_LABELS;
-        $branches = \App\Models\Branch::orderBy('name')->get(['id', 'name']);
-        $roles = \App\Models\Role::orderBy('label')->get(['id', 'name', 'label']);
+        $provision->load('documentType');
 
-        return view('compliance.agency.edit', compact('provision', 'typeLabels', 'branches', 'roles'));
+        return view('compliance.agency.edit', compact('provision'));
     }
 
     public function update(Request $request, AgencyComplianceProvision $provision)
@@ -107,24 +99,18 @@ class AgencyComplianceSettingsController extends Controller
         abort_unless(auth()->user()->hasPermission('manage_agency_compliance'), 403);
 
         $validated = $request->validate([
-            'document'            => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
-            'policy_reference'    => ['nullable', 'string', 'max:200'],
-            'effective_from'      => ['required', 'date'],
-            'effective_until'     => ['nullable', 'date', 'after:effective_from'],
-            'applies_to_roles'    => ['nullable', 'array'],
-            'applies_to_roles.*'  => ['string'],
-            'applies_to_branches' => ['nullable', 'array'],
-            'applies_to_branches.*' => ['string'],
-            'notes'               => ['nullable', 'string', 'max:2000'],
+            'document'         => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'policy_reference' => ['nullable', 'string', 'max:200'],
+            'effective_from'   => ['required', 'date'],
+            'effective_until'  => ['nullable', 'date', 'after:effective_from'],
+            'notes'            => ['nullable', 'string', 'max:2000'],
         ]);
 
         $provision->fill([
-            'policy_reference'    => $validated['policy_reference'] ?? null,
-            'effective_from'      => $validated['effective_from'],
-            'effective_until'     => $validated['effective_until'] ?? null,
-            'applies_to_roles'    => $validated['applies_to_roles'] ?? null,
-            'applies_to_branches' => $validated['applies_to_branches'] ?? null,
-            'notes'               => $validated['notes'] ?? null,
+            'policy_reference' => $validated['policy_reference'] ?? null,
+            'effective_from'   => $validated['effective_from'],
+            'effective_until'  => $validated['effective_until'] ?? null,
+            'notes'            => $validated['notes'] ?? null,
         ]);
 
         if ($request->hasFile('document')) {
@@ -138,11 +124,11 @@ class AgencyComplianceSettingsController extends Controller
 
         logger()->info('Agency compliance provision updated', [
             'provision_id' => $provision->id,
-            'updated_by' => auth()->id(),
+            'updated_by'   => auth()->id(),
         ]);
 
         return redirect()->route('compliance.agency-settings.index')
-            ->with('success', 'Provision updated.');
+            ->with('success', 'Document updated.');
     }
 
     public function destroy(AgencyComplianceProvision $provision)
@@ -154,10 +140,10 @@ class AgencyComplianceSettingsController extends Controller
 
         logger()->info('Agency compliance provision ended', [
             'provision_id' => $provision->id,
-            'ended_by' => auth()->id(),
+            'ended_by'     => auth()->id(),
         ]);
 
         return redirect()->route('compliance.agency-settings.index')
-            ->with('success', 'Provision ended.');
+            ->with('success', 'Document removed.');
     }
 }
