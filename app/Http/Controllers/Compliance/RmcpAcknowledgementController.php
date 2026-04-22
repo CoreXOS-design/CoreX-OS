@@ -268,17 +268,14 @@ class RmcpAcknowledgementController extends Controller
     }
 
     /**
-     * Download receipt as PDF.
+     * Download receipt as printable standalone page (browser Save-as-PDF).
      */
     public function downloadReceipt(RmcpAcknowledgement $ack)
     {
         abort_unless($ack->user_id === Auth::id() || Auth::user()->isOwnerRole(), 403);
         $ack->load(['version', 'sectionAcknowledgements.section', 'user']);
 
-        return view('compliance.rmcp-ack.receipt', [
-            'ack'     => $ack,
-            'pdfMode' => true,
-        ]);
+        return view('compliance.rmcp-ack.receipt-print', compact('ack'));
     }
 
     /**
