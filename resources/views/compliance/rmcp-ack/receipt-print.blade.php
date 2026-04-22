@@ -7,38 +7,39 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Plus Jakarta Sans', sans-serif; color: #0f172a; background: #fff; padding: 2rem; max-width: 700px; margin: 0 auto; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; color: #0f172a; background: #fff; padding: 10mm 15mm; max-width: 700px; margin: 0 auto; }
 
-        .header { background: #0f172a; color: #fff; padding: 1.5rem 2rem; text-align: center; border-radius: 3px 3px 0 0; }
-        .header .label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: #00d4aa; letter-spacing: 2px; }
-        .header .ref { font-size: 0.7rem; color: #94a3b8; margin-top: 0.5rem; }
+        .header { background: #0f172a; color: #fff; padding: 0.6rem 1.5rem; text-align: center; border-radius: 3px 3px 0 0; }
+        .header .label { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; color: #00d4aa; letter-spacing: 2px; }
+        .header .ref { font-size: 0.6rem; color: #94a3b8; margin-top: 0.2rem; }
 
-        .body { border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 3px 3px; padding: 1.5rem 2rem; }
+        .body { border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 3px 3px; padding: 0.75rem 1.5rem; }
 
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem; }
-        .grid .cell-label { font-size: 0.65rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; }
-        .grid .cell-value { font-size: 0.8rem; font-weight: 600; color: #0f172a; margin-top: 0.15rem; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.3rem 0.75rem; margin-bottom: 0.6rem; }
+        .grid .cell-label { font-size: 0.55rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; }
+        .grid .cell-value { font-size: 0.7rem; font-weight: 600; color: #0f172a; margin-top: 0.05rem; }
         .grid .cell-value.teal { color: #00d4aa; }
 
-        h4 { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+        h4 { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
 
-        .sections { margin-bottom: 1.5rem; }
-        .section-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; padding: 0.4rem 0.75rem; background: #f8fafc; border-radius: 3px; margin-bottom: 0.25rem; }
-        .section-row .time { color: #00d4aa; }
+        .sections { margin-bottom: 0.5rem; }
+        .section-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.6rem; padding: 0.15rem 0.5rem; background: #f8fafc; border-radius: 2px; margin-bottom: 1px; line-height: 1.3; }
+        .section-row .time { color: #00d4aa; font-size: 0.55rem; }
 
-        .signature-box { border: 1px dashed #e5e7eb; border-radius: 3px; padding: 1rem; text-align: center; margin-bottom: 1.5rem; }
-        .signature-box .typed { font-family: 'Dancing Script', cursive; font-size: 1.5rem; color: #0f172a; }
-        .signature-box img { max-height: 80px; margin: 0 auto; display: block; }
+        .signature-block { page-break-inside: avoid; }
+        .signature-box { border: 1px dashed #e5e7eb; border-radius: 3px; padding: 0.4rem; text-align: center; margin-bottom: 0.5rem; }
+        .signature-box .typed { font-family: 'Dancing Script', cursive; font-size: 1.2rem; color: #0f172a; }
+        .signature-box img { max-height: 50px; margin: 0 auto; display: block; }
 
-        .footer { border-top: 1px solid #e5e7eb; padding-top: 0.75rem; text-align: center; font-size: 0.65rem; color: #94a3b8; }
+        .footer { border-top: 1px solid #e5e7eb; padding-top: 0.3rem; text-align: center; font-size: 0.5rem; color: #94a3b8; }
 
         @media print {
             body { padding: 0; }
+            @page { size: A4; margin: 15mm; }
         }
     </style>
 </head>
 <body>
-
     <div class="header">
         <div class="label">RMCP Acknowledgement Receipt</div>
         <div class="ref">Ref: ACK-{{ str_pad($ack->id, 6, '0', STR_PAD_LEFT) }}</div>
@@ -86,7 +87,7 @@
             @endforeach
         </div>
 
-        <div>
+        <div class="signature-block">
             <h4>Signature</h4>
             <div class="signature-box">
                 @if($ack->signature_type === 'typed' && $ack->typed_signature_name)
@@ -94,7 +95,7 @@
                 @elseif($ack->signature_type === 'drawn' && $ack->signature_path && !str_starts_with($ack->signature_path, 'typed:'))
                     <img src="{{ asset('storage/' . $ack->signature_path) }}" alt="Signature">
                 @else
-                    <span style="font-size:0.7rem; color:#94a3b8; font-style:italic;">Signature not captured</span>
+                    <span style="font-size:0.6rem; color:#94a3b8; font-style:italic;">Signature not captured</span>
                 @endif
             </div>
         </div>
@@ -103,6 +104,5 @@
             This receipt serves as proof of RMCP acknowledgement for FICA compliance audit purposes.
         </div>
     </div>
-
 </body>
 </html>
