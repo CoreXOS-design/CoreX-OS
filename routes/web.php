@@ -907,6 +907,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{userDocument}/expire', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'markExpired'])->name('expire');
     });
 
+    // ── Agency Document Type Configuration ──
+    Route::middleware(['permission:manage_agency_compliance', 'agency.required'])->prefix('compliance/document-types')->name('compliance.document-types.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'store'])->name('store');
+        Route::get('/{slug}/edit', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'edit'])->name('edit');
+        Route::put('/{slug}', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'update'])->name('update');
+        Route::post('/{slug}/archive', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'archive'])->name('archive');
+        Route::post('/{slug}/restore', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'restore'])->name('restore');
+    });
+
     // ── Agency Compliance Provisions (Settings) ──
     Route::middleware(['permission:manage_agency_compliance', 'agency.required'])->prefix('compliance/agency-settings')->name('compliance.agency-settings.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'index'])->name('index');
