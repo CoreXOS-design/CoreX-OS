@@ -82,4 +82,9 @@ return [
         'image_base_url' => env('PP_IMAGE_BASE_URL', ''),  // Override APP_URL for image URLs (useful for local dev against sandbox)
     ],
 
+    'pdf' => [
+        'puppeteer_browser_path' => env('PUPPETEER_BROWSER_PATH', ''),
+        'node_wrapper'           => env('PDF_NODE_WRAPPER', ''),
+    ],
+
 ];
