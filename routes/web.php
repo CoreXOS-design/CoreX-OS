@@ -743,6 +743,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
 
+    // ── Agency Documents (staff read-only view) ──
+    Route::middleware(['permission:view_agency_documents', 'agency.required'])->group(function () {
+        Route::get('/my-portal/agency-documents', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'index'])->name('my-portal.agency-documents');
+        Route::get('/my-portal/agency-documents/download/{provision}', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'download'])->name('my-portal.agency-documents.download');
+    });
+
     // ── RMCP Acknowledgement Flow ──
     Route::middleware(['permission:access_rmcp', 'agency.required'])->group(function () {
         Route::post('/my-portal/rmcp/acknowledge/start', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'start'])
@@ -905,6 +911,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{userDocument}/verify', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'verify'])->name('verify');
         Route::post('/{userDocument}/reject', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'reject'])->name('reject');
         Route::post('/{userDocument}/expire', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'markExpired'])->name('expire');
+    });
+
+    // ── Agency Document Type Configuration ──
+    Route::middleware(['permission:manage_agency_compliance', 'agency.required'])->prefix('compliance/document-types')->name('compliance.document-types.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'store'])->name('store');
+        Route::get('/{slug}/edit', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'edit'])->name('edit');
+        Route::put('/{slug}', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'update'])->name('update');
+        Route::post('/{slug}/archive', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'archive'])->name('archive');
+        Route::post('/{slug}/restore', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'restore'])->name('restore');
     });
 
     // ── Agency Compliance Provisions (Settings) ──

@@ -250,6 +250,19 @@
         @endpermission
 
         {{-- ═══════════════════════════════════════════
+             AGENCY DOCUMENTS (staff read-only)
+             ═══════════════════════════════════════════ --}}
+        @permission('view_agency_documents')
+        <a href="{{ route('my-portal.agency-documents') }}"
+           class="corex-nav-item {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            <span>Agency Documents</span>
+        </a>
+        @endpermission
+
+        {{-- ═══════════════════════════════════════════
              MY EARNINGS
              ═══════════════════════════════════════════ --}}
         <a href="{{ route('commission.dashboard') }}"
@@ -571,8 +584,11 @@
                 </a>
                 @endpermission
                 @permission('manage_agency_compliance')
-                <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Provisions</a>
+                <a href="{{ route('compliance.document-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.document-types.*') ? 'active' : '' }}">Document Types</a>
                 @endpermission
+                @if(auth()->user()->hasPermission('manage_agency_compliance') || auth()->user()->hasPermission('manage_branch_compliance'))
+                <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Documents</a>
+                @endif
             </div>
         </div>
         @endpermission

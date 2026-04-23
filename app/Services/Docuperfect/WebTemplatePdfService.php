@@ -261,8 +261,8 @@ HTML;
     private function runPuppeteerFlatten(string $htmlPath, string $pdfPath, ?string $fieldsPath): ?array
     {
         $scriptPath = base_path('scripts/web-template-flatten.mjs');
-        $wrapper = env('PDF_NODE_WRAPPER', '');
-        $browserPath = env('PUPPETEER_BROWSER_PATH', '');
+        $wrapper = config('services.pdf.node_wrapper', '');
+        $browserPath = config('services.pdf.puppeteer_browser_path', '');
         $isWindows = DIRECTORY_SEPARATOR === '\\';
 
         $scriptArg = escapeshellarg(str_replace('\\', '/', $scriptPath));
