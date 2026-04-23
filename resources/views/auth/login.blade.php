@@ -9,10 +9,9 @@
 
         {{-- Email --}}
         <div>
-            <label for="email" class="block text-sm font-medium" style="color:#9ca3af; font-size:0.8125rem;">Email</label>
+            <label for="email" class="block text-xs font-medium mb-1">Email</label>
             <input id="email" type="email" name="email" value="{{ old('email') }}" required autofocus autocomplete="username"
-                   class="block mt-1 w-full rounded-lg px-3 py-2 text-sm"
-                   style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#f9fafb;" />
+                   class="block w-full rounded-md px-3 py-2 text-sm" />
             @error('email')
                 <p class="error-text mt-1">{{ $message }}</p>
             @enderror
@@ -20,14 +19,13 @@
 
         {{-- Password --}}
         <div class="mt-4" x-data="{ show: false }">
-            <label for="password" class="block text-sm font-medium" style="color:#9ca3af; font-size:0.8125rem;">Password</label>
-            <div class="relative mt-1">
+            <label for="password" class="block text-xs font-medium mb-1">Password</label>
+            <div class="relative">
                 <input id="password" :type="show ? 'text' : 'password'" name="password" required autocomplete="current-password"
-                       class="block w-full rounded-lg px-3 py-2 text-sm pr-10"
-                       style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#f9fafb;" />
+                       class="block w-full rounded-md px-3 py-2 text-sm pr-10" />
                 <button type="button" @click="show = !show"
                         class="absolute inset-y-0 right-0 flex items-center pr-3 focus:outline-none"
-                        style="color:#9ca3af;" title="Toggle password visibility">
+                        style="color: var(--text-muted, #9ca3af);" title="Toggle password visibility">
                     {{-- Eye open (visible when password is hidden) --}}
                     <svg x-show="!show" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -46,9 +44,8 @@
 
         {{-- Remember me --}}
         <div class="flex items-center mt-4">
-            <input id="remember_me" type="checkbox" name="remember"
-                   class="rounded border-gray-600 w-4 h-4" style="accent-color:#00b4d8;" />
-            <label for="remember_me" class="ms-2 text-sm remember-label" style="color:#9ca3af; font-size:0.8125rem;">Remember me</label>
+            <input id="remember_me" type="checkbox" name="remember" class="rounded w-4 h-4" />
+            <label for="remember_me" class="ms-2 remember-label text-xs font-medium">Remember me</label>
         </div>
 
         {{-- Actions --}}
@@ -59,13 +56,7 @@
                 <span></span>
             @endif
 
-            <button type="submit" class="login-btn">Sign in</button>
-        </div>
-
-        {{-- Register link --}}
-        <div class="mt-4 text-center">
-            <span style="color:#9ca3af; font-size:0.8125rem;">Don't have an account?</span>
-            <a href="{{ route('register') }}" class="forgot-link" style="margin-left:4px;">Register here</a>
+            <button type="submit" class="corex-btn-primary">Sign in</button>
         </div>
     </form>
 </x-guest-layout>

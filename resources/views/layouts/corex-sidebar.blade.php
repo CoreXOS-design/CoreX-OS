@@ -102,7 +102,7 @@
     </div>
     @if($_userAgency)
     <div class="px-4 -mt-1 pb-2">
-        <div class="text-[10px] font-semibold uppercase tracking-widest text-center truncate" style="color:var(--text-muted); opacity:0.6;">
+        <div class="text-[0.6875rem] font-semibold uppercase tracking-widest text-center truncate" style="color:var(--text-muted); opacity:0.6;">
             {{ $_userAgency->name }}@if($_activeBranch || ($_branchViewAll && $_agencyBranches->count() > 0)) <span style="opacity:0.5;">—</span>
                 @if($_branchViewAll && !$_viewAsBranchId)
                     <span>All Branches</span>
@@ -164,19 +164,19 @@
     @if($isOwner)
     <div x-data="{ agencyOpen: false }" class="px-3 pb-2">
         <button type="button" @click="agencyOpen = !agencyOpen"
-                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
                 style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 flex-shrink-0">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
             </svg>
             <span class="flex-1 text-left truncate">{{ $activeAgency ? $activeAgency->name : 'All Agencies' }}</span>
             @if(!$activeAgency)
-            <span class="w-2 h-2 rounded-full flex-shrink-0 animate-pulse" style="background:#eab308;"></span>
+            <span class="w-2 h-2 rounded-full flex-shrink-0 animate-pulse" style="background:var(--ds-amber);"></span>
             @endif
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 flex-shrink-0 transition-transform duration-150" :class="agencyOpen && 'rotate-90'"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
         </button>
         <div x-show="agencyOpen" x-cloak @click.outside="agencyOpen = false" x-transition
-             class="mt-1 rounded-lg overflow-hidden shadow-lg"
+             class="mt-1 rounded-md overflow-hidden shadow-lg"
              style="background:var(--surface-2, #1a1e28); border:1px solid var(--border);">
             @foreach($agencies as $ag)
             <form method="POST" action="{{ route('agency.switch', $ag) }}">
@@ -557,7 +557,7 @@
                 <a href="{{ route('compliance.agents') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agents') ? 'active' : '' }}">
                     Agent Compliance
                     @if($nonCompliantAgents > 0)
-                    <span class="ml-auto w-2 h-2 rounded-full bg-red-500 flex-shrink-0 inline-block"></span>
+                    <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 inline-block"></span>
                     @endif
                 </a>
                 @endif
@@ -566,7 +566,7 @@
                 <a href="{{ route('compliance.verification.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.verification.*') ? 'active' : '' }}">
                     Verification Queue
                     @if($pendingVerificationCount > 0)
-                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center" style="min-width:18px; height:18px; border-radius:9px; background:rgba(0,212,170,0.15); color:#00d4aa; font-size:0.6rem; font-weight:700; padding:0 5px;">{{ $pendingVerificationCount }}</span>
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber) 15%, transparent); color:var(--ds-amber);">{{ number_format($pendingVerificationCount) }}</span>
                     @endif
                 </a>
                 @endpermission
@@ -938,7 +938,7 @@
             </svg>
             <span>Onboarding</span>
             @if($onboardingCount > 0)
-            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold bg-blue-500 text-white">{{ $onboardingCount }}</span>
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($onboardingCount) }}</span>
             @endif
         </a>
         @endif
@@ -962,7 +962,7 @@
             </svg>
             <span>Fault Reports</span>
             @if($faultNewCount > 0)
-            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold bg-red-500 text-white">{{ $faultNewCount }}</span>
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold" style="background:color-mix(in srgb, var(--ds-crimson) 15%, transparent); color:var(--ds-crimson);">{{ number_format($faultNewCount) }}</span>
             @endif
         </a>
         @endif
@@ -1067,7 +1067,7 @@
         {{-- Switch user panel --}}
         @if($canSwitchUsers)
         <div x-show="switchPanel" x-cloak @click.outside="switchPanel = false" x-transition class="corex-switch-panel">
-            <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-2 py-1">Switch User</div>
+            <div class="text-[0.6875rem] uppercase tracking-wider font-semibold px-2 py-1" style="color:var(--text-muted);">Switch User</div>
             <div class="corex-switch-list">
                 @foreach($switchUsers as $su)
                     @if((int)$su->id !== (int)($user->id ?? 0))
@@ -1075,7 +1075,7 @@
                         @csrf
                         <button type="submit" class="corex-switch-item">
                             <div class="text-xs text-white/90">{{ $su->name }}</div>
-                            <div class="text-[10px] text-white/50">{{ $su->email }} · {{ $su->role }}</div>
+                            <div class="text-[0.6875rem] text-white/50">{{ $su->email }} · {{ $su->role }}</div>
                         </button>
                     </form>
                     @endif

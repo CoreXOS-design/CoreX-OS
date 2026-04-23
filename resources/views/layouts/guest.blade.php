@@ -15,15 +15,29 @@
         @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
 
         <style>
+            /* Guest-only brand defaults: agency tokens aren't injected on unauthenticated pages,
+               so pin CoreX corporate brand values here. Tokens over hex per UI_DESIGN_SYSTEM §1.4. */
+            :root {
+                --brand-default: #0b2a4a;
+                --brand-button:  #00b4d8;
+                --brand-icon:    #33c4e0;
+                --brand-sidebar: #33c4e0;
+            }
+
             body {
-                background: linear-gradient(135deg, #071e35 0%, #0b2a4a 50%, #0d3259 100%);
+                background: linear-gradient(
+                    135deg,
+                    color-mix(in srgb, var(--brand-default) 85%, #000) 0%,
+                    var(--brand-default) 50%,
+                    color-mix(in srgb, var(--brand-default) 92%, #fff) 100%
+                );
                 min-height: 100vh;
             }
 
-            /* Override Breeze component styles for dark login card */
+            /* Dark card overrides — the card is always dark-themed regardless of user theme. */
             .login-card label {
-                color: #9ca3af;
-                font-size: 0.8125rem;
+                color: var(--text-muted, #9ca3af);
+                font-size: 0.75rem;
                 font-weight: 500;
             }
 
@@ -33,7 +47,7 @@
                 background: rgba(255, 255, 255, 0.06);
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 color: #f9fafb;
-                border-radius: 0.5rem;
+                border-radius: 6px;
             }
 
             .login-card input[type="email"]::placeholder,
@@ -43,52 +57,39 @@
 
             .login-card input[type="email"]:focus,
             .login-card input[type="password"]:focus {
-                border-color: #00b4d8;
-                box-shadow: 0 0 0 3px rgba(0, 180, 216, 0.15);
+                border-color: var(--brand-button);
+                box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button) 15%, transparent);
                 outline: none;
                 background: rgba(255, 255, 255, 0.08);
             }
 
             .login-card input[type="checkbox"] {
-                accent-color: #00b4d8;
+                accent-color: var(--brand-button);
             }
 
             .login-card .remember-label {
-                color: #9ca3af;
+                color: var(--text-muted, #9ca3af);
             }
 
             .login-card .forgot-link {
-                color: #33c4e0;
-                font-size: 0.8125rem;
+                color: var(--brand-icon);
+                font-size: 0.75rem;
+                font-weight: 500;
+                text-decoration: none;
+                transition: color 150ms;
             }
             .login-card .forgot-link:hover {
-                color: #00b4d8;
-            }
-
-            .login-card .login-btn {
-                background: #00b4d8;
-                color: #fff;
-                font-weight: 600;
-                letter-spacing: 0.01em;
-                border-radius: 0.5rem;
-                padding: 0.6rem 1.75rem;
-                border: none;
-                cursor: pointer;
-                transition: background 150ms;
-                font-size: 0.9rem;
-            }
-            .login-card .login-btn:hover {
-                background: #0090b0;
+                color: var(--brand-button);
             }
 
             .login-card .error-text {
                 color: #f87171;
-                font-size: 0.8125rem;
+                font-size: 0.75rem;
             }
 
             .login-card .session-status {
                 color: #34d399;
-                font-size: 0.8125rem;
+                font-size: 0.75rem;
                 margin-bottom: 1rem;
             }
         </style>
@@ -100,14 +101,14 @@
             {{-- Branding --}}
             <div class="mb-8 text-center">
                 <div style="font-size: 2rem; font-weight: 800; letter-spacing: -0.04em; color: #fff; line-height: 1;">
-                    CoreX <span style="color: #33c4e0;">Os</span>
+                    CoreX <span style="color: var(--brand-icon);">Os</span>
                 </div>
             </div>
 
             {{-- Login card --}}
-            <div class="login-card w-full" style="max-width: 400px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 1rem; padding: 2.25rem 2rem; backdrop-filter: blur(8px);">
+            <div class="login-card w-full rounded-md" style="max-width: 400px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 2.25rem 2rem; backdrop-filter: blur(8px);">
 
-                <div style="color: rgba(255,255,255,0.55); font-size: 0.8125rem; font-weight: 500; margin-bottom: 1.5rem; text-align: center; letter-spacing: 0.02em;">
+                <div class="text-xs font-medium text-center mb-6" style="color: rgba(255,255,255,0.55); letter-spacing: 0.02em;">
                     Sign in to your account
                 </div>
 
@@ -116,8 +117,8 @@
             </div>
 
             {{-- Footer --}}
-            <div style="margin-top: 2rem; color: rgba(255,255,255,0.2); font-size: 0.7rem; text-align: center;">
-                &copy; {{ date('Y') }} Home Finders Coastal. All rights reserved.
+            <div class="mt-8 text-center" style="color: rgba(255,255,255,0.2); font-size: 0.6875rem;">
+                &copy; {{ date('Y') }} CoreX OS. All rights reserved.
             </div>
 
         </div>

@@ -66,7 +66,7 @@
                     <tr>
                         <td align="center" style="padding-top:24px;">
                             <p style="margin:0; font-size:0.6875rem; color:#9ca3af;">
-                                &copy; {{ date('Y') }} Home Finders Coastal. All rights reserved.
+                                &copy; {{ date('Y') }} CoreX OS. All rights reserved.
                             </p>
                         </td>
                     </tr>
