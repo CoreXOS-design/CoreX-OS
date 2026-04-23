@@ -123,6 +123,32 @@
             </select>
             @endif
 
+            {{-- Mine / All pill toggle (role must grant scope='branch' or 'all' on properties.view) --}}
+            @if($canPickAgent)
+            @php
+                $cuId        = (string) auth()->id();
+                $vtIsMine    = (string) $filterAgentId === $cuId;
+                $vtIsAll     = $filterAgentId === '';
+                $vtCarry     = request()->except(['agent_id', 'page']);
+                $vtMineUrl   = route('corex.properties.index', array_merge($vtCarry, ['agent_id' => $cuId]));
+                $vtAllUrl    = route('corex.properties.index', array_merge($vtCarry, ['agent_id' => '']));
+            @endphp
+            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <a href="{{ $vtMineUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="{{ $vtIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show only my listings">
+                    My Listings
+                </a>
+                <a href="{{ $vtAllUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $vtIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all {{ $dataScope === 'branch' ? 'branch' : 'agency' }} listings">
+                    All Listings
+                </a>
+            </div>
+            @endif
+
             {{-- Status --}}
             <select name="status" onchange="this.form.submit()" class="list-header-filter">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>

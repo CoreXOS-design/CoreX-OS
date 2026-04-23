@@ -38,12 +38,14 @@ class Agency extends Model
         'popi_url',
         'is_active',
         'dashboard_settings_mode',
+        'split_branches_enabled',
         'p24_agency_id',
         'p24_agency_label',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'split_branches_enabled' => 'boolean',
     ];
 
     public function branches(): HasMany

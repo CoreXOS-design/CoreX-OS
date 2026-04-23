@@ -3,6 +3,7 @@
 namespace App\Models\Compliance;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class UserComplianceOverride extends Model
 {
-    use SoftDeletes, BelongsToAgency;
+    use SoftDeletes, BelongsToAgency, BelongsToBranch;
 
     public const OVERRIDE_EXEMPT          = 'exempt';
     public const OVERRIDE_WAIVED          = 'waived';

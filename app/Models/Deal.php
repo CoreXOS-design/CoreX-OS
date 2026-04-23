@@ -3,13 +3,79 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Scopes\DealBranchScope;
 use App\Services\Finance\CommissionCalculator;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Deal extends Model
 {
     use SoftDeletes, BelongsToAgency;
+
+    protected static function booted(): void
+    {
+        // Pivot-based branch isolation — see spec §5 + §11
+        static::addGlobalScope(new DealBranchScope());
+
+        // Mirror deals.branch_id into the deal_branches pivot as the
+        // originator row when a deal is created. If a deal is created
+        // without branch_id (legacy), the pivot stays empty and the
+        // deal is only visible to `branches.view_all` holders.
+        static::created(function (Deal $deal) {
+            if ($deal->branch_id && !$deal->branches()->where('branches.id', $deal->branch_id)->exists()) {
+                $deal->branches()->attach($deal->branch_id, ['role' => 'originator']);
+            }
+        });
+
+        // If the branch_id on the deal changes, keep the originator
+        // row in sync. Co-branches are managed explicitly via
+        // attachCoBranch()/detachCoBranch() and are left alone here.
+        static::updated(function (Deal $deal) {
+            if (!$deal->wasChanged('branch_id') || !$deal->branch_id) {
+                return;
+            }
+            $deal->branches()->newPivotStatement()
+                ->where('deal_id', $deal->id)
+                ->where('role', 'originator')
+                ->delete();
+            $deal->branches()->attach($deal->branch_id, ['role' => 'originator']);
+        });
+    }
+
+    /**
+     * All branches attached to this deal (originator + co-branches).
+     */
+    public function branches(): BelongsToMany
+    {
+        return $this->belongsToMany(Branch::class, 'deal_branches')
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
+    /**
+     * Attach a co-branch to this deal. No-op if already attached.
+     */
+    public function attachCoBranch(int $branchId): void
+    {
+        if ($this->branches()->where('branches.id', $branchId)->exists()) {
+            return;
+        }
+        $this->branches()->attach($branchId, ['role' => 'co_branch']);
+    }
+
+    /**
+     * Detach a co-branch. The originator row is protected — use
+     * reassignOriginator() to move the mandate-holding branch.
+     */
+    public function detachCoBranch(int $branchId): void
+    {
+        $this->branches()->newPivotStatement()
+            ->where('deal_id', $this->id)
+            ->where('branch_id', $branchId)
+            ->where('role', 'co_branch')
+            ->delete();
+    }
 
     protected $fillable = [
         'agency_id',

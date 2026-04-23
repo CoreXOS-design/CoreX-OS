@@ -17,6 +17,19 @@
     $_userAgencyId = $user?->effectiveAgencyId();
     $_userAgency = $_userAgencyId ? \App\Models\Agency::find($_userAgencyId) : null;
 
+    // Branch-isolation Phase 2: header tag + switcher state
+    $_splitBranchesOn = (bool) ($_userAgency?->split_branches_enabled ?? false);
+    $_branchViewAll   = $user && $user->hasPermission('branches.view_all');
+    $_branchCanSwitch = $user && $user->hasPermission('branches.switch');
+    $_viewAsBranchId  = session('view_as_branch_id');
+    $_activeBranch    = $user ? ($_viewAsBranchId
+        ? \App\Models\Branch::find($_viewAsBranchId)
+        : ($user->branch_id ? \App\Models\Branch::find($user->branch_id) : null)
+    ) : null;
+    $_agencyBranches  = $_userAgencyId
+        ? \App\Models\Branch::where('agency_id', $_userAgencyId)->orderBy('name')->get()
+        : collect();
+
     // Impersonation state
     $impersonatorId  = (int) session('impersonator_id', 0);
     $isImpersonating = $impersonatorId > 0;
@@ -90,8 +103,60 @@
     @if($_userAgency)
     <div class="px-4 -mt-1 pb-2">
         <div class="text-[10px] font-semibold uppercase tracking-widest text-center truncate" style="color:var(--text-muted); opacity:0.6;">
-            {{ $_userAgency->name }}
+            {{ $_userAgency->name }}@if($_activeBranch || ($_branchViewAll && $_agencyBranches->count() > 0)) <span style="opacity:0.5;">—</span>
+                @if($_branchViewAll && !$_viewAsBranchId)
+                    <span>All Branches</span>
+                @elseif($_activeBranch)
+                    <span>{{ $_activeBranch->name }}</span>@if($_viewAsBranchId) <span style="color:var(--brand-icon, #0ea5e9); text-transform:none; letter-spacing:normal; font-weight:500;">(viewing as)</span>@endif
+                @endif
+            @endif
         </div>
+
+        {{-- Branch switcher (Split Branches Phase 2) --}}
+        @if($_branchCanSwitch && $_agencyBranches->count() > 1)
+        <div x-data="{ branchOpen: false }" class="mt-2 px-0">
+            <button type="button" @click="branchOpen = !branchOpen"
+                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
+                    style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3 flex-shrink-0">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15" />
+                </svg>
+                <span class="flex-1 text-left truncate">
+                    @if($_viewAsBranchId && $_activeBranch)
+                        Exit branch view
+                    @else
+                        Switch Branch
+                    @endif
+                </span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 transition-transform" :class="branchOpen && 'rotate-90'">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+            </button>
+            <div x-show="branchOpen" x-cloak @click.outside="branchOpen = false" x-transition
+                 class="mt-1 rounded-md overflow-hidden shadow-lg"
+                 style="background:var(--surface-2); border:1px solid var(--border);">
+                @if($_viewAsBranchId)
+                <form method="POST" action="{{ route('branch.switch.clear') }}">
+                    @csrf
+                    <button type="submit" class="w-full text-left px-3 py-2 text-xs hover:bg-white/10"
+                            style="color:var(--brand-icon, #0ea5e9);">
+                        ← All Branches
+                    </button>
+                </form>
+                @endif
+                @foreach($_agencyBranches as $_b)
+                <form method="POST" action="{{ route('branch.switch', $_b) }}">
+                    @csrf
+                    <button type="submit"
+                            class="w-full text-left px-3 py-2 text-xs hover:bg-white/10 {{ (int) $_viewAsBranchId === (int) $_b->id ? 'font-semibold' : '' }}"
+                            @if((int) $_viewAsBranchId === (int) $_b->id) style="color:var(--brand-icon, #0ea5e9);" @endif>
+                        {{ $_b->name }}
+                    </button>
+                </form>
+                @endforeach
+            </div>
+        </div>
+        @endif
     </div>
     @endif
 
@@ -181,6 +246,19 @@
             @if($portalNeedsAttention)
             <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
             @endif
+        </a>
+        @endpermission
+
+        {{-- ═══════════════════════════════════════════
+             AGENCY DOCUMENTS (staff read-only)
+             ═══════════════════════════════════════════ --}}
+        @permission('view_agency_documents')
+        <a href="{{ route('my-portal.agency-documents') }}"
+           class="corex-nav-item {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            <span>Agency Documents</span>
         </a>
         @endpermission
 
@@ -506,8 +584,11 @@
                 </a>
                 @endpermission
                 @permission('manage_agency_compliance')
-                <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Provisions</a>
+                <a href="{{ route('compliance.document-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.document-types.*') ? 'active' : '' }}">Document Types</a>
                 @endpermission
+                @if(auth()->user()->hasPermission('manage_agency_compliance') || auth()->user()->hasPermission('manage_branch_compliance'))
+                <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Documents</a>
+                @endif
             </div>
         </div>
         @endpermission

@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'owner_only' => \App\Http\Middleware\OwnerOnly::class,
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,
+                'branch.required' => \App\Http\Middleware\RequiresBranchAssignment::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

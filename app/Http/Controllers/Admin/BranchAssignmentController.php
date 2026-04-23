@@ -71,19 +71,64 @@ class BranchAssignmentController extends Controller
         return redirect()->back();
     }
 
-    public function deleteBranch(Branch $branch)
+    public function deleteBranch(Request $request, Branch $branch)
     {
         $this->authorizeAdmin();
 
-        $inUse = DB::table('branch_assignments')->where('branch_id', $branch->id)->exists();
+        // Who is still attached to this branch?
+        $assignedUserIds = User::where('branch_id', $branch->id)->pluck('id')->all();
+        $legacyPivotUserIds = DB::table('branch_assignments')->where('branch_id', $branch->id)->pluck('user_id')->all();
+        $allAttachedUserIds = array_unique(array_merge($assignedUserIds, $legacyPivotUserIds));
 
-        if ($inUse) {
-            return back()->withErrors('Cannot delete branch: users are still assigned.');
+        // Spec §9: if any users are attached we require a reassignment map
+        // (user_id => target_branch_id). Without it, refuse and let the UI
+        // open the reassignment modal.
+        if (!empty($allAttachedUserIds)) {
+            $reassignments = $request->input('reassignments', []);
+
+            if (empty($reassignments) || !is_array($reassignments)) {
+                return back()->withErrors([
+                    'branch' => 'This branch has ' . count($allAttachedUserIds) . ' user(s) assigned. Reassign them before archiving.',
+                ])->withInput(['reassign_for_branch' => $branch->id]);
+            }
+
+            // Validate targets: each target branch must be in the same agency
+            // and not the branch we're about to archive.
+            $validTargetIds = Branch::where('agency_id', $branch->agency_id)
+                ->where('id', '!=', $branch->id)
+                ->pluck('id')
+                ->flip();
+
+            foreach ($reassignments as $userId => $targetBranchId) {
+                if (!in_array((int) $userId, $allAttachedUserIds, true)) {
+                    return back()->withErrors(['branch' => "User {$userId} is not assigned to this branch."]);
+                }
+                if (!$validTargetIds->has((int) $targetBranchId)) {
+                    return back()->withErrors(['branch' => "Invalid target branch for user {$userId}."]);
+                }
+            }
+
+            // All or nothing — every attached user must have a target
+            $unaddressed = array_diff($allAttachedUserIds, array_keys($reassignments));
+            if (!empty($unaddressed)) {
+                return back()->withErrors(['branch' => 'All attached users must be reassigned before archiving.']);
+            }
+
+            DB::transaction(function () use ($reassignments, $branch) {
+                foreach ($reassignments as $userId => $targetBranchId) {
+                    User::where('id', (int) $userId)->update(['branch_id' => (int) $targetBranchId]);
+                    DB::table('branch_assignments')
+                        ->where('user_id', (int) $userId)
+                        ->update(['branch_id' => (int) $targetBranchId, 'updated_at' => now()]);
+                }
+                $branch->delete();
+            });
+
+            return redirect()->route('admin.branch-assignments')->with('success', "Reassigned " . count($reassignments) . " user(s) and archived {$branch->name}.");
         }
 
         $branch->delete();
-
-        return redirect()->back();
+        return redirect()->route('admin.branch-assignments')->with('success', "Archived branch {$branch->name}.");
     }
 
     private function authorizeAdmin()

@@ -567,14 +567,21 @@
                 </div>
                 @endif
 
-                {{-- Card: Private Property Sync (edit only) --}}
+                {{-- Card: Private Property (edit only) --}}
                 @if($isEdit)
                 <div class="rounded-xl p-6" style="background:var(--surface); border:1px solid var(--border);"
                      x-data="{
                          syncing: false, syncMsg: '', syncOk: null,
-                         claimLoading: false, claimMsg: '', claimOk: null,
-                         ppAgentId: '',
+                         updateLoading: false, updateMsg: '', updateOk: null,
+                         externalRef: '{{ $user->id }}',
+                         ppEncryptedId: '',
                          ppUniqueAgentId: '{{ $user->pp_unique_agent_id ?? '' }}',
+
+                         get badgeColor() {
+                             if (this.updateOk === false) return { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', label: 'Error' };
+                             if (this.ppUniqueAgentId) return { bg: 'rgba(0,212,170,0.12)', color: '#00d4aa', label: 'Claimed' };
+                             return { bg: 'var(--surface-2)', color: 'var(--text-muted)', label: 'Default' };
+                         },
 
                          async syncAgent() {
                              this.syncing = true; this.syncMsg = ''; this.syncOk = null;
@@ -590,73 +597,100 @@
                              this.syncing = false;
                          },
 
-                         async claimOwnership() {
-                             if (!this.ppAgentId.trim()) { this.claimOk = false; this.claimMsg = 'Enter a PP Encrypted ID'; return; }
-                             if (!confirm('This will permanently claim PP ownership of this agent. This action cannot be undone. Continue?')) return;
-                             this.claimLoading = true; this.claimMsg = ''; this.claimOk = null;
+                         async updateExternalRef() {
+                             if (!this.externalRef.toString().trim()) {
+                                 this.updateOk = false; this.updateMsg = 'External Ref cannot be blank'; return;
+                             }
+                             if (!confirm('This will update the External Ref for {{ addslashes($user->name) }} on Private Property. Are you sure?')) return;
+                             this.updateLoading = true; this.updateMsg = ''; this.updateOk = null;
                              try {
-                                 const res = await fetch('{{ route('admin.users.pp.update-id', $user) }}', {
+                                 const res = await fetch('{{ route('admin.users.pp.update-external-ref', $user) }}', {
                                      method: 'POST',
                                      headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
-                                     body: JSON.stringify({ pp_agent_id: this.ppAgentId }),
+                                     body: JSON.stringify({ external_ref: this.externalRef, pp_encrypted_id: this.ppEncryptedId }),
                                  });
                                  const data = await res.json();
-                                 this.claimOk = data.success;
-                                 this.claimMsg = data.message;
-                                 if (data.success && data.pp_unique_agent_id) {
-                                     this.ppUniqueAgentId = data.pp_unique_agent_id;
-                                     this.ppAgentId = '';
+                                 this.updateOk = data.success;
+                                 if (data.success) {
+                                     this.updateMsg = 'Updated — PP External Ref is now ' + (data.external_ref ?? this.externalRef);
+                                     if (data.pp_unique_agent_id) this.ppUniqueAgentId = data.pp_unique_agent_id;
+                                     if (data.external_ref) this.externalRef = data.external_ref;
+                                     this.ppEncryptedId = '';
+                                 } else {
+                                     this.updateMsg = data.message || 'Update failed';
                                  }
-                             } catch (e) { this.claimOk = false; this.claimMsg = 'Network error'; }
-                             this.claimLoading = false;
+                             } catch (e) { this.updateOk = false; this.updateMsg = 'Network error'; }
+                             this.updateLoading = false;
                          }
                      }">
-                    <div class="flex items-center gap-2 mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.935-2.186 2.25 2.25 0 0 0-3.935 2.186Z" /></svg>
-                        <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Private Property Sync</h3>
+                    <div class="flex items-center justify-between gap-2 mb-4">
+                        <div class="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.935-2.186 2.25 2.25 0 0 0-3.935 2.186Z" /></svg>
+                            <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Private Property</h3>
+                        </div>
+                        <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded"
+                              :style="'background:' + badgeColor.bg + '; color:' + badgeColor.color + '; border-radius:3px;'"
+                              x-text="badgeColor.label"></span>
                     </div>
 
-                    {{-- Current status --}}
+                    {{-- External Ref (Agent ID) --}}
                     <div class="mb-4">
-                        <span class="text-xs font-medium" style="color:var(--text-secondary);">PP Agent ID:</span>
-                        <span class="text-sm font-mono ml-2" style="color:var(--text-primary);"
-                              x-text="ppUniqueAgentId || 'Not synced'"
-                              :style="ppUniqueAgentId ? '' : 'color:var(--text-muted); font-style:italic;'"></span>
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">External Ref (Agent ID)</label>
+                        <input type="text" x-model="externalRef" maxlength="100"
+                               class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        <p class="text-[11px] mt-1.5" style="color:var(--text-muted);">
+                            This is the ID PP shows as "External Ref" in their portal.
+                            Defaults to your CoreX user ID. Change it here to update PP.
+                        </p>
                     </div>
 
-                    {{-- Sync agent button --}}
+                    {{-- PP Encrypted Agent ID --}}
                     <div class="mb-4">
-                        <button type="button" @click="syncAgent()" :disabled="syncing"
-                                class="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors"
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">PP Encrypted Agent ID <span style="color:var(--text-muted); font-weight:400;">(from PP support)</span></label>
+                        <input type="text" x-model="ppEncryptedId" placeholder="Leave blank unless provided by PP" maxlength="500"
+                               class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        <p class="text-[11px] mt-1.5" style="color:#f59e0b;">
+                            Only fill this in if PP support has provided you with an encrypted agent ID.
+                            Required only when claiming ownership of an agent originally created by another vendor.
+                        </p>
+                    </div>
+
+                    {{-- Sync status --}}
+                    <div class="mb-4 flex items-center gap-2">
+                        <span class="text-xs font-medium" style="color:var(--text-secondary);">PP Sync Status:</span>
+                        <span class="text-xs font-medium"
+                              :style="ppUniqueAgentId ? 'color:#00d4aa' : 'color:var(--text-muted)'"
+                              x-text="ppUniqueAgentId ? 'Synced' : 'Not synced'"></span>
+                    </div>
+
+                    {{-- Update PP Agent ID button --}}
+                    <div class="mb-4">
+                        <button type="button" @click="updateExternalRef()" :disabled="updateLoading"
+                                class="w-full px-4 py-2 rounded-md text-sm font-medium text-white transition-colors"
                                 style="background:var(--brand-button, #0ea5e9);"
                                 onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                            <span x-show="!updateLoading">Update PP Agent ID</span>
+                            <span x-show="updateLoading" x-cloak>Updating...</span>
+                        </button>
+                        <p x-show="updateMsg" x-cloak class="mt-2 text-xs font-medium"
+                           :style="updateOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="updateMsg"></p>
+                    </div>
+
+                    {{-- Sync agent (re-register) --}}
+                    <div class="pt-4" style="border-top:1px solid var(--border);">
+                        <button type="button" @click="syncAgent()" :disabled="syncing"
+                                class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                style="color:var(--text-secondary); border:1px solid var(--border); background:var(--surface-2);"
+                                onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='var(--surface-2)'">
                             <span x-show="!syncing">Sync Agent to Private Property</span>
                             <span x-show="syncing" x-cloak>Syncing...</span>
                         </button>
                         <p x-show="syncMsg" x-cloak class="mt-2 text-xs font-medium"
                            :style="syncOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="syncMsg"></p>
-                    </div>
-
-                    {{-- Update PP Ownership --}}
-                    <div class="pt-4" style="border-top:1px solid var(--border);">
-                        <h4 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-secondary);">Update PP Ownership</h4>
-                        <div class="flex items-end gap-3">
-                            <div class="flex-1">
-                                <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">PP Encrypted ID</label>
-                                <input type="text" x-model="ppAgentId" placeholder="Paste encrypted ID from PP"
-                                       class="w-full px-3 py-2 rounded-md text-sm"
-                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <button type="button" @click="claimOwnership()" :disabled="claimLoading"
-                                    class="px-4 py-2 rounded-md text-sm font-medium text-white transition-colors flex-shrink-0"
-                                    style="background:var(--brand-button, #0ea5e9);"
-                                    onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-                                <span x-show="!claimLoading">Claim Ownership</span>
-                                <span x-show="claimLoading" x-cloak>Updating...</span>
-                            </button>
-                        </div>
-                        <p x-show="claimMsg" x-cloak class="mt-2 text-xs font-medium"
-                           :style="claimOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="claimMsg"></p>
                     </div>
                 </div>
                 @endif

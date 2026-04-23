@@ -211,7 +211,7 @@
                                             <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
                                                 <div>
                                                     <p class="text-sm font-medium" style="color:var(--text-primary);">Data Scope</p>
-                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">What records can this role see?</p>
+                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">None = no access. Own = locked to own records. Branch / All = user can toggle between their own records and other users' records on the list page.</p>
                                                 </div>
                                                 <div class="flex-shrink-0">
                                                     @foreach($roles as $role)

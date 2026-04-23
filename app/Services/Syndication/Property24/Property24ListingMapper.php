@@ -37,6 +37,8 @@ class Property24ListingMapper
             'descriptionHeader' => $property->headline ?? $property->title ?? '',
             'propertyInfo'      => $this->buildPropertyInfo($property, $suburbId, $propertyTypeId),
             'propertyFeatures'  => $this->buildPropertyFeatures($property),
+            'youTubeVideoId'    => $this->extractYouTubeId($property->youtube_video_id),
+            'matterportSpaceId' => $property->matterport_id ?: null,
         ];
 
         if ($property->latitude && $property->longitude) {
@@ -663,5 +665,16 @@ class Property24ListingMapper
         if (empty($address)) return '';
         $parts = explode(',', $address);
         return preg_replace('/^\d+\s+/', '', trim($parts[0] ?? ''));
+    }
+
+    private function extractYouTubeId(?string $input): ?string
+    {
+        if (!$input) return null;
+        $input = trim($input);
+        if (preg_match('/^[a-zA-Z0-9_-]{11}$/', $input)) return $input;
+        if (preg_match('/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/', $input, $m)) {
+            return $m[1];
+        }
+        return null;
     }
 }

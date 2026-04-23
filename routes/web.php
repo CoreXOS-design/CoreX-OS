@@ -138,6 +138,7 @@ Route::middleware('auth')->group(function () {
     // PP Agent ownership
     Route::post('/admin/users/{user}/pp/sync', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'sync'])->middleware('permission:manage_users')->name('admin.users.pp.sync');
     Route::post('/admin/users/{user}/pp/update-id', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateId'])->middleware('permission:manage_users')->name('admin.users.pp.update-id');
+    Route::post('/admin/users/{user}/pp/update-external-ref', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateExternalRef'])->middleware('permission:manage_users')->name('admin.users.pp.update-external-ref');
 
     Route::get('/admin/listing-targets', [ListingTargetController::class, 'index'])
         ->middleware('permission:manage_targets')->name('admin.listing-targets');
@@ -477,6 +478,14 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('permission:access_agencies')->name('agency.switch.clear');
         Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('permission:access_agencies')->name('agency.switch');
 
+        // Branch switcher (Split Branches Phase 2) — gated by branches.switch permission
+        Route::post('/branch/switch/clear', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'clear'])->name('branch.switch.clear');
+        Route::post('/branch/switch/{branch}', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'switch'])->name('branch.switch');
+
+        // Cross-branch deal attach/detach (Split Branches Phase 2 — spec §11)
+        Route::post('/admin/deals/{deal}/branches/attach', [\App\Http\Controllers\Admin\DealBranchController::class, 'attach'])->name('admin.deals.branches.attach');
+        Route::delete('/admin/deals/{deal}/branches/{branch}', [\App\Http\Controllers\Admin\DealBranchController::class, 'detach'])->name('admin.deals.branches.detach');
+
         // Agency select interstitial (no agency.required — that would cause a loop)
         Route::get('/agency/select', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'selectPage'])->name('agency.select');
         Route::post('/agency/select/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'selectAndRedirect'])->name('agency.select.submit');
@@ -734,6 +743,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
 
+    // ── Agency Documents (staff read-only view) ──
+    Route::middleware(['permission:view_agency_documents', 'agency.required'])->group(function () {
+        Route::get('/my-portal/agency-documents', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'index'])->name('my-portal.agency-documents');
+        Route::get('/my-portal/agency-documents/download/{provision}', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'download'])->name('my-portal.agency-documents.download');
+    });
+
     // ── RMCP Acknowledgement Flow ──
     Route::middleware(['permission:access_rmcp', 'agency.required'])->group(function () {
         Route::post('/my-portal/rmcp/acknowledge/start', [\App\Http\Controllers\Compliance\RmcpAcknowledgementController::class, 'start'])
@@ -898,6 +913,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{userDocument}/expire', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'markExpired'])->name('expire');
     });
 
+    // ── Agency Document Type Configuration ──
+    Route::middleware(['permission:manage_agency_compliance', 'agency.required'])->prefix('compliance/document-types')->name('compliance.document-types.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'store'])->name('store');
+        Route::get('/{slug}/edit', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'edit'])->name('edit');
+        Route::put('/{slug}', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'update'])->name('update');
+        Route::post('/{slug}/archive', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'archive'])->name('archive');
+        Route::post('/{slug}/restore', [\App\Http\Controllers\Compliance\AgencyDocumentTypeConfigController::class, 'restore'])->name('restore');
+    });
+
     // ── Agency Compliance Provisions (Settings) ──
     Route::middleware(['permission:manage_agency_compliance', 'agency.required'])->prefix('compliance/agency-settings')->name('compliance.agency-settings.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\AgencyComplianceSettingsController::class, 'index'])->name('index');
@@ -943,6 +969,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/fica-officers/{appointment}/end', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'endAppointment'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.end');
     Route::put('/settings/agency', [CoreXSettingsController::class, 'updateAgency'])->middleware('permission:access_settings')->name('corex.settings.agency.update');
+
+    // Split Branches toggle (Agency Settings tab)
+    Route::put('/settings/agency/split-branches', [CoreXSettingsController::class, 'updateSplitBranches'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.split-branches');
     Route::get('/settings/preview-header', [CoreXSettingsController::class, 'previewHeader'])->middleware('permission:access_settings')->name('corex.settings.preview-header');
     Route::get('/settings/preview-signature', [CoreXSettingsController::class, 'previewSignature'])->middleware('permission:access_settings')->name('corex.settings.preview-signature');
 
