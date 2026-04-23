@@ -92,6 +92,8 @@
         $activeGroup = 'compliance';
     } elseif (request()->routeIs('command-center.*', 'corex.dashboard')) {
         $activeGroup = 'command-center';
+    } elseif (request()->routeIs('payroll.*')) {
+        $activeGroup = 'payroll';
     }
 @endphp
 
@@ -911,7 +913,7 @@
         {{-- ═══════════════════════════════════════════
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
-        @if($user && $user->hasAnyPermission(['access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings']))
+        @if($user && $user->hasAnyPermission(['access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
@@ -968,6 +970,40 @@
             <span>Finance Engine</span>
         </a>
         @endpermission
+
+        {{-- Payroll (expandable group) --}}
+        @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        <div>
+            <button type="button" @click="toggle('payroll')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'payroll' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                </svg>
+                <span>Payroll</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'payroll' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'payroll'" @unless($activeGroup === 'payroll') x-cloak @endunless
+                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+
+                @permission('manage_payroll')
+                {{-- TODO: Replace href="#" with route('payroll.employees.index') when routes exist (Prompt G) --}}
+                <a href="#" class="corex-nav-subitem">Employees</a>
+                {{-- TODO: Replace href="#" with route('payroll.earning-types.index') when routes exist (Prompt F) --}}
+                <a href="#" class="corex-nav-subitem">Earning Types</a>
+                {{-- TODO: Replace href="#" with route('payroll.deduction-types.index') when routes exist (Prompt F) --}}
+                <a href="#" class="corex-nav-subitem">Deduction Types</a>
+                @endpermission
+
+                @permission('run_payroll')
+                {{-- TODO: Replace href="#" with route('payroll.runs.index') when routes exist (Prompt H) --}}
+                <a href="#" class="corex-nav-subitem">Runs</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
 
         {{-- Fault Reports (super_admin / owner only) --}}
         @if($isOwner || $effectiveRole === 'super_admin')

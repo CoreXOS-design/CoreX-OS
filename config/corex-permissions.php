@@ -365,6 +365,12 @@ return [
         ['key' => 'command_center.automation.manage','label' => 'Manage Automation Rules',      'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 16],
         ['key' => 'command_center.settings',         'label' => 'Manage Command Center Settings','section' => 'command-center',  'type' => 'access',  'module' => 'command_center',   'sort_order' => 17],
 
+        // ── Payroll ──
+        ['key' => 'manage_payroll',        'label' => 'Manage Payroll (employees, types)', 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 120],
+        ['key' => 'run_payroll',           'label' => 'Run & Finalise Payroll',            'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 121],
+        ['key' => 'view_payroll_reports',  'label' => 'View Payroll Reports',              'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 122],
+        ['key' => 'view_own_payslips',     'label' => 'View Own Payslips',                 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 123],
+
         // ── Branches — Split Branches (Phase 2 branch isolation) ──
         // view_all = bypass BranchScope (see all branches in the agency)
         // switch   = use the "View as Branch" dropdown to impersonate a branch
@@ -385,6 +391,10 @@ return [
 
         'admin' => [
             'exclude' => ['access_agencies', 'manage_agencies', 'manage_agency_switching'],
+            // Payroll: admin gets full payroll management
+            'include' => [
+                'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
+            ],
         ],
 
         'branch_manager' => [
@@ -454,6 +464,8 @@ return [
                 // Branches — can switch between branches of their own agency
                 // (testing / training), but does NOT bypass BranchScope by default.
                 'branches.switch',
+                // Payroll
+                'view_own_payslips',
             ],
         ],
 
@@ -505,6 +517,8 @@ return [
                 'deals_v2.view', 'deals_v2.create', 'deals_v2.edit',
                 'access_rmcp',
                 'view_own_screening',
+                // Payroll
+                'view_own_payslips',
             ],
         ],
 
