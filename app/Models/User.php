@@ -76,6 +76,11 @@ class User extends Authenticatable
         'risk_tier',
         'screening_status',
         'screening_due_on',
+
+        // Payroll
+        'date_of_birth',
+        'tax_reference_number',
+        'employment_date',
     ];
 
     protected $hidden = [
@@ -100,6 +105,8 @@ class User extends Authenticatable
         'ffc_expiry_date' => 'date',
         'pi_insurance_expiry' => 'date',
         'tax_clearance_expiry' => 'date',
+        'date_of_birth' => 'date',
+        'employment_date' => 'date',
     ];
 
     // --- View-As support (session override) ---
@@ -510,6 +517,6 @@ class User extends Authenticatable
             return null;
         }
 
-        return $dob->diffInYears($date);
+        return (int) $dob->diffInYears($date);
     }
 }
