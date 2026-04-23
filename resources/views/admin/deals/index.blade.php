@@ -125,20 +125,32 @@
         <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
             <div class="overflow-x-auto">
                 <table class="ds-table min-w-full text-sm">
+                    <colgroup>
+                        <col style="width: 85px">
+                        <col>
+                        <col style="width: 120px">
+                        <col style="width: 115px">
+                        <col style="width: 105px">
+                        @if(($branchIdContext ?? 0) > 0)
+                        <col style="width: 105px">
+                        @endif
+                        <col style="width: 80px">
+                        <col style="width: 50px">
+                        <col style="width: 140px">
+                    </colgroup>
                     <thead>
                         <tr style="background: var(--surface-2);">
                             <x-sort-header field="deal_no" label="Deal" />
                             <x-sort-header field="property_address" label="Property" />
-                            <th class="text-left px-4 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Branch / Period</th>
-                            <x-sort-header field="property_value" label="Selling Price" align="right" />
-                            <th class="text-right px-4 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Deal Commission</th>
+                            <th class="text-left px-3 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Branch</th>
+                            <x-sort-header field="property_value" label="Price" align="right" />
+                            <th class="text-right px-3 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Comm.</th>
                             @if(($branchIdContext ?? 0) > 0)
-                                <th class="text-right px-4 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Branch Commission</th>
+                                <th class="text-right px-3 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Branch Comm.</th>
                             @endif
-                            <x-sort-header field="accepted_status" label="Status" align="center" />
-                            <x-sort-header field="commission_status" label="Commission" align="center" />
-                            <th class="text-center px-4 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Quick Update</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                            <th class="text-center px-2 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
+                            <th class="px-2 py-2.5"></th>
+                            <th class="text-right px-3 py-2.5 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -162,72 +174,82 @@
                                 elseif ($csVal === 'Loss') $commBadge = 'ds-badge-loss';
                             @endphp
 
-                            <tr class="transition-all duration-300" style="border-bottom: 1px solid var(--border);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                                <td class="px-4 py-3">
+                            <tr class="relative transition-all duration-300" style="border-bottom: 1px solid var(--border);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                                <td class="px-3 py-2.5">
                                     <a href="{{ route('admin.deals.edit', $deal) }}" class="ds-agent-link font-bold">{{ $deal->deal_no }}</a>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $deal->deal_date ? \Carbon\Carbon::parse($deal->deal_date)->format('d M Y') : '—' }}</div>
                                 </td>
 
-                                <td class="px-4 py-3">
-                                    <div class="text-sm font-medium" style="color: var(--text-primary);">{{ \Illuminate\Support\Str::limit($deal->property_address, 40) ?: '—' }}</div>
-                                    <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $deal->seller_name ?: '—' }} &rarr; {{ $deal->buyer_name ?: '—' }}</div>
+                                <td class="px-3 py-2.5">
+                                    <div class="text-sm font-medium truncate" style="color: var(--text-primary);" title="{{ $deal->property_address }}">{{ \Illuminate\Support\Str::limit($deal->property_address, 35) ?: '—' }}</div>
+                                    <div class="text-xs mt-0.5 truncate" style="color: var(--text-muted);">{{ $deal->seller_name ?: '—' }} &rarr; {{ $deal->buyer_name ?: '—' }}</div>
+                                    @if(!empty($deal->attorney_name))
+                                        <div class="text-xs mt-0.5 truncate" style="color: var(--text-muted); opacity: 0.7;" title="{{ $deal->attorney_name }}">Atty: {{ $deal->attorney_name }}</div>
+                                    @endif
                                 </td>
 
-                                <td class="px-4 py-3">
-                                    <div class="text-sm font-medium" style="color: var(--text-primary);">{{ $b?->name ?? '—' }}</div>
+                                <td class="px-3 py-2.5 whitespace-nowrap">
+                                    <div class="text-xs font-medium" style="color: var(--text-primary);">{{ $b?->name ?? '—' }}</div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $deal->period ?: '—' }}</div>
                                 </td>
 
-                                <td class="px-4 py-3 text-right">
+                                <td class="px-3 py-2.5 text-right whitespace-nowrap">
                                     <div class="font-semibold" style="color: var(--text-primary);">R {{ number_format((float)$deal->property_value, 0) }}</div>
                                 </td>
 
-                                <td class="px-4 py-3 text-right">
+                                <td class="px-3 py-2.5 text-right whitespace-nowrap">
                                     <div class="font-bold" style="color: var(--text-primary);">R {{ number_format((float)$deal->totalOurCommission(), 0) }}</div>
                                 </td>
 
                                 @if(($branchIdContext ?? 0) > 0)
-                                    <td class="px-4 py-3 text-right">
+                                    <td class="px-3 py-2.5 text-right whitespace-nowrap">
                                         <div class="font-bold" style="color: var(--text-primary);">R {{ number_format((float)$deal->branchCommission($branchIdContext), 0) }}</div>
                                     </td>
                                 @endif
 
-                                <td class="px-4 py-3 text-center">
-                                    <span class="ds-badge {{ $statusBadge }}">{{ $acceptedLabel }}</span>
+                                <td class="px-2 py-2.5">
+                                    <div class="flex flex-col gap-1 items-center">
+                                        <span class="ds-badge {{ $statusBadge }}" style="font-size:0.625rem; padding:0.125rem 0.375rem;">{{ $acceptedLabel }}</span>
+                                        <span class="ds-badge {{ $commBadge }}" style="font-size:0.625rem; padding:0.125rem 0.375rem;">{{ $csVal ?: '—' }}</span>
+                                    </div>
                                 </td>
 
-                                <td class="px-4 py-3 text-center">
-                                    <span class="ds-badge {{ $commBadge }}">{{ $csVal ?: '—' }}</span>
+                                <td class="px-2 py-2.5 text-center" x-data="{ open: false }">
+                                    <button type="button" @click="open = !open" class="p-1 rounded transition-all duration-200" style="color: var(--text-muted);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" title="Quick status update">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
+                                    </button>
+                                    <div x-show="open" @click.outside="open = false" x-cloak
+                                         class="absolute right-0 z-20 mt-1 p-3 rounded-md shadow-lg" style="background: var(--surface); border: 1px solid var(--border); min-width: 200px;">
+                                        <form method="POST" action="{{ route('admin.deals.quickUpdate', $deal) }}">
+                                            @csrf
+                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-muted);">Accepted</label>
+                                            <select name="accepted_status" class="w-full rounded-md text-xs mb-2" style="height:1.75rem; padding:0 0.375rem; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                <option value="">—</option>
+                                                <option value="P" {{ $asVal === 'P' ? 'selected' : '' }}>Pending</option>
+                                                <option value="G" {{ $asVal === 'G' ? 'selected' : '' }}>Granted</option>
+                                                <option value="R" {{ $asVal === 'R' ? 'selected' : '' }}>Registered</option>
+                                                <option value="D" {{ $asVal === 'D' ? 'selected' : '' }}>Declined</option>
+                                            </select>
+                                            <label class="block text-xs font-medium mb-1" style="color: var(--text-muted);">Commission</label>
+                                            <select name="commission_status" class="w-full rounded-md text-xs mb-2" style="height:1.75rem; padding:0 0.375rem; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                                <option value="">—</option>
+                                                <option value="Not Paid" {{ $csVal === 'Not Paid' ? 'selected' : '' }}>Not Paid</option>
+                                                <option value="Paid" {{ $csVal === 'Paid' ? 'selected' : '' }}>Paid</option>
+                                                <option value="Loss" {{ $csVal === 'Loss' ? 'selected' : '' }}>Loss</option>
+                                            </select>
+                                            <button type="submit" class="corex-btn-primary w-full text-xs px-2 py-1.5">Save</button>
+                                        </form>
+                                    </div>
                                 </td>
 
-                                <td class="px-4 py-3">
-                                    <form method="POST" action="{{ route('admin.deals.quickUpdate', $deal) }}" class="flex items-center gap-1.5">
-                                        @csrf
-                                        <select name="accepted_status" class="rounded-md text-xs transition-all duration-300" style="height:1.75rem; padding:0 0.375rem; font-size:0.6875rem; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                                            <option value="">—</option>
-                                            <option value="P" {{ $asVal === 'P' ? 'selected' : '' }}>Pend</option>
-                                            <option value="G" {{ $asVal === 'G' ? 'selected' : '' }}>Grant</option>
-                                            <option value="R" {{ $asVal === 'R' ? 'selected' : '' }}>Reg</option>
-                                            <option value="D" {{ $asVal === 'D' ? 'selected' : '' }}>Decl</option>
-                                        </select>
-                                        <select name="commission_status" class="rounded-md text-xs transition-all duration-300" style="height:1.75rem; padding:0 0.375rem; font-size:0.6875rem; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                                            <option value="">—</option>
-                                            <option value="Not Paid" {{ $csVal === 'Not Paid' ? 'selected' : '' }}>Not Paid</option>
-                                            <option value="Paid" {{ $csVal === 'Paid' ? 'selected' : '' }}>Paid</option>
-                                            <option value="Loss" {{ $csVal === 'Loss' ? 'selected' : '' }}>Loss</option>
-                                        </select>
-                                        <button type="submit" class="corex-btn-primary text-xs px-2 py-1" style="font-size:0.6875rem">Save</button>
-                                    </form>
-                                </td>
-
-                                <td class="px-4 py-3 text-right">
-                                    <div class="flex items-center justify-end gap-2">
-                                        <a href="{{ route('admin.deals.log', $deal) }}" class="corex-btn-outline text-xs px-2.5 py-1">Log</a>
+                                <td class="px-3 py-2.5 text-right">
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        <a href="{{ route('admin.deals.log', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Log</a>
                                         @permission('deals.edit')
-                                        <a href="{{ route('admin.deals.edit', $deal) }}" class="corex-btn-outline text-xs px-2.5 py-1">Edit</a>
+                                        <a href="{{ route('admin.deals.edit', $deal) }}" class="corex-btn-outline text-xs px-2 py-1">Edit</a>
                                         @endpermission
                                         @permission('settle_deals')
-                                            <a href="{{ route('admin.deals.settle', $deal) }}" class="corex-btn-primary text-xs px-2.5 py-1">Pay</a>
+                                            <a href="{{ route('admin.deals.settle', $deal) }}" class="corex-btn-primary text-xs px-2 py-1">Pay</a>
                                         @endpermission
                                     </div>
                                 </td>
@@ -236,7 +258,7 @@
 
                         @if($deals->isEmpty())
                             <tr>
-                                <td colspan="{{ ($branchIdContext ?? 0) > 0 ? 10 : 9 }}" class="px-5 py-12 text-center text-sm" style="color: var(--text-muted);">No deals found.</td>
+                                <td colspan="{{ ($branchIdContext ?? 0) > 0 ? 9 : 8 }}" class="px-5 py-12 text-center text-sm" style="color: var(--text-muted);">No deals found.</td>
                             </tr>
                         @endif
                     </tbody>
