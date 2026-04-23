@@ -1,18 +1,31 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div style="background:var(--brand-default, #0b2a4a); border-radius:6px; padding:20px 24px;">
-        <h2 style="font-size:1.25rem; font-weight:800; color:#fff; margin:0 0 4px;">My Training</h2>
-        <div style="font-size:0.875rem; color:rgba(255,255,255,0.55);">Complete your required courses to stay compliant.</div>
+    {{-- Page header (§2.4 Pattern A) --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">My Training</h1>
+                <p class="text-sm text-white/60">Complete your required courses to stay compliant.</p>
+            </div>
+        </div>
     </div>
 
     @php $userId = auth()->id(); @endphp
 
     @if($courses->isEmpty())
-        <div class="rounded-md p-8 text-center" style="background:var(--surface); border:1px solid var(--border);">
-            <div class="text-sm" style="color:var(--text-secondary);">No training courses available yet.</div>
+        {{-- Empty state (§3.10) --}}
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No training courses yet</h3>
+            <p class="text-sm" style="color: var(--text-muted);">Courses will appear here as soon as your agency publishes them.</p>
         </div>
     @else
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -24,50 +37,51 @@
             $isExpiring = $completion && $completion->expires_at && $completion->expires_at->lte(now()->addDays(30)) && $completion->expires_at->gt(now());
             $isExpired = $completion && $completion->expires_at && $completion->expires_at->lte(now());
             $catColor = \App\Models\TrainingCourse::CATEGORY_COLORS[$course->category] ?? ['bg' => 'rgba(148,163,184,0.12)', 'color' => '#94a3b8'];
+            $barVariant = $isCompleted ? 'ds-bar-green' : 'ds-bar-navy';
         @endphp
-        <a href="{{ route('training.show', $course) }}" class="block no-underline rounded-lg transition-colors hover:opacity-95"
-           style="background:var(--surface); border:1px solid var(--border);">
+        <a href="{{ route('training.show', $course) }}" class="block no-underline rounded-md transition-colors"
+           style="background: var(--surface); border: 1px solid var(--border);">
             <div class="p-5">
                 <div class="flex items-start justify-between gap-2 mb-2">
-                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">{{ $course->title }}</h3>
+                    <h3 class="text-sm font-bold" style="color: var(--text-primary);">{{ $course->title }}</h3>
                     <div class="flex items-center gap-1.5 flex-shrink-0">
-                        <span class="px-2 py-0.5 rounded text-[10px] font-semibold" style="background:{{ $catColor['bg'] }}; color:{{ $catColor['color'] }};">
+                        <span class="ds-badge" style="background: {{ $catColor['bg'] }}; color: {{ $catColor['color'] }};">
                             {{ $course->category_label }}
                         </span>
                         @if($course->is_required)
-                        <span class="px-2 py-0.5 rounded text-[10px] font-bold" style="background:rgba(239,68,68,0.12); color:#ef4444;">Required</span>
+                        <span class="ds-badge ds-badge-warning">Required</span>
                         @endif
                     </div>
                 </div>
 
                 @if($course->description)
-                <p class="text-xs mb-3 line-clamp-2" style="color:var(--text-secondary);">{{ $course->description }}</p>
+                <p class="text-xs mb-3 line-clamp-2" style="color: var(--text-secondary);">{{ $course->description }}</p>
                 @endif
 
-                {{-- Progress bar --}}
+                {{-- Progress bar (§3.13) --}}
                 <div class="flex items-center gap-2 mb-2">
-                    <div class="flex-1 h-2 rounded-full overflow-hidden" style="background:var(--border);">
-                        <div class="h-full rounded-full transition-all" style="width:{{ $pct }}%; background:{{ $isCompleted ? '#22c55e' : '#0ea5e9' }};"></div>
+                    <div class="ds-progress-track">
+                        <div class="ds-progress-bar {{ $barVariant }}" style="width: {{ $pct }}%;"></div>
                     </div>
-                    <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $pct }}%</span>
+                    <span class="text-xs font-bold" style="color: var(--text-primary);">{{ $pct }}%</span>
                 </div>
 
                 <div class="flex items-center justify-between">
-                    <div class="text-xs" style="color:var(--text-muted);">
-                        {{ $course->lessons_count }} lesson{{ $course->lessons_count !== 1 ? 's' : '' }}
-                        &middot; {{ $course->totalDurationMinutes() }} min
+                    <div class="text-xs" style="color: var(--text-muted);">
+                        {{ number_format($course->lessons_count) }} lesson{{ $course->lessons_count !== 1 ? 's' : '' }}
+                        &middot; {{ number_format($course->totalDurationMinutes()) }} min
                     </div>
                     <div class="flex items-center gap-1.5">
                         @if($isExpired)
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold" style="background:rgba(239,68,68,0.12); color:#ef4444;">Expired</span>
+                            <span class="ds-badge ds-badge-danger">Expired</span>
                         @elseif($isExpiring)
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold" style="background:rgba(245,158,11,0.12); color:#f59e0b;">Expiring {{ $completion->expires_at->format('d M') }}</span>
+                            <span class="ds-badge ds-badge-warning">Expiring {{ $completion->expires_at->format('d M') }}</span>
                         @elseif($isCompleted)
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold" style="background:rgba(34,197,94,0.12); color:#22c55e;">Completed</span>
+                            <span class="ds-badge ds-badge-success">Completed</span>
                         @elseif($pct > 0)
-                            <span class="text-xs font-medium" style="color:#0ea5e9;">Continue</span>
+                            <span class="text-xs font-semibold" style="color: var(--brand-icon);">Continue</span>
                         @else
-                            <span class="text-xs font-medium" style="color:var(--text-secondary);">Start</span>
+                            <span class="text-xs font-semibold" style="color: var(--text-secondary);">Start</span>
                         @endif
                     </div>
                 </div>
