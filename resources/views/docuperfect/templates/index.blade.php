@@ -51,22 +51,42 @@
     </x-list-header>
 
     @if(session('status'))
-        <div class="rounded-md px-4 py-3 text-sm mt-4" style="border: 1px solid var(--ds-green, #10b981); background: rgba(16,185,129,0.1); color: var(--text-primary);">
-            {{ session('status') }}
+        <div class="rounded-md px-4 py-3 text-sm mt-4 flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-green);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+            <div class="flex-1">{{ session('status') }}</div>
         </div>
     @endif
 
     @if($templates->isEmpty())
-        <div class="rounded-md p-6 text-center mt-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-sm" style="color: var(--text-muted);">
-                @if(request('search') || request('document_type') || request('visibility') || request('category'))
-                    No templates match your search.
-                @elseif($showArchived)
-                    No archived templates.
-                @else
-                    No templates yet. Upload a PDF to create one.
-                @endif
+        <div class="rounded-md py-12 px-6 text-center mt-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/>
+                </svg>
             </div>
+            @if(request('search') || request('document_type') || request('visibility') || request('category'))
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No matching templates</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Try adjusting your filters or search terms.</p>
+            @elseif($showArchived)
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No archived templates</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Archived templates will appear here.</p>
+            @else
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No templates yet</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">Upload a PDF to create your first template.</p>
+                <form method="POST" action="{{ route('docuperfect.templates.upload') }}" enctype="multipart/form-data" class="inline-flex" id="tplUploadFormEmpty">
+                    @csrf
+                    <label class="corex-btn-primary cursor-pointer text-sm">
+                        + Upload Template
+                        <input type="file" name="pdf" accept=".pdf" class="hidden" onchange="document.getElementById('tplUploadFormEmpty').submit();">
+                    </label>
+                </form>
+            @endif
         </div>
     @else
         <div x-data="{ viewMode: localStorage.getItem('docuperfect_tpl_view') || 'grid' }" class="mt-4">
@@ -93,40 +113,39 @@
             {{-- Grid View --}}
             <div x-show="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 @foreach($templates as $tpl)
-                <div class="rounded-md p-4 flex flex-col transition-all duration-300 hover:shadow-lg"
-                     style="background: var(--surface); border: 1px solid var(--border);"
-                     onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border)'">
+                <div class="corex-template-card rounded-md p-4 flex flex-col transition-all duration-300"
+                     style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-start justify-between mb-1">
                         <div class="font-semibold text-sm leading-tight" style="color: var(--text-primary);">{{ $tpl->name }}</div>
                         <div class="flex items-center gap-1 ml-2 flex-shrink-0">
                             @if($tpl->category === 'sales')
-                            <span class="ds-badge text-[10px]" style="background: rgba(249,115,22,0.15); color: #ea580c;">Sales</span>
+                            <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">Sales</span>
                             @elseif($tpl->category === 'rentals')
-                            <span class="ds-badge text-[10px]" style="background: rgba(59,130,246,0.15); color: #2563eb;">Rentals</span>
+                            <span class="ds-badge ds-badge-info">Rentals</span>
                             @endif
                             @if($tpl->documentType)
-                            <span class="ds-badge text-[10px]" style="background: rgba(107,114,128,0.15); color: #6b7280;">{{ $tpl->documentType->name }}</span>
+                            <span class="ds-badge ds-badge-default">{{ $tpl->documentType->name }}</span>
                             @endif
                         </div>
                     </div>
                     <div class="text-xs mb-1 flex flex-wrap items-center gap-1" style="color: var(--text-muted);">
                         @if($tpl->is_global)
-                            <span class="ds-badge ds-badge-success text-[10px]">Global</span>
+                            <span class="ds-badge ds-badge-success">Global</span>
                         @else
                             {{ $tpl->branches->pluck('name')->join(', ') ?: 'No branches' }}
                         @endif
                         @if($tpl->is_esign)
-                            <span class="ds-badge text-[10px]" style="background: rgba(20,184,166,0.15); color: #14b8a6;">E-Sign</span>
+                            <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">E-Sign</span>
                         @endif
                     </div>
-                    <div class="text-[11px] mb-3" style="color: var(--text-muted);">{{ $tpl->page_count }} page{{ $tpl->page_count !== 1 ? 's' : '' }} &middot; {{ $tpl->owner->name ?? '—' }} &middot; {{ $tpl->created_at?->format('d M Y') ?? '—' }}</div>
+                    <div class="text-[0.6875rem] mb-3" style="color: var(--text-muted);">{{ $tpl->page_count }} page{{ $tpl->page_count !== 1 ? 's' : '' }} &middot; {{ $tpl->owner->name ?? '—' }} &middot; {{ $tpl->created_at?->format('d M Y') ?? '—' }}</div>
 
                     @if($tpl->render_type === 'web')
-                    <div class="flex-1 flex flex-col items-center justify-center mb-3 rounded-md py-6" style="background: var(--surface-raised, #1e293b); border: 1px dashed var(--border);">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00d4aa">
+                    <div class="flex-1 flex flex-col items-center justify-center mb-3 rounded-md py-6" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" style="stroke: var(--brand-icon);">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                         </svg>
-                        <span class="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background: #00d4aa; color: #0f172a;">Web Template</span>
+                        <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">Web Template</span>
                     </div>
                     @elseif($tpl->page_count > 0)
                     <div class="flex-1 flex items-center justify-center mb-3">
@@ -155,13 +174,13 @@
                             </form>
                             <form method="POST" action="{{ route('docuperfect.templates.archive', $tpl->id) }}" class="inline" onsubmit="return confirm('Archive this template?');">
                                 @csrf
-                                <button class="text-xs px-2 py-1.5 transition-all duration-300 hover:opacity-80" style="color: var(--text-muted);">Archive</button>
+                                <button class="corex-btn-outline text-xs px-3 py-1.5">Archive</button>
                             </form>
                         @endif
                         <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline ml-auto" onsubmit="return confirm('Permanently delete this template? This cannot be undone.');">
                             @csrf
                             @method('DELETE')
-                            <button class="text-xs transition-all duration-300 hover:opacity-80" style="color: #ef4444;">Delete</button>
+                            <button class="text-xs font-semibold transition-all duration-300 hover:opacity-80" style="color: var(--ds-crimson);">Delete</button>
                         </form>
                     </div>
                 </div>
@@ -173,49 +192,51 @@
                 <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
                     <table class="w-full text-sm ds-table">
                         <thead>
-                            <tr>
-                                <th class="text-left px-4 py-3 w-12"></th>
+                            <tr style="background: var(--surface-2);">
+                                <th class="text-left px-4 py-2.5 w-12"></th>
                                 <x-sort-header field="name" label="Name" />
-                                <th class="text-left px-4 py-3">Type</th>
-                                <th class="text-left px-4 py-3">Branches</th>
-                                <th class="text-left px-4 py-3">Owner</th>
+                                <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Type</th>
+                                <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branches</th>
+                                <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Owner</th>
                                 <x-sort-header field="page_count" label="Pages" align="center" />
                                 <x-sort-header field="created_at" label="Created" align="right" />
-                                <th class="text-right px-4 py-3">Actions</th>
+                                <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach($templates as $tpl)
-                            <tr class="transition-all duration-300">
+                            <tr class="transition-colors" style="border-top: 1px solid var(--border);"
+                                onmouseover="this.style.background='var(--surface-2)'"
+                                onmouseout="this.style.background=''">
                                 <td class="px-4 py-2">
                                     @if($tpl->render_type === 'web')
-                                    <div class="w-10 h-14 flex items-center justify-center rounded-md" style="background: var(--surface-raised, #1e293b); border: 1px dashed var(--border);">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00d4aa">
+                                    <div class="w-10 h-14 flex items-center justify-center rounded-md" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" style="stroke: var(--brand-icon);">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                                         </svg>
                                     </div>
                                     @elseif($tpl->page_count > 0)
                                     <img src="{{ route('docuperfect.page.image', ['id' => $tpl->id, 'page' => 0]) }}"
                                          alt="{{ $tpl->name }}"
-                                         class="w-10 h-14 object-cover rounded-md shadow-sm"
+                                         class="w-10 h-14 object-cover rounded-md"
                                          loading="lazy" />
                                     @endif
                                 </td>
                                 <td class="px-4 py-2 font-medium" style="color: var(--text-primary);">
                                     {{ $tpl->name }}
                                     @if($tpl->is_esign)
-                                        <span class="ds-badge text-[10px] ml-1" style="background: rgba(20,184,166,0.15); color: #14b8a6;">E-Sign</span>
+                                        <span class="ds-badge ml-1" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">E-Sign</span>
                                     @endif
                                 </td>
                                 <td class="px-4 py-2">
                                     <div class="flex items-center gap-1 flex-wrap">
                                         @if($tpl->category === 'sales')
-                                        <span class="ds-badge text-[10px]" style="background: rgba(249,115,22,0.15); color: #ea580c;">Sales</span>
+                                        <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">Sales</span>
                                         @elseif($tpl->category === 'rentals')
-                                        <span class="ds-badge text-[10px]" style="background: rgba(59,130,246,0.15); color: #2563eb;">Rentals</span>
+                                        <span class="ds-badge ds-badge-info">Rentals</span>
                                         @endif
                                         @if($tpl->documentType)
-                                        <span class="ds-badge text-[10px]" style="background: rgba(107,114,128,0.15); color: #6b7280;">{{ $tpl->documentType->name }}</span>
+                                        <span class="ds-badge ds-badge-default">{{ $tpl->documentType->name }}</span>
                                         @elseif($tpl->template_type)
                                         <span class="text-xs" style="color: var(--text-muted);">{{ $tpl->template_type }}</span>
                                         @endif
@@ -223,7 +244,7 @@
                                 </td>
                                 <td class="px-4 py-2 text-xs" style="color: var(--text-secondary);">
                                     @if($tpl->is_global)
-                                        <span class="ds-badge ds-badge-success text-[10px]">Global</span>
+                                        <span class="ds-badge ds-badge-success">Global</span>
                                     @else
                                         {{ $tpl->branches->pluck('name')->join(', ') ?: '—' }}
                                     @endif
@@ -248,7 +269,7 @@
                                         <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline" onsubmit="return confirm('Permanently delete?');">
                                             @csrf
                                             @method('DELETE')
-                                            <button class="text-xs px-1 transition-all duration-300 hover:opacity-80" style="color: #ef4444;">Del</button>
+                                            <button class="text-xs font-semibold px-2 py-1 transition-colors hover:opacity-80" style="color: var(--ds-crimson);">Delete</button>
                                         </form>
                                     </div>
                                 </td>

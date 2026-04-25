@@ -6,25 +6,33 @@
      x-cloak>
 
     {{-- Header --}}
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-xl font-bold text-white leading-tight">Field Groups</h2>
-            <div class="text-sm text-white/60">Create reusable groups of named fields for quick placement in templates.</div>
-        </div>
-        <div class="flex items-center gap-3">
-            <a href="{{ route('docuperfect.settings.namedFields') }}" class="text-sm text-white/70 hover:text-white">Named Fields</a>
-            <a href="{{ route('docuperfect.templates.index') }}" class="text-sm text-white/70 hover:text-white">Templates</a>
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Field Groups</h1>
+                <p class="text-sm text-white/60">Create reusable groups of named fields for quick placement in templates.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-btn-outline">Named Fields</a>
+                <a href="{{ route('docuperfect.templates.index') }}" class="corex-btn-outline">Templates</a>
+            </div>
         </div>
     </div>
 
     @if(session('status'))
-        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm">
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                    color: var(--text-primary);">
             {{ session('status') }}
         </div>
     @endif
 
     @if($errors->any())
-        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                    color: var(--text-primary);">
             {{ $errors->first() }}
         </div>
     @endif
@@ -33,37 +41,52 @@
 
         {{-- LEFT: Group list --}}
         <div class="lg:col-span-5 space-y-3">
-            <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
-                <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                    <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">Existing Groups</div>
-                    <div class="text-xs text-slate-500 dark:text-slate-400" x-text="groups.length + ' total'"></div>
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
+                    <div class="text-sm font-semibold" style="color: var(--text-primary);">Existing Groups</div>
+                    <div class="text-xs" style="color: var(--text-muted);" x-text="groups.length + ' total'"></div>
                 </div>
 
-                <div class="divide-y divide-slate-200 dark:divide-slate-800">
+                <div>
                     <template x-for="group in groups" :key="group.id">
-                        <div class="px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer transition"
-                             :class="{ 'bg-teal-50 dark:bg-teal-900/20 border-l-4 border-teal-500': editingId === group.id }"
+                        <div class="px-4 py-3 flex items-center justify-between cursor-pointer transition-colors"
+                             style="border-top: 1px solid var(--border);"
+                             :style="editingId === group.id
+                                ? 'border-top: 1px solid var(--border); background: color-mix(in srgb, var(--brand-icon) 10%, transparent); border-left: 4px solid var(--brand-icon);'
+                                : 'border-top: 1px solid var(--border);'"
+                             onmouseover="if(!this.dataset.active)this.style.background='var(--surface-2)'"
+                             onmouseout="if(!this.dataset.active)this.style.background=''"
+                             :data-active="editingId === group.id ? '1' : null"
                              @click="editGroup(group)">
                             <div>
-                                <div class="text-sm font-medium text-slate-900 dark:text-slate-100" x-text="group.name"></div>
-                                <div class="text-xs text-slate-500 dark:text-slate-400">
+                                <div class="text-sm font-medium" style="color: var(--text-primary);" x-text="group.name"></div>
+                                <div class="text-xs flex items-center gap-2 mt-0.5" style="color: var(--text-muted);">
                                     <span x-text="group.fields.length + ' field' + (group.fields.length !== 1 ? 's' : '')"></span>
-                                    <span class="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium"
-                                          :class="group.layout === 'horizontal' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'"
+                                    <span class="ds-badge"
+                                          :class="group.layout === 'horizontal' ? 'ds-badge-info' : 'ds-badge-default'"
                                           x-text="group.layout"></span>
                                 </div>
                             </div>
-                            <div class="flex items-center gap-2">
+                            <div class="flex items-center gap-3">
                                 <button @click.stop="editGroup(group)"
-                                        class="text-xs text-teal-600 hover:text-teal-800 font-medium">Edit</button>
+                                        class="text-xs font-semibold transition-colors"
+                                        style="color: var(--brand-icon);">Edit</button>
                                 <button @click.stop="deleteGroup(group)"
-                                        class="text-xs text-red-500 hover:text-red-700 font-medium">Delete</button>
+                                        class="text-xs font-semibold transition-colors"
+                                        style="color: var(--ds-crimson);">Delete</button>
                             </div>
                         </div>
                     </template>
 
-                    <div x-show="groups.length === 0" class="px-4 py-6 text-center text-sm text-slate-400">
-                        No field groups yet. Create one on the right.
+                    <div x-show="groups.length === 0" class="py-12 px-6 text-center" style="border-top: 1px solid var(--border);">
+                        <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                             style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No field groups yet</h3>
+                        <p class="text-sm" style="color: var(--text-muted);">Create your first group on the right.</p>
                     </div>
                 </div>
             </div>
@@ -71,29 +94,34 @@
 
         {{-- RIGHT: Create/Edit form --}}
         <div class="lg:col-span-7">
-            <div class="ds-status-card p-5 space-y-4">
-                <h3 class="ds-section-header" x-text="editingId ? 'Edit Group' : 'Create Group'"></h3>
+            <div class="rounded-md p-5 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editingId ? 'Edit Group' : 'Create Group'"></h2>
 
                 {{-- Group Name --}}
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Group Name</label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group Name</label>
                     <input x-model="form.name" type="text" required
-                           class="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
+                           class="w-full rounded-md px-3 py-2 text-sm"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="e.g. Lessor — Full">
                 </div>
 
                 {{-- Layout toggle --}}
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Layout</label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Layout</label>
                     <div class="flex gap-2">
-                        <button @click="form.layout = 'vertical'"
-                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition"
-                                :class="form.layout === 'vertical' ? 'bg-teal-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'">
+                        <button type="button" @click="form.layout = 'vertical'"
+                                class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                                :style="form.layout === 'vertical'
+                                    ? 'background: var(--brand-button); color: #fff; border: 1px solid var(--brand-button);'
+                                    : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'">
                             Vertical
                         </button>
-                        <button @click="form.layout = 'horizontal'"
-                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition"
-                                :class="form.layout === 'horizontal' ? 'bg-teal-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'">
+                        <button type="button" @click="form.layout = 'horizontal'"
+                                class="px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                                :style="form.layout === 'horizontal'
+                                    ? 'background: var(--brand-button); color: #fff; border: 1px solid var(--brand-button);'
+                                    : 'background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);'">
                             Horizontal
                         </button>
                     </div>
@@ -101,17 +129,21 @@
 
                 {{-- Field picker --}}
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Add Fields (click to add)</label>
-                    <div class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-3 max-h-52 overflow-y-auto space-y-3">
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Add Fields (click to add)</label>
+                    <div class="rounded-md p-3 max-h-52 overflow-y-auto space-y-3"
+                         style="background: var(--surface-2); border: 1px solid var(--border);">
                         @foreach($pillarLabels as $key => $label)
                             @if(isset($namedFields[$key]) && $namedFields[$key]->count())
                                 <div>
-                                    <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">{{ $label }}</div>
-                                    <div class="flex flex-wrap gap-1">
+                                    <div class="text-[0.6875rem] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">{{ $label }}</div>
+                                    <div class="flex flex-wrap gap-1.5">
                                         @foreach($namedFields[$key] as $nf)
                                             <button type="button"
                                                     @click="addField({{ $nf->id }}, {{ json_encode($nf->name) }})"
-                                                    class="px-2 py-1 rounded text-[11px] font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-teal-400 hover:text-teal-700 transition">
+                                                    class="px-2 py-1 rounded-md text-xs font-medium transition-colors"
+                                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                                    onmouseover="this.style.borderColor='var(--brand-icon)';this.style.color='var(--brand-icon)'"
+                                                    onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-primary)'">
                                                 {{ $nf->name }}
                                             </button>
                                         @endforeach
@@ -124,27 +156,31 @@
 
                 {{-- Selected fields (sortable list) --}}
                 <div>
-                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
-                        Group Fields <span class="text-slate-400" x-text="'(' + form.fields.length + ')'"></span>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                        Group Fields <span style="color: var(--text-muted);" x-text="'(' + form.fields.length + ')'"></span>
                     </label>
                     <div class="space-y-1.5 min-h-[40px]" x-ref="sortableList">
                         <template x-for="(field, index) in form.fields" :key="index">
-                            <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                            <div class="flex items-center gap-2 px-3 py-2 rounded-md"
+                                 style="background: var(--surface-2); border: 1px solid var(--border);"
                                  draggable="true"
                                  @dragstart="dragStart(index, $event)"
                                  @dragover.prevent="dragOver(index, $event)"
                                  @drop.prevent="dragDrop(index)"
                                  @dragend="dragEnd()">
-                                <span class="text-slate-400 cursor-grab text-xs">&#x2630;</span>
-                                <span class="text-sm text-slate-900 dark:text-slate-100 flex-1" x-text="field.name"></span>
+                                <span class="cursor-grab text-xs" style="color: var(--text-muted);">&#x2630;</span>
+                                <span class="text-sm flex-1" style="color: var(--text-primary);" x-text="field.name"></span>
                                 <input x-model="field.label_override" type="text"
-                                       class="w-32 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-2 py-1 text-[11px]"
+                                       class="w-32 rounded-md px-2 py-1 text-xs"
+                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                        placeholder="Label override">
-                                <button @click="removeField(index)"
-                                        class="text-red-400 hover:text-red-600 text-xs font-bold">&times;</button>
+                                <button type="button" @click="removeField(index)"
+                                        class="text-sm font-bold transition-colors"
+                                        style="color: var(--ds-crimson);"
+                                        aria-label="Remove field">&times;</button>
                             </div>
                         </template>
-                        <div x-show="form.fields.length === 0" class="text-center text-xs text-slate-400 py-3">
+                        <div x-show="form.fields.length === 0" class="text-center text-xs py-3" style="color: var(--text-muted);">
                             Click fields above to add them to this group.
                         </div>
                     </div>
@@ -152,13 +188,13 @@
 
                 {{-- Action buttons --}}
                 <div class="flex items-center gap-3 pt-2">
-                    <button @click="saveGroup()"
+                    <button type="button" @click="saveGroup()"
                             :disabled="saving || !form.name || form.fields.length === 0"
-                            class="corex-btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                            class="corex-btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
                         <span x-text="saving ? 'Saving...' : (editingId ? 'Update Group' : 'Create Group')"></span>
                     </button>
-                    <button x-show="editingId" @click="resetForm()"
-                            class="text-sm text-slate-500 hover:text-slate-700">Cancel</button>
+                    <button type="button" x-show="editingId" @click="resetForm()"
+                            class="corex-btn-outline">Cancel</button>
                 </div>
             </div>
         </div>
@@ -244,7 +280,7 @@ function fieldGroupManager() {
                 // Reload page to refresh data
                 window.location.reload();
             } catch (e) {
-                alert('Failed to save field group. Please try again.');
+                window.showToast && window.showToast('Failed to save field group. Please try again.', 'error');
             } finally {
                 this.saving = false;
             }
@@ -264,7 +300,7 @@ function fieldGroupManager() {
                 if (!res.ok) throw new Error('Delete failed');
                 window.location.reload();
             } catch (e) {
-                alert('Failed to archive field group.');
+                window.showToast && window.showToast('Failed to archive field group.', 'error');
             }
         },
     };

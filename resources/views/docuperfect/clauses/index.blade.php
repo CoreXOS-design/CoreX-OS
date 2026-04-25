@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
 
     <x-list-header
         title="Clause Library"
@@ -24,14 +24,22 @@
     </x-list-header>
 
     @if(session('status'))
-        <div class="rounded-md px-4 py-3 text-sm" style="border: 1px solid var(--ds-green, #10b981); background: rgba(16,185,129,0.1); color: var(--text-primary);">
-            {{ session('status') }}
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <div class="flex-1">{{ session('status') }}</div>
         </div>
     @endif
 
     @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm" style="border: 1px solid #ef4444; background: rgba(239,68,68,0.1); color: var(--text-primary);">
-            {{ $errors->first() }}
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                    color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-crimson);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            <div class="flex-1">{{ $errors->first() }}</div>
         </div>
     @endif
 
@@ -83,14 +91,22 @@
 
     {{-- Clause List --}}
     @if($clauses->isEmpty())
-        <div class="rounded-md p-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-sm" style="color: var(--text-muted);">
-                @if(request('search') || request('visibility'))
-                    No clauses match your search.
-                @else
-                    No clauses yet.
-                @endif
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
             </div>
+            @if(request('search') || request('visibility'))
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No matching clauses</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">No clauses match your current search and filters.</p>
+                <a href="{{ route('docuperfect.clauses.index') }}" class="corex-btn-outline text-sm">Clear filters</a>
+            @else
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No clauses yet</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">Add your first clause to start building the library.</p>
+                @if($canEdit)
+                    <button type="button" onclick="document.getElementById('addClauseSection').classList.remove('hidden')" class="corex-btn-primary text-sm">+ New Clause</button>
+                @endif
+            @endif
         </div>
     @else
         <div class="space-y-3">
@@ -102,7 +118,7 @@
                             <div class="font-semibold text-sm" style="color: var(--text-primary);">{{ $clause->name }}</div>
                             <div class="text-xs mt-1" style="color: var(--text-muted);">
                                 @if($clause->is_global)
-                                    <span class="ds-badge ds-badge-success text-[10px]">Global</span>
+                                    <span class="ds-badge ds-badge-success">Global</span>
                                 @else
                                     {{ $clause->branches->pluck('name')->join(', ') ?: 'No branches assigned' }}
                                 @endif
@@ -121,7 +137,7 @@
                             <form method="POST" action="{{ route('docuperfect.clauses.destroy', $clause->id) }}" class="inline" onsubmit="return confirm('Delete this clause?');">
                                 @csrf
                                 @method('DELETE')
-                                <button class="text-xs transition-all duration-300" style="color: var(--text-muted);" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--text-muted)'">Delete</button>
+                                <button class="text-xs transition-all duration-300" style="color: var(--text-muted);" onmouseover="this.style.color='var(--ds-crimson)'" onmouseout="this.style.color='var(--text-muted)'">Delete</button>
                             </form>
                         </div>
                         @endif
