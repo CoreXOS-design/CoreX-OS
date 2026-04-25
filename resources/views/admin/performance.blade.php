@@ -39,28 +39,28 @@
     $valuePct = $companyValueTarget_agentsum > 0 ? (($companyValueActual / $companyValueTarget_agentsum) * 100) : 0;
     $dealsPct = $companyDealsTarget_agentsum > 0 ? (($companyDealsActual / $companyDealsTarget_agentsum) * 100) : 0;
 
-    $valueBar = $valuePct >= 80 ? 'ds-bar-navy' : ($valuePct >= 50 ? 'ds-bar-amber' : 'ds-bar-crimson');
-    $dealsBar = $dealsPct >= 80 ? 'ds-bar-navy' : ($dealsPct >= 50 ? 'ds-bar-amber' : 'ds-bar-crimson');
+    $valueBar = $valuePct >= 80 ? 'ds-bar-navy' : 'ds-bar-amber';
+    $dealsBar = $dealsPct >= 80 ? 'ds-bar-navy' : 'ds-bar-amber';
 
     $statusSummary = $statusSummary ?? [];
 @endphp
 
 <x-app-layout>
     <x-slot name="header">
-        <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-bold text-white leading-tight tracking-tight">
+                    <h1 class="text-xl font-bold text-white leading-tight tracking-tight">
                         Company Dashboard — {{ $r['period'] ?? now()->format('Y-m') }}
-                    </h2>
-                    <div class="text-sm text-white/60">Admin view</div>
+                    </h1>
+                    <p class="text-sm text-white/60">Admin view</p>
                 </div>
-                <div class="flex items-center gap-2">
-                    <form method="GET" action="{{ route('admin.performance') }}" class="flex items-center gap-2">
-                        <input type="month" name="period" value="{{ $r['period'] ?? now()->format('Y-m') }}" class="h-8 text-sm rounded-md border border-white/20 bg-white/10 text-white px-2 transition-all duration-300" />
-                        <button type="submit" class="px-3 py-1.5 text-sm font-semibold rounded-md bg-white/20 text-white hover:bg-white/30 transition-all duration-300">Go</button>
-                    </form>
-                </div>
+                <form method="GET" action="{{ route('admin.performance') }}" class="flex items-center gap-2">
+                    <input type="month" name="period" value="{{ $r['period'] ?? now()->format('Y-m') }}"
+                           class="rounded-md px-3 py-1.5 text-sm transition-all duration-300"
+                           style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #ffffff;" />
+                    <button type="submit" class="corex-btn-primary">Go</button>
+                </form>
             </div>
         </div>
     </x-slot>
@@ -78,12 +78,12 @@
                         <div class="ds-label mb-2">Declined</div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <div class="ds-label" style="font-size:0.6875rem">Period</div>
-                                <div class="ds-value-lg">{{ $statusSummary['declined_period'] ?? 0 }}</div>
+                                <div class="ds-label">Period</div>
+                                <div class="ds-value-lg">{{ number_format((int)($statusSummary['declined_period'] ?? 0)) }}</div>
                             </div>
                             <div class="text-right">
-                                <div class="ds-label" style="font-size:0.6875rem">All time</div>
-                                <div class="ds-value-lg" style="opacity:0.4">—</div>
+                                <div class="ds-label">All time</div>
+                                <div class="ds-value-lg opacity-40">—</div>
                             </div>
                         </div>
                     </div>
@@ -94,12 +94,12 @@
                         <div class="ds-label mb-2">Pending</div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <div class="ds-label" style="font-size:0.6875rem">Period</div>
-                                <div class="ds-value-lg">{{ $statusSummary['pending_period'] ?? 0 }}</div>
+                                <div class="ds-label">Period</div>
+                                <div class="ds-value-lg">{{ number_format((int)($statusSummary['pending_period'] ?? 0)) }}</div>
                             </div>
                             <div class="text-right">
-                                <div class="ds-label" style="font-size:0.6875rem">All time</div>
-                                <div class="ds-value-lg">{{ $statusSummary['pending_total'] ?? 0 }}</div>
+                                <div class="ds-label">All time</div>
+                                <div class="ds-value-lg">{{ number_format((int)($statusSummary['pending_total'] ?? 0)) }}</div>
                             </div>
                         </div>
                     </div>
@@ -110,12 +110,12 @@
                         <div class="ds-label mb-2">Granted</div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <div class="ds-label" style="font-size:0.6875rem">Period</div>
-                                <div class="ds-value-lg">{{ $statusSummary['granted_period'] ?? 0 }}</div>
+                                <div class="ds-label">Period</div>
+                                <div class="ds-value-lg">{{ number_format((int)($statusSummary['granted_period'] ?? 0)) }}</div>
                             </div>
                             <div class="text-right">
-                                <div class="ds-label" style="font-size:0.6875rem">All time</div>
-                                <div class="ds-value-lg">{{ $statusSummary['granted_total'] ?? 0 }}</div>
+                                <div class="ds-label">All time</div>
+                                <div class="ds-value-lg">{{ number_format((int)($statusSummary['granted_total'] ?? 0)) }}</div>
                             </div>
                         </div>
                     </div>
@@ -126,12 +126,12 @@
                         <div class="ds-label mb-2">Registered</div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <div class="ds-label" style="font-size:0.6875rem">Period</div>
-                                <div class="ds-value-lg">{{ $statusSummary['registered_period'] ?? 0 }}</div>
+                                <div class="ds-label">Period</div>
+                                <div class="ds-value-lg">{{ number_format((int)($statusSummary['registered_period'] ?? 0)) }}</div>
                             </div>
                             <div class="text-right">
-                                <div class="ds-label" style="font-size:0.6875rem">All time</div>
-                                <div class="ds-value-lg" style="opacity:0.4">—</div>
+                                <div class="ds-label">All time</div>
+                                <div class="ds-value-lg opacity-40">—</div>
                             </div>
                         </div>
                     </div>
@@ -157,7 +157,7 @@
                         <div class="ds-value-xl mt-1">
                             R {{ number_format((float)($statusSummary['granted_unpaid_company_ex_vat'] ?? 0), 0) }}
                         </div>
-                        <div class="mt-1 ds-label" style="text-transform:none;font-size:0.75rem">
+                        <div class="mt-1 text-xs normal-case" style="color: var(--text-muted);">
                             Paid this period: R {{ number_format((float)($statusSummary['granted_paid_company_ex_vat_period'] ?? 0), 0) }}
                         </div>
                     </div>
@@ -169,7 +169,7 @@
                         <div class="ds-value-xl mt-1">
                             R {{ number_format((float)($statusSummary['registered_unpaid_company_ex_vat'] ?? 0), 0) }}
                         </div>
-                        <div class="mt-1 ds-label" style="text-transform:none;font-size:0.75rem">
+                        <div class="mt-1 text-xs normal-case" style="color: var(--text-muted);">
                             Paid this period: R {{ number_format((float)($statusSummary['registered_paid_company_ex_vat_period'] ?? 0), 0) }}
                         </div>
                     </div>
@@ -178,58 +178,68 @@
         </div>
 
         @if(session("status"))
-            <div class="bg-green-500/10 border border-green-500/20 rounded-md p-3 text-sm" style="color: var(--text-primary);">
-                {{ session("status") }}
+            <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                 style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                        color: var(--text-primary);">
+                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-green);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <div class="flex-1">{{ session("status") }}</div>
             </div>
         @endif
 
         @if(isset($errors) && $errors->any())
-            <div class="bg-red-500/10 border border-red-500/20 rounded-md p-3 text-sm" style="color: var(--text-primary);">
-                {{ implode(", ", $errors->all()) }}
+            <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                 style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                        color: var(--text-primary);">
+                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-crimson);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                </svg>
+                <div class="flex-1">{{ implode(", ", $errors->all()) }}</div>
             </div>
         @endif
 
         {{-- Company Listing Stock (Propcon) --}}
         <div>
-            <div class="ds-section-header">Listing Stock (Company)</div>
+            <h2 class="ds-section-header">Listing Stock (Company)</h2>
             <div class="ds-section-sub mb-4">
                 <a href="{{ route('admin.listings.stock') }}" class="ds-link text-sm hover:underline">View all</a>
             </div>
 
-            <div class="ds-status-card">
-                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    <a href="{{ route('admin.listings.stock', ['filter' => 'active']) }}" class="ds-status-card hover:shadow-md transition-all duration-300 block">
-                        <div class="ds-label">Active</div>
-                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['total'] ?? 0) }}</div>
-                    </a>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <a href="{{ route('admin.listings.stock', ['filter' => 'active']) }}" class="ds-status-card block">
+                    <div class="ds-label">Active</div>
+                    <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['total'] ?? 0)) }}</div>
+                </a>
 
-                    <a href="{{ route('admin.listings.stock', ['filter' => 'dom']) }}" class="ds-status-card hover:shadow-md transition-all duration-300 block">
-                        <div class="ds-label">Avg DOM</div>
-                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['avg_days_on_market'] ?? 0) }}</div>
-                    </a>
+                <a href="{{ route('admin.listings.stock', ['filter' => 'dom']) }}" class="ds-status-card block">
+                    <div class="ds-label">Avg DOM</div>
+                    <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['avg_days_on_market'] ?? 0)) }}</div>
+                </a>
 
-                    <a href="{{ route('admin.listings.stock', ['filter' => 'stale']) }}" class="ds-status-card hover:shadow-md transition-all duration-300 block">
-                        <div class="ds-label">Stale</div>
-                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['stale'] ?? 0) }}</div>
-                    </a>
+                <a href="{{ route('admin.listings.stock', ['filter' => 'stale']) }}" class="ds-status-card block">
+                    <div class="ds-label">Stale</div>
+                    <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['stale'] ?? 0)) }}</div>
+                </a>
 
-                    <a href="{{ route('admin.listings.stock', ['filter' => 'expiring']) }}" class="ds-status-card hover:shadow-md transition-all duration-300 block">
-                        <div class="ds-label">Expiring</div>
-                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['expiring_soon'] ?? 0) }}</div>
-                    </a>
+                <a href="{{ route('admin.listings.stock', ['filter' => 'expiring']) }}" class="ds-status-card block">
+                    <div class="ds-label">Expiring</div>
+                    <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['expiring_soon'] ?? 0)) }}</div>
+                </a>
 
-                    <a href="{{ route('admin.listings.stock', ['filter' => 'expired']) }}" class="ds-status-card hover:shadow-md transition-all duration-300 block">
-                        <div class="ds-label">Expired</div>
-                        <div class="ds-value-lg mt-1">{{ (int)($listingStats['expired'] ?? 0) }}</div>
-                    </a>
-                </div>
+                <a href="{{ route('admin.listings.stock', ['filter' => 'expired']) }}" class="ds-status-card block">
+                    <div class="ds-label">Expired</div>
+                    <div class="ds-value-lg mt-1">{{ number_format((int)($listingStats['expired'] ?? 0)) }}</div>
+                </a>
             </div>
         </div>
 
 
         {{-- HERO: Money (company) --}}
         <div>
-            <div class="ds-section-header">Company Focus — Money</div>
+            <h2 class="ds-section-header">Company Focus — Money</h2>
             <div class="ds-section-sub mb-4">
                 Value is priority. Targets below are based on what agents planned for the month (agent target sum).
             </div>
@@ -263,7 +273,7 @@
 
         {{-- EXTRA: Branch progress tiles (value + points) --}}
         <div>
-            <div class="ds-section-header">Branches — Progress</div>
+            <h2 class="ds-section-header">Branches — Progress</h2>
             <div class="ds-section-sub mb-4">Value and points progress per branch for the selected period.</div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -279,16 +289,16 @@
                         $bValueTarget = (float)($bT['value'] ?? 0);
                         $bValueActual = (float)($bA['value'] ?? $bA['sales_value'] ?? 0);
                         $bValuePct = $bValueTarget > 0 ? (($bValueActual / $bValueTarget) * 100) : 0;
-                        $bValueBar  = $bValuePct >= 80 ? 'ds-bar-navy' : ($bValuePct >= 50 ? 'ds-bar-amber' : 'ds-bar-crimson');
+                        $bValueBar  = $bValuePct >= 80 ? 'ds-bar-navy' : 'ds-bar-amber';
 
                         $bPointsTarget = (float)($bT['points'] ?? 0);
                         $bPointsActual = (float)($bA['points'] ?? 0);
                         $bPointsPct = $bPointsTarget > 0 ? (($bPointsActual / $bPointsTarget) * 100) : 0;
-                        $bPointsBar  = $bPointsPct >= 80 ? 'ds-bar-navy' : ($bPointsPct >= 50 ? 'ds-bar-amber' : 'ds-bar-crimson');
+                        $bPointsBar  = $bPointsPct >= 80 ? 'ds-bar-navy' : 'ds-bar-amber';
                     @endphp
 
                     <a href="{{ route('admin.branch.performance', ['branchId' => $bid, 'period' => ($r['period'] ?? now()->format('Y-m'))]) }}"
-                       class="ds-status-card block hover:shadow-lg transition-all duration-300">
+                       class="ds-status-card block transition-all duration-300">
                         <div class="ds-label">BRANCH</div>
                         <div class="text-lg font-bold" style="color: var(--text-primary);">{{ $bName }}</div>
 
@@ -298,7 +308,7 @@
                                 <div class="ds-progress-bar {{ $bValueBar }}" style="width: {{ min(100, max(0, $bValuePct)) }}%"></div>
                             </div>
                             <div class="mt-1 text-xs" style="color: var(--text-secondary);">
-                                R {{ number_format($bValueActual,0) }} / R {{ number_format($bValueTarget,0) }} ({{ number_format($bValuePct,1) }}%)
+                                R {{ number_format($bValueActual, 0) }} / R {{ number_format($bValueTarget, 0) }} ({{ number_format($bValuePct, 1) }}%)
                             </div>
                         </div>
 
@@ -308,7 +318,7 @@
                                 <div class="ds-progress-bar {{ $bPointsBar }}" style="width: {{ min(100, max(0, $bPointsPct)) }}%"></div>
                             </div>
                             <div class="mt-1 text-xs" style="color: var(--text-secondary);">
-                                {{ number_format($bPointsActual,0) }} / {{ number_format($bPointsTarget,0) }} ({{ number_format($bPointsPct,1) }}%)
+                                {{ number_format($bPointsActual, 0) }} / {{ number_format($bPointsTarget, 0) }} ({{ number_format($bPointsPct, 1) }}%)
                             </div>
                         </div>
                     </a>
@@ -318,7 +328,7 @@
 
         {{-- Excel-style Agents table (company) --}}
         <div>
-            <div class="ds-section-header">Agents — Targets vs Actuals</div>
+            <h2 class="ds-section-header">Agents — Targets vs Actuals</h2>
             <div class="ds-section-sub mb-4">This is the management view: who is on pace, who is behind, and where to intervene.</div>
 
             <div class="ds-status-card overflow-hidden" style="padding:0">
@@ -338,7 +348,7 @@
                             <tr style="background: var(--surface-2);">
                                 <td class="px-4 py-3 font-extrabold" style="color: var(--text-primary);">COMPANY TOTAL</td>
                                 <td class="px-4 py-3 text-right font-bold ds-value">
-                                    {{ (int)($companyDealsActual ?? 0) }} / {{ (int)($r['totals']['targets']['deals'] ?? 0) }}
+                                    {{ number_format((int)($companyDealsActual ?? 0)) }} / {{ number_format((int)($r['totals']['targets']['deals'] ?? 0)) }}
                                 </td>
                                 <td class="px-4 py-3 text-right font-bold ds-value">
                                     R {{ number_format((float)($r['totals']['actuals']['value'] ?? $r['totals']['actuals']['sales_value'] ?? 0), 0) }}
@@ -368,9 +378,9 @@
                                     if (in_array($status, ['Achieved'])) $badgeClass = 'ds-badge-achieved';
                                     elseif (in_array($status, ['Ahead'])) $badgeClass = 'ds-badge-ahead';
                                     elseif (in_array($status, ['On pace'])) $badgeClass = 'ds-badge-ontrack';
-                                    elseif ($status === 'Behind') $badgeClass = 'ds-badge-behind';
+                                    elseif ($status === 'Behind') $badgeClass = 'ds-badge-warning';
 
-                                    $rowBar = $pct >= 80 ? 'ds-bar-navy' : ($pct >= 50 ? 'ds-bar-amber' : 'ds-bar-crimson');
+                                    $rowBar = $pct >= 80 ? 'ds-bar-navy' : 'ds-bar-amber';
 
                                     $retained = (float)($row['actuals']['company_retained'] ?? 0);
                                     $agentIncome = (float)($row['actuals']['agent_income'] ?? 0);
@@ -392,7 +402,7 @@
                                     </td>
 
                                     <td class="px-4 py-3 text-right font-semibold ds-value">
-                                        {{ (int)($row['actuals']['deals'] ?? 0) }} / {{ (int)($row['targets']['deals'] ?? 0) }}
+                                        {{ number_format((int)($row['actuals']['deals'] ?? 0)) }} / {{ number_format((int)($row['targets']['deals'] ?? 0)) }}
                                     </td>
 
                                     <td class="px-4 py-3 text-right font-semibold ds-value">
@@ -427,18 +437,18 @@
 
         {{-- ── TV ACCESS CODES ── --}}
         <div class="space-y-3">
-            <h3 class="ds-section-header">TV Access Codes</h3>
+            <h2 class="ds-section-header">TV Access Codes</h2>
 
             {{-- Company TV Code --}}
             <div class="ds-status-card p-5">
-                <div class="font-bold text-sm mb-3" style="color: var(--text-primary);">Company TV Display</div>
+                <div class="font-semibold text-sm mb-3" style="color: var(--text-primary);">Company TV Display</div>
                 @if(isset($companyTvCode) && $companyTvCode)
                     <div class="flex items-center gap-4 mb-3">
                         <span class="font-mono text-2xl font-black tracking-[0.3em]" style="color: var(--text-primary);">{{ $companyTvCode->code }}</span>
                         <div class="text-xs leading-snug" style="color: var(--text-secondary);">
                             <div>Generated {{ $companyTvCode->created_at->diffForHumans() }} by {{ $companyTvCode->creator->name ?? '—' }}</div>
                             @if($companyTvCode->last_used_at)
-                                <div class="text-green-600">Last used {{ $companyTvCode->last_used_at->diffForHumans() }}</div>
+                                <div style="color: var(--ds-green);">Last used {{ $companyTvCode->last_used_at->diffForHumans() }}</div>
                             @else
                                 <div>Never used</div>
                             @endif
@@ -452,13 +462,11 @@
                     <div class="flex gap-2">
                         <form method="POST" action="{{ route('admin.tv-code.generate-company') }}">
                             @csrf
-                            <button type="submit" class="px-3 py-1.5 rounded-md text-white text-sm font-semibold transition-all duration-300 shadow-lg" style="background: var(--brand-button, #0ea5e9);">
-                                Regenerate Code
-                            </button>
+                            <button type="submit" class="corex-btn-primary">Regenerate Code</button>
                         </form>
                         <form method="POST" action="{{ route('admin.tv-code.revoke-company') }}">
                             @csrf
-                            <button type="submit" class="px-2 py-1.5 rounded-md bg-red-700 text-white text-sm font-semibold hover:bg-red-800 transition-all duration-300"
+                            <button type="submit" class="corex-btn-primary" style="background: #dc2626; box-shadow: 0 4px 12px color-mix(in srgb, #dc2626 25%, transparent);"
                                     onclick="return confirm('Revoke company TV code?')">
                                 Revoke
                             </button>
@@ -468,9 +476,7 @@
                     <div class="text-sm mb-3" style="color: var(--text-muted);">No active company TV code.</div>
                     <form method="POST" action="{{ route('admin.tv-code.generate-company') }}">
                         @csrf
-                        <button type="submit" class="px-3 py-1.5 rounded-md text-white text-sm font-semibold transition-all duration-300 shadow-lg" style="background: var(--brand-button, #0ea5e9);">
-                            Generate Company TV Code
-                        </button>
+                        <button type="submit" class="corex-btn-primary">Generate Company TV Code</button>
                     </form>
                 @endif
             </div>
@@ -481,36 +487,36 @@
                     <div class="overflow-x-auto">
                         <table class="ds-table w-full text-sm">
                             <thead>
-                                <tr class="ds-table-header">
-                                    <th class="px-4 py-2 text-left">Branch</th>
-                                    <th class="px-4 py-2 text-left">Code</th>
-                                    <th class="px-4 py-2 text-left">Generated by</th>
-                                    <th class="px-4 py-2 text-left">Created</th>
-                                    <th class="px-4 py-2 text-left">Last used</th>
-                                    <th class="px-4 py-2 text-right">Actions</th>
+                                <tr>
+                                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branch</th>
+                                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Code</th>
+                                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Generated by</th>
+                                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Created</th>
+                                    <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Last used</th>
+                                    <th class="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach($tvCodes as $tc)
                                     <tr>
-                                        <td class="px-4 py-2 font-semibold" style="color: var(--text-primary);">{{ $tc->branch->name ?? 'Unknown' }}</td>
-                                        <td class="px-4 py-2">
+                                        <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $tc->branch->name ?? 'Unknown' }}</td>
+                                        <td class="px-4 py-3">
                                             <span class="font-mono text-lg font-black tracking-widest" style="color: var(--text-primary);">{{ $tc->code }}</span>
                                         </td>
-                                        <td class="px-4 py-2 ds-label">{{ $tc->creator->name ?? '—' }}</td>
-                                        <td class="px-4 py-2 ds-label">{{ $tc->created_at->format('d M Y H:i') }}</td>
-                                        <td class="px-4 py-2 ds-label">
+                                        <td class="px-4 py-3 ds-label">{{ $tc->creator->name ?? '—' }}</td>
+                                        <td class="px-4 py-3 ds-label">{{ $tc->created_at->format('d M Y H:i') }}</td>
+                                        <td class="px-4 py-3 ds-label">
                                             @if($tc->last_used_at)
-                                                <span class="text-green-600">{{ $tc->last_used_at->diffForHumans() }}</span>
+                                                <span style="color: var(--ds-green);">{{ $tc->last_used_at->diffForHumans() }}</span>
                                             @else
                                                 Never
                                             @endif
                                         </td>
-                                        <td class="px-4 py-2 text-right">
+                                        <td class="px-4 py-3 text-right">
                                             <form method="POST" action="{{ route('admin.tv-code.revoke') }}" class="inline">
                                                 @csrf
                                                 <input type="hidden" name="code_id" value="{{ $tc->id }}">
-                                                <button type="submit" class="px-2 py-1 rounded-md bg-red-700 text-white text-xs font-semibold hover:bg-red-800 transition-all duration-300"
+                                                <button type="submit" class="corex-btn-primary" style="background: #dc2626; padding: 0.25rem 0.625rem; font-size: 0.6875rem; box-shadow: 0 2px 6px color-mix(in srgb, #dc2626 25%, transparent);"
                                                         onclick="return confirm('Revoke this code?')">
                                                     Revoke
                                                 </button>
@@ -526,18 +532,16 @@
                 @endif
 
                 {{-- Generate for any branch --}}
-                <div class="mt-4 flex items-center gap-3">
+                <div class="mt-4 flex flex-wrap items-center gap-3">
                     <form method="POST" action="{{ route('admin.tv-code.generate') }}" class="flex items-center gap-2">
                         @csrf
-                        <select name="branch_id" class="rounded-md px-3 py-1.5 text-sm transition-all duration-300" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <select name="branch_id" class="list-header-filter">
                             <option value="">Select branch...</option>
                             @foreach($branches ?? [] as $branch)
                                 <option value="{{ $branch->id }}">{{ $branch->name }}</option>
                             @endforeach
                         </select>
-                        <button type="submit" class="px-3 py-1.5 rounded-md text-white text-sm font-semibold transition-all duration-300 shadow-lg" style="background: var(--brand-button, #0ea5e9);">
-                            Generate Code
-                        </button>
+                        <button type="submit" class="corex-btn-primary">Generate Code</button>
                     </form>
                     <div class="text-xs" style="color: var(--text-muted);">
                         TV entry: <span class="font-mono">{{ url('/tv') }}</span>

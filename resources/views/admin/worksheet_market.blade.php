@@ -1,26 +1,43 @@
-@extends('layouts.corex')
+@extends('layouts.corex-app')
 
-@section('content')
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+    <style>
+        .corex-input:focus,
+        .corex-select:focus {
+            outline: none;
+            border-color: var(--brand-button, #0ea5e9);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 15%, transparent);
+        }
+        .corex-input[readonly] { opacity: 0.5; }
+    </style>
 
-        {{-- Page Header --}}
-        <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4">
+    <div class="max-w-7xl mx-auto space-y-6">
+
+        {{-- Page Header (Pattern A) --}}
+        <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 class="text-xl font-bold text-white leading-tight tracking-tight">Worksheet Market &mdash; Company</h2>
-                    <p class="text-sm text-white/60 mt-1">Set planned average sale price per agent</p>
+                    <h1 class="text-xl font-bold text-white leading-tight">Worksheet Market — Company</h1>
+                    <p class="text-sm text-white/60">Set planned average sale price per agent</p>
                 </div>
                 <form method="GET" class="flex items-center gap-2">
                     <input type="month" name="period" value="{{ $period }}"
-                           class="rounded-md text-sm px-3 py-1.5 border border-white/20 bg-white/10 text-white transition-all duration-300 [&::-webkit-calendar-picker-indicator]:invert" />
-                    <button type="submit" class="corex-btn-primary text-sm">Go</button>
+                           class="rounded-md text-sm px-3 py-1.5 [&::-webkit-calendar-picker-indicator]:invert"
+                           style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff;" />
+                    <button type="submit" class="corex-btn-primary">Go</button>
                 </form>
             </div>
         </div>
 
         @if (session('status'))
-            <div class="rounded-md px-4 py-3 text-sm" style="background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #10b981;">
-                {{ session('status') }}
+            <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                 style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                        color: var(--text-primary);">
+                <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <div class="flex-1">{{ session('status') }}</div>
             </div>
         @endif
 
@@ -31,15 +48,15 @@
             $amb = $agentMarketByBranch ?? [];
         @endphp
 
-        {{-- Filters --}}
+        {{-- Filters Panel --}}
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
                 <div>
-                    <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Deal Register Market Averages (per branch)</h3>
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Deal Register Market Averages</h3>
                     <p class="text-xs mt-1" style="color: var(--text-muted);">
                         Window + stage filters apply.
                         @if(!empty($dateFrom) && !empty($dateTo))
-                            <span class="ml-2"><strong>Window:</strong> {{ $dateFrom }} &rarr; {{ $dateTo }}</span>
+                            <span class="ml-2"><strong>Window:</strong> {{ $dateFrom }} → {{ $dateTo }}</span>
                         @endif
                     </p>
                 </div>
@@ -49,7 +66,7 @@
                     <div>
                         <label class="block mb-1 text-xs font-medium" style="color: var(--text-secondary);">Window</label>
                         <select name="avg_window"
-                                class="rounded-md px-3 py-2 text-sm transition-all duration-300"
+                                class="corex-select rounded-md px-3 py-2 text-sm"
                                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             <option value="period" {{ $aw==='period'?'selected':'' }}>This month</option>
                             <option value="3m" {{ $aw==='3m'?'selected':'' }}>Last 3 months</option>
@@ -58,7 +75,7 @@
                         </select>
                     </div>
 
-                    <div class="flex gap-3 items-center">
+                    <div class="flex flex-wrap gap-3 items-center pb-1">
                         <label class="text-sm flex items-center gap-1.5" style="color: var(--text-secondary);">
                             <input type="checkbox" name="st_pending" value="1" class="rounded-sm" style="accent-color: var(--brand-button, #0ea5e9);" {{ !empty($sf['pending'])?'checked':'' }}> Pending
                         </label>
@@ -70,7 +87,7 @@
                         </label>
                     </div>
 
-                    <button class="corex-btn-primary text-sm">Apply</button>
+                    <button class="corex-btn-primary">Apply</button>
                 </form>
             </div>
         </div>
@@ -81,7 +98,7 @@
             $bm = $branchMarket ?? [];
         @endphp
 
-        @foreach($agentsByBranch as $bid => $group)
+        @forelse($agentsByBranch as $bid => $group)
             @php
                 $branchName = $bid ? ($branches[$bid]->name ?? '-') : '-';
                 $ma = $bm[(int)$bid] ?? ['deals_count'=>0,'avg_sale_price_inc_vat'=>0,'avg_sale_price_ex_vat'=>0,'effective_commission_percent_ex_vat'=>0];
@@ -93,37 +110,31 @@
                 <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
                     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                         <div>
-                            <h3 class="text-base font-bold" style="color: var(--text-primary);">{{ $branchName }}</h3>
+                            <h3 class="text-lg font-semibold" style="color: var(--text-primary);">{{ $branchName }}</h3>
                             <p class="text-xs mt-0.5" style="color: var(--text-muted);">
                                 Deal Register Market Averages
-                                @php
-                                    $st = [];
-                                    if (!empty($sf['pending'])) $st[] = 'Pending';
-                                    if (!empty($sf['granted'])) $st[] = 'Granted';
-                                    if (!empty($sf['registered'])) $st[] = 'Registered';
-                                @endphp
                                 @if(!empty($dateFrom) && !empty($dateTo))
-                                    <span class="ml-2"><strong>Window:</strong> {{ $dateFrom }} &rarr; {{ $dateTo }}</span>
+                                    <span class="ml-2"><strong>Window:</strong> {{ $dateFrom }} → {{ $dateTo }}</span>
                                 @endif
                             </p>
                         </div>
                     </div>
                 </div>
 
-                {{-- Market Averages KPIs --}}
+                {{-- Market Averages Stat Tiles --}}
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-5">
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <div class="text-xs font-medium uppercase tracking-wide" style="color: var(--text-muted);">Deals counted</div>
-                        <div class="text-xl font-bold mt-1" style="color: var(--text-primary);">{{ (int)($ma['deals_count'] ?? 0) }}</div>
+                        <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary);">{{ number_format((int)($ma['deals_count'] ?? 0)) }}</div>
                     </div>
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <div class="text-xs font-medium uppercase tracking-wide" style="color: var(--text-muted);">Avg Sale Price (Incl VAT)</div>
-                        <div class="text-xl font-bold mt-1" style="color: var(--text-primary);">R {{ number_format((float)($ma['avg_sale_price_inc_vat'] ?? 0), 2) }}</div>
-                        <div class="text-xs mt-1" style="color: var(--text-muted);">Ex VAT: R {{ number_format((float)($ma['avg_sale_price_ex_vat'] ?? 0), 2) }}</div>
+                        <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary);">R {{ number_format((float)($ma['avg_sale_price_inc_vat'] ?? 0), 0) }}</div>
+                        <div class="text-xs mt-1" style="color: var(--text-muted);">Ex VAT: R {{ number_format((float)($ma['avg_sale_price_ex_vat'] ?? 0), 0) }}</div>
                     </div>
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <div class="text-xs font-medium uppercase tracking-wide" style="color: var(--text-muted);">Effective Comm % (Ex VAT)</div>
-                        <div class="text-xl font-bold mt-1" style="color: var(--text-primary);">{{ number_format((float)($ma['effective_commission_percent_ex_vat'] ?? 0), 2) }}%</div>
+                        <div class="text-[1.625rem] font-semibold mt-1" style="color: var(--text-primary);">{{ number_format((float)($ma['effective_commission_percent_ex_vat'] ?? 0), 1) }}%</div>
                     </div>
                 </div>
 
@@ -134,16 +145,16 @@
                     <input type="hidden" name="branch_id" value="{{ $bid }}" />
 
                     <div class="overflow-x-auto">
-                        <table class="min-w-full text-sm">
+                        <table class="min-w-full text-sm ds-table">
                             <thead>
-                                <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
-                                    <th class="text-left px-4 py-3 font-medium" style="color: var(--text-secondary);">Agent</th>
-                                    <th class="text-left px-4 py-3 font-medium" style="color: var(--text-secondary);">Avg Sales Override</th>
-                                    <th class="text-left px-4 py-3 font-medium" style="color: var(--text-secondary);">Comm % Override (Ex VAT)</th>
-                                    <th class="text-left px-4 py-3 font-medium" style="color: var(--text-secondary);">Lock</th>
-                                    <th class="text-left px-4 py-3 font-medium" style="color: var(--text-secondary);">Actual Deals</th>
-                                    <th class="text-left px-4 py-3 font-medium" style="color: var(--text-secondary);">Actual Avg Sale (Inc)</th>
-                                    <th class="text-left px-4 py-3 font-medium" style="color: var(--text-secondary);">Actual Eff Comm % (Ex)</th>
+                                <tr style="background: var(--surface-2);">
+                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
+                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Avg Sales Override</th>
+                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Comm % Override (Ex VAT)</th>
+                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Lock</th>
+                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actual Deals</th>
+                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actual Avg Sale (Inc)</th>
+                                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actual Eff Comm % (Ex)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -157,41 +168,35 @@
                                         $m = ($amb[(int)$bid][(int)$a->id] ?? ['deals_count'=>0,'avg_sale_price_inc_vat'=>0,'effective_commission_percent_ex_vat'=>0]);
                                     @endphp
 
-                                    <tr class="transition-all duration-300" style="border-bottom: 1px solid var(--border);"
-                                        onmouseenter="this.style.background='var(--surface-2)'" onmouseleave="this.style.background='transparent'">
+                                    <tr>
                                         <td class="px-4 py-3 whitespace-nowrap min-w-[220px]">
                                             <div class="flex items-center gap-2">
                                                 <span class="font-semibold" style="color: var(--text-primary);">{{ $a->name }}</span>
                                                 @if(($a->role ?? '') === 'branch_manager')
-                                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold"
-                                                          style="background: var(--brand-icon, #0ea5e9); color: #fff;">BM</span>
+                                                    <span class="ds-badge ds-badge-info">BM</span>
                                                 @endif
                                             </div>
                                         </td>
 
                                         <td class="px-4 py-3">
                                             <input type="number" step="0.01" name="avg[{{ $a->id }}]" value="{{ old('avg.'.$a->id, $curAvg) }}"
-                                                   class="rounded-md px-3 py-2 w-40 text-sm transition-all duration-300"
+                                                   class="corex-input rounded-md px-3 py-2 w-40 text-sm transition-all duration-300"
                                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                                                   onfocus="this.style.borderColor='var(--brand-button, #0ea5e9)';this.style.boxShadow='0 0 0 2px rgba(14,165,233,0.15)'"
-                                                   onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'"
                                                    placeholder="e.g. 1200000" />
                                             <div class="text-xs mt-1" style="color: var(--text-muted);">
-                                                Current: {{ $curAvg === null ? 'NULL' : ('R ' . number_format((float)$curAvg, 2)) }}
+                                                Current: {{ $curAvg === null ? '—' : ('R ' . number_format((float)$curAvg, 0)) }}
                                             </div>
                                         </td>
 
                                         <td class="px-4 py-3">
                                             <input id="comm_{{ $a->id }}" type="number" step="0.01" name="comm[{{ $a->id }}]" value="{{ old('comm.'.$a->id, $curComm) }}"
-                                                   class="rounded-md px-3 py-2 w-32 text-sm transition-all duration-300"
+                                                   class="corex-input rounded-md px-3 py-2 w-32 text-sm transition-all duration-300"
                                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                                                   onfocus="this.style.borderColor='var(--brand-button, #0ea5e9)';this.style.boxShadow='0 0 0 2px rgba(14,165,233,0.15)'"
-                                                   onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'"
                                                    placeholder="e.g. 7.50" {{ $lockComm ? 'readonly' : '' }}
                                                    @if($lockComm) data-locked="1" @endif />
                                             <div class="text-xs mt-1" style="color: var(--text-muted);">
-                                                Planned: {{ $plannedComm === null ? 'NULL' : (number_format((float)$plannedComm, 2) . '%') }}
-                                                — Current: {{ $curComm === null ? 'NULL' : (number_format((float)$curComm, 2) . '%') }}
+                                                Planned: {{ $plannedComm === null ? '—' : (number_format((float)$plannedComm, 1) . '%') }}
+                                                — Current: {{ $curComm === null ? '—' : (number_format((float)$curComm, 1) . '%') }}
                                             </div>
                                         </td>
 
@@ -204,22 +209,34 @@
                                             </label>
                                         </td>
 
-                                        <td class="px-4 py-3" style="color: var(--text-secondary);">{{ (int)($m['deals_count'] ?? 0) }}</td>
-                                        <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">R {{ number_format((float)($m['avg_sale_price_inc_vat'] ?? 0), 2) }}</td>
-                                        <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ number_format((float)($m['effective_commission_percent_ex_vat'] ?? 0), 2) }}%</td>
+                                        <td class="px-4 py-3" style="color: var(--text-secondary);">{{ number_format((int)($m['deals_count'] ?? 0)) }}</td>
+                                        <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">R {{ number_format((float)($m['avg_sale_price_inc_vat'] ?? 0), 0) }}</td>
+                                        <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ number_format((float)($m['effective_commission_percent_ex_vat'] ?? 0), 1) }}%</td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
 
-                    <div class="px-5 py-4 flex items-center justify-between" style="border-top: 1px solid var(--border);">
+                    <div class="px-5 py-4 flex items-center justify-between gap-3" style="border-top: 1px solid var(--border);">
                         <span class="text-xs" style="color: var(--text-muted);">Saves only this branch's users.</span>
-                        <button class="corex-btn-primary text-sm font-semibold">Save {{ $branchName }}</button>
+                        <button class="corex-btn-primary">Save {{ $branchName }}</button>
                     </div>
                 </form>
             </div>
-        @endforeach
+        @empty
+            {{-- Empty state when no branches/agents exist --}}
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                    <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+                    </svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No branches with agents yet</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Add agents and assign them to a branch to start configuring market averages.</p>
+            </div>
+        @endforelse
 
     </div>
 
@@ -232,24 +249,6 @@
         const input = document.querySelector(sel);
         if (!input) return;
         input.readOnly = !!el.checked;
-        if (el.checked) {
-            input.style.opacity = '0.5';
-        } else {
-            input.style.opacity = '1';
-        }
-    });
-
-    // Init locked state on load
-    document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('input[type="checkbox"][name^="lock["]').forEach(function (cb) {
-            if (cb.checked) {
-                const sel = cb.getAttribute('data-comm');
-                if (sel) {
-                    const input = document.querySelector(sel);
-                    if (input) input.style.opacity = '0.5';
-                }
-            }
-        });
     });
     </script>
 @endsection

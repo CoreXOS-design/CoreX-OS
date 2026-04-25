@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
      x-data="{
         search: '',
         get filteredCount() {
@@ -12,7 +12,7 @@
      }">
 
     {{-- Page Header --}}
-    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4">
+    <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <div class="text-sm text-white/60">
@@ -47,7 +47,7 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="ds-status-card">
             <div class="ds-label">Total Count</div>
-            <div class="ds-value-xl">{{ (int)$grandCount }}</div>
+            <div class="ds-value-xl">{{ number_format((int)$grandCount) }}</div>
         </div>
         <div class="ds-status-card">
             <div class="ds-label">Total Points</div>
@@ -55,7 +55,7 @@
         </div>
         <div class="ds-status-card">
             <div class="ds-label">Activities Tracked</div>
-            <div class="ds-value-xl">{{ count($items) }}</div>
+            <div class="ds-value-xl">{{ number_format(count($items)) }}</div>
         </div>
     </div>
 
@@ -69,10 +69,8 @@
         <input type="text"
                x-model="search"
                placeholder="Search activities..."
-               class="w-full rounded-md pl-10 pr-10 py-2.5 text-sm transition-all duration-300"
-               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-               onfocus="this.style.borderColor='var(--brand-icon)'" onblur="this.style.borderColor='var(--border)'" />
-        <button x-show="search.length > 0" x-on:click="search = ''" x-cloak
+               class="ds-field w-full rounded-md pl-10 pr-10 py-2.5 text-sm" />
+        <button type="button" x-show="search.length > 0" x-on:click="search = ''" x-cloak
                 class="absolute inset-y-0 right-0 pr-4 flex items-center cursor-pointer"
                 style="color: var(--text-muted);">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -97,35 +95,40 @@
             <table class="min-w-full text-sm ds-table">
                 <thead class="sticky top-0 z-10">
                     <tr style="background: var(--surface-2);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Activity</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Count</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Points</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">% (Points)</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Activity</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Count</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Points</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">% (Points)</th>
                     </tr>
                 </thead>
                 <tbody x-ref="tbody">
-                    @foreach($items as $it)
-                        <tr class="transition-all duration-300" style="border-bottom: 1px solid var(--border);"
+                    @forelse($items as $it)
+                        <tr class="transition-colors"
                             x-show="!search.trim() || '{{ strtolower(addslashes($it['name'])) }}'.includes(search.toLowerCase().trim())"
-                            x-bind:data-visible="(!search.trim() || '{{ strtolower(addslashes($it['name'])) }}'.includes(search.toLowerCase().trim())).toString()"
-                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                            <td class="px-4 py-2.5 font-medium">
-                                <a class="hover:underline transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);"
+                            x-bind:data-visible="(!search.trim() || '{{ strtolower(addslashes($it['name'])) }}'.includes(search.toLowerCase().trim())).toString()">
+                            <td class="px-4 py-3 font-medium">
+                                <a class="hover:underline transition-colors" style="color: var(--brand-icon, #0ea5e9);"
                                    href="{{ route('admin.daily.summary.activity', array_filter(['definition'=>$it['id'],'range'=>$range,'month'=>$month])) }}">
                                     {{ $it['name'] }}
                                 </a>
                             </td>
-                            <td class="px-4 py-2.5 text-right">
-                                <a class="inline-flex items-center rounded-md px-2.5 py-1 font-semibold text-xs transition-all duration-300"
+                            <td class="px-4 py-3 text-right">
+                                <a class="inline-flex items-center rounded-md px-2.5 py-1 font-semibold text-xs transition-colors"
                                    style="background: var(--surface-2); color: var(--text-primary);"
                                    href="{{ route('admin.daily.summary.activity', array_filter(['definition'=>$it['id'],'range'=>$range,'month'=>$month])) }}">
-                                    {{ (int)$it['count'] }}
+                                    {{ number_format((int)$it['count']) }}
                                 </a>
                             </td>
-                            <td class="px-4 py-2.5 text-right" style="color: var(--text-primary);">{{ number_format((float)$it['points'], 0) }}</td>
-                            <td class="px-4 py-2.5 text-right" style="color: var(--text-secondary);">{{ number_format((float)$it['pct_points'], 1) }}%</td>
+                            <td class="px-4 py-3 text-right" style="color: var(--text-primary);">{{ number_format((float)$it['points'], 0) }}</td>
+                            <td class="px-4 py-3 text-right" style="color: var(--text-secondary);">{{ number_format((float)$it['pct_points'], 1) }}%</td>
                         </tr>
-                    @endforeach
+                    @empty
+                        <tr>
+                            <td colspan="4" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
+                                No activities tracked for this range yet.
+                            </td>
+                        </tr>
+                    @endforelse
                 </tbody>
             </table>
         </div>
