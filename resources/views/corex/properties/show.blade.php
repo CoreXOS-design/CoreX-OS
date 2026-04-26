@@ -281,13 +281,24 @@
                                     this.enabled = !this.enabled;
                                 }
                             },
+                            errorMsg: '',
                             async post(action) {
                                 this.loading = true;
+                                this.errorMsg = '';
                                 const fd = new FormData();
                                 fd.append('_token', this.csrf);
                                 fd.append('action', action);
-                                try { await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } }); } catch(e){}
+                                let ok = false;
+                                try {
+                                    const resp = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                                    ok = resp.ok;
+                                    if (!ok) {
+                                        try { const j = await resp.json(); this.errorMsg = j.error || j.message || ('HTTP ' + resp.status); }
+                                        catch(_) { this.errorMsg = 'HTTP ' + resp.status; }
+                                    }
+                                } catch(e) { this.errorMsg = e.message || 'Network error'; }
                                 this.loading = false;
+                                if (!ok) return;
                                 if (action === 'publish' || action === 'refresh') { this.isPublished = true; this.enabled = true; }
                                 if (action === 'unpublish') { this.isPublished = false; this.enabled = false; }
                             },
@@ -321,6 +332,12 @@
                                       x-text="isPublished ? 'Live' : (enabled ? 'Pending' : 'Off')"></span>
                             </div>
                         </div>
+
+                        {{-- Server error after a failed publish attempt --}}
+                        <div x-show="errorMsg" x-cloak
+                             class="rounded-md px-3 py-2.5 text-[11px] font-medium"
+                             style="background:rgba(239,68,68,0.08); color:#ef4444; border:1px solid rgba(239,68,68,0.25);"
+                             x-text="errorMsg"></div>
 
                         {{-- Missing fields warning — blocks publish until resolved --}}
                         <div x-show="missingFields.length > 0" x-cloak

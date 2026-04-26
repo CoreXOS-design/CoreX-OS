@@ -719,7 +719,11 @@ class PropertyController extends Controller
             if (empty($property->status))  $missing[] = 'Status';
             if (empty($property->suburb))  $missing[] = 'Suburb';
             if ($missing) {
-                return back()->with('error', 'Cannot publish to HFC Premium — missing: ' . implode(', ', $missing));
+                $msg = 'Cannot publish to HFC Premium — missing: ' . implode(', ', $missing);
+                if ($request->wantsJson() || $request->ajax()) {
+                    return response()->json(['error' => $msg, 'missing' => $missing], 422);
+                }
+                return back()->with('error', $msg);
             }
         }
         if ($action === 'publish' || $action === 'refresh') {
