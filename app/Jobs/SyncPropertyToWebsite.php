@@ -42,7 +42,11 @@ class SyncPropertyToWebsite implements ShouldQueue
             return;
         }
 
-        $http = Http::withToken($token)->timeout(120)->withoutVerifying();
+        $http = Http::withToken($token)
+            ->timeout(120)
+            ->withoutVerifying()
+            ->acceptJson()
+            ->asJson();
 
         if ($this->event === 'delete') {
             $response = $http->delete("{$baseUrl}/api/listings/{$this->property->external_id}");
@@ -129,12 +133,11 @@ class SyncPropertyToWebsite implements ShouldQueue
                 'photo'       => $this->embedAgentPhoto($agent),
             ] : null,
 
-            // Agency / branch
+            // Agency / branch — receiver stores name + branch on the agent row
             'agency'         => $agency ? [
                 'external_id' => (string) $agency->id,
                 'name'        => $agency->name,
                 'branch'      => $branch?->name,
-                'logo_url'    => $agency->logo_url ?? null,
             ] : null,
         ];
     }
