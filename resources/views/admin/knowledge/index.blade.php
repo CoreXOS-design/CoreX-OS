@@ -1,13 +1,17 @@
-@extends('layouts.corex')
+@extends('layouts.corex-app')
 
 @section('corex-content')
 
 <div class="max-w-7xl mx-auto space-y-6">
 
     {{-- Page Header --}}
-    <div>
-        <h1 class="text-xl font-bold" style="color: var(--text-primary);">Knowledge Base</h1>
-        <p class="text-sm mt-1" style="color: var(--text-muted);">Ellie's training documents & agent resources</p>
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Knowledge Base</h1>
+                <p class="text-sm text-white/60">Ellie's training documents &amp; agent resources</p>
+            </div>
+        </div>
     </div>
 
     {{-- Upload Section --}}
@@ -17,15 +21,15 @@
             @csrf
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
-                    <label class="ds-label">Title <span style="color: #ef4444;">*</span></label>
+                    <label class="ds-label">Title <span class="text-red-500">*</span></label>
                     <input type="text" name="title" required
                            class="w-full rounded-md text-sm px-3 py-2 mt-1 transition-all duration-300 focus:outline-none"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="Document title" value="{{ old('title') }}">
-                    @error('title') <div style="color: #ef4444;" class="text-xs mt-1">{{ $message }}</div> @enderror
+                    @error('title') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
                 <div>
-                    <label class="ds-label">Category <span style="color: #ef4444;">*</span></label>
+                    <label class="ds-label">Category <span class="text-red-500">*</span></label>
                     <select name="category_id" required
                             class="w-full rounded-md text-sm px-3 py-2 mt-1 transition-all duration-300 focus:outline-none"
                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
@@ -34,14 +38,14 @@
                             <option value="{{ $cat->id }}" {{ old('category_id') == $cat->id ? 'selected' : '' }}>{{ $cat->name }}</option>
                         @endforeach
                     </select>
-                    @error('category_id') <div style="color: #ef4444;" class="text-xs mt-1">{{ $message }}</div> @enderror
+                    @error('category_id') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
                 <div>
-                    <label class="ds-label">File <span style="color: #ef4444;">*</span></label>
+                    <label class="ds-label">File <span class="text-red-500">*</span></label>
                     <input type="file" name="file" required accept=".pdf,.docx,.doc,.txt,.md"
                            class="w-full text-sm mt-1 rounded-md px-3 py-1.5 transition-all duration-300"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
-                    @error('file') <div style="color: #ef4444;" class="text-xs mt-1">{{ $message }}</div> @enderror
+                    @error('file') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
                 <div>
                     <label class="ds-label">Description</label>
@@ -69,14 +73,14 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="ds-status-card">
             <div class="ds-label">Total Documents</div>
-            <div class="ds-value text-2xl">{{ $stats['total_documents'] }}</div>
+            <div class="ds-value text-2xl">{{ number_format($stats['total_documents']) }}</div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">
-                <span style="color: #059669;">{{ $stats['by_status']['ready'] }} ready</span>
+                <span style="color: var(--ds-green);">{{ number_format($stats['by_status']['ready']) }} ready</span>
                 @if($stats['by_status']['processing'] > 0)
-                    &middot; <span style="color: #f59e0b;">{{ $stats['by_status']['processing'] }} processing</span>
+                    &middot; <span style="color: var(--ds-amber);">{{ number_format($stats['by_status']['processing']) }} processing</span>
                 @endif
                 @if($stats['by_status']['error'] > 0)
-                    &middot; <span style="color: #ef4444;">{{ $stats['by_status']['error'] }} error</span>
+                    &middot; <span style="color: var(--ds-crimson);">{{ number_format($stats['by_status']['error']) }} error</span>
                 @endif
             </div>
         </div>
@@ -87,7 +91,7 @@
         </div>
         <div class="ds-status-card">
             <div class="ds-label">Ellie-Enabled</div>
-            <div class="ds-value text-2xl">{{ $stats['ellie_enabled'] }}</div>
+            <div class="ds-value text-2xl">{{ number_format($stats['ellie_enabled']) }}</div>
             <div class="text-xs mt-1" style="color: var(--text-muted);">Documents Ellie can search</div>
         </div>
     </div>
@@ -141,7 +145,7 @@
                             </button>
                             {{-- Delete --}}
                             @if($cat->documents_count === 0)
-                                <button type="button" @click="openDelete({{ $cat->id }}, {{ Js::from($cat->name) }})" class="p-1 transition-all duration-300" style="color: var(--text-muted);" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--text-muted)'" title="Delete category">
+                                <button type="button" @click="openDelete({{ $cat->id }}, {{ Js::from($cat->name) }})" class="p-1 transition-all duration-300" style="color: var(--text-muted);" onmouseover="this.style.color='var(--ds-crimson)'" onmouseout="this.style.color='var(--text-muted)'" title="Delete category">
                                     <i class="fas fa-trash text-xs"></i>
                                 </button>
                             @else
@@ -156,7 +160,7 @@
         </div>
 
         {{-- Create / Edit Modal --}}
-        <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @keydown.escape.window="showModal = false">
+        <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @keydown.escape.window="showModal = false">
             <div class="rounded-md shadow-xl w-full max-w-md mx-4 p-6" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="showModal = false">
                 <h4 class="text-sm font-bold mb-4" style="color: var(--text-primary);" x-text="editId ? 'Edit Category' : 'New Category'"></h4>
                 <form :action="editId ? '{{ url('admin/knowledge/categories') }}/' + editId : '{{ route('admin.knowledge.storeCategory') }}'" method="POST">
@@ -166,7 +170,7 @@
                     </template>
                     <div class="space-y-3">
                         <div>
-                            <label class="ds-label">Name <span style="color: #ef4444;">*</span></label>
+                            <label class="ds-label">Name <span class="text-red-500">*</span></label>
                             <input type="text" name="name" x-model="form.name" required maxlength="255"
                                    class="w-full rounded-md text-sm px-3 py-2 mt-1 transition-all duration-300 focus:outline-none"
                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
@@ -202,16 +206,16 @@
         </div>
 
         {{-- Delete Confirmation Modal --}}
-        <div x-show="showDeleteModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" @keydown.escape.window="showDeleteModal = false">
+        <div x-show="showDeleteModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @keydown.escape.window="showDeleteModal = false">
             <div class="rounded-md shadow-xl w-full max-w-sm mx-4 p-6" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="showDeleteModal = false">
-                <h4 class="text-sm font-bold mb-2" style="color: #ef4444;">Delete Category</h4>
+                <h4 class="text-sm font-bold mb-2" style="color: var(--ds-crimson);">Delete Category</h4>
                 <p class="text-sm mb-4" style="color: var(--text-secondary);">Are you sure you want to delete <strong x-text="deleteName" style="color: var(--text-primary);"></strong>? This cannot be undone.</p>
                 <form :action="'{{ url('admin/knowledge/categories') }}/' + deleteId" method="POST">
                     @csrf
                     @method('DELETE')
                     <div class="flex justify-end gap-2">
                         <button type="button" @click="showDeleteModal = false" class="corex-btn-outline text-xs px-3 py-1.5">Cancel</button>
-                        <button type="submit" class="text-xs px-4 py-1.5 rounded-md font-medium text-white transition-all duration-300 hover:opacity-90" style="background: #ef4444;">Delete</button>
+                        <button type="submit" class="text-xs px-4 py-1.5 rounded-md font-medium text-white transition-all duration-300 hover:opacity-90" style="background: var(--ds-crimson);">Delete</button>
                     </div>
                 </form>
             </div>
@@ -273,32 +277,37 @@
     <div>
         <h3 class="text-base font-semibold mb-4" style="color: var(--text-primary);">Recent Documents</h3>
         @if($recentDocuments->isEmpty())
-            <div class="rounded-md p-8 text-center text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
-                No documents uploaded yet. Use the form above to upload your first document.
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                    <i class="fas fa-file-alt"></i>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No documents yet</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Use the upload form above to add your first document.</p>
             </div>
         @else
             <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
-                <table class="w-full text-sm ds-table">
+                <table class="min-w-full text-sm ds-table">
                     <thead>
-                        <tr>
-                            <th class="text-left px-3 py-2.5">Title</th>
-                            <th class="text-left px-3 py-2.5">Category</th>
-                            <th class="text-center px-3 py-2.5">Status</th>
-                            <th class="text-center px-3 py-2.5">Chunks</th>
-                            <th class="text-center px-3 py-2.5">Ellie</th>
-                            <th class="text-center px-3 py-2.5">Active</th>
-                            <th class="text-left px-3 py-2.5">Uploaded</th>
-                            <th class="text-right px-3 py-2.5">Actions</th>
+                        <tr style="background: var(--surface-2);">
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Title</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Category</th>
+                            <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
+                            <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Chunks</th>
+                            <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Ellie</th>
+                            <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Active</th>
+                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Uploaded</th>
+                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach($recentDocuments as $doc)
                             <tr class="transition-all duration-300">
-                                <td class="px-3 py-2.5 text-sm font-medium" style="color: var(--text-primary);">{{ Str::limit($doc->title, 40) }}</td>
-                                <td class="px-3 py-2.5 text-xs" style="color: var(--text-secondary);">{{ $doc->category->name ?? '-' }}</td>
-                                <td class="px-3 py-2.5 text-center">{!! $doc->status_badge !!}</td>
-                                <td class="px-3 py-2.5 text-center text-sm" style="color: var(--text-secondary);">{{ $doc->chunk_count }}</td>
-                                <td class="px-3 py-2.5 text-center">
+                                <td class="px-4 py-3 text-sm font-medium" style="color: var(--text-primary);">{{ Str::limit($doc->title, 40) }}</td>
+                                <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->category->name ?? '-' }}</td>
+                                <td class="px-4 py-3 text-center">{!! $doc->status_badge !!}</td>
+                                <td class="px-4 py-3 text-center text-sm" style="color: var(--text-secondary);">{{ $doc->chunk_count }}</td>
+                                <td class="px-4 py-3 text-center">
                                     <form action="{{ route('admin.knowledge.toggleEllie', $doc->id) }}" method="POST" class="inline">
                                         @csrf
                                         <button type="submit"
@@ -311,31 +320,31 @@
                                         </button>
                                     </form>
                                 </td>
-                                <td class="px-3 py-2.5 text-center">
+                                <td class="px-4 py-3 text-center">
                                     <form action="{{ route('admin.knowledge.toggleActive', $doc->id) }}" method="POST" class="inline">
                                         @csrf
                                         <button type="submit"
                                                 class="text-xs px-2 py-0.5 rounded-md font-medium transition-all duration-300"
                                                 style="{{ $doc->is_active
-                                                    ? 'background: rgba(5,150,105,0.15); color: #059669;'
+                                                    ? 'background: color-mix(in srgb, var(--ds-green) 15%, transparent); color: var(--ds-green);'
                                                     : 'background: var(--surface-2); color: var(--text-muted);' }}"
                                                 title="{{ $doc->is_active ? 'Deactivate' : 'Activate' }}">
                                             {{ $doc->is_active ? 'ON' : 'OFF' }}
                                         </button>
                                     </form>
                                 </td>
-                                <td class="px-3 py-2.5 text-xs" style="color: var(--text-muted);">{{ $doc->created_at->format('d M Y') }}</td>
-                                <td class="px-3 py-2.5 text-right">
+                                <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $doc->created_at->format('d M Y') }}</td>
+                                <td class="px-4 py-3 text-right">
                                     <div class="flex items-center justify-end gap-2">
                                         <a href="{{ route('admin.knowledge.preview', $doc->id) }}" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--brand-icon, #0ea5e9);">Preview</a>
                                         <form action="{{ route('admin.knowledge.reprocess', $doc->id) }}" method="POST" class="inline">
                                             @csrf
-                                            <button type="submit" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: #f59e0b;">Reprocess</button>
+                                            <button type="submit" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--ds-amber);">Reprocess</button>
                                         </form>
                                         <form action="{{ route('admin.knowledge.destroy', $doc->id) }}" method="POST" class="inline" x-data x-on:submit.prevent="if(confirm('Delete this document and all its chunks?')) $el.submit()">
                                             @csrf
                                             @method('DELETE')
-                                            <button type="submit" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: #ef4444;">Delete</button>
+                                            <button type="submit" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--ds-crimson);">Delete</button>
                                         </form>
                                     </div>
                                 </td>

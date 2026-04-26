@@ -51,8 +51,8 @@
 }
 
 #pdf-splitter-root .field-error {
-    font-size: 0.8rem;
-    color: #ef4444;
+    font-size: 0.75rem;
+    color: var(--ds-crimson, #c41e3a);
     margin-top: 6px;
 }
 
@@ -71,7 +71,7 @@
 }
 
 #pdf-splitter-root .upload-card h3 {
-    font-size: 1.0625rem;
+    font-size: 1.125rem;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0 0 0.5rem 0;
@@ -89,9 +89,9 @@
     border-radius: 6px;
     font-size: 0.875rem;
     font-weight: 500;
-    background: color-mix(in srgb, #10b981 12%, var(--surface));
-    border: 1px solid color-mix(in srgb, #10b981 25%, var(--border));
-    color: #10b981;
+    background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
+    color: var(--text-primary);
     margin-bottom: 1.25rem;
 }
 
@@ -99,9 +99,9 @@
     padding: 0.75rem 1rem;
     border-radius: 6px;
     font-size: 0.875rem;
-    background: color-mix(in srgb, #ef4444 12%, var(--surface));
-    border: 1px solid color-mix(in srgb, #ef4444 25%, var(--border));
-    color: #ef4444;
+    background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent);
+    color: var(--text-primary);
     margin-bottom: 1.25rem;
 }
 

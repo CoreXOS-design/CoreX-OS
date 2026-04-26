@@ -4,18 +4,24 @@
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
      x-data="companySettingsPage({{ $agency?->id ?? 'null' }})">
 
-    <div style="background:var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4">
-        <h2 class="text-xl font-bold text-white leading-tight">Company Settings</h2>
-        <div class="text-sm text-white/60">Agency identity, contact block, logo and email signature.</div>
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <h1 class="text-xl font-bold text-white leading-tight">Company Settings</h1>
+        <p class="text-sm text-white/60">Agency identity, contact block, logo and email signature.</p>
     </div>
 
     @if(session('success'))
-        <div class="rounded-md border px-4 py-3 text-sm font-medium" style="border-color:#bbf7d0; background:#f0fdf4; color:#166534;">
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                    color: var(--text-primary);">
             {{ session('success') }}
         </div>
     @endif
     @if($errors->any())
-        <div class="rounded-md border px-4 py-3 text-sm" style="border-color:#fecaca; background:#fef2f2; color:#991b1b;">
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                    color: var(--text-primary);">
             {{ $errors->first() }}
         </div>
     @endif
@@ -146,7 +152,9 @@
             <div>
                 @if($agency->logo_path)
                     <div class="mb-2 flex items-center gap-3">
-                        <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="Company Logo" class="h-10 w-auto rounded border bg-white p-1">
+                        <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="Company Logo"
+                             class="h-10 w-auto rounded-md p-1"
+                             style="background: var(--surface-2); border: 1px solid var(--border);">
                         <label class="inline-flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-secondary);">
                             <input type="checkbox" name="remove_logo" value="1" class="rounded" x-model="removelogo">
                             Remove logo
@@ -166,8 +174,16 @@
             </div>
         </form>
     @else
-        <div class="ds-status-card p-6 text-sm" style="color:var(--text-secondary);">
-            No agency found. <a href="{{ route('agencies.create') }}" style="color:var(--brand-icon);">Create one</a>.
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="w-6 h-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 21V7.5l9-4.5 9 4.5V21M3 21h18M9 21V12h6v9"/>
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No agency found</h3>
+            <p class="text-sm mb-4" style="color: var(--text-muted);">Create an agency to configure its company settings.</p>
+            <a href="{{ route('agencies.create') }}" class="corex-btn-primary">Create Agency</a>
         </div>
     @endif
 

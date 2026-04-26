@@ -1,4 +1,6 @@
-<x-app-layout>
+@extends('layouts.corex-app')
+
+@section('corex-content')
     <div>
         {{-- Sticky header with search --}}
         <x-list-header
@@ -8,8 +10,7 @@
             search-placeholder="Search by property name..."
         >
             <x-slot:actions>
-                <a href="{{ route('deposit-interest-calculator.index') }}"
-                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium transition-colors">
+                <a href="{{ route('deposit-interest-calculator.index') }}" class="corex-btn-primary">
                     + New Calculation
                 </a>
             </x-slot:actions>
@@ -18,41 +19,47 @@
         <div class="p-4 lg:p-6">
             {{-- Flash --}}
             @if(session('status'))
-                <div class="mb-4 p-3 rounded-lg text-sm" style="background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #34d399;">
-                    {{ session('status') }}
+                <div class="mb-4 rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                     style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                            border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                            color: var(--text-primary);">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color: var(--ds-green);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                    <div class="flex-1">{{ session('status') }}</div>
                 </div>
             @endif
 
             {{-- Table --}}
-            <div class="rounded-xl overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+            <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
                 <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
+                    <table class="min-w-full text-sm ds-table">
                         <thead>
-                            <tr style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
-                                <th class="text-left px-4 py-2 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Date Calculated</th>
-                                <th class="text-left px-4 py-2 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Property</th>
-                                <th class="text-right px-4 py-2 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Deposit</th>
-                                <th class="text-right px-4 py-2 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Interest</th>
-                                <th class="text-right px-4 py-2 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">Grand Total</th>
-                                <th class="text-left px-4 py-2 text-xs font-medium uppercase tracking-wider" style="color: var(--text-muted);">By</th>
-                                <th class="text-right px-4 py-2 text-xs font-medium uppercase tracking-wider w-24" style="color: var(--text-muted);">Actions</th>
+                            <tr style="background: var(--surface-2);">
+                                <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Date Calculated</th>
+                                <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Property</th>
+                                <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Deposit</th>
+                                <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Interest</th>
+                                <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Grand Total</th>
+                                <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">By</th>
+                                <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider w-24" style="color: var(--text-muted);">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             @forelse($calculations as $calc)
-                                <tr class="transition-colors"
-                                    style="border-bottom: 1px solid var(--border);"
-                                    onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                                    <td class="px-4 py-2" style="color: var(--text-muted);">{{ $calc->created_at->format('d M Y H:i') }}</td>
-                                    <td class="px-4 py-2 font-medium" style="color: var(--text-primary);">{{ $calc->property_name }}</td>
-                                    <td class="px-4 py-2 text-right font-mono" style="color: var(--text-primary);">R {{ number_format($calc->total_deposited, 2) }}</td>
-                                    <td class="px-4 py-2 text-right font-mono" style="color: #2dd4bf;">R {{ number_format($calc->total_interest, 2) }}</td>
-                                    <td class="px-4 py-2 text-right font-mono font-medium" style="color: var(--text-primary);">R {{ number_format($calc->grand_total, 2) }}</td>
-                                    <td class="px-4 py-2" style="color: var(--text-muted);">{{ $calc->user->name ?? '—' }}</td>
-                                    <td class="px-4 py-2 text-right">
+                                <tr class="transition-colors" style="border-top: 1px solid var(--border);"
+                                    onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                                    <td class="px-4 py-3" style="color: var(--text-muted);">{{ $calc->created_at->format('d M Y H:i') }}</td>
+                                    <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $calc->property_name }}</td>
+                                    <td class="px-4 py-3 text-right font-mono" style="color: var(--text-primary);">R {{ number_format($calc->total_deposited, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-mono" style="color: var(--ds-green);">R {{ number_format($calc->total_interest, 2) }}</td>
+                                    <td class="px-4 py-3 text-right font-mono font-medium" style="color: var(--text-primary);">R {{ number_format($calc->grand_total, 2) }}</td>
+                                    <td class="px-4 py-3" style="color: var(--text-muted);">{{ $calc->user->name ?? '—' }}</td>
+                                    <td class="px-4 py-3 text-right">
                                         <div class="flex items-center justify-end gap-1">
                                             <a href="{{ route('deposit-interest-calculator.show', $calc) }}"
-                                               class="p-1 rounded hover:bg-white/10 transition-colors" style="color: var(--text-muted);" title="View">
+                                               class="p-1 rounded transition-colors" style="color: var(--text-muted);" title="View"
+                                               onmouseover="this.style.color='var(--brand-icon)'" onmouseout="this.style.color='var(--text-muted)'">
                                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
@@ -62,7 +69,8 @@
                                                   onsubmit="return confirm('Delete this calculation for {{ addslashes($calc->property_name) }}?')">
                                                 @csrf
                                                 @method('DELETE')
-                                                <button type="submit" class="p-1 rounded hover:bg-red-500/20 transition-colors" style="color: var(--text-muted);" title="Delete">
+                                                <button type="submit" class="p-1 rounded transition-colors" style="color: var(--text-muted);" title="Delete"
+                                                        onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='var(--text-muted)'">
                                                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                                                     </svg>
@@ -73,8 +81,18 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="7" class="px-4 py-8 text-center" style="color: var(--text-muted);">
-                                        No saved calculations yet. <a href="{{ route('deposit-interest-calculator.index') }}" class="underline" style="color: #2dd4bf;">Run a calculation</a> and save it.
+                                    <td colspan="7" class="px-4 py-12 text-center">
+                                        <div class="flex flex-col items-center gap-3">
+                                            <div class="w-12 h-12 rounded-full flex items-center justify-center"
+                                                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                                                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 0 1-1.125-1.125v-3.75ZM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-8.25ZM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-2.25Z" />
+                                                </svg>
+                                            </div>
+                                            <h3 class="text-base font-semibold" style="color: var(--text-primary);">No saved calculations yet</h3>
+                                            <p class="text-sm" style="color: var(--text-muted);">Run a calculation and save it to see it here.</p>
+                                            <a href="{{ route('deposit-interest-calculator.index') }}" class="corex-btn-primary">Run a Calculation</a>
+                                        </div>
                                     </td>
                                 </tr>
                             @endforelse
@@ -90,4 +108,4 @@
             </div>
         </div>
     </div>
-</x-app-layout>
+@endsection

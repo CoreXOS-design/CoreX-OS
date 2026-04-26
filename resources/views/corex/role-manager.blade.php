@@ -1,14 +1,14 @@
-@extends('layouts.corex')
+@extends('layouts.corex-app')
 
 @section('corex-content')
 <style>
 /* ── Role Manager: scoped component styles ── */
 #rm-root .rm-scope-btn { transition: all 300ms; }
 #rm-root .rm-scope-btn[data-active="true"] { color: #fff; font-weight: 600; }
-#rm-root .rm-scope-btn[data-scope="none"][data-active="true"] { background: #475569; }
-#rm-root .rm-scope-btn[data-scope="own"][data-active="true"] { background: #2563eb; }
-#rm-root .rm-scope-btn[data-scope="branch"][data-active="true"] { background: #d97706; }
-#rm-root .rm-scope-btn[data-scope="all"][data-active="true"] { background: #16a34a; }
+#rm-root .rm-scope-btn[data-scope="none"][data-active="true"] { background: var(--text-secondary); }
+#rm-root .rm-scope-btn[data-scope="own"][data-active="true"] { background: var(--brand-button, #0ea5e9); }
+#rm-root .rm-scope-btn[data-scope="branch"][data-active="true"] { background: var(--ds-amber, #f59e0b); }
+#rm-root .rm-scope-btn[data-scope="all"][data-active="true"] { background: var(--ds-green, #059669); }
 </style>
 <div id="rm-root" x-data="roleManager()">
 
@@ -17,8 +17,8 @@
         {{-- Page header --}}
         <div class="rounded-md px-6 py-5 flex items-center justify-between" style="background:var(--brand-default,#0b2a4a);">
             <div>
-                <h2 class="text-xl font-bold text-white tracking-tight">Role Manager</h2>
-                <p class="text-sm mt-0.5" style="color:rgba(255,255,255,0.55);">Manage roles, permissions & user assignments.</p>
+                <h1 class="text-xl font-bold text-white tracking-tight leading-tight">Role Manager</h1>
+                <p class="text-sm text-white/60 mt-0.5">Manage roles, permissions & user assignments.</p>
             </div>
         </div>
 
@@ -42,13 +42,19 @@
         </div>
 
         @if(session('success'))
-            <div class="rounded-md border px-4 py-3 text-sm font-medium" style="border-color:#bbf7d0; background:#f0fdf4; color:#166534;">
+            <div class="rounded-md px-4 py-3 text-sm font-medium"
+                 style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);
+                        color: var(--text-primary);">
                 {{ session('success') }}
             </div>
         @endif
 
         @if($errors->any())
-            <div class="rounded-md border px-4 py-3 text-sm font-medium" style="border-color:#fecaca; background:#fef2f2; color:#991b1b;">
+            <div class="rounded-md px-4 py-3 text-sm font-medium"
+                 style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                        color: var(--text-primary);">
                 @foreach($errors->all() as $error)
                     <div>{{ $error }}</div>
                 @endforeach
@@ -220,7 +226,8 @@
                                                             @if($role->is_owner)
                                                                 <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold" style="background:var(--surface-2); color:var(--text-muted);">All (Owner)</span>
                                                             @elseif($fIsShared)
-                                                                <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold text-emerald-600 bg-emerald-50">Shared — all users</span>
+                                                                <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                                      style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">Shared — all users</span>
                                                             @else
                                                                 <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
                                                                     @foreach(['none','own','branch','all'] as $scopeVal)
@@ -459,7 +466,8 @@
                             <div class="flex items-center gap-2">
                                 <span class="text-xs font-mono" style="color:var(--text-muted);">{{ $role->name }}</span>
                                 @if($role->is_owner)
-                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-100 text-amber-700">
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase whitespace-nowrap"
+                                          style="background: color-mix(in srgb, var(--ds-amber) 14%, transparent); color: var(--ds-amber);">
                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
                                         OWNER
                                     </span>
@@ -484,7 +492,9 @@
                             @if(!$role->is_owner && $role->can_be_deleted)
                             <button type="button"
                                     @click="openDeleteRole({{ $role->id }}, {{ Js::from($role->label) }}, {{ $role->users_count }})"
-                                    class="px-3 py-1.5 rounded-md text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-all duration-300">
+                                    class="px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-300"
+                                    style="border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);"
+                                    onmouseover="this.style.background='color-mix(in srgb, var(--ds-crimson) 8%, transparent)'" onmouseout="this.style.background='transparent'">
                                 Delete
                             </button>
                             @endif
@@ -602,8 +612,9 @@
          x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0">
         <div class="rounded-md shadow-xl w-full max-w-md mx-4 overflow-hidden" style="background:var(--surface);" @click.stop>
-            <div class="px-6 py-4" style="background:#fef2f2; border-bottom:1px solid var(--border);">
-                <h3 class="font-semibold text-sm text-red-700">Delete Role</h3>
+            <div class="px-6 py-4"
+                 style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border-bottom:1px solid var(--border);">
+                <h3 class="font-semibold text-sm" style="color: var(--ds-crimson);">Delete Role</h3>
             </div>
             <form :action="'{{ url('corex/role-manager/roles') }}/' + deleteRoleId"
                   method="POST" class="p-6 space-y-4">
@@ -615,14 +626,16 @@
                 </p>
 
                 <template x-if="deleteRoleUserCount > 0">
-                    <div class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-                        <p class="text-sm text-amber-800 font-medium">
+                    <div class="rounded-md px-4 py-3"
+                         style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent);
+                                border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+                        <p class="text-sm font-medium" style="color: var(--text-primary);">
                             <span x-text="deleteRoleUserCount"></span> active user(s) have this role.
                         </p>
-                        <p class="text-xs text-amber-700 mt-1">Reassign them to:</p>
+                        <p class="text-xs mt-1" style="color: var(--text-secondary);">Reassign them to:</p>
                         <select name="reassign_to"
-                                class="mt-2 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm focus:outline-none"
-                                style="color:var(--text-primary);">
+                                class="mt-2 w-full rounded-md px-3 py-2 text-sm focus:outline-none"
+                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                             @foreach($roles as $role)
                                 @if(!$role->is_owner || auth()->user()->isOwnerRole())
                                 <option value="{{ $role->name }}">{{ $role->label }}</option>
@@ -640,7 +653,9 @@
                         Cancel
                     </button>
                     <button type="submit"
-                            class="px-4 py-2 rounded-md text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition-all duration-300">
+                            class="px-4 py-2 rounded-md text-xs font-semibold text-white transition-all duration-300"
+                            style="background: var(--ds-crimson, #c41e3a);"
+                            onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
                         Delete Role
                     </button>
                 </div>
@@ -700,8 +715,10 @@
                     </div>
                 </div>
 
-                <div class="rounded-md border px-4 py-3" style="border-color:#fde68a; background:#fffbeb;">
-                    <p class="text-xs font-medium" style="color:#92400e;">This will overwrite all existing permissions on the target role(s). This action cannot be undone.</p>
+                <div class="rounded-md px-4 py-3"
+                     style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent);
+                            border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+                    <p class="text-xs font-medium" style="color: var(--text-primary);">This will overwrite all existing permissions on the target role(s). This action cannot be undone.</p>
                 </div>
 
                 <div class="flex justify-end gap-3 pt-2">
