@@ -65,6 +65,9 @@ class PropertyObserver
         }
         if ($property->isPublished()) {
             SyncPropertyToWebsite::dispatchSync($property, 'upsert');
+        } elseif ($property->wasChanged('published_at') && $property->getOriginal('published_at')) {
+            // Was published, just got unpublished → tell the website to hard-delete the row
+            SyncPropertyToWebsite::dispatchSync($property, 'delete');
         }
 
         // P24 syndication auto-sync
