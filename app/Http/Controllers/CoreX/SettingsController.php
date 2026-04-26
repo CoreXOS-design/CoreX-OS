@@ -70,6 +70,11 @@ class SettingsController extends Controller
         // Feature Settings tab: Properties — marketing toggle
         $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
 
+        // Feature Settings tab: Properties — syndication portal availability
+        $data['syndicationWebsiteEnabled'] = (bool) PerformanceSetting::get('syndication_website_enabled', 1);
+        $data['syndicationPpEnabled']      = (bool) PerformanceSetting::get('syndication_pp_enabled', 1);
+        $data['syndicationP24Enabled']     = (bool) PerformanceSetting::get('syndication_p24_enabled', 1);
+
         // Feature Settings tab: Matches
         $data['matchesEnabled']            = (bool) PerformanceSetting::get('matches_enabled', 1);
         $data['matchesShowOnProperties']   = (bool) PerformanceSetting::get('matches_show_on_properties', 1);
@@ -176,6 +181,14 @@ class SettingsController extends Controller
         $enabled = $request->boolean('marketing_enabled');
         PerformanceSetting::updateOrCreate(['key' => 'marketing_enabled'], ['value' => $enabled ? 1 : 0]);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Marketing setting updated.');
+    }
+
+    public function updateSyndicationPortals(Request $request)
+    {
+        foreach (['syndication_website_enabled', 'syndication_pp_enabled', 'syndication_p24_enabled'] as $key) {
+            PerformanceSetting::updateOrCreate(['key' => $key], ['value' => $request->boolean($key) ? 1 : 0]);
+        }
+        return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Syndication portals updated.');
     }
 
     public function updateMatchesEnabled(Request $request)

@@ -66,33 +66,70 @@ class SyncPropertyToWebsite implements ShouldQueue
             'title'          => $p->title,
             'excerpt'        => $p->excerpt,
             'description'    => $p->description,
+            'listing_type'   => $p->listing_type,         // 'sale' | 'rental'
+            'mandate_type'   => $p->mandate_type,
+            'status'         => $p->status,
             'price'          => (int) $p->price,
-            'city'           => $p->city,
-            'suburb'         => $p->suburb,
-            'region'         => $p->region,
+            'category'       => $p->category,
+            'property_type'  => $p->property_type,
+
+            // Location — website should auto-create suburb/town/region rows if missing
+            'location' => [
+                'unit_number'   => $p->unit_number,
+                'street_number' => $p->street_number,
+                'street_name'   => $p->street_name,
+                'complex_name'  => $p->complex_name,
+                'suburb'        => $p->suburb,
+                'town'          => $p->town ?? $p->city,
+                'city'          => $p->city,
+                'region'        => $p->region,
+                'province'      => $p->province,
+                'postal_code'   => $p->postal_code,
+                'latitude'      => $p->latitude,
+                'longitude'     => $p->longitude,
+            ],
+
+            // Sizes & rooms
             'beds'           => (int) $p->beds,
-            'baths'          => (int) $p->baths,
+            'baths'          => (float) $p->baths,
             'garages'        => (int) $p->garages,
             'size_m2'        => $p->size_m2,
             'erf_size_m2'    => $p->erf_size_m2,
-            'property_type'  => $p->property_type,
-            'mandate_type'   => $p->mandate_type,
-            'status'         => $p->status,
+
+            // Dates
+            'listed_date'    => $p->listed_date?->toDateString(),
+            'expiry_date'    => $p->expiry_date?->toDateString(),
+            'published_at'   => $p->published_at?->toIso8601String(),
+
+            // Media
             'images'         => $p->allImages(),
             'dawn_images'    => $p->dawn_images_json    ?? [],
             'noon_images'    => $p->noon_images_json    ?? [],
             'dusk_images'    => $p->dusk_images_json    ?? [],
             'gallery_images' => $p->gallery_images_json ?? [],
+            'youtube_video_id' => $p->youtube_video_id,
+            'matterport_id'    => $p->matterport_id,
+
+            // Features (full feature/amenity blob from listing)
+            'features'       => $p->features_json ?? [],
+
+            // Agent — website should upsert by external_id (or email) and download photo
             'agent'          => $agent ? [
-                'name'  => $agent->name,
-                'email' => $agent->email,
-                'phone' => $agent->phone ?? null,
+                'external_id' => (string) $agent->id,
+                'name'        => $agent->name,
+                'email'       => $agent->email,
+                'phone'       => $agent->phone ?? null,
+                'bio'         => $agent->bio ?? null,
+                'photo_url'   => method_exists($agent, 'profilePhotoUrl') ? $agent->profilePhotoUrl() : null,
             ] : null,
+
+            // Agency / branch
             'agency'         => $agency ? [
-                'name'   => $agency->name,
-                'branch' => $branch?->name,
+                'external_id' => (string) $agency->id,
+                'name'        => $agency->name,
+                'branch'      => $branch?->name,
+                'logo_url'    => $agency->logo_url ?? null,
             ] : null,
-            'published_at'   => $p->published_at?->toIso8601String(),
         ];
     }
 }

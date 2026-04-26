@@ -685,6 +685,26 @@ class PropertyController extends Controller
             ->with('success', 'Property duplicated. Update the details and save.');
     }
 
+    public function publishToggle(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        $action = $request->input('action', 'toggle');
+        if ($action === 'publish' || $action === 'refresh') {
+            $property->published_at = now();
+            $msg = $action === 'refresh' ? 'Listing refreshed on HFC Premium.' : 'Published to HFC Premium.';
+        } elseif ($action === 'unpublish') {
+            $property->published_at = null;
+            $msg = 'Unpublished from HFC Premium.';
+        } else {
+            $property->published_at = $property->published_at ? null : now();
+            $msg = $property->published_at ? 'Published to HFC Premium.' : 'Unpublished from HFC Premium.';
+        }
+        $property->save();
+
+        return back()->with('success', $msg);
+    }
+
     public function deleteImage(Request $request, Property $property)
     {
         $this->authorizeProperty($property);

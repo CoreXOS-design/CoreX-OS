@@ -202,6 +202,14 @@
     <div class="flex items-center justify-end gap-2 px-4 py-2"
          style="border-bottom:1px solid var(--border);"
          x-data="{ synOpen: false, synStep: 'main' }">
+        <button type="button"
+                @click="synOpen = true; synStep = 'preview'"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
+                style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 30%, transparent);"
+                onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent)'">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+            Live Preview
+        </button>
         <div class="relative">
             {{-- Syndication button --}}
             <button type="button"
@@ -209,73 +217,150 @@
                     class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
                     style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 30%, transparent);"
                     onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent)'">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
-                </svg>
                 Syndication
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform duration-150" :class="synOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                </svg>
             </button>
 
-            {{-- Dropdown panel --}}
-            <div x-show="synOpen"
-                 x-cloak
-                 @click.away="synOpen = false; synStep = 'main'"
-                 x-transition:enter="transition ease-out duration-150"
-                 x-transition:enter-start="opacity-0 translate-y-1"
-                 x-transition:enter-end="opacity-100 translate-y-0"
-                 x-transition:leave="transition ease-in duration-100"
-                 x-transition:leave-start="opacity-100 translate-y-0"
-                 x-transition:leave-end="opacity-0 translate-y-1"
-                 class="absolute right-0 top-full mt-2 z-50 rounded-md shadow-2xl"
-                 style="width:380px; max-height:80vh; overflow-y:auto; background:var(--surface); border:1px solid var(--border);">
+            {{-- Centered modal --}}
+            @php
+                $synWebsiteEnabled = (bool) \App\Models\PerformanceSetting::get('syndication_website_enabled', 1);
+                $synPpEnabled      = (bool) \App\Models\PerformanceSetting::get('syndication_pp_enabled', 1);
+                $synP24Enabled     = (bool) \App\Models\PerformanceSetting::get('syndication_p24_enabled', 1);
+                $isPublished       = $property->isPublished();
+            @endphp
+            <template x-teleport="body">
+            <div x-show="synOpen" x-cloak
+                 class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+                 x-transition.opacity>
+                {{-- Backdrop --}}
+                <div class="absolute inset-0" style="background:rgba(0,0,0,0.55); backdrop-filter:blur(2px);"
+                     @click="synOpen = false; synStep = 'main'"></div>
+
+                {{-- Modal card --}}
+                <div class="relative rounded-md shadow-2xl"
+                     style="width:440px; max-width:95vw; max-height:88vh; overflow-y:auto; background:var(--surface); border:1px solid var(--border);"
+                     x-transition:enter="transition ease-out duration-150"
+                     x-transition:enter-start="opacity-0 scale-95"
+                     x-transition:enter-end="opacity-100 scale-100">
+
+                    {{-- Header --}}
+                    <div class="flex items-center justify-between px-4 py-3" style="border-bottom:1px solid var(--border);">
+                        <div class="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--brand-icon,#0ea5e9);">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z" />
+                            </svg>
+                            <span class="text-sm font-semibold" style="color:var(--text-primary);">Syndication</span>
+                        </div>
+                        <button type="button" @click="synOpen = false; synStep = 'main'"
+                                class="p-1 rounded transition-colors"
+                                style="color:var(--text-muted);"
+                                onmouseover="this.style.color='var(--text-primary)'; this.style.background='var(--surface-2)'"
+                                onmouseout="this.style.color='var(--text-muted)'; this.style.background='transparent'">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
 
                 {{-- Step: main --}}
                 <div x-show="synStep === 'main'" class="p-4 space-y-4">
-                    {{-- Website publish section --}}
-                    <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Publish to Website</p>
 
-                    @if(!$property->isPublished())
-                    <form method="POST" action="{{ route('corex.properties.update', $property) }}">
-                        @csrf @method('PUT')
-                        <input type="hidden" name="title"   value="{{ $property->title }}">
-                        <input type="hidden" name="suburb"  value="{{ $property->suburb }}">
-                        <input type="hidden" name="price"   value="{{ $property->price }}">
-                        <input type="hidden" name="beds"    value="{{ $property->beds }}">
-                        <input type="hidden" name="baths"   value="{{ $property->baths }}">
-                        <input type="hidden" name="garages" value="{{ $property->garages }}">
-                        <input type="hidden" name="status"  value="{{ $property->status }}">
-                        <input type="hidden" name="publish" value="1">
-                        <button type="submit"
-                                class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-xs font-semibold"
-                                style="background:#22c55e; color:#fff;"
-                                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                            Publish Now
-                        </button>
-                    </form>
-                    @else
-                    <div class="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold"
-                         style="background:rgba(34,197,94,0.10); color:#22c55e; border:1px solid rgba(34,197,94,0.25);">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
-                        Published {{ $property->published_at->diffForHumans() }}
+                    @if($synWebsiteEnabled)
+                    {{-- HFC Premium publish — mirrors P24 toggle/publish/refresh/unpublish pattern --}}
+                    <div x-data="{
+                            isPublished: {{ $isPublished ? 'true' : 'false' }},
+                            enabled:     {{ $isPublished ? 'true' : 'false' }},
+                            loading:     false,
+                            csrf:        '{{ csrf_token() }}',
+                            url:         '{{ route('corex.properties.publish-toggle', $property) }}',
+                            previewUrl:  '{{ route('corex.properties.preview', $property) }}',
+                            toggleEnabled() {
+                                if (this.loading) return;
+                                if (this.isPublished) {
+                                    this.unpublish();
+                                } else {
+                                    this.enabled = !this.enabled;
+                                }
+                            },
+                            async post(action) {
+                                this.loading = true;
+                                const fd = new FormData();
+                                fd.append('_token', this.csrf);
+                                fd.append('action', action);
+                                try { await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } }); } catch(e){}
+                                this.loading = false;
+                                if (action === 'publish' || action === 'refresh') { this.isPublished = true; this.enabled = true; }
+                                if (action === 'unpublish') { this.isPublished = false; this.enabled = false; }
+                            },
+                            publish()   { this.post('publish'); },
+                            refresh()   { this.post('refresh'); },
+                            unpublish() { this.post('unpublish'); },
+                         }"
+                         @click.stop class="space-y-3">
+                        <p class="text-[10px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Publish to HFC Premium</p>
+
+                        {{-- HFC Premium toggle row --}}
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
+                             @click="toggleEnabled()"
+                             :style="enabled ? 'background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.25);' : 'background:var(--surface-2); border:1px solid var(--border);'">
+                            <div class="flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:#22c55e' : 'color:var(--text-muted)'">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
+                                </svg>
+                                <span class="text-xs font-semibold" style="color:var(--text-primary);">HFC Premium</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <div class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                                     :style="enabled ? 'background:#22c55e' : 'background:var(--surface-3,#374151)'"
+                                     role="switch" :aria-checked="enabled">
+                                    <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                                          style="background:#fff; margin-top:2px;"
+                                          :style="enabled ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                </div>
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
+                                      :style="isPublished ? 'background:rgba(34,197,94,0.15); color:#22c55e;' : (enabled ? 'background:rgba(245,158,11,0.15); color:#f59e0b;' : 'background:var(--surface-3,#374151); color:var(--text-muted);')"
+                                      x-text="isPublished ? 'Live' : (enabled ? 'Pending' : 'Off')"></span>
+                            </div>
+                        </div>
+
+                        {{-- Publish button — shown when enabled but not yet published --}}
+                        <div x-show="enabled && !isPublished" x-cloak class="flex flex-wrap gap-2">
+                            <button type="button" @click.stop="publish()" :disabled="loading"
+                                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity hover:opacity-85"
+                                    style="background:#22c55e; color:#fff;">
+                                <svg x-show="!loading" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
+                                <svg x-show="loading" x-cloak class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                <span x-text="loading ? 'Publishing...' : 'Publish to HFC Premium'"></span>
+                            </button>
+                        </div>
+
+                        {{-- Live actions: View · Refresh · Unpublish --}}
+                        <div x-show="isPublished" x-cloak class="flex flex-wrap gap-2">
+                            <a :href="previewUrl" target="_blank"
+                               class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline transition-opacity hover:opacity-85"
+                               style="background:#22c55e; color:#fff;">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                View on HFC Premium
+                            </a>
+                            <button type="button" @click.stop="refresh()" :disabled="loading"
+                                    class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                    style="background:rgba(34,197,94,0.10); color:#22c55e; border:1px solid rgba(34,197,94,0.25);"
+                                    onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
+                            </button>
+                            <button type="button" @click.stop="unpublish()" :disabled="loading"
+                                    class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
+                                    style="background:rgba(239,68,68,0.10); color:#ef4444; border:1px solid rgba(239,68,68,0.25);"
+                                    onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                                Unpublish
+                            </button>
+                        </div>
                     </div>
                     @endif
 
-                    <button type="button"
-                            @click="synStep = 'preview'"
-                            class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold"
-                            style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);"
-                            onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 18%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 8%, transparent)'">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
-                        Live Preview
-                    </button>
-
+                    @if($synPpEnabled || $synP24Enabled)
                     {{-- Portal Syndication section --}}
-                    <div style="border-top:1px solid var(--border); margin-top:4px; padding-top:12px;">
+                    <div>
                         <p class="text-[10px] font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Portal Syndication</p>
 
+                        @if($synPpEnabled)
                         @php
                             $ppConfig = [
                                 'propertyId'      => $property->id,
@@ -470,7 +555,9 @@
                             </div>
 
                         </div>
+                        @endif
 
+                        @if($synP24Enabled)
                         {{-- Property24 Syndication Panel --}}
                         @php
                             $resolvedP24AgencyId    = $property->resolveP24AgencyId();
@@ -536,11 +623,6 @@
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
 
-                            {{-- Resolved P24 agency — shows which profile this listing will be submitted under --}}
-                            <div x-show="resolvedP24AgencyId" x-cloak class="text-[11px] px-1" style="color:var(--text-muted);">
-                                Publishing to P24 agency
-                                <span class="font-mono" style="color:var(--text-primary);" x-text="resolvedP24AgencyId"></span><template x-if="resolvedP24AgencyLabel"><span x-text="' (' + resolvedP24AgencyLabel + ')'"></span></template>
-                            </div>
                             <div x-show="enabled && !resolvedP24AgencyId" x-cloak class="text-[11px] px-1" style="color:#f59e0b;">
                                 No Property24 agency ID configured on branch or agency.
                             </div>
@@ -636,7 +718,9 @@
                                 </ul>
                             </div>
                         </div>
+                        @endif
                     </div>
+                    @endif
                 </div>
 
                 {{-- Step: preview agent choice --}}
@@ -667,9 +751,11 @@
                         Show listing agent info
                     </a>
                 </div>
-            </div>
-        </div>
-    </div>
+                </div>{{-- /modal card --}}
+            </div>{{-- /fixed inset --}}
+            </template>
+        </div>{{-- /relative --}}
+    </div>{{-- /syndication bar --}}
     @endif
 
     {{-- Tab bar (shared) --}}
