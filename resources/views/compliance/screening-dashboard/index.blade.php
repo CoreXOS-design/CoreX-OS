@@ -1,18 +1,30 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="Staff Screening Dashboard" :back-route="route('compliance.fica.index')" back-label="Compliance" :flush="true">
-        <x-slot:actions>
-            <a href="{{ route('compliance.screenings.index') }}" class="corex-btn-outline">All Screenings</a>
-            <a href="{{ route('compliance.screenings.create') }}" class="corex-btn-primary inline-flex items-center gap-1.5">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                New Screening
-            </a>
-        </x-slot:actions>
-    </x-page-header>
+<div class="space-y-6">
+    <nav class="text-xs" style="color: var(--text-muted);">
+        <a href="{{ route('compliance.fica.index') }}" style="color: var(--brand-icon);">Compliance</a>
+        <span class="mx-1">/</span>
+        <span>Staff Screening</span>
+    </nav>
 
-    <div class="p-4 lg:p-6">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Staff Screening Dashboard</h1>
+                <p class="text-sm text-white/60">Track screening status, flagged concerns, and upcoming renewals across the team.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('compliance.screenings.index') }}" class="corex-btn-outline">All Screenings</a>
+                <a href="{{ route('compliance.screenings.create') }}" class="corex-btn-primary inline-flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    New Screening
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div>
         {{-- Metric cards --}}
         @php
             $metrics = [
@@ -40,6 +52,9 @@
         </div>
 
         {{-- Filters --}}
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-xs" style="color: var(--text-muted);">Showing {{ number_format(count($staffData)) }} of {{ number_format($totalStaff) }} staff</span>
+        </div>
         <form method="GET" class="rounded-md p-3 mb-4 flex flex-wrap items-center gap-3" style="background: var(--surface); border: 1px solid var(--border);">
             <input type="text" name="search" value="{{ request('search') }}" placeholder="Search staff..."
                    class="flex-1 min-w-[200px] rounded-md px-3 py-2 text-sm"

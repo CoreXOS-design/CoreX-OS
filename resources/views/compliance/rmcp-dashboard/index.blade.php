@@ -1,14 +1,26 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="RMCP Compliance Dashboard" :back-route="route('compliance.rmcp.index')" back-label="RMCP" :flush="true">
-        <x-slot:actions>
-            <a href="{{ route('compliance.rmcp.dashboard.report') }}" target="_blank" class="corex-btn-outline">Export Report</a>
-        </x-slot:actions>
-    </x-page-header>
+<div class="space-y-6">
+    <nav class="text-xs" style="color: var(--text-muted);">
+        <a href="{{ route('compliance.rmcp.index') }}" style="color: var(--brand-icon);">RMCP</a>
+        <span class="mx-1">/</span>
+        <span>Dashboard</span>
+    </nav>
 
-    <div class="p-4 lg:p-6 space-y-6">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">RMCP Compliance Dashboard</h1>
+                <p class="text-sm text-white/60">Monitor staff acknowledgement of the active Risk Management & Compliance Programme.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('compliance.rmcp.dashboard.report') }}" target="_blank" class="corex-btn-outline">Export Report</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="space-y-6">
         {{-- Version info --}}
         @if($activeVersion)
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
@@ -126,7 +138,9 @@
                     </thead>
                     <tbody>
                         @forelse($staffData as $s)
-                        <tr>
+                        <tr class="transition-colors" style="border-top: 1px solid var(--border);"
+                            onmouseover="this.style.background='var(--surface-2)'"
+                            onmouseout="this.style.background=''">
                             <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $s['user']->name }}</td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $s['user']->role }}</td>
                             <td class="px-4 py-3">
@@ -135,7 +149,7 @@
                                 @elseif($s['status'] === 'in_progress')
                                     <span class="ds-badge ds-badge-warning">{{ (int) $s['progress'] }}%</span>
                                 @elseif($s['status'] === 'expired')
-                                    <span class="ds-badge ds-badge-danger">Expired</span>
+                                    <span class="ds-badge ds-badge-warning">Expired</span>
                                 @elseif($s['status'] === 'not_started')
                                     <span class="ds-badge ds-badge-warning">Not Started</span>
                                 @else
