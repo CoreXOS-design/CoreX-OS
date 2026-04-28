@@ -988,6 +988,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('runs/{run}/payslips/{payslip}', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'payslipShow'])
                 ->name('runs.payslips.show')
                 ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/payslips/{payslip}/edit', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'payslipEdit'])
+                ->name('runs.payslips.edit')
+                ->middleware('permission:run_payroll');
+            Route::post('runs/{run}/payslips/{payslip}/lines', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'storePayslipLine'])
+                ->name('runs.payslips.lines.store')
+                ->middleware('permission:run_payroll');
+            Route::patch('runs/{run}/payslips/{payslip}/lines/{line}', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'updatePayslipLine'])
+                ->name('runs.payslips.lines.update')
+                ->middleware('permission:run_payroll');
+            Route::delete('runs/{run}/payslips/{payslip}/lines/{line}', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'destroyPayslipLine'])
+                ->name('runs.payslips.lines.destroy')
+                ->middleware('permission:run_payroll');
+            Route::post('runs/{run}/payslips/{payslip}/recalculate', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'recalculatePayslip'])
+                ->name('runs.payslips.recalculate')
+                ->middleware('permission:run_payroll');
+            Route::patch('runs/{run}/payslips/{payslip}/notes', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'updatePayslipNotes'])
+                ->name('runs.payslips.notes')
+                ->middleware('permission:run_payroll');
         });
 
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');

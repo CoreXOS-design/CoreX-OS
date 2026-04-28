@@ -110,7 +110,12 @@
                                 @endif
                             </td>
                             <td class="px-3 py-2.5 text-right">
-                                <a href="{{ route('payroll.runs.payslips.show', [$run, $ps]) }}" class="text-xs font-semibold" style="color:#00d4aa;">View</a>
+                                <div class="flex items-center justify-end gap-2">
+                                    <a href="{{ route('payroll.runs.payslips.show', [$run, $ps]) }}" class="text-xs font-semibold" style="color:#00d4aa;">View</a>
+                                    @if($run->isDraft())
+                                        <a href="{{ route('payroll.runs.payslips.edit', [$run, $ps]) }}" class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Edit</a>
+                                    @endif
+                                </div>
                             </td>
                         </tr>
                         @endforeach
