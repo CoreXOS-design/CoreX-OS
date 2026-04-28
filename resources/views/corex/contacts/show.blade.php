@@ -1,7 +1,7 @@
-@extends('layouts.corex')
+@extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5"
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
      x-data="contactShowData('{{ route('corex.contacts.properties.search', $contact) }}', '{{ request('tab', 'info') }}')"
      x-init="activeTab = initTab">
 
@@ -13,22 +13,11 @@
         Back to Contacts
     </a>
 
-    @if(session('success'))
-        <div class="rounded-md border px-4 py-3 text-sm font-medium"
-             style="border-color: color-mix(in srgb, var(--ds-green) 30%, transparent); background: color-mix(in srgb, var(--ds-green) 10%, transparent); color: var(--ds-green);">
-            {{ session('success') }}
-        </div>
-    @endif
-    @if(session('error'))
-        <div class="rounded-md border px-4 py-3 text-sm font-medium"
-             style="border-color: color-mix(in srgb, var(--ds-crimson) 30%, transparent); background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
-            {{ session('error') }}
-        </div>
-    @endif
     @if($errors->any())
-        <div class="rounded-md border px-4 py-3 text-sm"
-             style="border-color: color-mix(in srgb, var(--ds-crimson) 30%, transparent); background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
-            {{ $errors->first() }}
+        <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
+            <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-crimson);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+            <div class="flex-1"><strong>Please fix the following:</strong> {{ $errors->first() }}</div>
         </div>
     @endif
 
@@ -36,7 +25,7 @@
     <div class="rounded-md p-6" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex items-start gap-5 flex-wrap">
             {{-- Avatar --}}
-            <div class="w-16 h-16 rounded-md flex items-center justify-center flex-shrink-0 text-xl font-bold text-white"
+            <div class="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 text-xl font-bold text-white"
                  style="background: {{ $contact->type?->color ?? 'var(--brand-icon, #0ea5e9)' }};">
                 {{ $contact->initials }}
             </div>
@@ -44,7 +33,7 @@
             {{-- Name + meta --}}
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-3 flex-wrap">
-                    <h1 class="text-xl font-extrabold text-white">{{ $contact->full_name }}</h1>
+                    <h1 class="text-xl font-bold text-white leading-tight">{{ $contact->full_name }}</h1>
                     @if($contact->type)
                     <span class="text-xs px-2.5 py-1 rounded-md font-semibold"
                           style="background:rgba(255,255,255,0.12); color:{{ $contact->type->color }}; border:1px solid rgba(255,255,255,0.2);">
@@ -54,12 +43,12 @@
                 </div>
 
                 <div class="mt-2 flex flex-wrap gap-x-5 gap-y-1.5">
-                    <span class="flex items-center gap-1.5 text-sm" style="color:rgba(255,255,255,0.6);">
+                    <span class="flex items-center gap-1.5 text-sm text-white/60">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
                         {{ $contact->phone }}
                     </span>
                     @if($contact->email)
-                    <span class="flex items-center gap-1.5 text-sm" style="color:rgba(255,255,255,0.6);">
+                    <span class="flex items-center gap-1.5 text-sm text-white/60">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
                         <a href="mailto:{{ $contact->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $contact->email }}</a>
                     </span>
@@ -95,9 +84,7 @@
             {{-- Create Listing from Contact (only if no linked properties) --}}
             @if(auth()->user()->hasPermission('access_properties') && $contact->properties()->count() === 0)
             <a href="{{ route('corex.properties.create') }}?contact_id={{ $contact->id }}"
-               class="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"
-               style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);"
-               onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 22%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent)'">
+               class="corex-btn-outline flex-shrink-0 inline-flex items-center gap-1.5 no-underline">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 Create Listing
             </a>
@@ -109,8 +96,8 @@
                   onsubmit="return confirm('Permanently delete {{ addslashes($contact->full_name) }}?');"
                   class="flex-shrink-0">
                 @csrf @method('DELETE')
-                <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all duration-300"
-                        style="color: var(--ds-crimson); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); background: color-mix(in srgb, var(--ds-crimson) 8%, transparent);">
+                <button type="submit" class="corex-btn-outline"
+                        style="color: var(--ds-crimson); border-color: color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
                     Delete Contact
                 </button>
             </form>
@@ -254,7 +241,7 @@
                             </div>
                             <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md" style="background:rgba(37,211,102,0.12); color:#25d366;">Click to send</span>
                         </div>
-                        <div class="text-2xl font-extrabold" style="color:var(--text-primary);" x-text="waCount"></div>
+                        <div class="text-2xl font-bold" style="color:var(--text-primary);" x-text="waCount"></div>
                         <div class="text-xs mt-0.5" style="color:var(--text-muted);">messages sent</div>
                     </div>
                     @endif
@@ -272,7 +259,7 @@
                             </div>
                             <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9);">Click to send</span>
                         </div>
-                        <div class="text-2xl font-extrabold" style="color:var(--text-primary);" x-text="emailCount"></div>
+                        <div class="text-2xl font-bold" style="color:var(--text-primary);" x-text="emailCount"></div>
                         <div class="text-xs mt-0.5" style="color:var(--text-muted);">emails sent</div>
                     </div>
                     @endif
@@ -659,7 +646,7 @@
             <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <div class="flex items-start justify-between gap-3">
                     <div class="flex items-center gap-2 flex-shrink-0">
-                        <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                              style="background:var(--brand-default, #0b2a4a);">
                             {{ strtoupper(substr($note->user?->name ?? '?', 0, 1)) }}
                         </div>
@@ -713,13 +700,13 @@
                                @change="$el.closest('form').querySelector('.file-name').textContent = $el.files[0]?.name ?? ''">
                     </div>
                     <div class="grid grid-cols-2 gap-3">
-                        <select name="document_type_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+                        <select name="document_type_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
                             <option value="">Document Type (optional)</option>
                             @foreach($documentTypes as $dt)
                             <option value="{{ $dt->id }}">{{ $dt->label }}</option>
                             @endforeach
                         </select>
-                        <select name="property_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+                        <select name="property_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
                             <option value="">Link to Property (optional)</option>
                             @foreach($contact->properties as $prop)
                             <option value="{{ $prop->id }}">{{ trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id }}</option>
