@@ -761,6 +761,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/my-portal/payslips/{payslip}/pdf', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslipPdf'])
         ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips.pdf');
 
+    // ── My Leave (agent self-service) ──
+    Route::middleware(['permission:apply_for_leave', 'agency.required'])
+        ->prefix('my-portal/leave')
+        ->name('my-portal.leave.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'index'])->name('index');
+            Route::get('apply', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'create'])->name('apply');
+            Route::post('apply', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'store'])->name('store');
+            Route::get('{application}', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'show'])->name('show');
+            Route::post('{application}/cancel', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'cancel'])->name('cancel');
+            Route::post('calculate-days', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'calculateDays'])->name('calculate-days');
+        });
+
     // ── Agency Documents (staff read-only view) ──
     Route::middleware(['permission:view_agency_documents', 'agency.required'])->group(function () {
         Route::get('/my-portal/agency-documents', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'index'])->name('my-portal.agency-documents');
