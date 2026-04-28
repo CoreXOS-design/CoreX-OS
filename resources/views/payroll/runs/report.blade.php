@@ -158,7 +158,44 @@
             </div>
         </div>
 
-        {{-- SECTION 5: Per-Employee Breakdown --}}
+        {{-- SECTION 5: Leave Taken in Period --}}
+        @if(isset($leaveTakenInPeriod) && $leaveTakenInPeriod->count() > 0)
+        <div class="mb-6">
+            <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Leave Taken in Period</h4>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm" style="border-collapse:collapse;">
+                    <thead>
+                        <tr style="border-bottom:2px solid var(--border, #e5e7eb);">
+                            <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Employee</th>
+                            <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Type</th>
+                            <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Period</th>
+                            <th class="text-center px-2 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Days</th>
+                            <th class="text-center px-2 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8);">Affects Pay</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($leaveTakenInPeriod as $la)
+                        <tr style="border-bottom:1px solid var(--border, #e5e7eb);">
+                            <td class="px-3 py-2 text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ $la->user->name ?? '?' }}</td>
+                            <td class="px-3 py-2 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $la->leaveType->label ?? '-' }}</td>
+                            <td class="px-3 py-2 text-xs" style="color:var(--text-primary, #0f172a);">{{ $la->start_date?->format('d M') }} — {{ $la->end_date?->format('d M') }}</td>
+                            <td class="px-2 py-2 text-center text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ number_format($la->working_days_requested, 1) }}</td>
+                            <td class="px-2 py-2 text-center">
+                                @if($la->affects_payroll)
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:3px;">Yes</span>
+                                @else
+                                    <span class="text-xs" style="color:var(--text-secondary, #94a3b8);">No</span>
+                                @endif
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @endif
+
+        {{-- SECTION 6: Per-Employee Breakdown --}}
         <div class="mb-6">
             <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Per-Employee Breakdown</h4>
             <div class="overflow-x-auto">

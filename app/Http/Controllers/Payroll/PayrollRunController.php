@@ -8,6 +8,8 @@ use App\Models\Payroll\PayrollEmployee;
 use App\Models\Payroll\PayrollPayslip;
 use App\Models\Payroll\PayrollPayslipLine;
 use App\Models\Payroll\PayrollRun;
+use App\Models\Leave\LeaveApplication;
+use App\Services\Leave\PublicHolidayService;
 use App\Services\Payroll\PayrollCalculator;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -174,12 +176,42 @@ class PayrollRunController extends Controller
                 'sdl' => '0.00', 'net' => '0.00',
             ];
 
+            $holidayService = new PublicHolidayService();
+
             foreach ($employees as $emp) {
                 $payslipSeq++;
                 $user = $emp->user;
 
-                // Calculate
-                $calc = $calculator->calculatePayslip($emp, $periodMonth);
+                // Detect unpaid leave overlapping this pay period
+                $preTaxAdjustments = [];
+                $unpaidLeaveApps = LeaveApplication::withoutGlobalScopes()
+                    ->where('payroll_employee_id', $emp->id)
+                    ->where('status', 'approved')
+                    ->whereHas('leaveType', fn($q) => $q->where('affects_payroll', true))
+                    ->where('start_date', '<=', $periodMonth->copy()->endOfMonth())
+                    ->where('end_date', '>=', $periodMonth)
+                    ->whereNull('payslip_id')
+                    ->get();
+
+                foreach ($unpaidLeaveApps as $leaveApp) {
+                    $leaveStart = $leaveApp->start_date->max($periodMonth);
+                    $leaveEnd = $leaveApp->end_date->min($periodMonth->copy()->endOfMonth());
+                    $leaveDays = $holidayService->countWorkingDays($leaveStart, $leaveEnd, $emp->workingDaysMaskArray());
+
+                    if ($leaveDays > 0) {
+                        $dailyRate = $emp->dailyRate();
+                        $deduction = bcmul((string) $leaveDays, $dailyRate, 2);
+                        $preTaxAdjustments[] = [
+                            'label'            => "Unpaid Leave: {$leaveApp->application_number} ({$leaveDays} day" . ($leaveDays != 1 ? 's' : '') . ")",
+                            'amount'           => bcmul($deduction, '-1', 2),
+                            'leave_app_id'     => $leaveApp->id,
+                            'leave_days'       => $leaveDays,
+                        ];
+                    }
+                }
+
+                // Calculate (with pre-tax adjustments for unpaid leave)
+                $calc = $calculator->calculatePayslip($emp, $periodMonth, null, $preTaxAdjustments);
 
                 // Generate payslip number
                 $payslipNumber = 'HFC-' . $periodMonth->format('Ym') . '-' . str_pad($payslipSeq, 3, '0', STR_PAD_LEFT);
@@ -224,6 +256,28 @@ class PayrollRunController extends Controller
                         'is_taxable_snapshot'     => $earning['is_taxable'],
                         'sort_order'              => $sortOrder,
                     ]);
+                }
+
+                // Create payslip lines — unpaid leave deductions (pre-tax)
+                foreach ($preTaxAdjustments as $adj) {
+                    $sortOrder++;
+                    PayrollPayslipLine::create([
+                        'payroll_payslip_id'        => $payslip->id,
+                        'line_type'                 => 'deduction',
+                        'source_type_id'            => 0,
+                        'code_snapshot'             => 'unpaid_leave',
+                        'label_snapshot'            => $adj['label'],
+                        'sars_source_code_snapshot' => null,
+                        'amount'                    => bcmul($adj['amount'], '-1', 2), // store as positive deduction
+                        'is_taxable_snapshot'       => false,
+                        'sort_order'                => $sortOrder,
+                    ]);
+                    // Link leave application to this payslip
+                    if (isset($adj['leave_app_id'])) {
+                        LeaveApplication::withoutGlobalScopes()
+                            ->where('id', $adj['leave_app_id'])
+                            ->update(['payslip_id' => $payslip->id]);
+                    }
                 }
 
                 // Create payslip lines — deductions
@@ -503,8 +557,18 @@ class PayrollRunController extends Controller
             $statutory['sdl'], 2
         );
 
+        // Leave taken in period
+        $leaveTakenInPeriod = LeaveApplication::withoutGlobalScopes()
+            ->where('agency_id', $run->agency_id)
+            ->whereIn('status', ['approved', 'taken'])
+            ->where('start_date', '<=', $run->period_month->copy()->endOfMonth())
+            ->where('end_date', '>=', $run->period_month)
+            ->with('user', 'leaveType')
+            ->orderBy('start_date')
+            ->get();
+
         return view('payroll.runs.report', compact(
-            'run', 'branchBreakdown', 'earningsSummary', 'deductionsSummary', 'statutory'
+            'run', 'branchBreakdown', 'earningsSummary', 'deductionsSummary', 'statutory', 'leaveTakenInPeriod'
         ));
     }
 

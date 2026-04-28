@@ -156,6 +156,37 @@
     </div>
     @endif
 
+    {{-- Leave balances --}}
+    @if(isset($leaveBalances) && count($leaveBalances) > 0)
+    <div style="margin-top: 10pt; font-size: 9pt; color: #475569;">
+        <div style="font-weight: 600; font-size: 9.5pt; color: #00d4aa; text-transform: uppercase; letter-spacing: 0.5pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 3pt; margin-bottom: 4pt;">
+            Leave Balances (as at {{ $payslip->pay_date->format('j M Y') }})
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 8.5pt;">
+            <thead>
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <th style="text-align: left; padding: 3pt 2pt; color: #94a3b8;">Type</th>
+                    <th style="text-align: right; padding: 3pt 2pt; color: #94a3b8;">Entitled</th>
+                    <th style="text-align: right; padding: 3pt 2pt; color: #94a3b8;">Taken</th>
+                    <th style="text-align: right; padding: 3pt 2pt; color: #94a3b8;">Pending</th>
+                    <th style="text-align: right; padding: 3pt 2pt; color: #94a3b8;">Available</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($leaveBalances as $lb)
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 3pt 2pt; color: #1e293b;">{{ $lb['label'] }}</td>
+                    <td style="text-align: right; padding: 3pt 2pt;">{{ number_format((float)$lb['entitlement'], 1) }}</td>
+                    <td style="text-align: right; padding: 3pt 2pt;">{{ number_format((float)$lb['taken'], 1) }}</td>
+                    <td style="text-align: right; padding: 3pt 2pt;">{{ number_format((float)$lb['pending'], 1) }}</td>
+                    <td style="text-align: right; padding: 3pt 2pt; font-weight: 600;">{{ number_format((float)$lb['available'], 1) }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+    @endif
+
     {{-- Footer --}}
     <div class="footer">
         <div>

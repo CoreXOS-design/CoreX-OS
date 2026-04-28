@@ -20,10 +20,15 @@ class PayrollCalculator
      * @param Carbon          $periodMonth  First of the month (e.g. 2026-05-01)
      * @param Carbon|null     $asOfDate  Date for resolving effective earnings/deductions (defaults to end of period month)
      */
+    /**
+     * @param array $preTaxAdjustments Array of ['label'=>string, 'amount'=>string (negative for deductions)]
+     *   Applied before PAYE/UIF calculation. Used for unpaid leave deductions.
+     */
     public function calculatePayslip(
         PayrollEmployee $employee,
         Carbon $periodMonth,
         ?Carbon $asOfDate = null,
+        array $preTaxAdjustments = [],
     ): PayslipCalculation {
         $asOfDate = $asOfDate ?? $periodMonth->copy()->endOfMonth();
         $warnings = [];
@@ -32,15 +37,39 @@ class PayrollCalculator
         // 1. Gather earnings from employee template
         $earnings = $this->gatherEarnings($employee, $asOfDate);
 
+        // 1b. Apply pre-tax adjustments (e.g. unpaid leave deductions)
+        // These reduce gross/taxable BEFORE PAYE/UIF calc
+        $adjustmentTotal = '0.00';
+        foreach ($preTaxAdjustments as $adj) {
+            $adjustmentTotal = bcadd($adjustmentTotal, $adj['amount'], 2);
+            $trace[] = "Pre-tax adjustment: {$adj['label']} R{$adj['amount']}";
+        }
+
         // 2. Gather non-statutory deductions (+ any overridden statutory)
         $templateDeductions = $this->gatherDeductions($employee, $asOfDate);
 
         // 3. Compute income breakdowns
         $totalEarnings = $this->sumAmounts($earnings);
-        $taxableIncome = $this->sumTaxable($earnings);
+        // Apply adjustment to total earnings (negative adjustment reduces)
+        $totalEarnings = bcadd($totalEarnings, $adjustmentTotal, 2);
+        if (bccomp($totalEarnings, '0', 2) < 0) {
+            $totalEarnings = '0.00';
+            $warnings[] = 'Gross earnings reduced to zero by pre-tax adjustments';
+        }
+
+        $taxableIncome = bcadd($this->sumTaxable($earnings), $adjustmentTotal, 2);
+        if (bccomp($taxableIncome, '0', 2) < 0) {
+            $taxableIncome = '0.00';
+        }
         $nonTaxableIncome = bcsub($totalEarnings, $taxableIncome, 2);
-        $uifRemuneration = $this->sumUifRemuneration($earnings);
-        $sdlRemuneration = $this->sumSdlRemuneration($earnings);
+        $uifRemuneration = bcadd($this->sumUifRemuneration($earnings), $adjustmentTotal, 2);
+        if (bccomp($uifRemuneration, '0', 2) < 0) {
+            $uifRemuneration = '0.00';
+        }
+        $sdlRemuneration = bcadd($this->sumSdlRemuneration($earnings), $adjustmentTotal, 2);
+        if (bccomp($sdlRemuneration, '0', 2) < 0) {
+            $sdlRemuneration = '0.00';
+        }
 
         $trace[] = "Total earnings: R{$totalEarnings}";
         $trace[] = "Taxable income: R{$taxableIncome}/month";

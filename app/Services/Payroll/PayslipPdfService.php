@@ -30,8 +30,11 @@ class PayslipPdfService
         ]);
         $verificationHash = substr(hash('sha256', $hashInput), 0, 16);
 
+        // Gather leave balances for PDF footer
+        $leaveBalances = $this->getLeaveBalancesForPdf($payslip);
+
         // Render HTML
-        $html = view('payroll.pdf.payslip', compact('payslip', 'agency', 'banking', 'verificationHash'))->render();
+        $html = view('payroll.pdf.payslip', compact('payslip', 'agency', 'banking', 'verificationHash', 'leaveBalances'))->render();
 
         // Temp HTML path
         $tempDir = storage_path('app/temp');
@@ -117,6 +120,55 @@ class PayslipPdfService
         $filename = "Payslip-{$lastName}-{$periodYm}.pdf";
 
         return response()->download($pdfPath, $filename);
+    }
+
+    /**
+     * Get filtered leave balances for the payslip PDF footer.
+     * Only types with non-zero entitlement, hiding unpaid/special/parental(unless used).
+     */
+    private function getLeaveBalancesForPdf(PayrollPayslip $payslip): array
+    {
+        if (!class_exists(\App\Services\Leave\LeaveBalanceService::class)) {
+            return [];
+        }
+
+        try {
+            $employee = $payslip->employee;
+            if (!$employee) return [];
+
+            $balanceService = new \App\Services\Leave\LeaveBalanceService();
+            $allBalances = $balanceService->getAllBalancesForEmployee($employee);
+
+            $filtered = [];
+            foreach ($allBalances as $bal) {
+                $type = $bal['leave_type'];
+                $entitlement = (float) $bal['entitlement_days'];
+
+                // Skip types with zero entitlement (unpaid, special, study with 0)
+                if ($entitlement <= 0) continue;
+
+                // Skip parental unless employee has used some
+                if ($type->category === 'parental' && (float) $bal['taken_days'] <= 0) continue;
+
+                $label = $type->label;
+                if ($type->cycle_months == 36) {
+                    $label .= ' (3-yr cycle)';
+                }
+
+                $filtered[] = [
+                    'label'       => $label,
+                    'entitlement' => $bal['entitlement_days'],
+                    'taken'       => $bal['taken_days'],
+                    'pending'     => $bal['pending_days'],
+                    'available'   => $bal['available_days'],
+                ];
+            }
+
+            return $filtered;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Leave balance PDF footer failed', ['error' => $e->getMessage()]);
+            return [];
+        }
     }
 
     // ══════════════════════════════════════════════════════════════
