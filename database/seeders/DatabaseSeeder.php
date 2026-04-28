@@ -42,6 +42,7 @@ class DatabaseSeeder extends Seeder
             AgencyDocumentTypeConfigSeeder::class,
             PayrollSeeder::class,
             NotificationEventTypeSeeder::class,
+            PublicHolidaySeeder::class,
         ]);
     }
 }
