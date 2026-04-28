@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Jobs\MatchPropertyJob;
 use App\Jobs\SubmitListingToProperty24;
 use App\Jobs\SyncPropertyToWebsite;
 use App\Models\Property;
@@ -68,6 +69,22 @@ class PropertyObserver
         } elseif ($property->wasChanged('published_at') && $property->getOriginal('published_at')) {
             // Was published, just got unpublished → tell the website to hard-delete the row
             SyncPropertyToWebsite::dispatchSync($property, 'delete');
+        }
+
+        // Core Matches — fire on create or on any criteria-affecting change.
+        // Re-saves with no relevant change won't trigger duplicate notifications
+        // because MatchPropertyJob dedups via contact_match_notifications.
+        $matchSignals = [
+            'price', 'beds', 'baths', 'garages', 'size_m2', 'erf_size_m2',
+            'suburb', 'city', 'category', 'property_type', 'listing_type',
+            'status', 'features_json',
+        ];
+        if ($property->wasRecentlyCreated || array_intersect(array_keys($property->getChanges()), $matchSignals)) {
+            try {
+                MatchPropertyJob::dispatch($property->id);
+            } catch (\Throwable $e) {
+                Log::warning("MatchPropertyJob dispatch failed for property #{$property->id}: {$e->getMessage()}");
+            }
         }
 
         // P24 syndication auto-sync

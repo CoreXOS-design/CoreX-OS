@@ -164,34 +164,11 @@ class PropertyController extends Controller
         $agents   = $this->agentList();
         $activeTab = request('tab', 'overview');
 
-        // Find all Core Matches where this property satisfies the criteria
-        $coreMatches = ContactMatch::with(['contact.type', 'createdBy'])
-            ->get()
-            ->filter(function (ContactMatch $m) use ($property) {
-                // Skip if property is explicitly hidden in this match
-                if (in_array($property->id, $m->hidden_property_ids ?? [])) return false;
-                // Category
-                if ($m->category && $property->category !== $m->category) return false;
-                // Property type
-                if ($m->property_type && $property->property_type !== $m->property_type) return false;
-                // Suburb (case-insensitive contains)
-                if ($m->suburb && stripos($property->suburb ?? '', $m->suburb) === false) return false;
-                // Price
-                if ($m->price_min && ($property->price ?? 0) < $m->price_min) return false;
-                if ($m->price_max && ($property->price ?? 0) > $m->price_max) return false;
-                // Beds / baths / garages
-                if ($m->beds_min && ($property->beds ?? 0) < $m->beds_min) return false;
-                if ($m->baths_min && ($property->baths ?? 0) < $m->baths_min) return false;
-                if ($m->garages_min && ($property->garages ?? 0) < $m->garages_min) return false;
-                // Floor size
-                if ($m->floor_size_min && ($property->size_m2 ?? 0) < $m->floor_size_min) return false;
-                if ($m->floor_size_max && ($property->size_m2 ?? 0) > $m->floor_size_max) return false;
-                // Erf size
-                if ($m->erf_size_min && ($property->erf_size_m2 ?? 0) < $m->erf_size_min) return false;
-                if ($m->erf_size_max && ($property->erf_size_m2 ?? 0) > $m->erf_size_max) return false;
-                return true;
-            })
-            ->values();
+        // Find all Core Matches where this property satisfies the criteria.
+        // Hard filters run in SQL (indexed); scoring runs in PHP and the result is sorted.
+        $coreMatches = $property->exists
+            ? app(\App\Services\Matching\MatchingService::class)->matchesForProperty($property)
+            : collect();
 
         // PP feed readiness check for syndication panel
         $ppMissingFields = $property->exists

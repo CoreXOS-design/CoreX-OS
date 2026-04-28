@@ -2,73 +2,112 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Agency;
 use App\Models\ContactMatch;
+use App\Models\ContactMatchFeedback;
 use App\Models\Property;
+use App\Models\Scopes\AgencyScope;
+use App\Services\Matching\MatchingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SharedMatchController extends Controller
 {
+    public function __construct(protected MatchingService $matching) {}
+
     public function show(Request $request, string $token)
     {
-        $match = ContactMatch::where('share_token', $token)
-            ->with(['contact', 'createdBy'])
-            ->firstOrFail();
+        // Public page — no auth — bypass agency scope so the token resolves
+        $match = $this->resolveMatch($token, ['contact', 'createdBy']);
 
         $contact = $match->contact;
 
-        // Build property query from saved match criteria,
-        // optionally overridden by client-submitted filter params
-        $query = Property::with(['agent', 'branch', 'agency'])
-            ->whereNotIn('status', ['sold', 'withdrawn']);
+        $overrides = array_filter([
+            'category'      => $request->input('category'),
+            'property_type' => $request->input('property_type'),
+            'price_min'     => $request->filled('price_min') ? (int) $request->input('price_min') : null,
+            'price_max'     => $request->filled('price_max') ? (int) $request->input('price_max') : null,
+            'beds_min'      => $request->filled('beds_min')  ? (int) $request->input('beds_min')  : null,
+            'baths_min'     => $request->filled('baths_min') ? (int) $request->input('baths_min') : null,
+            'garages_min'   => $request->filled('garages_min') ? (int) $request->input('garages_min') : null,
+            'floor_size_min' => $request->filled('floor_size_min') ? (int) $request->input('floor_size_min') : null,
+            'floor_size_max' => $request->filled('floor_size_max') ? (int) $request->input('floor_size_max') : null,
+            'erf_size_min'  => $request->filled('erf_size_min') ? (int) $request->input('erf_size_min') : null,
+            'erf_size_max'  => $request->filled('erf_size_max') ? (int) $request->input('erf_size_max') : null,
+            'suburbs'       => $request->input('suburbs'),
+        ], fn ($v) => $v !== null && $v !== '' && $v !== []);
 
-        $category     = $request->input('category',      $match->category);
-        $propertyType = $request->input('property_type', $match->property_type);
-        $suburb       = $request->input('suburb',        $match->suburb);
-        $priceMin     = (int) $request->input('price_min', $match->price_min ?? 0) ?: null;
-        $priceMax     = (int) $request->input('price_max', $match->price_max ?? 0) ?: null;
-        $bedsMin      = (int) $request->input('beds_min',  $match->beds_min  ?? 0) ?: null;
-        $bathsMin     = (int) $request->input('baths_min', $match->baths_min ?? 0) ?: null;
-        $garagesMin   = (int) $request->input('garages_min', $match->garages_min ?? 0) ?: null;
-        $floorMin     = (int) $request->input('floor_size_min', $match->floor_size_min ?? 0) ?: null;
-        $floorMax     = (int) $request->input('floor_size_max', $match->floor_size_max ?? 0) ?: null;
-        $erfMin       = (int) $request->input('erf_size_min', $match->erf_size_min ?? 0) ?: null;
-        $erfMax       = (int) $request->input('erf_size_max', $match->erf_size_max ?? 0) ?: null;
+        Property::withoutEvents(fn () => null); // no-op, keep observers on
 
-        if ($category)     $query->where('category', $category);
-        if ($propertyType) $query->where('property_type', $propertyType);
-        if ($suburb)       $query->where('suburb', 'like', '%' . $suburb . '%');
-        if ($priceMin)     $query->where('price', '>=', $priceMin);
-        if ($priceMax)     $query->where('price', '<=', $priceMax);
-        if ($bedsMin)      $query->where('beds', '>=', $bedsMin);
-        if ($bathsMin)     $query->where('baths', '>=', $bathsMin);
-        if ($garagesMin)   $query->where('garages', '>=', $garagesMin);
-        if ($floorMin)     $query->where('size_m2', '>=', $floorMin);
-        if ($floorMax)     $query->where('size_m2', '<=', $floorMax);
-        if ($erfMin)       $query->where('erf_size_m2', '>=', $erfMin);
-        if ($erfMax)       $query->where('erf_size_m2', '<=', $erfMax);
+        $properties = $this->matching->propertiesForMatch($match, $overrides);
 
-        if (!empty($match->hidden_property_ids)) {
-            $query->whereNotIn('id', $match->hidden_property_ids);
-        }
+        // Existing feedback per property, keyed by property_id
+        $feedback = $match->feedback()->get()->keyBy('property_id');
 
-        $properties = $query->orderByDesc('created_at')->paginate(5)->withQueryString();
+        $filters = [
+            'category'     => $overrides['category']      ?? $match->category,
+            'propertyType' => $overrides['property_type'] ?? $match->property_type,
+            'suburb'       => $match->suburb,
+            'priceMin'     => $overrides['price_min']     ?? $match->price_min,
+            'priceMax'     => $overrides['price_max']     ?? $match->price_max,
+            'bedsMin'      => $overrides['beds_min']      ?? $match->beds_min,
+            'bathsMin'     => $overrides['baths_min']     ?? $match->baths_min,
+            'garagesMin'   => $overrides['garages_min']   ?? $match->garages_min,
+            'floorMin'     => $overrides['floor_size_min'] ?? $match->floor_size_min,
+            'floorMax'     => $overrides['floor_size_max'] ?? $match->floor_size_max,
+            'erfMin'       => $overrides['erf_size_min']  ?? $match->erf_size_min,
+            'erfMax'       => $overrides['erf_size_max']  ?? $match->erf_size_max,
+        ];
 
-        $filters = compact(
-            'category', 'propertyType', 'suburb',
-            'priceMin', 'priceMax',
-            'bedsMin', 'bathsMin', 'garagesMin',
-            'floorMin', 'floorMax', 'erfMin', 'erfMax'
-        );
+        $agency = $match->agency_id
+            ? Agency::withoutGlobalScope(AgencyScope::class)->find($match->agency_id)
+            : null;
 
-        return view('shared.match', compact('match', 'contact', 'properties', 'filters', 'token'));
+        return view('shared.match', compact('match', 'contact', 'properties', 'filters', 'token', 'feedback', 'agency'));
     }
 
     public function recordView(string $token, int $property): JsonResponse
     {
-        $match = ContactMatch::where('share_token', $token)->firstOrFail();
+        $match = $this->resolveMatch($token);
+
         $match->incrementPropertyView($property);
 
-        return response()->json(['ok' => true, 'count' => $match->propertyViewCount($property)]);
+        return response()->json([
+            'ok'    => true,
+            'count' => $match->propertyViewCount($property),
+        ]);
+    }
+
+    public function feedback(Request $request, string $token, int $property): JsonResponse
+    {
+        $data = $request->validate([
+            'reaction' => 'required|in:interested,not_interested,saved',
+            'note'     => 'nullable|string|max:500',
+        ]);
+
+        $match = $this->resolveMatch($token);
+
+        ContactMatchFeedback::updateOrCreate(
+            ['contact_match_id' => $match->id, 'property_id' => $property],
+            ['reaction' => $data['reaction'], 'note' => $data['note'] ?? null],
+        );
+
+        $match->update(['last_engaged_at' => now()]);
+
+        return response()->json(['ok' => true, 'reaction' => $data['reaction']]);
+    }
+
+    /**
+     * Look up a match by share_slug (preferred) or share_token (legacy).
+     * Public route — bypasses agency scope.
+     */
+    protected function resolveMatch(string $key, array $with = []): ContactMatch
+    {
+        return ContactMatch::withoutGlobalScope(AgencyScope::class)
+            ->with($with)
+            ->where(function ($q) use ($key) {
+                $q->where('share_slug', $key)->orWhere('share_token', $key);
+            })
+            ->firstOrFail();
     }
 }

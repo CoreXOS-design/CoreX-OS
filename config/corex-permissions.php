@@ -273,6 +273,8 @@ return [
         ['key' => 'core_matches.view',           'label' => 'View',                        'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 10],
         ['key' => 'core_matches.create',         'label' => 'Create',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 11],
         ['key' => 'core_matches.delete',         'label' => 'Delete',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 12],
+        ['key' => 'core_matches.manage',         'label' => 'Manage (edit, archive)',      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 13],
+        ['key' => 'core_matches.convert_to_deal','label' => 'Convert to Deal',             'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 14],
 
         // ── Calculators / Tools ──
         ['key' => 'access_calculators',          'label' => 'Access Calculators & Tools',  'section' => 'calculators',      'type' => 'access',  'module' => 'calculators',      'sort_order' => 1],
@@ -444,7 +446,7 @@ return [
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email',
                 'access_core_matches',
-                'core_matches.view', 'core_matches.create', 'core_matches.delete',
+                'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
                 'settings.view',
@@ -499,7 +501,7 @@ return [
                 'contacts.view', 'contacts.create', 'contacts.edit',
                 'contacts.whatsapp', 'contacts.email',
                 'access_core_matches',
-                'core_matches.view', 'core_matches.create', 'core_matches.delete',
+                'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
                 'view_own_stats',

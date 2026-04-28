@@ -14,23 +14,26 @@
     </a>
 
     @if(session('success'))
-        <div class="rounded-md border px-4 py-3 text-sm font-medium" style="border-color:#bbf7d0; background:#f0fdf4; color:#166534;">
+        <div class="rounded-md border px-4 py-3 text-sm font-medium"
+             style="border-color: color-mix(in srgb, var(--ds-green) 30%, transparent); background: color-mix(in srgb, var(--ds-green) 10%, transparent); color: var(--ds-green);">
             {{ session('success') }}
         </div>
     @endif
     @if(session('error'))
-        <div class="rounded-md border px-4 py-3 text-sm font-medium" style="border-color:#fecaca; background:#fef2f2; color:#991b1b;">
+        <div class="rounded-md border px-4 py-3 text-sm font-medium"
+             style="border-color: color-mix(in srgb, var(--ds-crimson) 30%, transparent); background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
             {{ session('error') }}
         </div>
     @endif
     @if($errors->any())
-        <div class="rounded-md border px-4 py-3 text-sm" style="border-color:#fecaca; background:#fef2f2; color:#991b1b;">
+        <div class="rounded-md border px-4 py-3 text-sm"
+             style="border-color: color-mix(in srgb, var(--ds-crimson) 30%, transparent); background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
             {{ $errors->first() }}
         </div>
     @endif
 
     {{-- Contact header card --}}
-    <div style="background:var(--brand-default, #0b2a4a); border-radius:6px; padding:24px;">
+    <div class="rounded-md p-6" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex items-start gap-5 flex-wrap">
             {{-- Avatar --}}
             <div class="w-16 h-16 rounded-md flex items-center justify-center flex-shrink-0 text-xl font-bold text-white"
@@ -106,7 +109,8 @@
                   onsubmit="return confirm('Permanently delete {{ addslashes($contact->full_name) }}?');"
                   class="flex-shrink-0">
                 @csrf @method('DELETE')
-                <button type="submit" class="text-xs font-semibold text-red-400 hover:text-red-300 px-3 py-1.5 rounded-md border border-red-400/20 hover:border-red-400/40 transition-all duration-300">
+                <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all duration-300"
+                        style="color: var(--ds-crimson); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); background: color-mix(in srgb, var(--ds-crimson) 8%, transparent);">
                     Delete Contact
                 </button>
             </form>
@@ -115,14 +119,14 @@
     </div>
 
     {{-- Tab bar --}}
-    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
-        <div class="flex" style="border-bottom:1px solid var(--border);" id="tab-bar">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex" style="border-bottom: 1px solid var(--border);" id="tab-bar">
             @php
                 $ficaStatus = $contact->ficaStatus();
                 $ficaIcon = match($ficaStatus) {
-                    'complete' => '<span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:#dcfce7; color:#166534;">Complete</span>',
-                    'expiring' => '<span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:#fef3c7; color:#92400e;">Expiring</span>',
-                    default => '<span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:#fecaca; color:#991b1b;">Incomplete</span>',
+                    'complete' => '<span class="ds-badge ds-badge-success ml-1">Complete</span>',
+                    'expiring' => '<span class="ds-badge ds-badge-warning ml-1">Expiring</span>',
+                    default => '<span class="ds-badge ds-badge-danger ml-1">Incomplete</span>',
                 };
             @endphp
             @foreach([
@@ -540,7 +544,12 @@
                 @forelse($contact->properties as $prop)
                 @php
                 $propThumb = $prop->gallery_images_json[0] ?? ($prop->dawn_images_json[0] ?? null);
-                $propSc = ['active'=>'#22c55e','draft'=>'#94a3b8','sold'=>'#3b82f6','withdrawn'=>'#f59e0b'][$prop->status] ?? '#94a3b8';
+                $propSc = [
+                    'active' => 'var(--ds-green)',
+                    'draft' => 'var(--text-muted)',
+                    'sold' => 'var(--brand-icon)',
+                    'withdrawn' => 'var(--ds-amber)',
+                ][$prop->status] ?? 'var(--text-muted)';
                 @endphp
                 <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);">
                     {{-- Thumb --}}
@@ -567,18 +576,24 @@
                     <form method="POST" action="{{ route('corex.contacts.properties.unlink', [$contact, $prop]) }}"
                           onsubmit="return confirm('Unlink this property from {{ addslashes($contact->full_name) }}?')">
                         @csrf @method('DELETE')
-                        <button type="submit" class="text-xs font-semibold text-red-500 hover:text-red-600 px-3 py-1.5 rounded-md hover:bg-red-500/10 transition-all duration-300 flex-shrink-0">Unlink</button>
+                        <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all duration-300 flex-shrink-0"
+                                style="color: var(--ds-crimson); border: 1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">Unlink</button>
                     </form>
                 </div>
                 @empty
-                <div class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
-                    <div class="text-sm" style="color:var(--text-secondary);">No properties linked yet.</div>
+                <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                    <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                         style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
+                    </div>
+                    <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No properties linked</h3>
+                    <p class="text-sm mb-4" style="color: var(--text-muted);">Use the search below to link an existing property to this contact.</p>
                 </div>
                 @endforelse
             </div>
 
             {{-- Link property by address search --}}
-            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:20px;">
+            <div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-widest mb-4" style="color:var(--text-muted);">Link a Property</h3>
                 <p class="text-xs mb-4" style="color:var(--text-muted);">Search by address, suburb or title.</p>
 
@@ -625,7 +640,7 @@
         <div x-show="activeTab === 'notes'" x-cloak class="p-6 space-y-5" id="tab-notes">
 
             {{-- Add note --}}
-            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:16px;">
+            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Add Note</div>
                 <form method="POST" action="{{ route('corex.contacts.notes.store', $contact) }}" class="space-y-3">
                     @csrf
@@ -641,7 +656,7 @@
 
             {{-- Notes list --}}
             @forelse($contact->contactNotes as $note)
-            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:16px;">
+            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <div class="flex items-start justify-between gap-3">
                     <div class="flex items-center gap-2 flex-shrink-0">
                         <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
@@ -656,15 +671,19 @@
                     <form method="POST" action="{{ route('corex.contacts.notes.destroy', [$contact, $note]) }}"
                           onsubmit="return confirm('Delete this note?');">
                         @csrf @method('DELETE')
-                        <button type="submit" class="text-xs text-red-600 hover:text-red-700 flex-shrink-0">Delete</button>
+                        <button type="submit" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-crimson);">Delete</button>
                     </form>
                 </div>
                 <div class="mt-3 text-sm whitespace-pre-line" style="color:var(--text-primary);">{{ $note->body }}</div>
             </div>
             @empty
-            <div class="py-12 text-center" style="color:var(--text-muted);">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
-                <div class="text-sm">No notes yet.</div>
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No notes yet</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Use the form above to record your first note for this contact.</p>
             </div>
             @endforelse
         </div>
@@ -676,7 +695,7 @@
              x-data="{ dragging: false }">
 
             {{-- Upload area --}}
-            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:16px;">
+            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                 <div class="text-xs font-semibold mb-3" style="color:var(--text-secondary);">Upload File</div>
                 <form method="POST" action="{{ route('corex.contacts.documents.store', $contact) }}"
                       enctype="multipart/form-data" class="space-y-3">
@@ -720,7 +739,7 @@
 
                 @foreach($driveLinkedGroups as $propId => $docs)
                 @php $prop = $drivePropertyMap->get($propId); @endphp
-                <div style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     <div class="px-4 py-2.5 flex items-center gap-2" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 opacity-50"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
                         <span class="text-xs font-semibold" style="color:var(--text-primary);">{{ $prop ? (trim(($prop->unit_number ? 'Unit '.$prop->unit_number.', ' : '').($prop->complex_name ? $prop->complex_name.', ' : '').($prop->address ? $prop->address.', ' : '').($prop->suburb ?? ''), ', ') ?: 'Property #'.$prop->id) : 'Unknown Property' }}</span>
@@ -732,7 +751,7 @@
                 @endforeach
 
                 @if($driveUnlinkedDocs->isNotEmpty())
-                <div style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     <div class="px-4 py-2.5" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                         <span class="text-xs font-semibold" style="color:var(--text-muted);">Not Property-Linked</span>
                     </div>
@@ -742,9 +761,13 @@
                 </div>
                 @endif
             @else
-            <div class="py-10 text-center" style="color:var(--text-muted);">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-30"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
-                <div class="text-sm">No files uploaded yet.</div>
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No files uploaded</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Drop a file in the upload area above to attach it to this contact.</p>
             </div>
             @endif
         </div>
@@ -772,10 +795,11 @@
                     ->get();
             @endphp
 
-            <div class="rounded-lg p-5" style="border:1px solid var(--border); background:var(--surface-2);">
+            <div class="rounded-md p-5" style="border: 1px solid var(--border); background: var(--surface-2);">
                 <div class="flex items-center gap-4">
                     @if($ficaStatus === 'complete')
-                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg" style="background:#dcfce7; color:#166534;">
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg"
+                             style="background: color-mix(in srgb, var(--ds-green) 15%, transparent); color: var(--ds-green);">
                             &#10003;
                         </div>
                         <div>
@@ -793,7 +817,8 @@
                             </p>
                         </div>
                     @elseif($ficaStatus === 'expiring')
-                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg" style="background:#fef3c7; color:#92400e;">
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg"
+                             style="background: color-mix(in srgb, var(--ds-amber) 15%, transparent); color: var(--ds-amber);">
                             &#9888;
                         </div>
                         <div>
@@ -801,7 +826,8 @@
                             <p class="text-sm" style="color:var(--text-secondary);">FICA documents are nearing expiry. Consider requesting updated documentation.</p>
                         </div>
                     @else
-                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg" style="background:#fecaca; color:#991b1b;">
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg"
+                             style="background: color-mix(in srgb, var(--ds-crimson) 15%, transparent); color: var(--ds-crimson);">
                             &#10007;
                         </div>
                         <div>
@@ -819,10 +845,14 @@
                 <div class="space-y-2">
                     @foreach($ficaSubmissions as $sub)
                     @php
-                        $subColors = ['approved' => ['bg' => '#dcfce7', 'text' => '#166534'], 'submitted' => ['bg' => '#dbeafe', 'text' => '#1e40af'], 'under_review' => ['bg' => '#fef3c7', 'text' => '#92400e']];
-                        $sc = $subColors[$sub->status] ?? ['bg' => '#f1f5f9', 'text' => '#475569'];
+                        $subBadge = match($sub->status) {
+                            'approved' => 'ds-badge-success',
+                            'submitted' => 'ds-badge-info',
+                            'under_review' => 'ds-badge-warning',
+                            default => 'ds-badge-default',
+                        };
                     @endphp
-                    <div class="flex items-center justify-between p-3 rounded-lg" style="background:var(--surface); border:1px solid var(--border);">
+                    <div class="flex items-center justify-between p-3 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                         <div class="flex items-center gap-3">
                             <svg class="w-5 h-5 flex-shrink-0" style="color:var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
@@ -830,7 +860,7 @@
                             <div>
                                 <p class="text-sm font-semibold" style="color:var(--text-primary);">
                                     FICA Form — {{ ucfirst($sub->entity_type) }}
-                                    <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:{{ $sc['bg'] }}; color:{{ $sc['text'] }};">{{ $sub->status_label }}</span>
+                                    <span class="ds-badge {{ $subBadge }} ml-1">{{ $sub->status_label }}</span>
                                 </p>
                                 <p class="text-xs" style="color:var(--text-muted);">
                                     Submitted {{ $sub->signed_at?->format('d M Y') }}
@@ -869,7 +899,7 @@
                 <h4 class="text-sm font-bold uppercase tracking-wide mb-3" style="color:var(--text-muted);">FICA Documents (E-Sign)</h4>
                 <div class="space-y-2">
                     @foreach($ficaDocs as $doc)
-                    <div class="flex items-center justify-between p-3 rounded-lg" style="background:var(--surface); border:1px solid var(--border);">
+                    <div class="flex items-center justify-between p-3 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                         <div class="flex items-center gap-3">
                             <svg class="w-5 h-5 flex-shrink-0" style="color:var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
@@ -901,7 +931,7 @@
                 <h4 class="text-sm font-bold uppercase tracking-wide mb-3" style="color:var(--text-muted);">All Signed Documents</h4>
                 <div class="space-y-2">
                     @foreach($allSignedDocs as $doc)
-                    <div class="flex items-center justify-between p-3 rounded-lg" style="background:var(--surface); border:1px solid var(--border);">
+                    <div class="flex items-center justify-between p-3 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                         <div class="flex items-center gap-3">
                             <svg class="w-5 h-5 flex-shrink-0" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
@@ -1053,6 +1083,40 @@
                         </div>
                     </div>
 
+                    {{-- Features --}}
+                    <div>
+                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Features</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Pool</label>
+                                <select name="feat_pool" class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="">Any</option>
+                                    <option value="yes">Has pool</option>
+                                    <option value="no">No pool</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Furnished</label>
+                                <select name="feat_furnished" class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="">Any</option>
+                                    <option value="yes">Furnished</option>
+                                    <option value="no">Unfurnished</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Pet friendly</label>
+                                <select name="feat_pets" class="w-full rounded-md px-3 py-2 text-sm"
+                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <option value="">Any</option>
+                                    <option value="yes">Pet friendly</option>
+                                    <option value="no">No pets</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
                     {{-- Notes --}}
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notes (optional)</label>
@@ -1062,10 +1126,7 @@
                     </div>
 
                     <div class="flex justify-end">
-                        <button type="submit"
-                                class="px-5 py-2 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300"
-                                style="background:var(--brand-button, #0ea5e9);"
-                                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                        <button type="submit" class="corex-btn-primary text-sm">
                             Save Match
                         </button>
                     </div>
@@ -1083,8 +1144,8 @@
 
                             {{-- Header row: type badge + price --}}
                             <div class="flex items-center gap-2 flex-wrap">
-                                <span class="text-xs font-bold px-2.5 py-1 rounded-md"
-                                      style="{{ $match->listing_type === 'rental' ? 'background:rgba(168,85,247,0.12); color:#a855f7; border:1px solid rgba(168,85,247,0.25);' : 'background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);' }}">
+                                <span class="ds-badge {{ $match->listing_type === 'rental' ? 'ds-badge-info' : 'ds-badge-default' }}"
+                                      style="{{ $match->listing_type === 'rental' ? '' : 'background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);' }}">
                                     {{ $match->listingTypeLabel() }}
                                 </span>
                                 @if($match->price_min || $match->price_max)
@@ -1165,9 +1226,7 @@
                             @csrf @method('DELETE')
                             <button type="submit"
                                     class="p-1.5 rounded-md transition-all duration-300"
-                                    style="color:var(--text-muted);"
-                                    onmouseover="this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.08)'"
-                                    onmouseout="this.style.color='var(--text-muted)'; this.style.background='transparent'">
+                                    style="color: var(--ds-crimson);">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
                             </button>
                         </form>
@@ -1176,10 +1235,13 @@
                 @endforeach
             </div>
             @else
-            <div class="py-12 text-center">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor" class="w-10 h-10 mx-auto mb-3 opacity-25" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
-                <p class="text-sm font-semibold" style="color:var(--text-muted);">No match criteria saved yet.</p>
-                <p class="text-xs mt-1" style="color:var(--text-muted); opacity:.7;">Use the form above to add what this contact is looking for.</p>
+            <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No match criteria saved</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Use the form above to add what this contact is looking for.</p>
             </div>
             @endif
 
