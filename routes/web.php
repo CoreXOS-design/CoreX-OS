@@ -943,6 +943,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->post('admin/compliance-overrides/{override}/revoke', [\App\Http\Controllers\Compliance\UserComplianceOverrideController::class, 'revoke'])
         ->name('admin.user.overrides.revoke');
 
+    // ── Payroll Type Management ──
+    Route::middleware(['permission:manage_payroll', 'agency.required'])
+        ->prefix('payroll')
+        ->name('payroll.')
+        ->group(function () {
+            Route::resource('earning-types', \App\Http\Controllers\Payroll\PayrollEarningTypeController::class)
+                ->except(['show']);
+            Route::resource('deduction-types', \App\Http\Controllers\Payroll\PayrollDeductionTypeController::class)
+                ->except(['show']);
+        });
+
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
     // Training placeholder replaced by LMS module (training.index route above)
     Route::get('/communication', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'communication')->middleware('permission:access_communication')->name('corex.communication');

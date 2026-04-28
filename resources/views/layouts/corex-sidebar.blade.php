@@ -991,10 +991,8 @@
                 @permission('manage_payroll')
                 {{-- TODO: Replace href="#" with route('payroll.employees.index') when routes exist (Prompt G) --}}
                 <a href="#" class="corex-nav-subitem">Employees</a>
-                {{-- TODO: Replace href="#" with route('payroll.earning-types.index') when routes exist (Prompt F) --}}
-                <a href="#" class="corex-nav-subitem">Earning Types</a>
-                {{-- TODO: Replace href="#" with route('payroll.deduction-types.index') when routes exist (Prompt F) --}}
-                <a href="#" class="corex-nav-subitem">Deduction Types</a>
+                <a href="{{ route('payroll.earning-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.earning-types.*') ? 'active' : '' }}">Earning Types</a>
+                <a href="{{ route('payroll.deduction-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.deduction-types.*') ? 'active' : '' }}">Deduction Types</a>
                 @endpermission
 
                 @permission('run_payroll')
