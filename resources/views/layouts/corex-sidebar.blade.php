@@ -985,8 +985,7 @@
                  class="corex-nav-children">
 
                 @permission('manage_leave')
-                {{-- TODO: Replace href="#" with route('leave.dashboard') when routes exist --}}
-                <a href="#" class="corex-nav-subitem">Dashboard</a>
+                <a href="{{ route('payroll.leave.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.dashboard') ? 'active' : '' }}">Dashboard</a>
                 @endpermission
 
                 @permission('approve_leave')
@@ -995,8 +994,7 @@
                 @endpermission
 
                 @permission('manage_leave')
-                {{-- TODO: Replace href="#" with route('leave.balances.index') when routes exist --}}
-                <a href="#" class="corex-nav-subitem">Balances</a>
+                <a href="{{ route('payroll.leave.balances.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.balances.*') ? 'active' : '' }}">Balances</a>
                 @endpermission
 
                 @permission('manage_leave_types')
@@ -1009,8 +1007,7 @@
                 @endpermission
 
                 @permission('manage_leave_types')
-                {{-- TODO: Replace href="#" with route('leave.public-holidays.index') when routes exist --}}
-                <a href="#" class="corex-nav-subitem">Public Holidays</a>
+                <a href="{{ route('payroll.leave.public-holidays.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.public-holidays.*') ? 'active' : '' }}">Public Holidays</a>
                 @endpermission
             </div>
         </div>

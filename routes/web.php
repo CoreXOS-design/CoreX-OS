@@ -1042,12 +1042,34 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         });
 
     // ── Leave Admin ──
-    Route::middleware(['permission:manage_leave_types', 'agency.required'])
+    Route::middleware(['auth', 'agency.required'])
         ->prefix('payroll/leave')
         ->name('payroll.leave.')
         ->group(function () {
             Route::resource('types', \App\Http\Controllers\Leave\LeaveTypeController::class)
-                ->except(['show']);
+                ->except(['show'])
+                ->middleware('permission:manage_leave_types');
+
+            Route::get('dashboard', [\App\Http\Controllers\Leave\LeaveDashboardController::class, 'index'])
+                ->name('dashboard')
+                ->middleware('permission:manage_leave');
+
+            Route::get('balances', [\App\Http\Controllers\Leave\LeaveBalanceController::class, 'index'])
+                ->name('balances.index')
+                ->middleware('permission:manage_leave');
+            Route::get('balances/{employee}', [\App\Http\Controllers\Leave\LeaveBalanceController::class, 'show'])
+                ->name('balances.show')
+                ->middleware('permission:manage_leave');
+            Route::post('balances/{employee}/adjust', [\App\Http\Controllers\Leave\LeaveBalanceController::class, 'adjust'])
+                ->name('balances.adjust')
+                ->middleware('permission:adjust_leave_balances');
+            Route::post('balances/{employee}/recalculate', [\App\Http\Controllers\Leave\LeaveBalanceController::class, 'recalculate'])
+                ->name('balances.recalculate')
+                ->middleware('permission:manage_leave');
+
+            Route::resource('public-holidays', \App\Http\Controllers\Leave\PublicHolidayController::class)
+                ->except(['show'])
+                ->middleware('permission:manage_leave_types');
         });
 
     // ── Staff Take-On Wizard ──
