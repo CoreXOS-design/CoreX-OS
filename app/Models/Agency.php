@@ -115,4 +115,26 @@ class Agency extends Model
 
         return bccomp((string) $annualGross, (string) $rebate->sdl_threshold_annual, 2) >= 0;
     }
+
+    // ── Leave ──
+
+    public function leaveTypes(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Leave\LeaveType::class);
+    }
+
+    public function leaveApplications(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Leave\LeaveApplication::class);
+    }
+
+    public function leaveTransactions(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Leave\LeaveTransaction::class);
+    }
+
+    public function staffTakeOnRecords(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Leave\StaffTakeOnRecord::class);
+    }
 }
