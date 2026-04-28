@@ -1070,6 +1070,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::resource('public-holidays', \App\Http\Controllers\Leave\PublicHolidayController::class)
                 ->except(['show'])
                 ->middleware('permission:manage_leave_types');
+
+            // Leave Applications (BM + admin)
+            Route::get('applications', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'index'])
+                ->name('applications.index')
+                ->middleware('permission:approve_leave');
+            Route::get('applications/{application}', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'show'])
+                ->name('applications.show')
+                ->middleware('permission:approve_leave');
+            Route::post('applications/{application}/approve', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'approve'])
+                ->name('applications.approve')
+                ->middleware('permission:approve_leave');
+            Route::post('applications/{application}/reject', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'reject'])
+                ->name('applications.reject')
+                ->middleware('permission:approve_leave');
         });
 
     // ── Staff Take-On Wizard ──

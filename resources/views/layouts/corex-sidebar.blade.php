@@ -989,8 +989,7 @@
                 @endpermission
 
                 @permission('approve_leave')
-                {{-- TODO: Replace href="#" with route('leave.applications.index') when routes exist --}}
-                <a href="#" class="corex-nav-subitem">Applications</a>
+                <a href="{{ route('payroll.leave.applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.applications.*') ? 'active' : '' }}">Applications</a>
                 @endpermission
 
                 @permission('manage_leave')
