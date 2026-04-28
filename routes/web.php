@@ -943,7 +943,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->post('admin/compliance-overrides/{override}/revoke', [\App\Http\Controllers\Compliance\UserComplianceOverrideController::class, 'revoke'])
         ->name('admin.user.overrides.revoke');
 
-    // ── Payroll Type Management ──
+    // ── Payroll ──
     Route::middleware(['permission:manage_payroll', 'agency.required'])
         ->prefix('payroll')
         ->name('payroll.')
@@ -952,6 +952,31 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 ->except(['show']);
             Route::resource('deduction-types', \App\Http\Controllers\Payroll\PayrollDeductionTypeController::class)
                 ->except(['show']);
+
+            Route::resource('employees', \App\Http\Controllers\Payroll\PayrollEmployeeController::class);
+            Route::post('employees/{employee}/deactivate', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'deactivate'])
+                ->name('employees.deactivate');
+            Route::post('employees/{employee}/reactivate', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'reactivate'])
+                ->name('employees.reactivate');
+
+            Route::post('employees/{employee}/earnings', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'storeEarning'])
+                ->name('employees.earnings.store');
+            Route::patch('employees/{employee}/earnings/{earning}', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'updateEarning'])
+                ->name('employees.earnings.update');
+            Route::delete('employees/{employee}/earnings/{earning}', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'destroyEarning'])
+                ->name('employees.earnings.destroy');
+
+            Route::post('employees/{employee}/deductions', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'storeDeduction'])
+                ->name('employees.deductions.store');
+            Route::patch('employees/{employee}/deductions/{deduction}', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'updateDeduction'])
+                ->name('employees.deductions.update');
+            Route::delete('employees/{employee}/deductions/{deduction}', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'destroyDeduction'])
+                ->name('employees.deductions.destroy');
+
+            Route::post('employees/{employee}/banking', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'storeBanking'])
+                ->name('employees.banking.store');
+            Route::patch('employees/{employee}/banking', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'updateBanking'])
+                ->name('employees.banking.update');
         });
 
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
