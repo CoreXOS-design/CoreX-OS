@@ -67,6 +67,7 @@ class Property extends Model
         'dusk_images_json',
         'gallery_images_json',
         'gallery_categories_json',
+        'gallery_custom_tags',
         'agent_id',
         'branch_id',
         'agency_id',
@@ -127,6 +128,7 @@ class Property extends Model
         'dusk_images_json'    => 'array',
         'gallery_images_json' => 'array',
         'gallery_categories_json' => 'array',
+        'gallery_custom_tags'     => 'array',
         'features_json'       => 'array',
         'pet_friendly'        => 'boolean',
         'spaces_json'         => 'array',
@@ -379,6 +381,18 @@ class Property extends Model
             for ($i = 1; $i <= (int) ($this->beds ?? 0); $i++)  $tags[] = 'Bedroom ' . $i;
             for ($i = 1; $i <= (int) ($this->baths ?? 0); $i++) $tags[] = 'Bathroom ' . $i;
             if ((int) ($this->garages ?? 0) > 0) $tags[] = 'Garage';
+        }
+
+        // Merge user-defined custom tags (case-insensitive de-dupe).
+        foreach (($this->gallery_custom_tags ?? []) as $custom) {
+            if (!is_string($custom)) continue;
+            $custom = trim($custom);
+            if ($custom === '') continue;
+            $exists = false;
+            foreach ($tags as $t) {
+                if (strcasecmp($t, $custom) === 0) { $exists = true; break; }
+            }
+            if (!$exists) $tags[] = $custom;
         }
 
         return $tags;

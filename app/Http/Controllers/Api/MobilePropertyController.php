@@ -516,6 +516,247 @@ class MobilePropertyController extends Controller
     }
 
     // ── Response helpers ───────────────────────────────────────
+    // ── GET /api/mobile/properties/{id}/overview ────────────────────
+    // Returns the data the mobile app's Overview screen needs in one call:
+    // identity, primary stats, listing agent, owner contact, key dates,
+    // and an array of `placements` — one entry per portal the property
+    // is currently LIVE on. Portals that are off / unsubmitted are omitted
+    // (so the UI can render "no place to go" cleanly).
+    public function overview(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+        $property->load(['agent', 'branch', 'contacts.type']);
+
+        $coverImage = ($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
+        $allImages  = $property->allImages();
+        $daysOnMarket = $property->listed_date ? (int) $property->listed_date->diffInDays(now()) : null;
+
+        // Owner contact: prefer role-tagged seller/landlord/owner, else the first linked contact.
+        $ownerRoles = ['seller', 'landlord', 'owner'];
+        $owner = $property->contacts->first(fn($c) => in_array(strtolower($c->pivot->role ?? ''), $ownerRoles))
+                 ?? $property->contacts->first();
+        $ownerName = null;
+        if ($owner) {
+            $ownerName = trim($owner->full_name ?? '') ?: trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? ''))
+                      ?: ($owner->email ?: $owner->phone ?: 'Unnamed contact');
+        }
+
+        // Live preview URL (always available even before publish).
+        $livePreviewUrl = route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title ?: 'property')]);
+
+        // Build the placements array — one entry per portal the listing is live on.
+        $placements = $this->buildPortalPlacements($property);
+
+        return response()->json([
+            'id'             => $property->id,
+            'title'          => $property->title,
+            'address'        => $property->buildDisplayAddress(),
+            'suburb'         => $property->suburb,
+            'city'           => $property->city,
+            'province'       => $property->province,
+
+            'price'          => $property->price,
+            'price_display'  => $property->formattedPrice(),
+            'listing_type'   => $property->listing_type,
+            'status'         => $property->status,
+            'mandate_type'   => $property->mandate_type,
+            'property_type'  => $property->property_type,
+            'category'       => $property->category,
+
+            'beds'           => (int) $property->beds,
+            'baths'          => (int) $property->baths,
+            'garages'        => (int) $property->garages,
+            'size_m2'        => $property->size_m2,
+            'erf_size_m2'    => $property->erf_size_m2,
+
+            'description'    => $property->description,
+            'cover_image'    => $coverImage,
+            'photo_count'    => count($allImages),
+
+            'days_on_market' => $daysOnMarket,
+            'key_dates' => [
+                'listed'   => $property->listed_date?->toDateString(),
+                'expires'  => $property->expiry_date?->toDateString(),
+                'loaded'   => $property->created_at?->toIso8601String(),
+                'modified' => $property->updated_at?->toIso8601String(),
+            ],
+
+            'agent' => $property->agent ? [
+                'id'        => $property->agent->id,
+                'name'      => $property->agent->name,
+                'phone'     => $property->agent->phone,
+                'email'     => $property->agent->email,
+                'photo_url' => method_exists($property->agent, 'profilePhotoUrl')
+                    ? $property->agent->profilePhotoUrl()
+                    : ($property->agent->profile_photo_url ?? null),
+            ] : null,
+
+            'branch' => $property->branch ? [
+                'id'   => $property->branch->id,
+                'name' => $property->branch->name,
+            ] : null,
+
+            'owner' => $owner ? [
+                'id'    => $owner->id,
+                'name'  => $ownerName,
+                'role'  => $owner->pivot->role ?: 'Linked Contact',
+                'phone' => $owner->phone,
+                'email' => $owner->email,
+            ] : null,
+
+            'live_preview_url' => $livePreviewUrl,
+            'virtual_tour_url' => $property->virtual_tour_url,
+            'youtube_video_id' => $property->youtube_video_id,
+            'matterport_id'    => $property->matterport_id,
+
+            'placements' => $placements,
+        ]);
+    }
+
+    // Build an array of portal placements. Only includes portals where the
+    // listing is currently live. Each entry has { portal, label, status, url, ref }.
+    private function buildPortalPlacements(Property $property): array
+    {
+        $out = [];
+
+        // ── HFC Premium (own website) ─────────────────────────────
+        $websiteEnabled = (bool) \App\Models\PerformanceSetting::get('syndication_website_enabled', 1);
+        if ($websiteEnabled && $property->isPublished()) {
+            $base = rtrim((string) config('integrations.website_public_url', ''), '/');
+            $url  = $base
+                ? $base . '/listings/' . ($property->external_id ?: $property->id)
+                : route('corex.properties.preview', [$property, \Illuminate\Support\Str::slug($property->title ?: 'property')]);
+            $out[] = [
+                'portal' => 'hfc_premium',
+                'label'  => 'HFC Premium',
+                'status' => 'live',
+                'url'    => $url,
+                'ref'    => $property->external_id,
+            ];
+        }
+
+        // ── Private Property ──────────────────────────────────────
+        $ppEnabled = (bool) \App\Models\PerformanceSetting::get('syndication_pp_enabled', 1);
+        $ppLive    = $ppEnabled
+                  && (string) ($property->pp_syndication_status ?? '') === 'active'
+                  && !empty($property->pp_ref);
+        if ($ppLive) {
+            $out[] = [
+                'portal' => 'private_property',
+                'label'  => 'Private Property',
+                'status' => 'live',
+                // Search-based public URL — PP doesn't expose canonical listing slugs reliably.
+                'url'    => 'https://www.privateproperty.co.za/search?q=' . urlencode((string) $property->pp_ref),
+                'ref'    => $property->pp_ref,
+            ];
+        }
+
+        // ── Property24 ────────────────────────────────────────────
+        $p24Enabled = (bool) \App\Models\PerformanceSetting::get('syndication_p24_enabled', 1);
+        $p24Live    = $p24Enabled
+                   && (string) ($property->p24_syndication_status ?? '') === 'active'
+                   && !empty($property->p24_ref);
+        if ($p24Live) {
+            $isSandbox = (bool) ($property->p24_environment ?? false) || str_contains((string) config('app.env'), 'local');
+            $domain    = $isSandbox ? 'www.exdev.property24-test.com' : 'www.property24.com';
+            $section   = strtolower($property->listing_type ?? 'sale') === 'rental' ? 'to-rent' : 'for-sale';
+            $slug      = function ($s) {
+                $s = strtolower((string) $s);
+                $s = preg_replace('/[^a-z0-9]+/', '-', $s);
+                $s = trim($s, '-');
+                return $s ?: 'property';
+            };
+            $suburbId = $property->p24_suburb_id ?? '0';
+            $url = "https://{$domain}/{$section}/{$slug($property->suburb)}/{$slug($property->city)}/{$slug($property->province)}/{$suburbId}/{$property->p24_ref}";
+            $out[] = [
+                'portal' => 'property24',
+                'label'  => 'Property24',
+                'status' => 'live',
+                'url'    => $url,
+                'ref'    => $property->p24_ref,
+            ];
+        }
+
+        return $out;
+    }
+
+    // ── POST /api/mobile/properties/{id}/gallery/tags ──────────────
+    // Adds a custom gallery tag to the property. Body: { "tag": "Garden View" }.
+    // Tag is trimmed, capitalised, max 40 chars. Case-insensitive de-dupe
+    // against the property's already-available tags (derived + custom).
+    // Returns the updated full available_tags list.
+    public function addCustomTag(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+        $data = $request->validate([
+            'tag' => 'required|string|max:40',
+        ]);
+
+        $name = trim($data['tag']);
+        if ($name === '') {
+            return response()->json(['message' => 'Tag name is required.'], 422);
+        }
+        $name = mb_strtoupper(mb_substr($name, 0, 1)) . mb_substr($name, 1);
+
+        $current = $property->getAvailableGalleryTags();
+        $existsLower = array_map('strtolower', $current);
+        if (in_array(strtolower($name), $existsLower, true)) {
+            return response()->json([
+                'message'        => "Tag '{$name}' already exists for this property.",
+                'available_tags' => $current,
+            ], 200);
+        }
+
+        $custom = $property->gallery_custom_tags ?? [];
+        $custom[] = $name;
+        $property->update(['gallery_custom_tags' => array_values($custom)]);
+
+        return response()->json([
+            'message'        => "Tag '{$name}' added.",
+            'available_tags' => $property->fresh()->getAvailableGalleryTags(),
+        ]);
+    }
+
+    // ── DELETE /api/mobile/properties/{id}/gallery/tags ────────────
+    // Removes a custom gallery tag. Body: { "tag": "Garden View" }.
+    // Only custom tags can be removed — derived tags (from spaces) are
+    // managed by editing spaces. Also strips the tag from any tagged
+    // images so the gallery doesn't reference a dangling category.
+    public function removeCustomTag(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+        $data = $request->validate([
+            'tag' => 'required|string|max:100',
+        ]);
+        $tag = trim($data['tag']);
+
+        // Strip from custom_tags
+        $custom  = $property->gallery_custom_tags ?? [];
+        $remaining = array_values(array_filter($custom, fn($t) => strcasecmp($t, $tag) !== 0));
+
+        // Move any images currently filed under this tag into the unsorted bucket.
+        $cats = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+        $unsorted = $cats['unsorted'] ?? [];
+        $newCategories = [];
+        foreach (($cats['categories'] ?? []) as $cat) {
+            if (strcasecmp($cat['name'] ?? '', $tag) === 0) {
+                $unsorted = array_merge($unsorted, $cat['images'] ?? []);
+                continue;
+            }
+            $newCategories[] = $cat;
+        }
+
+        $property->update([
+            'gallery_custom_tags'     => $remaining,
+            'gallery_categories_json' => ['categories' => $newCategories, 'unsorted' => array_values(array_unique($unsorted))],
+        ]);
+
+        return response()->json([
+            'message'        => "Tag '{$tag}' removed.",
+            'available_tags' => $property->fresh()->getAvailableGalleryTags(),
+        ]);
+    }
+
     private function fullPropertyResponse(Property $property): array
     {
         $galleryImages = $property->gallery_images_json ?? [];

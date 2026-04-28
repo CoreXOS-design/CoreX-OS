@@ -2559,23 +2559,76 @@
                 $availableTags = $property->getAvailableGalleryTags();
             @endphp
 
-            <div x-data="smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }})" class="space-y-4">
+            <div x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
 
                 {{-- Header --}}
-                <div class="flex items-center justify-between">
-                    <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">
-                        Gallery (<span x-text="images.length"></span> images)
-                    </h3>
+                <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">
+                    Gallery (<span x-text="images.length"></span> images)
+                </h3>
+                <div class="flex items-center justify-between gap-4">
+                    <button type="button" @click="toggleSelectMode()"
+                            class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
+                            :style="selectMode ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'">
+                        <span x-text="selectMode ? 'Done Selecting' : 'Select'"></span>
+                    </button>
                     <div class="flex items-center gap-2">
-                        <button type="button" @click="toggleTagMode()"
+                        <div class="relative">
+                            <button type="button" @click="tagsInfoOpen = !tagsInfoOpen"
+                                    title="How tagging works"
+                                    class="w-7 h-7 rounded flex items-center justify-center transition-colors"
+                                    style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);"
+                                    onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <div x-show="tagsInfoOpen" x-cloak
+                                 @click.outside="tagsInfoOpen = false"
+                                 class="absolute right-0 top-9 z-30 w-80 rounded-md p-3 shadow-lg"
+                                 style="background:var(--surface); border:1px solid var(--border);"
+                                 x-transition.opacity>
+                                <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Tag Images</p>
+                                <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
+                                    Click <span style="color:var(--text-primary); font-weight:600;">Tag Images</span> to open the sticky tag bar above the gallery. <span style="color:var(--text-primary); font-weight:600;">1.</span> Click a tag chip (e.g. Exterior, Lounge, Kitchen) to pick it. <span style="color:var(--text-primary); font-weight:600;">2.</span> Click any image in the grid — it gets tagged with that tag instantly. <span style="color:var(--text-primary); font-weight:600;">3.</span> Switch tags or click <span style="color:var(--ds-crimson); font-weight:600;">Clear tag</span> to keep going. Click <span style="color:var(--text-primary); font-weight:600;">Done Tagging</span> when finished.
+                                </p>
+                                <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Sort order &amp; Custom tags</p>
+                                <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
+                                    Opens a popup where you drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮</span> grip to reorder tags, add a custom tag, or remove one. The order set here is the order used by <span style="color:var(--text-primary); font-weight:600;">Sort by Tag</span> and the order photos appear in portal feeds.
+                                </p>
+                                <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Sort by Tag</p>
+                                <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
+                                    Reorders the entire gallery in one click:
+                                </p>
+                                <ul class="text-xs leading-relaxed mb-2 pl-4 space-y-0.5" style="color:var(--text-secondary); list-style:disc;">
+                                    <li>Tagged images first, grouped together by tag.</li>
+                                    <li>Tag groups follow the order set in <span style="color:var(--text-primary); font-weight:600;">Sort order &amp; Custom tags</span> (e.g. Exterior → Lounge → Kitchen → Bedrooms…).</li>
+                                    <li>Untagged images stay in their existing order at the very end.</li>
+                                </ul>
+                                <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
+                                    Tip: tag your hero shot under the first category in your tag order so it always becomes the cover image on the website and portals.
+                                </p>
+                                <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Untagged images</p>
+                                <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
+                                    Images without a tag still display in the gallery — they're just not grouped. Portal feeds (P24 / Private Property) only use the tag as a photo caption when one is set.
+                                </p>
+                                <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Removing a tag</p>
+                                <p class="text-xs leading-relaxed" style="color:var(--text-secondary);">
+                                    In tag mode, click <span style="color:var(--ds-crimson); font-weight:600;">Clear tag</span> in the sticky bar, then click the image(s) you want to untag. To delete a tag entirely, open <span style="color:var(--text-primary); font-weight:600;">Sort order &amp; Custom tags</span> and click the × on the chip. Don't forget to <span style="color:var(--text-primary); font-weight:600;">Save</span> when you're done.
+                                </p>
+                            </div>
+                        </div>
+                        <button type="button" @click="if (selectMode) toggleSelectMode(); if (manageTagsOpen) manageTagsOpen=false; if (!tagMode) activeTag=null; toggleTagMode()"
                                 class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
                                 :style="tagMode ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'">
-                            <span x-text="tagMode ? 'Exit Tag Mode' : 'Tag Images'"></span>
+                            <span x-text="tagMode ? 'Done Tagging' : 'Tag Images'"></span>
+                        </button>
+                        <button type="button" @click="if (tagMode) toggleTagMode(); manageTagsOpen = !manageTagsOpen"
+                                class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
+                                :style="manageTagsOpen ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'">
+                            Sort order &amp; Custom tags
                         </button>
                         <button type="button" @click="sortByCategory()"
                                 class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
                                 style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                            Sort by Category
+                            Sort by Tag
                         </button>
                         <button type="button" @click="save()" :disabled="saving"
                                 class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
@@ -2585,50 +2638,177 @@
                     </div>
                 </div>
 
-                {{-- Tag mode bar (sticky within page scroll) --}}
-                <div x-show="tagMode" x-cloak x-transition
-                     class="px-3 py-2.5 space-y-2 rounded-md" style="position:sticky; top:8px; z-index:20; background:var(--surface-2); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); box-shadow:0 2px 8px rgba(0,0,0,0.15);">
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs font-semibold" style="color:var(--text-primary);">
-                            <span x-show="selected.length === 0">Click images to select them, then pick a tag</span>
-                            <span x-show="selected.length > 0"><span x-text="selected.length"></span> image<span x-show="selected.length > 1">s</span> selected</span>
-                        </span>
-                        <div class="flex items-center gap-2">
-                            <button type="button" @click="selectAll()" class="text-[0.6875rem] font-semibold" style="color:var(--brand-icon);">Select All</button>
-                            <button type="button" @click="selectNone()" x-show="selected.length > 0" class="text-[0.6875rem] font-semibold" style="color:var(--text-muted);">Clear</button>
+                {{-- Sort order & Custom tags popup (teleported, centered) --}}
+                <template x-teleport="body">
+                    <div x-show="manageTagsOpen" x-cloak x-transition.opacity
+                         class="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-4">
+                        <div class="absolute inset-0" style="background:rgba(0,0,0,0.55);" @click="manageTagsOpen = false"></div>
+                        <div class="relative w-full sm:w-[560px] max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-md shadow-2xl"
+                             style="background:var(--surface); border:1px solid var(--border);"
+                             @click.stop>
+                            {{-- Header --}}
+                            <div class="flex items-center justify-between px-5 py-3" style="border-bottom:1px solid var(--border);">
+                                <div>
+                                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Sort order &amp; Custom tags</h3>
+                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Reorder tags by dragging the grip. Add or remove your own tags.</p>
+                                </div>
+                                <button type="button" @click="manageTagsOpen = false"
+                                        class="w-7 h-7 rounded-md flex items-center justify-center"
+                                        style="color:var(--text-muted);"
+                                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+
+                            {{-- Body (scrollable) --}}
+                            <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+                                {{-- Drag instructions --}}
+                                <div class="rounded-md px-3 py-2 flex items-start gap-2" style="background:color-mix(in srgb, var(--brand-icon) 6%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 20%, transparent);">
+                                    <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--brand-icon);" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
+                                    <p class="text-xs leading-relaxed" style="color:var(--text-secondary);">
+                                        Drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮ grip</span> on each tag chip to reorder. The order here drives <span style="color:var(--text-primary); font-weight:600;">Sort by Tag</span> on the gallery and the order photos appear in portal feeds.
+                                    </p>
+                                </div>
+
+                                {{-- Available tags (draggable chips) --}}
+                                <div>
+                                    <p class="text-xs font-semibold mb-2" style="color:var(--text-secondary);">Available Tags</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="(tag, tIdx) in availableTags" :key="tag">
+                                            <div class="inline-flex items-center gap-0 rounded-full transition-colors"
+                                                 draggable="true"
+                                                 @dragstart="tagDragStart(tIdx, $event)"
+                                                 @dragover.prevent="tagDragOver(tIdx, $event)"
+                                                 @drop.prevent="tagDragDrop()"
+                                                 :style="activeTag === tag ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'">
+                                                <span class="pl-2 pr-1 cursor-grab select-none" :style="activeTag === tag ? 'color:#fff; opacity:.85;' : 'color:var(--text-muted);'" title="Drag to reorder">⋮⋮</span>
+                                                <button type="button" @click="tagSelected(tag)"
+                                                        class="text-xs font-semibold pr-1 py-1"
+                                                        x-text="tag"></button>
+                                                <button type="button" @click.stop="removeCustomTag(tag)"
+                                                        class="px-1.5 py-1 rounded-r-full transition-opacity hover:opacity-100"
+                                                        :style="activeTag === tag ? 'opacity:.85; color:#fff;' : 'opacity:.6; color:var(--text-muted);'"
+                                                        title="Remove this tag">
+                                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                                                </button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                {{-- Custom tag input --}}
+                                <div>
+                                    <p class="text-xs font-semibold mb-2" style="color:var(--text-secondary);">Add a custom tag</p>
+                                    <div class="flex items-center gap-2">
+                                        <input type="text" x-model="customTagInput"
+                                               @keydown.enter.prevent="addCustomTag()"
+                                               placeholder="e.g. Garden, Pool, View"
+                                               maxlength="40"
+                                               class="prop-input" style="flex:1;">
+                                        <button type="button" @click="addCustomTag()"
+                                                :disabled="!customTagInput.trim()"
+                                                class="text-xs font-semibold px-3 py-2 rounded-md transition-opacity"
+                                                :style="customTagInput.trim() ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface-2); color:var(--text-muted); cursor:not-allowed;'">
+                                            Add tag
+                                        </button>
+                                    </div>
+                                    <p class="text-xs mt-1" style="color:var(--text-muted);">New tags appear in the chip row above and stay available across saves.</p>
+                                </div>
+                            </div>
+
+                            {{-- Footer --}}
+                            <div class="flex items-center justify-between px-5 py-3" style="border-top:1px solid var(--border); background:var(--surface-2);">
+                                <span class="text-xs" style="color:var(--text-muted);">
+                                    <span x-text="availableTags.length"></span> tag<span x-show="availableTags.length !== 1">s</span> in library
+                                </span>
+                                <button type="button" @click="manageTagsOpen = false"
+                                        class="text-xs font-semibold px-4 py-2 rounded-md"
+                                        style="background:var(--ds-green); color:#fff;">
+                                    Done
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    <div class="flex flex-wrap gap-1.5">
-                        <template x-for="(tag, tIdx) in availableTags" :key="tag">
-                            <button type="button" @click="tagSelected(tag)"
-                                    draggable="true"
-                                    @dragstart="tagDragStart(tIdx, $event)"
-                                    @dragover.prevent="tagDragOver(tIdx, $event)"
-                                    @drop.prevent="tagDragDrop()"
-                                    class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded-full transition-colors cursor-grab"
-                                    :style="activeTag === tag ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);'"
+                </template>
+
+                {{-- Sticky tag-pick bar — shows above the gallery while in Tag mode --}}
+                <div x-show="tagMode" x-cloak x-transition
+                     class="rounded-md px-3 py-2.5 flex flex-wrap items-center gap-2"
+                     style="position:sticky; top:8px; z-index:25; background:var(--surface); border:1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent); box-shadow:0 4px 12px rgba(0,0,0,0.18);">
+                    <span class="text-xs font-semibold flex-shrink-0" style="color:var(--text-primary);">
+                        <span x-show="!activeTag">Pick a tag, then click images to tag them.</span>
+                        <span x-show="activeTag && activeTag !== '__CLEAR__'">
+                            Tagging with <span class="px-2 py-0.5 rounded-full ml-1" style="background:var(--brand-icon); color:#fff;" x-text="activeTag"></span> — click images.
+                        </span>
+                        <span x-show="activeTag === '__CLEAR__'" style="color:var(--ds-crimson);">
+                            Clearing tags — click images to untag.
+                        </span>
+                    </span>
+
+                    <div class="flex flex-wrap gap-1.5 ml-auto items-center">
+                        <template x-for="tag in availableTags" :key="tag">
+                            <button type="button" @click="activeTag = (activeTag === tag ? null : tag)"
+                                    class="text-xs font-semibold px-2.5 py-1 rounded-full transition-colors"
+                                    :style="activeTag === tag
+                                        ? 'background:var(--brand-icon); color:#fff;'
+                                        : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'"
                                     x-text="tag"></button>
                         </template>
-                        <button type="button" @click="tagSelected(null)"
-                                class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded-full"
-                                style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.20);">
-                            Clear Tags
+                        <button type="button" @click="activeTag = (activeTag === '__CLEAR__' ? null : '__CLEAR__')"
+                                class="text-xs font-semibold px-2.5 py-1 rounded-full transition-colors"
+                                :style="activeTag === '__CLEAR__'
+                                    ? 'background:var(--ds-crimson); color:#fff;'
+                                    : 'background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);'">
+                            Clear tag
+                        </button>
+                    </div>
+                </div>
+
+                {{-- Sticky select-mode bar — shows above the gallery while in Select mode --}}
+                <div x-show="selectMode" x-cloak x-transition
+                     class="rounded-md px-3 py-2.5 flex flex-wrap items-center gap-2"
+                     style="position:sticky; top:8px; z-index:25; background:var(--surface); border:1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent); box-shadow:0 4px 12px rgba(0,0,0,0.18);">
+                    <span class="text-xs font-semibold flex-shrink-0" style="color:var(--text-primary);">
+                        <span x-show="selected.length === 0">Click images to select them.</span>
+                        <span x-show="selected.length > 0">
+                            <span x-text="selected.length"></span> image<span x-show="selected.length > 1">s</span> selected
+                        </span>
+                    </span>
+                    <div class="flex items-center gap-2 ml-auto">
+                        <button type="button" @click="selectAll()"
+                                class="text-xs font-semibold px-2.5 py-1 rounded"
+                                style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">
+                            Select all
+                        </button>
+                        <button type="button" @click="selectNone()" x-show="selected.length > 0"
+                                class="text-xs font-semibold px-2.5 py-1 rounded"
+                                style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);">
+                            Clear
+                        </button>
+                        <button type="button" @click="deleteSelected()"
+                                :disabled="selected.length === 0"
+                                class="text-xs font-semibold px-2.5 py-1 rounded inline-flex items-center gap-1 transition-opacity"
+                                :style="selected.length === 0
+                                    ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border); opacity:.55; cursor:not-allowed;'
+                                    : 'background:var(--ds-crimson); color:#fff; border:1px solid var(--ds-crimson);'">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
+                            <span x-text="selected.length > 0 ? 'Delete (' + selected.length + ')' : 'Delete'"></span>
                         </button>
                     </div>
                 </div>
 
                 {{-- Image grid --}}
-                {{-- Image grid --}}
                 <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2" x-show="images.length > 0">
                     <template x-for="(img, idx) in images" :key="img + idx">
                         <div class="gallery-item relative group rounded-md overflow-hidden"
-                             :class="tagMode ? 'cursor-pointer' : 'cursor-grab'"
+                             :class="(tagMode || selectMode) ? 'cursor-pointer' : 'cursor-grab'"
                              style="aspect-ratio:1/1;"
                              @click="handleClick(idx)"
-                             :draggable="!tagMode"
-                             @dragstart="!tagMode && dragStart(idx, $event)"
-                             @dragover.prevent="!tagMode && dragOver(idx, $event)"
-                             @drop.prevent="!tagMode && dragDrop(idx)">
+                             :draggable="!tagMode && !selectMode"
+                             @dragstart="(!tagMode && !selectMode) && dragStart(idx, $event)"
+                             @dragover.prevent="(!tagMode && !selectMode) && dragOver(idx, $event)"
+                             @drop.prevent="(!tagMode && !selectMode) && dragDrop(idx)">
                             <img :src="img" alt="" class="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105">
 
                             {{-- Cover badge --}}
@@ -2641,15 +2821,15 @@
                                       x-text="tags[img] || ''"></span>
                             </div>
 
-                            {{-- Selection checkmark (tag mode) --}}
-                            <div x-show="tagMode && selected.includes(idx)" class="absolute inset-0 rounded-md" style="border:3px solid var(--brand-icon); background:rgba(14,165,233,0.15);">
+                            {{-- Selection checkmark (tag or select mode) --}}
+                            <div x-show="selectMode && selected.includes(idx)" class="absolute inset-0 rounded-md" style="border:3px solid var(--brand-icon); background:rgba(14,165,233,0.18);">
                                 <div class="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center" style="background:var(--brand-icon);">
                                     <svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                                 </div>
                             </div>
 
                             {{-- Hover actions (normal mode only) --}}
-                            <div x-show="!tagMode" class="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div x-show="!tagMode && !selectMode" class="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button type="button" @click.stop="viewImage(idx)"
                                         class="w-6 h-6 rounded-full flex items-center justify-center text-white"
                                         style="background:rgba(0,0,0,0.5);">
@@ -3792,13 +3972,63 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
         },
 
         handleClick(idx) {
-            if (this.tagMode) {
-                // Toggle selection
+            if (this.selectMode) {
+                // Select mode: toggle membership in the selected[] list — bulk-delete via the bin icon.
                 const i = this.selected.indexOf(idx);
                 if (i >= 0) this.selected.splice(i, 1);
                 else this.selected.push(idx);
+                return;
+            }
+            if (this.tagMode) {
+                // Tag flow: pick a tag first, then click images to apply.
+                // activeTag === '__CLEAR__' means clear-tag mode (untag the image).
+                if (!this.activeTag) return; // no tag picked yet — ignore the click
+                const img = this.images[idx];
+                if (this.activeTag === '__CLEAR__') {
+                    delete this.tags[img];
+                } else {
+                    this.tags[img] = this.activeTag;
+                }
+                this.dirty = true;
+                this.save();
             }
             // Normal mode: no action on click (use hover buttons for view/delete)
+        },
+
+        toggleSelectMode() {
+            this.selectMode = !this.selectMode;
+            this.selected = [];
+            // Mutually exclusive with tag mode and manage-tags popup
+            if (this.selectMode) {
+                if (this.tagMode) this.toggleTagMode();
+                if (this.manageTagsOpen) this.manageTagsOpen = false;
+            }
+        },
+
+        deleteSelected() {
+            if (this.selected.length === 0) return;
+            if (!confirm(`Delete ${this.selected.length} image${this.selected.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+            // Sort indices DESC so each splice doesn't shift later targets.
+            const idxs = [...this.selected].sort((a, b) => b - a);
+            const removedUrls = [];
+            for (const idx of idxs) {
+                const img = this.images.splice(idx, 1)[0];
+                if (img !== undefined) {
+                    delete this.tags[img];
+                    removedUrls.push(img);
+                }
+            }
+            this.selected = [];
+            this.dirty = true;
+            this.save();
+            // Best-effort server-side cleanup so storage files don't orphan.
+            for (const url of removedUrls) {
+                fetch(`/corex/properties/${this.propertyId}/delete-image`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ url }),
+                });
+            }
         },
 
         selectAll() { this.selected = this.images.map((_, i) => i); },
@@ -3827,6 +4057,27 @@ function smartGallery(initImages, initTags, propertyId, csrfToken, availableTags
             this._dragTagIdx = idx;
         },
         tagDragDrop() { this._dragTagIdx = null; },
+
+        // Add a custom tag — case-insensitive de-dupe, trims whitespace, capitalises first letter.
+        customTagInput: '',
+        addCustomTag() {
+            const raw = (this.customTagInput || '').trim();
+            if (!raw) return;
+            const name = raw.charAt(0).toUpperCase() + raw.slice(1);
+            const exists = this.availableTags.some(t => t.toLowerCase() === name.toLowerCase());
+            if (exists) { this.customTagInput = ''; return; }
+            this.availableTags.push(name);
+            this.customTagInput = '';
+            this.dirty = true;
+        },
+        removeCustomTag(tag) {
+            // Strip the tag from any tagged images, then remove from availableTags.
+            for (const img of Object.keys(this.tags)) {
+                if (this.tags[img] === tag) delete this.tags[img];
+            }
+            this.availableTags = this.availableTags.filter(t => t !== tag);
+            this.dirty = true;
+        },
 
         // Sort images by category order (uses current tag button order)
         sortByCategory() {

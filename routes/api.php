@@ -89,8 +89,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/{property}',  [MobilePropertyController::class, 'update']);
         Route::post('/{property}/images', [MobilePropertyController::class, 'uploadImage']);
 
-        // Gallery tags (derived live from this property's spaces)
-        Route::get('/{property}/gallery/tags', [MobilePropertyController::class, 'galleryTags']);
+        // Overview screen (everything the Overview tab needs in one call,
+        // including the live portal placements)
+        Route::get('/{property}/overview', [MobilePropertyController::class, 'overview']);
+
+        // Gallery tags (derived live from this property's spaces + custom tags)
+        Route::get('/{property}/gallery/tags',          [MobilePropertyController::class, 'galleryTags']);
+        Route::post('/{property}/gallery/tags',         [MobilePropertyController::class, 'addCustomTag']);
+        Route::delete('/{property}/gallery/tags',       [MobilePropertyController::class, 'removeCustomTag']);
 
         // Spaces & features (Bedroom, Bathroom, Kitchen, …)
         Route::get('/{property}/spaces', [MobilePropertyController::class, 'spacesShow']);
