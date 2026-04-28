@@ -150,6 +150,14 @@ class AgentPortalController extends Controller
                 ->get();
         }
 
+        // ── Payslip summary ──
+        $latestPayslip = \App\Models\Payroll\PayrollPayslip::where('user_id', $user->id)
+            ->whereHas('run', fn($q) => $q->where('status', 'finalised'))
+            ->orderByDesc('period_month')->first();
+        $payslipCount = \App\Models\Payroll\PayrollPayslip::where('user_id', $user->id)
+            ->whereHas('run', fn($q) => $q->where('status', 'finalised'))
+            ->count();
+
         // Determine if attention needed (for sidebar dot)
         $needsAttention = $profilePercent < 100
             || $complianceStatus['overall'] !== 'green'
@@ -174,7 +182,9 @@ class AgentPortalController extends Controller
             'recentActivity',
             'socialAccounts',
             'impersonationLogs',
-            'needsAttention'
+            'needsAttention',
+            'latestPayslip',
+            'payslipCount'
         ));
     }
 
@@ -264,6 +274,65 @@ class AgentPortalController extends Controller
 
         return back()->with('success', $message);
     }
+
+    // ══════════════════════════════════════════════════════════════
+    // MY PAYSLIPS (self-service)
+    // ══════════════════════════════════════════════════════════════
+
+    public function myPayslips()
+    {
+        $user = auth()->user();
+
+        $payslips = \App\Models\Payroll\PayrollPayslip::where('user_id', $user->id)
+            ->whereHas('run', fn($q) => $q->where('status', 'finalised'))
+            ->with('run')
+            ->orderByDesc('period_month')
+            ->paginate(12);
+
+        return view('payroll.my-portal.index', compact('payslips'));
+    }
+
+    public function myPayslipShow($payslipId)
+    {
+        $payslip = \App\Models\Payroll\PayrollPayslip::with([
+            'lines' => fn($q) => $q->orderBy('sort_order'),
+            'run', 'employee.user.bankingDetail',
+        ])->findOrFail($payslipId);
+
+        // Authorization: own payslips only, finalised runs only
+        abort_unless($payslip->user_id === auth()->id(), 403);
+        abort_unless($payslip->run && $payslip->run->isFinalised(), 404);
+
+        $earningLines = $payslip->lines->where('line_type', 'earning');
+        $deductionLines = $payslip->lines->where('line_type', 'deduction');
+        $contributionLines = $payslip->lines->where('line_type', 'employer_contribution');
+
+        return view('payroll.my-portal.show', compact(
+            'payslip', 'earningLines', 'deductionLines', 'contributionLines'
+        ));
+    }
+
+    public function myPayslipPdf($payslipId)
+    {
+        $payslip = \App\Models\Payroll\PayrollPayslip::with('run')->findOrFail($payslipId);
+
+        abort_unless($payslip->user_id === auth()->id(), 403);
+        abort_unless($payslip->run && $payslip->run->isFinalised(), 404);
+
+        $pdfService = new \App\Services\Payroll\PayslipPdfService();
+        $path = $pdfService->getStoredPath($payslip);
+
+        if (!$path) {
+            $path = $pdfService->regenerate($payslip);
+        }
+
+        $periodYm = $payslip->period_month->format('Ym');
+        $filename = "My-Payslip-{$periodYm}.pdf";
+
+        return response()->download($path, $filename);
+    }
+
+    // ══════════════════════════════════════════════════════════════
 
     private function computeComplianceStatus(User $user, $documents): array
     {

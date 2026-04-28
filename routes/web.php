@@ -753,6 +753,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
 
+    // ── My Payslips (self-service) ──
+    Route::get('/my-portal/payslips', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslips'])
+        ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips');
+    Route::get('/my-portal/payslips/{payslip}', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslipShow'])
+        ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips.show');
+    Route::get('/my-portal/payslips/{payslip}/pdf', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslipPdf'])
+        ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips.pdf');
+
     // ── Agency Documents (staff read-only view) ──
     Route::middleware(['permission:view_agency_documents', 'agency.required'])->group(function () {
         Route::get('/my-portal/agency-documents', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'index'])->name('my-portal.agency-documents');
