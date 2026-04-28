@@ -7,6 +7,9 @@ use App\Models\Leave\LeaveApplication;
 use App\Models\Leave\LeaveTransaction;
 use App\Models\Leave\LeaveType;
 use App\Services\Leave\LeaveBalanceService;
+use App\Services\Leave\LeaveCalendarService;
+use App\Services\CommandCenter\NotificationDispatcher;
+use App\Services\CommandCenter\NotificationPreferenceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -148,6 +151,16 @@ class LeaveApplicationController extends Controller
             );
         });
 
+        // Create calendar event
+        try {
+            (new LeaveCalendarService())->createEventForApplication($application);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Leave calendar event creation failed', ['error' => $e->getMessage()]);
+        }
+
+        // Notify applicant
+        $this->dispatchNotification('leave.approved', $application, $application->user);
+
         return redirect()->route('payroll.leave.applications.show', $application)
             ->with('success', "Application {$application->application_number} approved.");
     }
@@ -213,8 +226,28 @@ class LeaveApplicationController extends Controller
             });
         }
 
+        // Notify applicant
+        $this->dispatchNotification('leave.rejected', $application, $application->user);
+
         return redirect()->route('payroll.leave.applications.show', $application)
             ->with('success', "Application {$application->application_number} rejected.");
+    }
+
+    private function dispatchNotification(string $eventKey, LeaveApplication $application, \App\Models\User $recipient): void
+    {
+        try {
+            $dispatcher = app(NotificationDispatcher::class);
+            $dispatcher->fire($recipient, $eventKey, $application, [
+                'title'         => ucfirst(str_replace('.', ' ', $eventKey)) . ': ' . $application->application_number,
+                'body'          => "{$application->user->name} — {$application->leaveType->label} ({$application->working_days_requested} days, {$application->start_date->format('d M')} — {$application->end_date->format('d M Y')})" . ($application->decision_reason ? "\nReason: {$application->decision_reason}" : ''),
+                'subject_label' => $application->application_number,
+                'action_url'    => route('payroll.leave.applications.show', $application),
+                'severity'      => $eventKey === 'leave.rejected' ? 'warning' : 'info',
+                'threshold_hit_at' => now()->startOfHour(),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Leave notification dispatch failed: {$eventKey}", ['error' => $e->getMessage()]);
+        }
     }
 
     private function resolveDeciderRole(): string

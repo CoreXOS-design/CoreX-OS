@@ -209,6 +209,29 @@ class MyPortalLeaveController extends Controller
             }
         }
 
+        // Notify BMs + admins
+        try {
+            $dispatcher = app(\App\Services\CommandCenter\NotificationDispatcher::class);
+            // Notify branch managers + admins who can approve
+            $approvers = \App\Models\User::withoutGlobalScopes()
+                ->where('agency_id', $employee->agency_id)
+                ->where('is_active', true)
+                ->get()
+                ->filter(fn($u) => $u->hasPermission('approve_leave'));
+            foreach ($approvers as $approver) {
+                $dispatcher->fire($approver, 'leave.submitted', $application, [
+                    'title'         => "Leave application: {$application->application_number}",
+                    'body'          => "{$user->name} applied for {$type->label} ({$workingDays} days, {$start->format('d M')} — {$end->format('d M Y')})",
+                    'subject_label' => $application->application_number,
+                    'action_url'    => route('payroll.leave.applications.show', $application),
+                    'severity'      => 'info',
+                    'threshold_hit_at' => now()->startOfHour(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Leave submit notification failed', ['error' => $e->getMessage()]);
+        }
+
         return redirect()->route('my-portal.leave.show', $application)
             ->with('success', "Leave application {$application->application_number} submitted. Your BM/admin will review it.");
     }
@@ -276,6 +299,13 @@ class MyPortalLeaveController extends Controller
                 $balanceService->refreshEntitlement($application->payrollEmployee, $application->leaveType);
             }
         });
+
+        // Remove calendar event if it exists
+        try {
+            (new \App\Services\Leave\LeaveCalendarService())->removeEventForApplication($application);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Leave calendar event removal failed', ['error' => $e->getMessage()]);
+        }
 
         return redirect()->route('my-portal.leave.index')
             ->with('success', "Application {$application->application_number} cancelled.");
