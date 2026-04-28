@@ -43,6 +43,7 @@ class DatabaseSeeder extends Seeder
             PayrollSeeder::class,
             NotificationEventTypeSeeder::class,
             PublicHolidaySeeder::class,
+            LeaveTypeSeeder::class,
         ]);
     }
 }
