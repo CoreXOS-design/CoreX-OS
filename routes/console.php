@@ -59,6 +59,13 @@ Schedule::command('targets:carry-forward')->monthlyOn(1, '00:05')->withoutOverla
 // Private Property activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinutes()->withoutOverlapping();
 
+// Private Property listing event feed — authoritative source for activations,
+// deactivations and image errors. Runs every 15 minutes.
+Schedule::job(new \App\Jobs\ProcessPrivatePropertyEventFeed())
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->name('pp-event-feed');
+
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 

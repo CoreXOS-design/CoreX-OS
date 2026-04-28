@@ -188,13 +188,12 @@ class PrivatePropertyListingMapper
             $errors[] = 'Province is not a valid PP enum value: ' . $payload['Province'];
         }
 
-        // All photo URLs must be HTTPS
+        // All photo URLs must be HTTPS — report every offender, not just the first
         $photoUrls = $payload['PhotoUrls'] ?? null;
         if (is_array($photoUrls) && isset($photoUrls['string'])) {
             foreach ((array) $photoUrls['string'] as $url) {
                 if (!str_starts_with($url, 'https://')) {
                     $errors[] = 'Photo URL must use HTTPS: ' . $url;
-                    break;
                 }
             }
         }

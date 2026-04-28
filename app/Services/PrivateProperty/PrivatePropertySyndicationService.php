@@ -361,13 +361,17 @@ class PrivatePropertySyndicationService
                 continue;
             }
 
-            // Check file size if stored locally
+            // Check file size if stored locally.
+            // Note: PP also requires minimum 160x120px. We do not validate
+            // dimensions server-side (would need GD/Imagick); ensure agent
+            // photos uploaded through CoreX meet this minimum.
             $localPath = storage_path('app/public/' . $user->agent_photo_path);
             if (file_exists($localPath) && filesize($localPath) > 1048576) {
                 $skipped[] = ['user_id' => $user->id, 'name' => $user->name, 'reason' => 'Image exceeds 1MB limit'];
                 $this->log('warning', "Skipping agent image for #{$user->id} — exceeds 1MB");
                 continue;
             }
+            $this->log('info', "Agent image push for #{$user->id}: ensure source image is ≥160x120px (PP minimum).");
 
             $result = $this->uploadAgentImage($user, $imageUrl);
 
@@ -386,10 +390,13 @@ class PrivatePropertySyndicationService
      */
     public function pushVideoOrMatterport(Property $property): array
     {
-        if (empty($property->pp_ref)) {
+        if (empty($property->pp_listing_feed_ref)) {
             return [
                 'success' => false,
-                'message' => 'Listing has no PP Ref — must be active on PP before video/Matterport can be added.',
+                'message' => 'Cannot push video — PP internal listing UUID (pp_listing_feed_ref) is not set on this property. '
+                           . 'This UUID is provided by PP via the Listing Event Feed when the listing activates. '
+                           . 'Ensure the Event Feed consumer is running, or contact PP to supply the UUID manually '
+                           . 'and store it via: php artisan pp:manage set-listing-uuid --property=ID --uuid=UUID',
             ];
         }
 
@@ -406,7 +413,7 @@ class PrivatePropertySyndicationService
         $listingType = in_array(strtolower($property->listing_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
 
         $result = $this->client->updateListingVideoOrMatterport(
-            $property->pp_ref,
+            $property->pp_listing_feed_ref,
             $listingType,
             $youtube,
             $matterport

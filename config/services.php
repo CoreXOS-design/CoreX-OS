@@ -80,6 +80,7 @@ return [
         'wsdl'           => env('PP_WSDL', 'https://services.sandbox.pp.co.za/AgentImport/AgentImport.asmx?WSDL'),
         'sandbox'        => env('PP_SANDBOX', true),
         'image_base_url' => env('PP_IMAGE_BASE_URL', ''),  // Override APP_URL for image URLs (useful for local dev against sandbox)
+        'webhook_secret' => env('PP_WEBHOOK_SECRET'),       // HMAC secret registered in PP Admin Portal
     ],
 
     'pdf' => [

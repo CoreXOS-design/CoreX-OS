@@ -45,6 +45,11 @@ Route::post('/login', function (Request $request) {
 Route::post('/fault-report', [FaultReportController::class, 'capture'])
     ->middleware('throttle:30,1');
 
+// Private Property webhook — leads delivered by PP.
+// Authentication is HMAC (X-Signature header) verified inside the controller.
+Route::post('/pp/webhook', [\App\Http\Controllers\PrivateProperty\PpWebhookController::class, 'receive'])
+    ->name('pp.webhook');
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/profile', function (Request $request) {
         $user = $request->user();

@@ -12,7 +12,8 @@ use Illuminate\Console\Command;
 class PpManage extends Command
 {
     protected $signature = 'pp:manage
-        {action : Action to perform: submit, reactivate, deactivate, status, showday, register-agent, deactivate-agent, agent-image, submit-agent-images, list-agents, list-active, summary, update-agent-id, update-listing-id, add-video}
+        {action : Action to perform: submit, reactivate, deactivate, status, showday, register-agent, deactivate-agent, agent-image, submit-agent-images, list-agents, list-active, summary, update-agent-id, update-listing-id, add-video, set-listing-uuid, test-webhook}
+        {--uuid= : PP internal listing UUID (for set-listing-uuid)}
         {--property= : Property ID (for listing actions)}
         {--user= : User ID (for agent actions)}
         {--image-url= : Image URL (for agent-image action)}
@@ -49,6 +50,8 @@ class PpManage extends Command
             'update-agent-id'  => $this->updateAgentId($service),
             'update-listing-id'=> $this->updateListingId($service),
             'add-video'        => $this->addVideo($service),
+            'set-listing-uuid' => $this->setListingUuid(),
+            'test-webhook'     => $this->testWebhook(),
             default            => $this->error("Unknown action: {$action}") ?? 1,
         };
     }
@@ -327,6 +330,78 @@ class PpManage extends Command
 
         $this->outputResult($result);
         return $result['success'] ? 0 : 1;
+    }
+
+    private function setListingUuid(): int
+    {
+        $property = $this->getProperty();
+        if (!$property) return 1;
+
+        $uuid = trim((string) $this->option('uuid'));
+        if ($uuid === '') {
+            $this->error('--uuid=UUID is required');
+            return 1;
+        }
+
+        // PP internal listing UUIDs are GUID-shaped (8-4-4-4-12 hex with hyphens, ~36 chars).
+        // Be permissive in case PP varies the format slightly — require hyphens and length 16-64.
+        if (!str_contains($uuid, '-') || strlen($uuid) < 16 || strlen($uuid) > 64) {
+            $this->error("UUID does not look valid (got: {$uuid}). Expected hyphenated string, 16-64 chars.");
+            return 1;
+        }
+
+        $property->update(['pp_listing_feed_ref' => $uuid]);
+        $property->refresh();
+
+        $this->info("SUCCESS: Property #{$property->id} pp_listing_feed_ref set.");
+        $this->line("  pp_ref:              " . ($property->pp_ref ?? 'null'));
+        $this->line("  pp_listing_feed_ref: {$property->pp_listing_feed_ref}");
+        return 0;
+    }
+
+    private function testWebhook(): int
+    {
+        $secret = config('services.private_property.webhook_secret');
+        if (empty($secret)) {
+            $this->error('PP_WEBHOOK_SECRET is not set in .env — cannot generate a valid signature.');
+            return 1;
+        }
+
+        $payload = [
+            'messageType'              => 'Lead',
+            'leadId'                   => 'TEST-' . uniqid(),
+            'leadType'                 => 'Enquiry',
+            'agencyId'                 => 'HFC',
+            'listingId'                => 'TEST-LISTING',
+            'listingType'              => 'Sale',
+            'listingReference'         => 'T0000000',
+            'listingExternalReference' => '16',
+            'listingAddress'           => '14 Ocean Drive',
+            'listingSuburb'            => 'Uvongo',
+            'leadDateTime'             => now()->toIso8601String(),
+            'leadName'                 => 'Test Lead',
+            'leadPhoneNumber'          => '+27821234567',
+            'leadEmail'                => 'test@example.com',
+            'leadMessage'              => 'pp:manage test-webhook diagnostic payload',
+        ];
+        $body      = json_encode($payload);
+        $signature = base64_encode(hash_hmac('sha256', $body, $secret, true));
+
+        $url = rtrim(config('app.url'), '/') . '/api/pp/webhook';
+        $this->info("POST {$url}");
+
+        try {
+            $resp = \Illuminate\Support\Facades\Http::withHeaders([
+                'X-Signature'  => $signature,
+                'Content-Type' => 'application/json',
+            ])->withBody($body, 'application/json')->post($url);
+
+            $this->line("HTTP {$resp->status()}: {$resp->body()}");
+            return $resp->successful() ? 0 : 1;
+        } catch (\Throwable $e) {
+            $this->error("Request failed: {$e->getMessage()}");
+            return 1;
+        }
     }
 
     private function getProperty(): ?Property
