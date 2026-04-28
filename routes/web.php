@@ -1097,6 +1097,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('applications/{application}/reject', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'reject'])
                 ->name('applications.reject')
                 ->middleware('permission:approve_leave');
+
+            // Leave Reports
+            Route::get('reports/register', [\App\Http\Controllers\Leave\LeaveReportController::class, 'register'])
+                ->name('reports.register')
+                ->middleware('permission:view_leave_reports');
+            Route::get('reports/register/export/{format}', [\App\Http\Controllers\Leave\LeaveReportController::class, 'registerExport'])
+                ->name('reports.register.export')
+                ->middleware('permission:view_leave_reports');
+            Route::get('reports/branch-summary', [\App\Http\Controllers\Leave\LeaveReportController::class, 'branchSummary'])
+                ->name('reports.branch-summary')
+                ->middleware('permission:view_leave_reports');
+            Route::get('reports/accrual-statement/{employee}', [\App\Http\Controllers\Leave\LeaveReportController::class, 'accrualStatement'])
+                ->name('reports.accrual-statement')
+                ->middleware('permission:view_leave_reports');
+            Route::get('reports/audit-log', [\App\Http\Controllers\Leave\LeaveReportController::class, 'auditLog'])
+                ->name('reports.audit-log')
+                ->middleware('permission:view_leave_reports');
         });
 
     // ── Staff Take-On Wizard ──

@@ -1001,8 +1001,7 @@
                 @endpermission
 
                 @permission('view_leave_reports')
-                {{-- TODO: Replace href="#" with route('leave.reports.register') when routes exist --}}
-                <a href="#" class="corex-nav-subitem">Reports</a>
+                <a href="{{ route('payroll.leave.reports.register') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.reports.*') ? 'active' : '' }}">Reports</a>
                 @endpermission
 
                 @permission('manage_leave_types')
