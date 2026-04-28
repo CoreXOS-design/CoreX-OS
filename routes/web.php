@@ -977,6 +977,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 ->name('employees.banking.store');
             Route::patch('employees/{employee}/banking', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'updateBanking'])
                 ->name('employees.banking.update');
+
+            // ── Payroll Runs ──
+            Route::resource('runs', \App\Http\Controllers\Payroll\PayrollRunController::class)
+                ->only(['index', 'create', 'store', 'show'])
+                ->middleware('permission:run_payroll');
+            Route::post('runs/{run}/cancel', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'cancel'])
+                ->name('runs.cancel')
+                ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/payslips/{payslip}', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'payslipShow'])
+                ->name('runs.payslips.show')
+                ->middleware('permission:run_payroll');
         });
 
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');

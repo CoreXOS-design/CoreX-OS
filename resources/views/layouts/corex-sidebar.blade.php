@@ -995,8 +995,7 @@
                 @endpermission
 
                 @permission('run_payroll')
-                {{-- TODO: Replace href="#" with route('payroll.runs.index') when routes exist (Prompt H) --}}
-                <a href="#" class="corex-nav-subitem">Runs</a>
+                <a href="{{ route('payroll.runs.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.runs.*') ? 'active' : '' }}">Runs</a>
                 @endpermission
             </div>
         </div>
