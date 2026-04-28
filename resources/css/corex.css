@@ -338,6 +338,61 @@ html.dark {
     box-shadow: 0 6px 16px color-mix(in srgb, var(--brand-button, #0ea5e9) 35%, transparent);
 }
 
+/* ========== Property page action stack & misc helpers ========== */
+.prop-action-btn {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: all 150ms ease;
+}
+/* Unified neutral button family — all sidebar actions share identical styling. */
+.prop-action-btn,
+.prop-action-btn-success,
+.prop-action-btn-brand,
+.prop-action-btn-fb,
+.prop-action-btn-neutral,
+.prop-action-btn-danger {
+    background: var(--surface-2);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+}
+.prop-action-btn:hover,
+.prop-action-btn-success:hover,
+.prop-action-btn-brand:hover,
+.prop-action-btn-fb:hover,
+.prop-action-btn-neutral:hover,
+.prop-action-btn-danger:hover {
+    background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-2));
+    border-color: var(--border-hover);
+}
+.prop-action-btn svg,
+.prop-action-btn-success svg,
+.prop-action-btn-brand svg,
+.prop-action-btn-fb svg,
+.prop-action-btn-neutral svg,
+.prop-action-btn-danger svg { color: var(--text-secondary); }
+
+.prop-photo-chip {
+    padding: 0.25rem 0.625rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    cursor: pointer;
+    border: 0;
+    transition: background-color 150ms ease;
+}
+.prop-photo-chip:hover { background: rgba(0, 0, 0, 0.78); }
+
 /* ========== List Header Filters ========== */
 .list-header-filter {
     height: 2.25rem;

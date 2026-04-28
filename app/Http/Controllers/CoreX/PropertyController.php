@@ -388,7 +388,7 @@ class PropertyController extends Controller
             'lease_start_date' => 'nullable|date',
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
-            'agent_id'         => 'nullable|exists:users,id',
+            'agent_id'         => 'required|exists:users,id',
             'pp_second_agent_id' => 'nullable|exists:users,id',
             'pp_agent_image'           => 'nullable|image|max:1024',
             'pp_second_agent_image'    => 'nullable|image|max:1024',
@@ -576,7 +576,7 @@ class PropertyController extends Controller
             'lease_start_date' => 'nullable|date',
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
-            'agent_id'         => 'nullable|exists:users,id',
+            'agent_id'         => 'required|exists:users,id',
             'pp_second_agent_id' => 'nullable|exists:users,id',
             'pp_agent_image'           => 'nullable|image|max:1024',
             'pp_second_agent_image'    => 'nullable|image|max:1024',
@@ -604,6 +604,16 @@ class PropertyController extends Controller
         }
         if ($request->hasFile('pp_second_agent_image')) {
             $data['pp_second_agent_image_path'] = $request->file('pp_second_agent_image')->store("properties/{$property->id}/agents", 'public');
+        }
+
+        // Listing Agent ≡ Primary Agent invariant: when the primary agent changes,
+        // clear the portal-feed photo snapshot so portal feeds + Ad Builder fall back to
+        // the new agent's profile photo. Same for second agent.
+        if (isset($data['agent_id']) && (int) $data['agent_id'] !== (int) $property->agent_id && !$request->hasFile('pp_agent_image')) {
+            $data['pp_agent_image_path'] = null;
+        }
+        if (array_key_exists('pp_second_agent_id', $data) && (int) ($data['pp_second_agent_id'] ?? 0) !== (int) ($property->pp_second_agent_id ?? 0) && !$request->hasFile('pp_second_agent_image')) {
+            $data['pp_second_agent_image_path'] = null;
         }
 
         // Extract YouTube video ID from full URL if pasted

@@ -1,7 +1,75 @@
 # Spec: Property Page Redesign + Creation Flow Improvements
 
-**Status:** Draft — Awaiting Johan's review
-**Date:** 2026-03-30
+**Status:** Phase 1a in build (Andre, 2026-04-28) — Overview redesign live; Sticky Readiness Bar + remaining phases still pending review
+**Date:** 2026-03-30 (orig), 2026-04-28 (Phase 1a build start)
+
+---
+
+## 2026-04-28 Addendum: Overview Redesign (Phase 1a)
+
+The original A2 spec described a "Live Preview Card" replacing the stat boxes. After review with Andre on 2026-04-28, the Overview tab was found to be visually flat and chaotic — equally-weighted card grids, no hero, no pillar surfacing, cover image computed but never rendered, and inline forms styled identically to navigation tiles.
+
+The Overview tab is now restructured as three zones:
+
+1. **Hero band** (top) — cover image left (40%), details right (60%): title, suburb, price (XL right), status pill + listing-type badge over image, photo count chip, days-on-market, at-a-glance stats strip (single inline row, no boxes, dot separators), property/mandate/category chips, description preview (first 220 chars), action button row (Edit Details, Add Photos, Contacts, Call Agent).
+2. **Activity column** (left 2/3) — Recent Activity timeline (existing `$activityTimeline`) + Key Dates as a 4-up label/value grid in a single panel.
+3. **Pillar column** (right 1/3) — Listing Agent (Agent pillar), Owner/Seller/Landlord linked contact (Contact pillar, links to `corex.contacts.show`), Upcoming Showdays.
+
+### Changes from original A2
+- No collapse/expand toggle on hero — it IS the page now, not an extra widget.
+- Quick Actions inline price/status forms removed (they reloaded the whole page; status change belongs in the sidebar header dropdown which already exists).
+- Pillar surfacing made explicit — Owner contact and Listing Agent are now first-class on Overview, addressing CLAUDE.md non-negotiable #4 ("Pillars are the spine"). Empty-state for owner deep-links to Contacts tab.
+
+### Files touched (Phase 1a)
+- `resources/views/corex/properties/show.blade.php` — Overview tab block (lines ~832–984) replaced.
+- `.ai/specs/property-page-redesign.md` — this addendum.
+
+### Still pending (Phase 1c–4)
+- A3 Info Tab Reorganisation
+- A4 Smart Gallery
+- B1–B5 Creation flow improvements
+
+---
+
+## 2026-04-28 Addendum: Sidebar Redesign (Phase 1b)
+
+After the Overview redesign landed, the 280px left sidebar at [show.blade.php:44-177] became almost entirely redundant — cover image, status pill, LIVE chip, title, price, suburb, beds/baths/garages, floor/erf m², property type, category, mandate, agent, listed/expires were duplicated in the new hero.
+
+The sidebar is restructured as a **command rail** focused on actions and readiness — content the rest of the page doesn't surface.
+
+### New sidebar structure
+
+1. **Identity strip (compact)** — 60-ish px row: thumb + status pill + LIVE chip (when published) + title. Just enough to anchor on long Info-tab scrolls.
+2. **Action stack** — vertical button group:
+   - Ad Builder (primary brand colour)
+   - Market Property (Facebook blue, gated by `marketing_enabled`)
+   - Live Preview (opens syndication modal at preview step)
+   - Syndication (opens syndication modal at main step)
+   - Duplicate (`POST corex.properties.duplicate`)
+   - Archive (soft delete via `DELETE corex.properties.destroy` — confirms with user, recoverable per non-negotiable #1)
+3. **Readiness panel** — A1's content reframed as a rail panel rather than a sticky top bar:
+   - Completeness percentage (10 checks: title, price, status, suburb, description, beds, baths, listing agent, photos, listed_date)
+   - Colour-coded bar (red <50%, amber 50–80%, green >80%)
+   - Top 5 missing-fields checklist
+   - Portal status: HFC Premium / Private Property / Property24 — Live / N fix / Off
+
+### Architectural change: x-data hoisting
+
+The right-pane "Syndication bar" originally owned its own `x-data="{ synOpen, synStep }"` scope. To trigger the same modal from the sidebar, that state was hoisted to the page-root x-data on [show.blade.php:6]:
+
+```js
+x-data="{ activeTab: '...', synOpen: false, synStep: 'main' }"
+```
+
+The visible bar (Live Preview + Syndication trigger buttons) was deleted — those triggers now live in the sidebar Action stack. The teleported modal (`<template x-teleport="body">`) stays where it was; it now inherits synOpen/synStep from the root scope.
+
+### Files touched (Phase 1b)
+- `resources/views/corex/properties/show.blade.php` — root x-data extended; aside (lines 44-177) replaced; syndication bar wrapper + duplicated trigger buttons removed; modal teleport retained.
+
+### Pending (separate ticket)
+- **Linked Deal pillar card** — sidebar should show the active linked Deal/mandate/offer when one exists. Property model has no `deals()` relation yet; deferred until [.ai/specs/deals.md](.ai/specs/deals.md) defines the Property↔Deal binding.
+
+---
 
 ---
 
