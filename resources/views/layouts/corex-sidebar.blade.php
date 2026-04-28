@@ -1000,8 +1000,7 @@
                 @endpermission
 
                 @permission('manage_leave_types')
-                {{-- TODO: Replace href="#" with route('leave.types.index') when routes exist --}}
-                <a href="#" class="corex-nav-subitem">Leave Types</a>
+                <a href="{{ route('payroll.leave.types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.types.*') ? 'active' : '' }}">Leave Types</a>
                 @endpermission
 
                 @permission('view_leave_reports')

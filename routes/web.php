@@ -1041,6 +1041,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 ->middleware('permission:view_payroll_reports');
         });
 
+    // ── Leave Admin ──
+    Route::middleware(['permission:manage_leave_types', 'agency.required'])
+        ->prefix('payroll/leave')
+        ->name('payroll.leave.')
+        ->group(function () {
+            Route::resource('types', \App\Http\Controllers\Leave\LeaveTypeController::class)
+                ->except(['show']);
+        });
+
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
     // Training placeholder replaced by LMS module (training.index route above)
 
