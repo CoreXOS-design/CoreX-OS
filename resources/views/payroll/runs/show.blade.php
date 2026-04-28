@@ -7,7 +7,8 @@
             @if($run->isDraft())
                 <button @click="showFinalise = true" class="inline-flex items-center px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:3px; cursor:pointer;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Finalise</button>
             @elseif($run->isFinalised())
-                <span class="inline-flex items-center px-3 py-2 text-xs font-semibold transition" style="color:var(--text-secondary, #cbd5e1); border:1px solid var(--border, #e5e7eb); border-radius:3px; cursor:not-allowed;" title="Bundle download coming in Prompt M">Download Bundle</span>
+                <a href="{{ route('payroll.runs.report', $run) }}" class="inline-flex items-center px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:3px;">View Report</a>
+                <a href="{{ route('payroll.runs.bundle', $run) }}" class="inline-flex items-center px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Download Bundle</a>
             @endif
         </x-slot:actions>
     </x-page-header>

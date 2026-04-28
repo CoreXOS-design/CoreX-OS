@@ -377,6 +377,137 @@ class PayrollRunController extends Controller
             ->with('success', $msg);
     }
 
+    // ── BUNDLE PDF DOWNLOAD ──
+
+    public function bundlePdf($id)
+    {
+        $run = PayrollRun::with('payslips')->findOrFail($id);
+
+        if (!$run->isFinalised()) {
+            abort(422, 'Only finalised runs can be bundled.');
+        }
+
+        $pdfService = new \App\Services\Payroll\PayslipPdfService();
+        $tempDir = storage_path('app/temp');
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        $periodYm = $run->period_month->format('Ym');
+        $zipFilename = "Payroll-Run-{$run->run_number}-{$periodYm}.zip";
+        $zipPath = $tempDir . '/' . $zipFilename;
+
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            abort(500, 'Failed to create ZIP archive.');
+        }
+
+        foreach ($run->payslips as $payslip) {
+            $pdfPath = $pdfService->getStoredPath($payslip);
+            if (!$pdfPath) {
+                $pdfPath = $pdfService->regenerate($payslip);
+            }
+
+            $nameParts = explode(' ', $payslip->employee_name_snapshot);
+            $lastName = \Illuminate\Support\Str::slug(last($nameParts));
+            $firstName = \Illuminate\Support\Str::slug($nameParts[0] ?? 'employee');
+            $entryName = "Payslip-{$lastName}-{$firstName}-{$periodYm}.pdf";
+
+            $zip->addFile($pdfPath, $entryName);
+        }
+
+        $zip->close();
+
+        return response()->download($zipPath, $zipFilename)->deleteFileAfterSend(true);
+    }
+
+    // ── RUN REPORT ──
+
+    public function runReport($id)
+    {
+        $run = PayrollRun::with([
+            'payslips' => fn($q) => $q->orderBy('employee_name_snapshot'),
+            'payslips.lines',
+            'payslips.employee.user.branch',
+            'createdBy', 'finalisedBy',
+        ])->findOrFail($id);
+
+        if (!$run->isFinalised()) {
+            abort(422, 'Reports are available for finalised runs only.');
+        }
+
+        // Per-branch breakdown
+        $branchBreakdown = [];
+        foreach ($run->payslips as $ps) {
+            $branchName = $ps->employee?->user?->branch?->name ?? 'Unassigned';
+            if (!isset($branchBreakdown[$branchName])) {
+                $branchBreakdown[$branchName] = [
+                    'headcount' => 0, 'gross' => '0.00', 'paye' => '0.00',
+                    'uif_employee' => '0.00', 'uif_employer' => '0.00',
+                    'sdl' => '0.00', 'net' => '0.00',
+                ];
+            }
+            $b = &$branchBreakdown[$branchName];
+            $b['headcount']++;
+            $b['gross'] = bcadd($b['gross'], (string) $ps->total_earnings, 2);
+            $b['paye'] = bcadd($b['paye'], (string) $ps->paye_amount, 2);
+            $b['uif_employee'] = bcadd($b['uif_employee'], (string) $ps->uif_employee_amount, 2);
+            $b['uif_employer'] = bcadd($b['uif_employer'], (string) $ps->uif_employer_amount, 2);
+            $b['sdl'] = bcadd($b['sdl'], (string) $ps->sdl_amount, 2);
+            $b['net'] = bcadd($b['net'], (string) $ps->net_pay, 2);
+        }
+
+        // Earning lines summary (grouped by sars code + label)
+        $earningsSummary = [];
+        $deductionsSummary = [];
+
+        foreach ($run->payslips as $ps) {
+            foreach ($ps->lines as $line) {
+                $key = ($line->sars_source_code_snapshot ?: '0000') . '|' . $line->label_snapshot;
+                if ($line->line_type === 'earning') {
+                    if (!isset($earningsSummary[$key])) {
+                        $earningsSummary[$key] = [
+                            'sars' => $line->sars_source_code_snapshot,
+                            'label' => $line->label_snapshot,
+                            'total' => '0.00', 'count' => 0,
+                        ];
+                    }
+                    $earningsSummary[$key]['total'] = bcadd($earningsSummary[$key]['total'], (string) $line->amount, 2);
+                    $earningsSummary[$key]['count']++;
+                } elseif ($line->line_type === 'deduction') {
+                    if (!isset($deductionsSummary[$key])) {
+                        $deductionsSummary[$key] = [
+                            'sars' => $line->sars_source_code_snapshot,
+                            'label' => $line->label_snapshot,
+                            'total' => '0.00', 'count' => 0,
+                        ];
+                    }
+                    $deductionsSummary[$key]['total'] = bcadd($deductionsSummary[$key]['total'], (string) $line->amount, 2);
+                    $deductionsSummary[$key]['count']++;
+                }
+            }
+        }
+
+        ksort($earningsSummary);
+        ksort($deductionsSummary);
+
+        // Statutory totals (EMP201 numbers)
+        $statutory = [
+            'paye'         => (string) $run->total_paye,
+            'uif_employee' => (string) $run->total_uif_employee,
+            'uif_employer' => (string) $run->total_uif_employer,
+            'sdl'          => (string) $run->total_sdl,
+        ];
+        $statutory['total'] = bcadd(
+            bcadd(bcadd($statutory['paye'], $statutory['uif_employee'], 2), $statutory['uif_employer'], 2),
+            $statutory['sdl'], 2
+        );
+
+        return view('payroll.runs.report', compact(
+            'run', 'branchBreakdown', 'earningsSummary', 'deductionsSummary', 'statutory'
+        ));
+    }
+
     // ── PAYSLIP PDF PREVIEW ──
 
     public function payslipPdfPreview($runId, $payslipId)

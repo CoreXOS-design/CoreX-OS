@@ -1033,6 +1033,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('runs/{run}/payslips/{payslip}/pdf-download', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'payslipPdfDownload'])
                 ->name('runs.payslips.pdf-download')
                 ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/bundle', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'bundlePdf'])
+                ->name('runs.bundle')
+                ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/report', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'runReport'])
+                ->name('runs.report')
+                ->middleware('permission:view_payroll_reports');
         });
 
     Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
