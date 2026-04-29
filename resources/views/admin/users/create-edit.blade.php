@@ -588,7 +588,7 @@
                              if (!confirm('Deactivate {{ addslashes($user->name) }} on Private Property? PP will refuse this if the agent still has active listings.')) return;
                              this.deactivating = true; this.deactivateMsg = ''; this.deactivateOk = null;
                              try {
-                                 const res = await fetch('{{ route('syndication.agent.deactivate') }}', {
+                                 const res = await fetch('{{ route('corex.properties.syndication.agent.deactivate') }}', {
                                      method: 'POST',
                                      headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
                                      body: JSON.stringify({ user_id: {{ $user->id }} }),
