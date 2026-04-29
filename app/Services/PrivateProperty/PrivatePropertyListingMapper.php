@@ -506,8 +506,9 @@ class PrivatePropertyListingMapper
         $lastName  = $parts[1] ?? $parts[0] ?? '';
         $cellPhone = $user->cell ?? $user->phone ?? '';
 
+        // AgentId prefers pp_external_ref (admin-set on PP) over user->id.
         return [
-            'AgentId'               => (string) $user->id,
+            'AgentId'               => (string) ($user->pp_external_ref ?: $user->id),
             'FirstName'             => $firstName,
             'LastName'              => $lastName,
             'Email'                 => $user->email ?? '',

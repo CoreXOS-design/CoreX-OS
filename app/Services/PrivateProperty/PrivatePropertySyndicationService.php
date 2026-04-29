@@ -342,7 +342,8 @@ class PrivatePropertySyndicationService
             return null;
         }
 
-        $expectedId = (string) $user->id;
+        // Canonical AgentId: pp_external_ref takes precedence over user->id.
+        $expectedId = (string) ($user->pp_external_ref ?: $user->id);
         $existingForEmail = [];
 
         foreach ($matches[1] as $inner) {
@@ -607,7 +608,7 @@ class PrivatePropertySyndicationService
         }
 
         $agentData = [
-            'AgentId'               => (string) $user->id,
+            'AgentId'               => (string) ($user->pp_external_ref ?: $user->id),
             'FirstName'             => $firstName,
             'LastName'              => $lastName,
             'Email'                 => $user->email ?? '',

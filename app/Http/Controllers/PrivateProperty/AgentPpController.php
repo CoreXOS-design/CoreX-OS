@@ -426,7 +426,12 @@ class AgentPpController extends Controller
             ], 422);
         }
 
-        $user->update(['pp_unique_agent_id' => $ppEncryptedId]);
+        // Persist both the encrypted PP ID and the chosen External Ref so
+        // future Sync Agent calls don't overwrite this value with $user->id.
+        $user->update([
+            'pp_unique_agent_id' => $ppEncryptedId,
+            'pp_external_ref'    => $externalRef,
+        ]);
 
         return response()->json([
             'success'            => true,

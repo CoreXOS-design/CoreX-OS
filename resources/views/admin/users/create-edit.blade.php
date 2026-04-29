@@ -574,7 +574,7 @@
                          syncing: false, syncMsg: '', syncOk: null,
                          updateLoading: false, updateMsg: '', updateOk: null,
                          deactivating: false, deactivateMsg: '', deactivateOk: null,
-                         externalRef: '{{ $user->id }}',
+                         externalRef: '{{ $user->pp_external_ref ?: $user->id }}',
                          ppEncryptedId: '',
                          ppUniqueAgentId: '{{ $user->pp_unique_agent_id ?? '' }}',
 
