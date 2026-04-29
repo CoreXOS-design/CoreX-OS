@@ -268,6 +268,12 @@ class PrivatePropertySyndicationService
 
     /**
      * Register or update an agent on PP. Public method for controller use.
+     *
+     * Duplicate-safe: if PP already holds a profile for this user's email
+     * under a different External Ref (AgentId), we remap it to $user->id
+     * via UpdateUniqueAgentID first. Without that step, calling UpdateAgent
+     * with an AgentId PP doesn't recognise creates a brand-new profile —
+     * which is how the duplicate Andre/Elize records were generated.
      */
     public function registerAgent(User $user, bool $active = true): array
     {
@@ -278,6 +284,14 @@ class PrivatePropertySyndicationService
                 'success' => false,
                 'message' => 'Agent has no phone/cell number — required by Private Property',
             ];
+        }
+
+        $remapNote = null;
+        if ($active) {
+            $remap = $this->ensureNoDuplicateBeforeUpdateAgent($user);
+            if ($remap !== null) {
+                $remapNote = $remap;
+            }
         }
 
         $result = $this->client->updateAgent($agentData);
@@ -291,11 +305,87 @@ class PrivatePropertySyndicationService
 
         $this->log('info', "Agent #{$user->id} ({$user->name}) " . ($active ? 'registered' : 'deactivated') . " on PP");
 
+        $message = $active ? 'Agent registered on PP' : 'Agent deactivated on PP';
+        if ($remapNote) {
+            $message .= ' (' . $remapNote . ')';
+        }
+
         return [
             'success' => true,
-            'message' => $active ? 'Agent registered on PP' : 'Agent deactivated on PP',
+            'message' => $message,
             'result'  => $result,
         ];
+    }
+
+    /**
+     * Look up the user's email on PP. If a profile exists with a different
+     * AgentId, call UpdateUniqueAgentID to remap PP's existing record onto
+     * $user->id BEFORE we send UpdateAgent. Returns a human-readable note,
+     * or null if no remap was needed.
+     */
+    private function ensureNoDuplicateBeforeUpdateAgent(User $user): ?string
+    {
+        $email = strtolower(trim((string) $user->email));
+        if ($email === '') return null;
+
+        $resp = $this->client->getAllAgentsForBranch();
+        if (isset($resp['error']) && $resp['error'] === true) {
+            return null;
+        }
+
+        $xml = $resp['GetAllAgentsForBranchResult']['any'] ?? '';
+        if (!is_string($xml) || $xml === '') {
+            return null;
+        }
+
+        if (!preg_match_all('/<Agents\b[^>]*>(.*?)<\/Agents>/s', $xml, $matches)) {
+            return null;
+        }
+
+        $expectedId = (string) $user->id;
+        $existingForEmail = [];
+
+        foreach ($matches[1] as $inner) {
+            preg_match('/<email\b[^>]*>(.*?)<\/email>/s', $inner, $em);
+            preg_match('/<AgentId\b[^>]*>(.*?)<\/AgentId>/s', $inner, $am);
+            preg_match('/<PrivatePropertyAgentId\b[^>]*>(.*?)<\/PrivatePropertyAgentId>/s', $inner, $pm);
+
+            $rowEmail = strtolower(trim($em[1] ?? ''));
+            if ($rowEmail !== $email) continue;
+
+            $existingForEmail[] = [
+                'agent_id'        => trim($am[1] ?? ''),
+                'pp_encrypted_id' => trim($pm[1] ?? ''),
+            ];
+        }
+
+        if (empty($existingForEmail)) {
+            return null; // No existing profile — UpdateAgent will create the first one.
+        }
+
+        // If any existing record already matches user->id, nothing to remap.
+        foreach ($existingForEmail as $rec) {
+            if ($rec['agent_id'] === $expectedId) {
+                return null;
+            }
+        }
+
+        // Pick the first record and remap it to user->id.
+        $rec = $existingForEmail[0];
+        if ($rec['pp_encrypted_id'] === '') {
+            return 'PP has profile(s) for ' . $email . ' under different External Refs but no encrypted ID was returned — cannot auto-remap';
+        }
+
+        $remap = $this->client->updateUniqueAgentId($rec['pp_encrypted_id'], $expectedId);
+        if (isset($remap['error']) && $remap['error'] === true) {
+            return 'auto-remap UpdateUniqueAgentID failed: ' . ($remap['message'] ?? 'unknown error');
+        }
+
+        $user->update(['pp_unique_agent_id' => $rec['pp_encrypted_id']]);
+
+        $this->log('info', "Remapped PP profile for {$email} from External Ref {$rec['agent_id']} to {$expectedId} before UpdateAgent");
+
+        return "remapped PP External Ref {$rec['agent_id']} → {$expectedId} to avoid duplicate";
     }
 
     /**
