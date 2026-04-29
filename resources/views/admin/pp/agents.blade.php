@@ -81,6 +81,84 @@
             </tbody>
         </table>
     </div>
+
+    {{-- Active-listings modal shown when PP refuses deactivation (PP121) --}}
+    <div x-show="modal.open" x-cloak
+         class="fixed inset-0 flex items-center justify-center p-4"
+         style="background:rgba(0,0,0,0.6); z-index:1000;"
+         @keydown.escape.window="modal.open = false">
+        <div class="rounded-xl max-w-2xl w-full p-6 space-y-4"
+             style="background:var(--surface); border:1px solid var(--border); max-height:85vh; overflow:auto;">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-bold" style="color:var(--text-primary);">Active listings blocking deactivation</h2>
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">
+                        PP refused to deactivate agent profile <span x-text="modal.agentId" class="font-mono"></span>
+                        because these listings are still active under it. Deactivate each on PP, wait
+                        a couple of minutes, then retry deactivating the agent.
+                    </p>
+                </div>
+                <button type="button" @click="modal.open = false"
+                        class="text-sm" style="color:var(--text-muted);">✕</button>
+            </div>
+
+            <ul class="space-y-2">
+                <template x-for="L in modal.listings" :key="L.id">
+                    <li class="rounded-md p-3 flex items-start justify-between gap-3"
+                        style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="text-sm min-w-0">
+                            <div class="font-mono text-xs" style="color:var(--text-muted);">
+                                Listing #<span x-text="L.id"></span>
+                                <template x-if="L.pp_ref"><span class="ml-2">PP Ref: <span x-text="L.pp_ref"></span></span></template>
+                                <template x-if="L.soft_deleted"><span class="ml-2" style="color:#f59e0b;">(soft-deleted in CoreX)</span></template>
+                                <template x-if="!L.exists"><span class="ml-2" style="color:#ef4444;">(not found in CoreX)</span></template>
+                            </div>
+                            <div class="font-semibold mt-0.5" style="color:var(--text-primary);" x-text="L.headline"></div>
+                            <div class="text-xs mt-0.5" style="color:var(--text-secondary);" x-text="L.address"></div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <template x-if="L.view_url">
+                                <a :href="L.view_url" target="_blank"
+                                   class="px-2 py-1 rounded-md text-xs font-medium"
+                                   style="border:1px solid var(--border); color:var(--text-secondary); background:var(--surface);">View</a>
+                            </template>
+                            <template x-if="L.deactivate_url">
+                                <button type="button"
+                                        @click="deactivateListing(L)"
+                                        :disabled="L._busy || L._done"
+                                        class="px-2 py-1 rounded-md text-xs font-medium"
+                                        :style="L._done
+                                            ? 'background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.3);'
+                                            : 'background:rgba(239,68,68,0.08); color:#ef4444; border:1px solid rgba(239,68,68,0.3);'">
+                                    <span x-show="!L._busy && !L._done">Deactivate on PP</span>
+                                    <span x-show="L._busy" x-cloak>...</span>
+                                    <span x-show="L._done" x-cloak>Deactivated</span>
+                                </button>
+                            </template>
+                        </div>
+                    </li>
+                </template>
+            </ul>
+
+            <p x-show="modal.msg" x-cloak class="text-xs"
+               :style="modal.ok ? 'color:#22c55e' : 'color:#ef4444'" x-text="modal.msg"></p>
+
+            <div class="flex items-center justify-end gap-2 pt-2" style="border-top:1px solid var(--border);">
+                <button type="button" @click="modal.open = false"
+                        class="px-3 py-1.5 rounded-md text-xs font-medium"
+                        style="border:1px solid var(--border); color:var(--text-secondary); background:var(--surface-2);">
+                    Close
+                </button>
+                <button type="button" @click="retryDeactivateAgent()"
+                        :disabled="modal.retrying"
+                        class="px-3 py-1.5 rounded-md text-xs font-medium text-white"
+                        style="background:var(--brand-button, #0ea5e9);">
+                    <span x-show="!modal.retrying">Retry agent deactivation</span>
+                    <span x-show="modal.retrying" x-cloak>Retrying...</span>
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -89,6 +167,24 @@ window.ppAgentsPage = function (root) {
         busy: null, msg: '', ok: null,
         deactivateUrl: root.dataset.deactivateUrl,
         csrf: root.dataset.csrf,
+        modal: { open: false, agentId: '', encryptedId: '', payload: null, listings: [], msg: '', ok: null, retrying: false },
+
+        async _postAgent(payload) {
+            var res = await fetch(this.deactivateUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': this.csrf,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+            var data;
+            try { data = await res.json(); }
+            catch (_) { data = { success: false, message: 'Bad JSON from server (HTTP ' + res.status + ')' }; }
+            return { res: res, data: data };
+        },
+
         async deactivate(btn) {
             var a = {
                 pp_encrypted_id: btn.dataset.encryptedId,
@@ -101,26 +197,86 @@ window.ppAgentsPage = function (root) {
             if (!confirm('Deactivate PP profile ' + a.agent_id + ' (' + a.first_name + ' ' + a.last_name + ')? PP will refuse if this profile has active listings.')) return;
             this.busy = a.pp_encrypted_id; this.msg = ''; this.ok = null;
             try {
-                var res = await fetch(this.deactivateUrl, {
+                var r = await this._postAgent(a);
+                this.ok = !!r.data.success;
+                this.msg = r.data.message || (this.ok ? 'Deactivated' : 'Deactivate failed (HTTP ' + r.res.status + ')');
+                if (this.ok) {
+                    setTimeout(function () { location.reload(); }, 1200);
+                } else if (Array.isArray(r.data.active_listings) && r.data.active_listings.length > 0) {
+                    this.modal.agentId = a.agent_id;
+                    this.modal.encryptedId = a.pp_encrypted_id;
+                    this.modal.payload = a;
+                    this.modal.listings = r.data.active_listings.map(function (L) {
+                        return Object.assign({ _busy: false, _done: false }, L);
+                    });
+                    this.modal.msg = '';
+                    this.modal.ok = null;
+                    this.modal.open = true;
+                }
+            } catch (e) {
+                this.ok = false;
+                this.msg = 'Network error: ' + (e && e.message ? e.message : e);
+            }
+            this.busy = null;
+        },
+
+        async deactivateListing(L) {
+            if (!L.deactivate_url) return;
+            L._busy = true; this.modal.msg = ''; this.modal.ok = null;
+            try {
+                var res = await fetch(L.deactivate_url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-CSRF-TOKEN': this.csrf,
                         'Accept': 'application/json',
                     },
-                    body: JSON.stringify(a),
                 });
                 var data;
                 try { data = await res.json(); }
                 catch (_) { data = { success: false, message: 'Bad JSON from server (HTTP ' + res.status + ')' }; }
-                this.ok = !!data.success;
-                this.msg = data.message || (this.ok ? 'Deactivated' : 'Deactivate failed (HTTP ' + res.status + ')');
-                if (this.ok) setTimeout(function () { location.reload(); }, 1200);
+                if (data.success) {
+                    L._done = true;
+                    this.modal.ok = true;
+                    this.modal.msg = 'Listing ' + L.id + ' deactivated on PP. Wait a moment, then retry agent deactivation.';
+                } else {
+                    this.modal.ok = false;
+                    this.modal.msg = 'Listing ' + L.id + ': ' + (data.message || 'failed (HTTP ' + res.status + ')');
+                }
             } catch (e) {
-                this.ok = false;
-                this.msg = 'Network error: ' + (e && e.message ? e.message : e);
+                this.modal.ok = false;
+                this.modal.msg = 'Network error: ' + (e && e.message ? e.message : e);
             }
-            this.busy = null;
+            L._busy = false;
+        },
+
+        async retryDeactivateAgent() {
+            if (!this.modal.payload) return;
+            this.modal.retrying = true; this.modal.msg = ''; this.modal.ok = null;
+            try {
+                var r = await this._postAgent(this.modal.payload);
+                if (r.data.success) {
+                    this.modal.ok = true;
+                    this.modal.msg = r.data.message || 'Agent deactivated.';
+                    setTimeout(function () { location.reload(); }, 1200);
+                } else {
+                    this.modal.ok = false;
+                    this.modal.msg = r.data.message || ('Retry failed (HTTP ' + r.res.status + ')');
+                    if (Array.isArray(r.data.active_listings)) {
+                        // Update listing list with whatever PP still reports as active.
+                        var prev = {};
+                        this.modal.listings.forEach(function (x) { prev[x.id] = x; });
+                        this.modal.listings = r.data.active_listings.map(function (L) {
+                            var existing = prev[L.id];
+                            return Object.assign({ _busy: false, _done: existing ? existing._done : false }, L);
+                        });
+                    }
+                }
+            } catch (e) {
+                this.modal.ok = false;
+                this.modal.msg = 'Network error: ' + (e && e.message ? e.message : e);
+            }
+            this.modal.retrying = false;
         }
     };
 };

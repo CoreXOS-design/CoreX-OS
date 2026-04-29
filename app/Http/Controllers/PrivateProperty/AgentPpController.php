@@ -122,9 +122,15 @@ class AgentPpController extends Controller
         $result = $this->soapClient->updateAgent($payload);
 
         if (isset($result['error']) && $result['error'] === true) {
+            $message = $result['message'] ?? 'UpdateAgent (deactivate) failed';
+            $listings = $this->parseActiveListingsFromError($message);
+
             return response()->json([
-                'success' => false,
-                'message' => $result['message'] ?? 'UpdateAgent (deactivate) failed',
+                'success'         => false,
+                'message'         => $message,
+                'active_listings' => $listings,
+                'pp_encrypted_id' => $validated['pp_encrypted_id'],
+                'agent_id'        => $validated['agent_id'],
             ], 422);
         }
 
@@ -132,6 +138,46 @@ class AgentPpController extends Controller
             'success' => true,
             'message' => 'PP agent profile ' . $validated['agent_id'] . ' deactivated',
         ]);
+    }
+
+    /**
+     * Parse "active listings: 16, 17, 18" from PP's PP121 error and resolve
+     * each ID against the CoreX Property table so the UI can offer one-click
+     * deactivation per listing.
+     */
+    private function parseActiveListingsFromError(string $message): array
+    {
+        if (!preg_match('/active listings?:\s*([0-9,\s]+)/i', $message, $m)) {
+            return [];
+        }
+
+        $ids = array_filter(array_map('intval', preg_split('/[,\s]+/', $m[1])));
+        if (empty($ids)) {
+            return [];
+        }
+
+        $properties = \App\Models\Property::withTrashed()
+            ->whereIn('id', $ids)
+            ->get(['id', 'headline', 'title', 'address', 'suburb', 'town', 'pp_ref', 'agent_id', 'deleted_at'])
+            ->keyBy('id');
+
+        $out = [];
+        foreach ($ids as $id) {
+            $p = $properties->get($id);
+            $out[] = [
+                'id'           => $id,
+                'exists'       => (bool) $p,
+                'soft_deleted' => $p?->deleted_at !== null,
+                'headline'     => $p?->headline ?? $p?->title ?? '(unknown listing)',
+                'address'      => $p ? trim(($p->address ?? '') . ', ' . ($p->suburb ?? '') . ' ' . ($p->town ?? '')) : '',
+                'pp_ref'       => $p?->pp_ref,
+                'agent_id'     => $p?->agent_id,
+                'deactivate_url' => $p ? route('syndication.deactivate', ['property' => $id]) : null,
+                'view_url'     => $p ? '/corex/properties/' . $id : null,
+            ];
+        }
+
+        return $out;
     }
 
     /**
