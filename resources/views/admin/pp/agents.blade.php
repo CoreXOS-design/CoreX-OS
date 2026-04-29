@@ -152,6 +152,13 @@
                         style="border:1px solid var(--border); color:var(--text-secondary); background:var(--surface-2);">
                     Close
                 </button>
+                <button type="button" @click="autoPurgeAndDeactivate()"
+                        :disabled="modal.retrying"
+                        class="px-3 py-1.5 rounded-md text-xs font-medium text-white"
+                        style="background:#dc2626;">
+                    <span x-show="!modal.retrying">Delete all + deactivate agent (auto)</span>
+                    <span x-show="modal.retrying" x-cloak>Working...</span>
+                </button>
                 <button type="button" @click="retryDeactivateAgent()"
                         :disabled="modal.retrying"
                         class="px-3 py-1.5 rounded-md text-xs font-medium text-white"

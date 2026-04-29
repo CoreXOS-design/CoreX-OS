@@ -153,27 +153,39 @@ class AgentPpController extends Controller
 
         $property = \App\Models\Property::withTrashed()->find($id);
 
-        // Best-effort PP deactivation (so PP releases the agent association).
-        $ppMessage = null;
-        if ($property && !empty($property->pp_ref)) {
-            $listingType = in_array(strtolower($property->listing_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
-            $resp = $this->soapClient->deactivateListing((string) $property->id, $listingType);
+        // Always tell PP to deactivate this listing ID, even if the Property
+        // row no longer exists in CoreX (orphaned PP-side records). Try both
+        // listing types — PP rejects the wrong one but accepts the right one.
+        $ppParts = [];
+        $ppOk    = false;
+
+        $preferredType = $property && in_array(strtolower($property->listing_type ?? ''), ['rental'])
+            ? 'Rental'
+            : 'Sale';
+        $types = $preferredType === 'Rental' ? ['Rental', 'Sale'] : ['Sale', 'Rental'];
+
+        foreach ($types as $type) {
+            $resp = $this->soapClient->deactivateListing((string) $id, $type);
             if (isset($resp['error']) && $resp['error'] === true) {
-                $ppMessage = $resp['message'] ?? 'PP deactivation returned an error';
-            } else {
-                $ppMessage = 'PP listing deactivated';
+                $ppParts[] = $type . ': ' . ($resp['message'] ?? 'error');
+                continue;
             }
+            $ppOk = true;
+            $ppParts[] = $type . ': deactivated';
+            break;
         }
 
+        $ppMessage = implode(' | ', $ppParts);
+
         if ($property) {
-            // Hard delete — bypass SoftDeletes
             $property->forceDelete();
         }
 
         return response()->json([
             'success'    => true,
-            'message'    => 'Listing #' . $id . ' purged from CoreX'
-                          . ($ppMessage ? ' (' . $ppMessage . ')' : ''),
+            'message'    => 'Listing #' . $id . ($property ? ' purged from CoreX' : ' (orphan — not in CoreX)')
+                          . ($ppMessage ? ' — PP: ' . $ppMessage : ''),
+            'pp_ok'      => $ppOk,
             'pp_message' => $ppMessage,
         ]);
     }
