@@ -523,7 +523,7 @@ class PrivatePropertySyndicationService
             'Email'                 => $user->email ?? '',
             'TelCell'               => $cellPhone,
             'TelWork'               => $user->phone ?? $cellPhone,
-            'TelHome'               => $cellPhone,
+            'TelHome'               => '', // PP only recognises TelCell + TelWork
             'Active'                => true,
             'BranchId'              => config('services.private_property.branch_guid'),
             'PrivatePropertyAgentId' => '',

@@ -573,6 +573,7 @@
                      x-data="{
                          syncing: false, syncMsg: '', syncOk: null,
                          updateLoading: false, updateMsg: '', updateOk: null,
+                         deactivating: false, deactivateMsg: '', deactivateOk: null,
                          externalRef: '{{ $user->id }}',
                          ppEncryptedId: '',
                          ppUniqueAgentId: '{{ $user->pp_unique_agent_id ?? '' }}',
@@ -581,6 +582,22 @@
                              if (this.updateOk === false) return { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', label: 'Error' };
                              if (this.ppUniqueAgentId) return { bg: 'rgba(0,212,170,0.12)', color: '#00d4aa', label: 'Claimed' };
                              return { bg: 'var(--surface-2)', color: 'var(--text-muted)', label: 'Default' };
+                         },
+
+                         async deactivateAgent() {
+                             if (!confirm('Deactivate {{ addslashes($user->name) }} on Private Property? PP will refuse this if the agent still has active listings.')) return;
+                             this.deactivating = true; this.deactivateMsg = ''; this.deactivateOk = null;
+                             try {
+                                 const res = await fetch('{{ route('syndication.agent.deactivate') }}', {
+                                     method: 'POST',
+                                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
+                                     body: JSON.stringify({ user_id: {{ $user->id }} }),
+                                 });
+                                 const data = await res.json();
+                                 this.deactivateOk = data.success;
+                                 this.deactivateMsg = data.message || (data.success ? 'Agent deactivated on PP' : 'Deactivate failed');
+                             } catch (e) { this.deactivateOk = false; this.deactivateMsg = 'Network error'; }
+                             this.deactivating = false;
                          },
 
                          async syncAgent() {
@@ -684,7 +701,7 @@
                     </div>
 
                     {{-- Sync agent (re-register) --}}
-                    <div class="pt-4" style="border-top:1px solid var(--border);">
+                    <div class="pt-4 flex flex-wrap gap-3" style="border-top:1px solid var(--border);">
                         <button type="button" @click="syncAgent()" :disabled="syncing"
                                 class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
                                 style="color:var(--text-secondary); border:1px solid var(--border); background:var(--surface-2);"
@@ -692,9 +709,23 @@
                             <span x-show="!syncing">Sync Agent to Private Property</span>
                             <span x-show="syncing" x-cloak>Syncing...</span>
                         </button>
-                        <p x-show="syncMsg" x-cloak class="mt-2 text-xs font-medium"
-                           :style="syncOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="syncMsg"></p>
+                        <button type="button" @click="deactivateAgent()" :disabled="deactivating"
+                                class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                style="color:#ef4444; border:1px solid rgba(239,68,68,0.3); background:rgba(239,68,68,0.08);"
+                                onmouseover="this.style.background='rgba(239,68,68,0.15)'" onmouseout="this.style.background='rgba(239,68,68,0.08)'">
+                            <span x-show="!deactivating">Deactivate Agent on PP</span>
+                            <span x-show="deactivating" x-cloak>Deactivating...</span>
+                        </button>
                     </div>
+                    <p x-show="syncMsg" x-cloak class="mt-2 text-xs font-medium"
+                       :style="syncOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="syncMsg"></p>
+                    <p x-show="deactivateMsg" x-cloak class="mt-2 text-xs font-medium"
+                       :style="deactivateOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="deactivateMsg"></p>
+                    <p class="text-[11px] mt-2" style="color:var(--text-muted);">
+                        Deactivate sends UpdateAgent with Active=false. PP will refuse if the
+                        agent has active listings — reassign or deactivate those first, wait
+                        a few minutes, then retry.
+                    </p>
                 </div>
                 @endif
 
