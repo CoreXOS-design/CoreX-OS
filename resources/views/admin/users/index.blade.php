@@ -26,6 +26,15 @@
                    title="Re-fetch P24 agent list">
                     Refresh P24
                 </a>
+                @if(\Illuminate\Support\Facades\Route::has('admin.pp.agents'))
+                <a href="{{ route('admin.pp.agents') }}"
+                   class="px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
+                   style="background:rgba(255,255,255,0.1); color:#fff; border:1px solid rgba(255,255,255,0.2);"
+                   onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"
+                   title="View all agent profiles on Private Property and clean up duplicates">
+                    PP Agents
+                </a>
+                @endif
                 <a href="{{ route('admin.users.create') }}"
                    class="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
                    style="background:var(--brand-button, #0ea5e9);"
