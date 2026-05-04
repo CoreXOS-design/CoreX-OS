@@ -43,6 +43,20 @@ Route::middleware('auth')->group(function () {
     Route::post('/api/notifications/{id}/read', [\App\Http\Controllers\Api\NotificationController::class, 'markRead']);
     Route::post('/api/notifications/mark-all-read', [\App\Http\Controllers\Api\NotificationController::class, 'markAllRead']);
 
+    // ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
+    Route::prefix('api/v1')->name('api.v1.')->group(function () {
+        Route::get('/me', [\App\Http\Controllers\Api\V1\MeController::class, 'show'])->name('me');
+
+        Route::get('/properties',      [\App\Http\Controllers\Api\V1\PropertiesController::class, 'index'])->name('properties.index');
+        Route::get('/properties/{property}', [\App\Http\Controllers\Api\V1\PropertiesController::class, 'show'])->name('properties.show');
+
+        Route::get('/contacts',        [\App\Http\Controllers\Api\V1\ContactsController::class, 'index'])->name('contacts.index');
+        Route::get('/contacts/{contact}', [\App\Http\Controllers\Api\V1\ContactsController::class, 'show'])->name('contacts.show');
+
+        Route::get('/deals',           [\App\Http\Controllers\Api\V1\DealsController::class, 'index'])->name('deals.index');
+        Route::get('/deals/{deal}',    [\App\Http\Controllers\Api\V1\DealsController::class, 'show'])->name('deals.show');
+    });
+
     Route::get('/evaluation', function () {
         return view('evaluation.index');
     })->middleware('permission:access_evaluation')->name('evaluation.index');

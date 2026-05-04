@@ -4,6 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
+        <meta name="corex-auth" content="{{ auth()->check() ? '1' : '0' }}">
 
         <title>{{ config('app.name', 'Laravel') }}</title>
         <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=2">
