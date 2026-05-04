@@ -40,7 +40,9 @@
      data-pillar="{{ $tag ?? '' }}"
      data-bucket="{{ $bucket }}"
      data-title="{{ $searchHay }}"
-     @click="$root.openDetail({ id: {{ $task->id }}, title: @js($task->title), due_date: @js($task->due_date?->format('d M Y')) })"
+     data-task-clickable
+     data-task-title="{{ $task->title }}"
+     data-task-due="{{ $task->due_date?->format('d M Y') }}"
      class="task-card relative rounded-md transition-all cursor-pointer hover:shadow-sm"
      :class="$root.density === 'compact' ? 'p-2' : 'p-3'"
      style="background: var(--surface); border: 1px solid var(--border);">

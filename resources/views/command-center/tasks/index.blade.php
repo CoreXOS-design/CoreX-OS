@@ -336,12 +336,15 @@
                                             @endphp
                                             <tr class="transition-colors cursor-pointer hover:bg-black/5"
                                                 data-task-row
+                                                data-task-clickable
+                                                data-task-id="{{ $task->id }}"
+                                                data-task-title="{{ $task->title }}"
+                                                data-task-due="{{ $task->due_date?->format('d M Y') }}"
                                                 data-status="{{ $task->status }}"
                                                 data-priority="{{ $task->priority }}"
                                                 data-pillar="{{ $tag ?? '' }}"
                                                 data-bucket="{{ $bKey }}"
                                                 data-title="{{ $searchHay }}"
-                                                @click="openDetail({ id: {{ $task->id }}, title: @js($task->title), due_date: @js($task->due_date?->format('d M Y')) })"
                                                 style="border-top: 1px solid var(--border);">
                                                 <td class="px-4 py-3" style="color: var(--text-primary);">
                                                     <div class="flex items-center gap-2 flex-wrap">
@@ -650,6 +653,20 @@ function taskBoard() {
             this.$nextTick(() => {
                 this.applyFilters();
                 this.initDragAndDrop();
+                this.initTaskClicks();
+            });
+        },
+
+        initTaskClicks() {
+            document.addEventListener('click', (e) => {
+                if (e.target.closest('a, button, form, input, textarea, select, [data-task-drag-handle]')) return;
+                const el = e.target.closest('[data-task-clickable]');
+                if (!el) return;
+                this.openDetail({
+                    id: el.dataset.taskId,
+                    title: el.dataset.taskTitle || '',
+                    due_date: el.dataset.taskDue || null,
+                });
             });
         },
 
