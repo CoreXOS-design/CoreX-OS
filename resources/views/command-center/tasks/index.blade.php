@@ -687,14 +687,16 @@ function taskBoard() {
         initDragAndDrop() {
             let draggingCard = null;
 
-            document.querySelectorAll('[data-task-card]').forEach(card => {
-                card.addEventListener('dragstart', (e) => {
+            document.querySelectorAll('[data-task-drag-handle]').forEach(handle => {
+                const card = handle.closest('[data-task-card]');
+                if (!card) return;
+                handle.addEventListener('dragstart', (e) => {
                     draggingCard = card;
                     card.classList.add('opacity-50');
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', card.dataset.taskId);
                 });
-                card.addEventListener('dragend', () => {
+                handle.addEventListener('dragend', () => {
                     card.classList.remove('opacity-50');
                     draggingCard = null;
                     document.querySelectorAll('[data-drop-zone]').forEach(z => z.classList.remove('ring-2', 'ring-blue-400'));

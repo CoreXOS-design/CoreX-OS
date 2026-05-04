@@ -40,11 +40,22 @@
      data-pillar="{{ $tag ?? '' }}"
      data-bucket="{{ $bucket }}"
      data-title="{{ $searchHay }}"
-     draggable="true"
      @click="$root.openDetail({ id: {{ $task->id }}, title: @js($task->title), due_date: @js($task->due_date?->format('d M Y')) })"
-     class="task-card rounded-md transition-all cursor-grab active:cursor-grabbing hover:shadow-sm"
+     class="task-card relative rounded-md transition-all cursor-pointer hover:shadow-sm"
      :class="$root.density === 'compact' ? 'p-2' : 'p-3'"
      style="background: var(--surface); border: 1px solid var(--border);">
+    {{-- Drag handle --}}
+    <div data-task-drag-handle draggable="true"
+         @click.stop
+         class="absolute top-1 right-1 p-1 rounded-md cursor-grab active:cursor-grabbing opacity-40 hover:opacity-100 transition-opacity"
+         title="Drag to move">
+        <svg class="w-3.5 h-3.5" style="color: var(--text-muted);" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="7" cy="5" r="1.2"/><circle cx="13" cy="5" r="1.2"/>
+            <circle cx="7" cy="10" r="1.2"/><circle cx="13" cy="10" r="1.2"/>
+            <circle cx="7" cy="15" r="1.2"/><circle cx="13" cy="15" r="1.2"/>
+        </svg>
+    </div>
+
     {{-- Row 1: tag + priority --}}
     <div class="flex items-center gap-1.5 flex-wrap">
         @if(($showPillar ?? true) && $tag && isset($pillarStyle[$tag]))
