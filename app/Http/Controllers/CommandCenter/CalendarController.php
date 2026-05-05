@@ -140,6 +140,16 @@ class CalendarController extends Controller
         }
         $filteredEvents = collect($filteredByDate)->flatten(1);
 
+        // Filter spanning bars (multi-day events) through same filter logic
+        $filteredSpanningBars = [];
+        foreach ($grid['spanningBars'] ?? [] as $bar) {
+            $filtered = $this->applyFilters(collect([$bar['event']]), $user, $typeFilter, $categoryFilter, $scope);
+            if ($filtered->isNotEmpty()) {
+                $bar['event'] = $filtered->first();
+                $filteredSpanningBars[] = $bar;
+            }
+        }
+
         // Agenda range logic
         $rangeGroups = [
             'Current'  => ['month' => 'This month', 'year' => 'This year'],
@@ -182,6 +192,25 @@ class CalendarController extends Controller
         $prevMonth = $base->copy()->subMonth();
         $nextMonth = $base->copy()->addMonth();
 
+        // Build colour metadata for front-end color-by switching
+        $allVisibleEvents = $filteredEvents->merge(
+            collect($filteredSpanningBars)->pluck('event')
+        );
+        $colourMap = $this->buildColourMap($allVisibleEvents);
+        $colourPalettes = $this->buildColourPalettes($allVisibleEvents);
+
+        // Build labels for legend
+        $classLabels = [];
+        foreach ($this->sharedViewData($user, $view, $typeFilter, $categoryFilter, $scope)['availableCategories'] as $cat) {
+            $classLabels[$cat->event_class] = $cat->label;
+        }
+        $branchLabels = \App\Models\Branch::withoutGlobalScopes()
+            ->whereIn('id', $allVisibleEvents->pluck('branch_id')->unique()->filter())
+            ->pluck('name', 'id')->toArray();
+        $agentLabels = \App\Models\User::withoutGlobalScopes()
+            ->whereIn('id', $allVisibleEvents->pluck('user_id')->unique()->filter())
+            ->pluck('name', 'id')->toArray();
+
         return view('command-center.calendar.index', $shared + [
             'year'             => $year,
             'month'            => $month,
@@ -189,6 +218,12 @@ class CalendarController extends Controller
             'grid'             => $grid,
             'events'           => $filteredEvents,
             'byDate'           => $filteredByDate,
+            'spanningBars'     => $filteredSpanningBars,
+            'colourMap'        => $colourMap,
+            'colourPalettes'   => $colourPalettes,
+            'classLabels'      => $classLabels,
+            'branchLabels'     => $branchLabels,
+            'agentLabels'      => $agentLabels,
             'agendaEvents'     => $agendaEvents,
             'agendaRange'      => $range,
             'agendaRangeLabel' => $rangeFlat[$range],
@@ -623,6 +658,60 @@ class CalendarController extends Controller
             $event->resolved_colour = $this->thresholdResolver->resolveForEvent($event);
             return $event;
         })->filter(fn ($e) => $e->resolved_colour !== null)->values();
+    }
+
+    /**
+     * Build a colour metadata map for all events on the page.
+     * Keyed by event ID, each entry has: rag, class, branch, agent colours.
+     */
+    private function buildColourMap(Collection $events): array
+    {
+        $map = [];
+        foreach ($events as $event) {
+            $map[$event->id] = [
+                'rag'    => $event->resolved_colour ?? 'neutral',
+                'class'  => $event->category ?? 'unknown',
+                'branch' => $event->branch_id ?? 0,
+                'agent'  => $event->user_id ?? 0,
+            ];
+        }
+        return $map;
+    }
+
+    /**
+     * Generate deterministic colour palettes for class/branch/agent colour-by modes.
+     */
+    private function buildColourPalettes(Collection $events): array
+    {
+        // Hue-spread palette generator (12 distinct hues)
+        $palette = ['#0d9488','#2563eb','#7c3aed','#db2777','#ea580c','#65a30d','#0891b2','#4f46e5','#c026d3','#d97706','#059669','#dc2626'];
+
+        // Class colours — deterministic from class name
+        $classes = $events->pluck('category')->unique()->filter()->values();
+        $classColours = [];
+        foreach ($classes as $i => $cls) {
+            $classColours[$cls] = $palette[$i % count($palette)];
+        }
+
+        // Branch colours — deterministic from branch_id
+        $branches = $events->pluck('branch_id')->unique()->filter()->values();
+        $branchColours = [];
+        foreach ($branches as $i => $bid) {
+            $branchColours[$bid] = $palette[$i % count($palette)];
+        }
+
+        // Agent colours — deterministic from user_id
+        $agents = $events->pluck('user_id')->unique()->filter()->values();
+        $agentColours = [];
+        foreach ($agents as $i => $uid) {
+            $agentColours[$uid] = $palette[$i % count($palette)];
+        }
+
+        return [
+            'class'  => $classColours,
+            'branch' => $branchColours,
+            'agent'  => $agentColours,
+        ];
     }
 
     private function resolveSourceLink(CalendarEvent $event): ?array

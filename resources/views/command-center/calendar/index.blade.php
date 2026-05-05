@@ -46,10 +46,10 @@
     };
 @endphp
 
-<div class="space-y-6" x-data="calendarPage()" x-init="if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }})" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }})" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
-    {{-- ══════ STICKY HEADER BAND (banner + toolbar + legend) ══════ --}}
-    <div class="sticky top-0 z-30 -mx-4 lg:-mx-6 px-4 lg:px-6 pb-3 space-y-3 pt-1" style="background: var(--bg);">
+    {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
+    <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-1" style="background: var(--bg);">
 
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -173,115 +173,128 @@
         </div>
     </div>
 
-    {{-- ══════ LEGEND ══════ --}}
-    <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs" style="color: var(--text-muted);">
-        <span>Status:</span>
-        <span class="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <span class="w-2.5 h-2.5 rounded-full" style="background: #ef4444;"></span>
-            <span style="color: var(--text-secondary);">Urgent / overdue</span>
-        </span>
-        <span class="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <span class="w-2.5 h-2.5 rounded-full" style="background: #f59e0b;"></span>
-            <span style="color: var(--text-secondary);">Approaching</span>
-        </span>
-        <span class="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <span class="w-2.5 h-2.5 rounded-full" style="background: #14b8a6;"></span>
-            <span style="color: var(--text-secondary);">Upcoming</span>
-        </span>
-    </div>
+    {{-- Legend moved to right panel Color By section --}}
 
     </div>{{-- END sticky header band --}}
 
-    {{-- ══════ FILTER BAR ══════ --}}
-    <form method="GET" action="{{ route('command-center.calendar') }}" id="calendar-filters"
-          class="flex flex-wrap items-center gap-3 rounded-md px-4 py-3"
-          style="background: var(--surface); border: 1px solid var(--border);">
-        <input type="hidden" name="view" value="{{ $currentView }}">
-        <input type="hidden" name="month" value="{{ $month ?? now()->month }}">
-        <input type="hidden" name="year" value="{{ $year ?? now()->year }}">
-        @if(isset($anchorDate))
-            <input type="hidden" name="date" value="{{ $anchorDate->toDateString() }}">
-        @endif
-        @if($currentView === 'agenda' && isset($agendaRange))
-            <input type="hidden" name="range" value="{{ $agendaRange }}">
-        @endif
+    {{-- ══════ FLEX ROW: Calendar grid + Right panel (fills remaining height) ══════ --}}
+    <div class="flex gap-0 flex-1 min-h-0 overflow-hidden px-4 lg:px-6">
+    {{-- Main calendar column (scrolls independently) --}}
+    <div class="flex-1 min-w-0 overflow-y-auto space-y-4 pr-0">
 
-        {{-- Scope pills --}}
-        <div class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
-            @foreach(['all' => 'All', 'branch' => 'Branch', 'own' => 'Mine'] as $sKey => $sLabel)
-                <label class="cursor-pointer">
-                    <input type="radio" name="scope" value="{{ $sKey }}"
-                           {{ ($scope ?? 'all') === $sKey ? 'checked' : '' }}
-                           onchange="this.form.submit()" class="sr-only peer">
-                    <span class="block px-3 py-1.5 text-xs font-semibold transition-colors peer-checked:text-white"
-                          style="{{ ($scope ?? 'all') === $sKey ? 'background: var(--brand-button); color: #fff;' : 'color: var(--text-secondary);' }}">
-                        {{ $sLabel }}
-                    </span>
-                </label>
-            @endforeach
-        </div>
-
-        {{-- Event type dropdown --}}
-        <div x-data="{ open: false }" class="relative">
-            <button type="button" @click="open = !open"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium"
-                    style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
-                Types
-                @if(!empty($typeFilter))
-                    <span class="px-1 py-0.5 rounded text-[10px] font-bold" style="background: var(--brand-button); color: #fff;">{{ count($typeFilter) }}</span>
-                @endif
-            </button>
-            <div x-show="open" x-cloak @click.outside="open = false" x-transition
-                 class="absolute z-30 left-0 mt-1 w-52 rounded-md p-2 shadow-lg"
-                 style="background: var(--surface); border: 1px solid var(--border);">
-                @foreach($availableTypes as $type)
-                    <label class="flex items-center gap-2 px-2 py-1 rounded text-xs cursor-pointer" style="color: var(--text-primary);"
-                           onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                        <input type="checkbox" name="types[]" value="{{ $type }}"
-                               {{ in_array($type, $typeFilter ?? []) ? 'checked' : '' }}
-                               onchange="document.getElementById('calendar-filters').submit()" class="rounded">
-                        {{ ucfirst($type) }}
+    {{-- ══════ FILTER BAR (compact — panel toggle + active filter summary) ══════ --}}
+    <div class="flex items-center gap-3 rounded-md px-4 py-2"
+         style="background: var(--surface); border: 1px solid var(--border);">
+        {{-- Scope pills (kept inline — primary control) --}}
+        <form method="GET" action="{{ route('command-center.calendar') }}" id="calendar-filters" class="flex items-center gap-2">
+            <input type="hidden" name="view" value="{{ $currentView }}">
+            <input type="hidden" name="month" value="{{ $month ?? now()->month }}">
+            <input type="hidden" name="year" value="{{ $year ?? now()->year }}">
+            @if(isset($anchorDate))
+                <input type="hidden" name="date" value="{{ $anchorDate->toDateString() }}">
+            @endif
+            <div class="inline-flex rounded-md overflow-hidden" style="background: var(--surface-2); border: 1px solid var(--border);">
+                @foreach(['all' => 'All', 'branch' => 'Branch', 'own' => 'Mine'] as $sKey => $sLabel)
+                    <label class="cursor-pointer">
+                        <input type="radio" name="scope" value="{{ $sKey }}"
+                               {{ ($scope ?? 'all') === $sKey ? 'checked' : '' }}
+                               onchange="this.form.submit()" class="sr-only peer">
+                        <span class="block px-3 py-1.5 text-xs font-semibold transition-colors peer-checked:text-white"
+                              style="{{ ($scope ?? 'all') === $sKey ? 'background: var(--brand-button); color: #fff;' : 'color: var(--text-secondary);' }}">
+                            {{ $sLabel }}
+                        </span>
                     </label>
                 @endforeach
             </div>
-        </div>
+        </form>
 
-        {{-- Category dropdown --}}
-        <div x-data="{ open: false }" class="relative">
-            <button type="button" @click="open = !open"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium"
-                    style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
-                Classes
-                @if(!empty($categoryFilter))
-                    <span class="px-1 py-0.5 rounded text-[10px] font-bold" style="background: var(--brand-button); color: #fff;">{{ count($categoryFilter) }}</span>
-                @endif
-            </button>
-            <div x-show="open" x-cloak @click.outside="open = false" x-transition
-                 class="absolute z-30 left-0 mt-1 w-64 rounded-md p-2 shadow-lg max-h-80 overflow-y-auto"
-                 style="background: var(--surface); border: 1px solid var(--border);">
-                @foreach($availableCategories as $cat)
-                    <label class="flex items-center gap-2 px-2 py-1 rounded text-xs cursor-pointer" style="color: var(--text-primary);"
-                           onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                        <input type="checkbox" name="categories[]" value="{{ $cat->event_class }}"
-                               {{ in_array($cat->event_class, $categoryFilter ?? []) ? 'checked' : '' }}
-                               onchange="document.getElementById('calendar-filters').submit()" class="rounded">
-                        {{ $cat->label }}
-                    </label>
-                @endforeach
-            </div>
-        </div>
+        <div class="flex-1"></div>
 
+        {{-- Active filter badges --}}
+        @if(!empty($typeFilter))
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-medium" style="background: var(--brand-button); color: #fff;">{{ count($typeFilter) }} types</span>
+        @endif
+        @if(!empty($categoryFilter))
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-medium" style="background: var(--brand-button); color: #fff;">{{ count($categoryFilter) }} classes</span>
+        @endif
         @if(!empty($typeFilter) || !empty($categoryFilter) || ($scope ?? 'all') !== 'all')
             <a href="{{ route('command-center.calendar', array_merge(['view' => $currentView], isset($month) ? ['month' => $month, 'year' => $year] : [])) }}"
-               class="text-xs font-medium hover:underline" style="color: var(--brand-icon);">Clear filters</a>
+               class="text-xs font-medium hover:underline" style="color: var(--brand-icon);">Clear</a>
         @endif
-    </form>
+
+        {{-- Panel toggle button --}}
+        <button type="button" @click="togglePanel()"
+                class="p-1.5 rounded-md transition hover:opacity-80"
+                :style="rightPanelOpen ? 'background: var(--brand-button); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);'"
+                title="Toggle sidebar panel">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
+            </svg>
+        </button>
+    </div>
 
     @if($currentView === 'month')
         {{-- ══════ MONTH VIEW ══════ --}}
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-            {{-- Day headers --}}
-            <div class="grid grid-cols-7" style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
+        @php
+            // Build week rows: each row is an array of 7 date strings
+            $gridStart = $grid['start'];
+            $gridEnd = $grid['end'];
+            $weekRows = [];
+            $cursor = $gridStart->copy();
+            while ($cursor->lte($gridEnd)) {
+                $week = [];
+                for ($col = 0; $col < 7; $col++) {
+                    $week[] = $cursor->copy();
+                    $cursor->addDay();
+                }
+                $weekRows[] = $week;
+            }
+
+            // Group spanning bars by week_row
+            $barsByWeek = [];
+            foreach ($spanningBars ?? [] as $bar) {
+                $barsByWeek[$bar['week_row']][] = $bar;
+            }
+
+            // Assign vertical slots to spanning bars within each week (interval partitioning)
+            $barSlotsByWeek = [];
+            foreach ($barsByWeek as $weekIdx => $bars) {
+                // Sort by start_col, then by span descending (wider first)
+                usort($bars, function ($a, $b) {
+                    if ($a['start_col'] !== $b['start_col']) return $a['start_col'] - $b['start_col'];
+                    return $b['span'] - $a['span'];
+                });
+                $slots = []; // array of arrays, each slot = list of bars that fit in that row
+                foreach ($bars as $bar) {
+                    $placed = false;
+                    foreach ($slots as $si => &$slotBars) {
+                        $conflict = false;
+                        foreach ($slotBars as $existing) {
+                            if ($bar['start_col'] <= $existing['end_col'] && $bar['end_col'] >= $existing['start_col']) {
+                                $conflict = true;
+                                break;
+                            }
+                        }
+                        if (!$conflict) {
+                            $bar['slot'] = $si;
+                            $slotBars[] = $bar;
+                            $placed = true;
+                            break;
+                        }
+                    }
+                    unset($slotBars);
+                    if (!$placed) {
+                        $bar['slot'] = count($slots);
+                        $slots[] = [$bar];
+                    }
+                }
+                $barSlotsByWeek[$weekIdx] = $slots;
+            }
+        @endphp
+
+        <div class="rounded-md overflow-hidden flex flex-col" style="background: var(--surface); border: 1px solid var(--border);">
+            {{-- Day headers (sticky) --}}
+            <div class="grid grid-cols-7 sticky top-0 z-10" style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
                 @foreach(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as $dayName)
                     <div class="px-2 py-2.5 text-xs font-semibold text-center uppercase tracking-wider"
                          style="color: var(--text-muted); {{ !$loop->last ? 'border-right: 1px solid var(--border);' : '' }}">
@@ -290,86 +303,112 @@
                 @endforeach
             </div>
 
-            {{-- Calendar grid --}}
-            <div class="grid grid-cols-7">
-                {{-- Pre-month cells (trailing days from previous month) --}}
-                @for($i = 1; $i < $firstDayOfWeek; $i++)
+            {{-- Calendar grid — scrollable container --}}
+            <div class="flex-1">
+                @foreach($weekRows as $weekIdx => $weekDates)
                     @php
-                        $preDate = $carbon->copy()->day(1)->subDays($firstDayOfWeek - $i);
-                        $preDateStr = $preDate->toDateString();
-                        $preDayEvents = $byDate[$preDateStr] ?? [];
+                        $weekSlots = $barSlotsByWeek[$weekIdx] ?? [];
+                        $barCount = count($weekSlots);
                     @endphp
-                    <div class="min-h-[6rem] p-1"
-                         style="background: var(--surface-2); border-bottom: 1px solid var(--border); {{ $i < 7 ? 'border-right: 1px solid var(--border);' : '' }} opacity: 0.6;">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="text-xs" style="color: var(--text-muted);">{{ $preDate->day }}</span>
-                        </div>
-                        <div class="space-y-0.5">
-                            @foreach(array_slice($preDayEvents, 0, 3) as $evt)
-                                @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
-                                <button type="button"
-                                        @click.stop="openEventPanel({{ $evt->id }})"
-                                        class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity {{ $evt->status === 'completed' ? 'line-through opacity-70' : '' }}"
-                                        style="{{ $chipStyle }}"
-                                        title="{{ $evt->title }}">
-                                    {{ $evt->all_day ? '' : $evt->event_date->format('H:i') . ' ' }}{{ \Illuminate\Support\Str::limit($evt->title, 20) }}
-                                </button>
-                            @endforeach
-                        </div>
-                    </div>
-                @endfor
+                    <div class="grid grid-cols-7" style="border-bottom: 1px solid var(--border);">
+                        @foreach($weekDates as $colIdx => $cellDate)
+                            @php
+                                $dateStr = $cellDate->toDateString();
+                                $dayEvents = $byDate[$dateStr] ?? [];
+                                $isCurrentMonth = $cellDate->month === $month;
+                                $isToday = $cellDate->isSameDay($today);
+                                $isWeekend = in_array($cellDate->dayOfWeekIso, [6, 7]);
+                                $cellBg = $isWeekend ? 'var(--surface-2)' : 'transparent';
+                                $cellOpacity = $isCurrentMonth ? '1' : '0.5';
+                                $chipCap = 6;
+                                // Spanning bars that start in this column
+                                $colBars = [];
+                                foreach ($weekSlots as $slotIdx => $slotBars) {
+                                    foreach ($slotBars as $bar) {
+                                        if ($bar['start_col'] === ($colIdx + 1)) {
+                                            $colBars[] = array_merge($bar, ['slot' => $slotIdx]);
+                                        }
+                                    }
+                                }
+                            @endphp
+                            <div @click="selectedDate = '{{ $dateStr }}'"
+                                 @dblclick="window.location.href='{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $dateStr])) }}'"
+                                 class="relative min-h-[5rem] px-1 pt-1 pb-1 cursor-pointer transition-colors hover:brightness-110"
+                                 style="opacity: {{ $cellOpacity }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
+                                 :class="selectedDate === '{{ $dateStr }}' && 'ring-2 ring-inset ring-[#00d4aa]'"
+                                 :style="selectedDate === '{{ $dateStr }}' ? 'background: color-mix(in srgb, #00d4aa 8%, {{ $cellBg === 'transparent' ? 'var(--surface)' : $cellBg }});' : 'background: {{ $cellBg }};'">
+                                {{-- Date number --}}
+                                <div class="flex items-center justify-between mb-0.5">
+                                    @if($isToday)
+                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
+                                              style="background: #00d4aa; color: #0f172a;">
+                                            {{ $cellDate->day }}
+                                        </span>
+                                    @else
+                                        <span class="text-xs font-semibold px-0.5" style="color: var(--text-secondary);">
+                                            {{ $cellDate->day }}
+                                        </span>
+                                    @endif
+                                    @if(count($dayEvents) > $chipCap)
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
+                                              style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
+                                            +{{ count($dayEvents) - $chipCap }}
+                                        </span>
+                                    @endif
+                                </div>
 
-                @for($d = 1; $d <= $daysInMonth; $d++)
-                    @php
-                        $dateStr = $carbon->copy()->day($d)->toDateString();
-                        $dayEvents = $byDate[$dateStr] ?? [];
-                        $isToday = $carbon->copy()->day($d)->isSameDay($today);
-                        $isWeekend = in_array($carbon->copy()->day($d)->dayOfWeekIso, [6, 7]);
-                        $cellCol = ($firstDayOfWeek - 1 + $d - 1) % 7; // 0=Mon
-                        $cellBg = $isToday
-                            ? 'color-mix(in srgb, var(--brand-button) 8%, transparent)'
-                            : ($isWeekend ? 'var(--surface-2)' : 'transparent');
-                    @endphp
-                    <div @click="selectedDate = '{{ $dateStr }}'"
-                         @dblclick="window.location.href='{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $dateStr])) }}'"
-                         class="block min-h-[6rem] p-1 transition-colors cursor-pointer"
-                         :style="selectedDate === '{{ $dateStr }}' ? 'background: color-mix(in srgb, var(--brand-button) 15%, transparent); border-bottom: 1px solid var(--border); {{ $cellCol < 6 ? 'border-right: 1px solid var(--border);' : '' }} outline: 2px solid var(--brand-button); outline-offset: -2px;' : 'background: {{ $cellBg }}; border-bottom: 1px solid var(--border); {{ $cellCol < 6 ? 'border-right: 1px solid var(--border);' : '' }}'"
-                         title="{{ $carbon->copy()->day($d)->format('D, d M Y') }}">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="text-xs font-semibold {{ $isToday ? 'px-1.5 py-0.5 rounded-md text-white' : '' }}"
-                                  style="{{ $isToday ? 'background: var(--brand-button);' : 'color: var(--text-secondary);' }}">
-                                {{ $d }}
-                            </span>
-                            @if(count($dayEvents) > 3)
-                                <span class="text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
-                                      style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
-                                    +{{ count($dayEvents) - 3 }}
-                                </span>
-                            @endif
-                        </div>
-                        <div class="space-y-0.5">
-                            @foreach(array_slice($dayEvents, 0, 3) as $evt)
-                                @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
-                                <button type="button"
-                                        @click.stop="openEventPanel({{ $evt->id }})"
-                                        class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity {{ $evt->status === 'completed' ? 'line-through opacity-70' : '' }}"
-                                        style="{{ $chipStyle }}"
-                                        title="{{ $evt->title }}">
-                                    {{ $evt->all_day ? '' : $evt->event_date->format('H:i') . ' ' }}{{ \Illuminate\Support\Str::limit($evt->title, 20) }}
-                                </button>
-                            @endforeach
-                        </div>
-                    </div>
-                @endfor
+                                {{-- Spanning bars that START in this cell (rendered inline, span visually via width) --}}
+                                @if($barCount > 0 && !empty($colBars))
+                                    @foreach($colBars as $bar)
+                                        @php
+                                            $barEvt = $bar['event'];
+                                            $isInformational = ($barEvt->resolved_colour ?? 'neutral') === 'neutral';
+                                            $barBg = $isInformational ? '#0f172a' : match($barEvt->resolved_colour) {
+                                                'red'   => '#dc2626',
+                                                'amber' => '#d97706',
+                                                'green' => '#0d9488',
+                                                default => '#0f172a',
+                                            };
+                                            $barBorder = $isInformational ? '#1e293b' : match($barEvt->resolved_colour) {
+                                                'red'   => '#991b1b',
+                                                'amber' => '#92400e',
+                                                'green' => '#115e59',
+                                                default => '#1e293b',
+                                            };
+                                        @endphp
+                                        <button type="button"
+                                                data-event-id="{{ $bar['event_id'] }}"
+                                                @click.stop="openEventPanel({{ $bar['event_id'] }})"
+                                                class="block text-[11px] text-white font-medium px-1.5 mb-0.5 truncate hover:opacity-90 transition-opacity cursor-pointer"
+                                                style="height: 18px; line-height: 18px;
+                                                       width: calc({{ $bar['span'] }} * 100% - 4px);
+                                                       background: {{ $barBg }};
+                                                       border: 2px solid {{ $barBorder }};
+                                                       border-radius: 3px;"
+                                                title="{{ $barEvt->title }} ({{ \Carbon\Carbon::parse($bar['start_date'])->format('d M') }}–{{ \Carbon\Carbon::parse($bar['end_date'])->format('d M') }})">
+                                            {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
+                                        </button>
+                                    @endforeach
+                                @endif
 
-                {{-- Fill remaining cells --}}
-                @php $remaining = 7 - (($firstDayOfWeek - 1 + $daysInMonth) % 7); @endphp
-                @if($remaining < 7)
-                    @for($i = 0; $i < $remaining; $i++)
-                        <div class="min-h-[6rem] p-1"
-                             style="background: var(--surface-2); {{ $i < $remaining - 1 ? 'border-right: 1px solid var(--border);' : '' }} opacity: 0.5;"></div>
-                    @endfor
-                @endif
+                                {{-- Single-day chips --}}
+                                <div class="space-y-0.5">
+                                    @foreach(array_slice($dayEvents, 0, $chipCap) as $evt)
+                                        @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
+                                        <button type="button"
+                                                data-event-id="{{ $evt->id }}"
+                                                @click.stop="openEventPanel({{ $evt->id }})"
+                                                class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity {{ $evt->status === 'completed' ? 'line-through opacity-70' : '' }}"
+                                                style="{{ $chipStyle }}"
+                                                title="{{ $evt->title }}">
+                                            <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>{{ $evt->all_day ? '' : $evt->event_date->format('H:i') . ' ' }}{{ \Illuminate\Support\Str::limit($evt->title, 20) }}
+                                        </button>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endforeach
             </div>
         </div>
     @elseif($currentView === 'week')
@@ -1273,7 +1312,146 @@
         </div>
     </div>
 
-</div>
+</div>{{-- END main calendar column --}}
+
+{{-- ══════ RIGHT SIDE PANEL ══════ --}}
+<aside x-show="rightPanelOpen" x-cloak x-transition:enter="transition ease-out duration-200" x-transition:leave="transition ease-in duration-150"
+       class="hidden lg:block flex-shrink-0 relative"
+       :style="'width:' + panelWidth + 'px; border-left: 1px solid var(--border); background: var(--surface);'">
+    {{-- Drag resize handle (outside content flow, wider hit target) --}}
+    <div class="absolute top-0 -left-[3px] w-[6px] h-full cursor-col-resize z-20 group"
+         @mousedown.prevent="startPanelResize($event)">
+        <div class="absolute top-0 left-[2px] w-[2px] h-full group-hover:bg-blue-500/50 group-active:bg-blue-500/70 transition-colors"></div>
+    </div>
+    {{-- Scrollable content (no explicit width — fills aside naturally) --}}
+    <div class="flex flex-col h-full overflow-y-auto">
+
+        {{-- Panel header --}}
+        <div class="flex items-center justify-between px-4 py-3" style="border-bottom: 1px solid var(--border);">
+            <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Panel</span>
+            <button type="button" @click="togglePanel()" class="p-1 rounded hover:opacity-70" style="color: var(--text-muted);">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+            </button>
+        </div>
+
+        {{-- SECTION 1: Filters --}}
+        <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
+            <button type="button" @click="panelSection.filters = !panelSection.filters"
+                    class="flex items-center justify-between w-full text-xs font-semibold" style="color: var(--text-primary);">
+                <span>Filters</span>
+                <svg class="w-3.5 h-3.5 transition-transform" :class="panelSection.filters && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            </button>
+            <div x-show="panelSection.filters" x-transition class="mt-3 space-y-3">
+                {{-- Event Types --}}
+                <form method="GET" action="{{ route('command-center.calendar') }}" id="panel-filter-form">
+                    <input type="hidden" name="view" value="{{ $currentView }}">
+                    <input type="hidden" name="month" value="{{ $month ?? now()->month }}">
+                    <input type="hidden" name="year" value="{{ $year ?? now()->year }}">
+                    <input type="hidden" name="scope" value="{{ $scope ?? 'all' }}">
+                    @if(isset($anchorDate))
+                        <input type="hidden" name="date" value="{{ $anchorDate->toDateString() }}">
+                    @endif
+
+                    <div class="mb-3">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-[11px] font-medium" style="color: var(--text-secondary);">Event Types</span>
+                            <span class="flex gap-2">
+                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'types[]\']').forEach(c => c.checked = true); document.getElementById('panel-filter-form').submit();">All</a>
+                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'types[]\']').forEach(c => c.checked = false); document.getElementById('panel-filter-form').submit();">Clear</a>
+                            </span>
+                        </div>
+                        <div class="space-y-1 max-h-40 overflow-y-auto">
+                            @foreach($availableTypes as $type)
+                                <label class="flex items-center gap-2 px-1.5 py-0.5 rounded text-[11px] cursor-pointer" style="color: var(--text-primary);">
+                                    <input type="checkbox" name="types[]" value="{{ $type }}"
+                                           {{ empty($typeFilter) || in_array($type, $typeFilter) ? 'checked' : '' }}
+                                           onchange="document.getElementById('panel-filter-form').submit()" class="rounded w-3 h-3">
+                                    {{ ucfirst($type) }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    {{-- Event Classes --}}
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <span class="text-[11px] font-medium" style="color: var(--text-secondary);">Event Classes</span>
+                            <span class="flex gap-2">
+                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'categories[]\']').forEach(c => c.checked = true); document.getElementById('panel-filter-form').submit();">All</a>
+                                <a href="#" class="text-[10px] hover:underline" style="color: var(--brand-icon);" onclick="event.preventDefault(); document.querySelectorAll('#panel-filter-form input[name=\'categories[]\']').forEach(c => c.checked = false); document.getElementById('panel-filter-form').submit();">Clear</a>
+                            </span>
+                        </div>
+                        <div class="space-y-1 max-h-48 overflow-y-auto">
+                            @foreach($availableCategories as $cat)
+                                @php $swatchColour = ($colourPalettes['class'] ?? [])[$cat->event_class] ?? '#64748b'; @endphp
+                                <label class="flex items-center gap-2 px-1.5 py-0.5 rounded text-[11px] cursor-pointer" style="color: var(--text-primary);">
+                                    <input type="checkbox" name="categories[]" value="{{ $cat->event_class }}"
+                                           {{ empty($categoryFilter) || in_array($cat->event_class, $categoryFilter) ? 'checked' : '' }}
+                                           onchange="document.getElementById('panel-filter-form').submit()" class="rounded w-3 h-3">
+                                    <span class="w-3 h-3 rounded-full flex-shrink-0" style="background: {{ $swatchColour }};"></span>
+                                    {{ $cat->label }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- SECTION 2: Color By --}}
+        <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
+            <button type="button" @click="panelSection.colorBy = !panelSection.colorBy"
+                    class="flex items-center justify-between w-full text-xs font-semibold" style="color: var(--text-primary);">
+                <span>Color By</span>
+                <svg class="w-3.5 h-3.5 transition-transform" :class="panelSection.colorBy && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+            </button>
+            <div x-show="panelSection.colorBy" x-transition class="mt-3 space-y-2">
+                <template x-for="opt in [{v:'rag',l:'Status (RAG)'},{v:'class',l:'Event Class'},{v:'branch',l:'Branch'},{v:'agent',l:'Agent'}]" :key="opt.v">
+                    <label class="flex items-center gap-2 text-[11px] cursor-pointer px-1.5 py-1 rounded hover:opacity-80"
+                           :style="colorBy === opt.v ? 'background: var(--surface-2); color: var(--text-primary);' : 'color: var(--text-secondary);'">
+                        <input type="radio" name="colorBy" :value="opt.v" x-model="colorBy" @change="saveColorBy()" class="w-3 h-3">
+                        <span x-text="opt.l" class="font-medium"></span>
+                    </label>
+                </template>
+
+                {{-- Legend removed — filter swatches serve as legend --}}
+            </div>
+        </div>
+
+        {{-- SECTION 3: Day Preview --}}
+        <div class="px-4 py-3 flex-1 flex flex-col min-h-0">
+            <div class="text-xs font-semibold mb-2" style="color: var(--text-primary);">
+                <span x-text="selectedDate ? new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-ZA', { weekday:'short', day:'numeric', month:'short', year:'numeric' }) : 'Select a day'"></span>
+            </div>
+            <div class="flex-1 overflow-y-auto space-y-1 min-h-0" style="max-height: 300px;">
+                <template x-if="!selectedDate">
+                    <p class="text-[11px] py-4 text-center" style="color: var(--text-muted);">Click a day in the calendar to preview events here.</p>
+                </template>
+                <template x-if="selectedDate && dayPreviewEvents.length === 0">
+                    <div class="text-center py-4">
+                        <p class="text-[11px] mb-2" style="color: var(--text-muted);">No events on this day.</p>
+                        <button type="button" @click="openForDate(selectedDate)"
+                                class="text-[11px] font-medium px-2 py-1 rounded" style="background: var(--brand-button); color: #fff;">+ Add event</button>
+                    </div>
+                </template>
+                <template x-for="evt in dayPreviewEvents" :key="evt.id">
+                    <button type="button" @click="openEventPanel(evt.id)"
+                            class="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded transition hover:opacity-80"
+                            style="background: var(--surface-2);">
+                        <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + ragHex(evt.rag)"></span>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="evt.title"></div>
+                            <div class="text-[10px]" style="color: var(--text-muted);" x-text="evt.time + ' · ' + evt.classLabel"></div>
+                        </div>
+                    </button>
+                </template>
+            </div>
+        </div>
+    </div>
+</aside>
+
+</div>{{-- END flex row (grid + panel) --}}
+</div>{{-- END outer x-data wrapper --}}
 
 <script>
 function calendarPage() {
@@ -1281,7 +1459,7 @@ function calendarPage() {
         showCreateEvent: false,
         form: { title: '', category: '', startDate: '', startTime: '', endDate: '', endTime: '', description: '', allDay: false },
         endManuallyEdited: false,
-        selectedDate: null,
+        selectedDate: '{{ $anchorDate->toDateString() }}',
         editMode: false,
         editingEventId: null,
         submitting: false,
@@ -1294,6 +1472,57 @@ function calendarPage() {
         feedbackData: { event: null, contacts: [], outcomes: [], concerns: [] },
         feedbackForm: {},
         feedbackSaving: false,
+
+        // Right panel state
+        rightPanelOpen: false,
+        panelWidth: 360,
+        panelResizing: false,
+        panelSection: { filters: true, colorBy: true },
+        colorBy: 'rag',
+
+        // Colour data from server (no round-trip needed for color-by switch)
+        colourMap: {!! json_encode($colourMap ?? new stdClass()) !!},
+        colourPalettes: {!! json_encode($colourPalettes ?? ['class'=>new stdClass(),'branch'=>new stdClass(),'agent'=>new stdClass()]) !!},
+        classLabels: {!! json_encode($classLabels ?? new stdClass()) !!},
+        branchLabels: {!! json_encode($branchLabels ?? new stdClass()) !!},
+        agentLabels: {!! json_encode($agentLabels ?? new stdClass()) !!},
+
+        // Day preview data (built from server-rendered events)
+        @php
+            // Build combined events-by-date for day preview (single-day + spanning)
+            $previewByDate = [];
+            foreach ($byDate ?? [] as $dateKey => $evts) {
+                foreach ($evts as $e) {
+                    $previewByDate[$dateKey][] = [
+                        'id' => $e->id, 'title' => $e->title,
+                        'time' => $e->all_day ? 'All day' : $e->event_date->format('H:i'),
+                        'rag' => $e->resolved_colour ?? 'neutral',
+                        'classLabel' => $e->category ?? '',
+                    ];
+                }
+            }
+            // Add spanning bar events to each date they cover
+            foreach ($spanningBars ?? [] as $bar) {
+                $c = \Carbon\Carbon::parse($bar['start_date']);
+                $end = \Carbon\Carbon::parse($bar['end_date']);
+                while ($c->lte($end)) {
+                    $ds = $c->toDateString();
+                    $previewByDate[$ds][] = [
+                        'id' => $bar['event_id'], 'title' => $bar['title'],
+                        'time' => 'All day',
+                        'rag' => $bar['event']->resolved_colour ?? 'neutral',
+                        'classLabel' => $bar['event']->category ?? '',
+                    ];
+                    $c->addDay();
+                }
+            }
+        @endphp
+        allEventsByDate: {!! json_encode($previewByDate) !!},
+
+        get dayPreviewEvents() {
+            if (!this.selectedDate) return [];
+            return this.allEventsByDate[this.selectedDate] || [];
+        },
 
         // Navigation URLs for keyboard shortcuts (rendered by Blade)
         navUrls: {!! json_encode($keyboardNavUrls) !!},
@@ -1350,6 +1579,102 @@ function calendarPage() {
             this.submitting = false;
             this.showCreateEvent = true;
         },
+
+        // ── Right Panel ──
+        initPanel() {
+            // Default: hidden on first visit. Only show if user previously opened it.
+            const stored = localStorage.getItem('corex.calendar.panelOpen');
+            this.rightPanelOpen = stored === '1';
+
+            // Restore saved width
+            const w = parseInt(localStorage.getItem('corex.calendar.panelWidth'));
+            if (w && w >= 280 && w <= 600) {
+                this.panelWidth = w;
+            }
+
+            const cb = localStorage.getItem('corex.calendar.colorBy');
+            if (cb && ['rag','class','branch','agent'].includes(cb)) {
+                this.colorBy = cb;
+            }
+
+            // Apply color-by on load if non-default
+            if (this.colorBy !== 'rag') {
+                this.$nextTick(() => this.recolourChips());
+            }
+        },
+        togglePanel() {
+            this.rightPanelOpen = !this.rightPanelOpen;
+            localStorage.setItem('corex.calendar.panelOpen', this.rightPanelOpen ? '1' : '0');
+        },
+        startPanelResize(e) {
+            this.panelResizing = true;
+            const startX = e.clientX;
+            const startW = this.panelWidth;
+            const maxW = Math.min(600, window.innerWidth * 0.4);
+
+            const onMove = (ev) => {
+                const delta = startX - ev.clientX; // dragging left = wider
+                const newW = Math.max(280, Math.min(maxW, startW + delta));
+                this.panelWidth = newW;
+            };
+            const onUp = () => {
+                this.panelResizing = false;
+                localStorage.setItem('corex.calendar.panelWidth', String(this.panelWidth));
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        },
+        saveColorBy() {
+            localStorage.setItem('corex.calendar.colorBy', this.colorBy);
+            this.recolourChips();
+        },
+        ragHex(colour) {
+            return { red: '#ef4444', amber: '#f59e0b', green: '#14b8a6', neutral: '#94a3b8' }[colour] || '#64748b';
+        },
+        recolourChips() {
+            // Recolour all event chips and spanning bars based on colorBy mode
+            const map = this.colourMap;
+            const palettes = this.colourPalettes;
+            const ragMap = { red: '#dc2626', amber: '#d97706', green: '#0d9488', neutral: '#475569' };
+            const ragHexMap = { red: '#ef4444', amber: '#f59e0b', green: '#14b8a6', neutral: '#94a3b8' };
+            const isRag = this.colorBy === 'rag';
+
+            document.querySelectorAll('[data-event-id]').forEach(el => {
+                const eid = el.dataset.eventId;
+                const meta = map[eid];
+                if (!meta) return;
+
+                let bg;
+                if (isRag) {
+                    bg = ragMap[meta.rag] || '#475569';
+                } else if (this.colorBy === 'class') {
+                    bg = (palettes.class || {})[meta.class] || '#475569';
+                } else if (this.colorBy === 'branch') {
+                    bg = (palettes.branch || {})[meta.branch] || '#475569';
+                } else if (this.colorBy === 'agent') {
+                    bg = (palettes.agent || {})[meta.agent] || '#475569';
+                }
+
+                if (bg) {
+                    el.style.background = bg;
+                    // RAG stripe: 12px solid left border in RAG colour when non-RAG mode
+                    if (isRag) {
+                        el.style.borderLeft = '2px solid ' + (ragMap[meta.rag] || '#334155');
+                    } else {
+                        el.style.borderLeft = '12px solid ' + (ragHexMap[meta.rag] || '#64748b');
+                    }
+                }
+
+                // Show/hide RAG dot when not in RAG mode
+                const dot = el.querySelector('.rag-dot');
+                if (dot) {
+                    dot.style.display = 'none'; // stripe replaces the dot
+                }
+            });
+        },
+
         nextQuarterHour() {
             const now = new Date();
             let m = Math.ceil(now.getMinutes() / 15) * 15;
