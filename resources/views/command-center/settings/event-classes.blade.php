@@ -106,15 +106,23 @@
                                 @foreach(['green' => '#14b8a6', 'amber' => '#f59e0b', 'red' => '#ef4444'] as $colour => $hex)
                                     <div class="rounded p-3 border" style="background:var(--surface-2); border-color:var(--border-default);">
                                         <div class="font-semibold mb-2 capitalize" style="color:{{ $hex }};">{{ $colour }}</div>
-                                        @php $visibleRoles = $cfg->{$colour . '_visibility'} ?? []; @endphp
+                                        @php
+                                            $visibleRoles = $cfg->{$colour . '_visibility'} ?? [];
+                                            // Alias map: legacy role names → current role names
+                                            $roleAliases = ['bm' => 'branch_manager', 'branch_manager' => 'bm'];
+                                        @endphp
                                         @foreach($availableRoles as $role)
+                                            @php
+                                                $isChecked = in_array($role, $visibleRoles)
+                                                    || (isset($roleAliases[$role]) && in_array($roleAliases[$role], $visibleRoles));
+                                            @endphp
                                             <label class="flex items-center gap-2 mb-1">
                                                 <input type="checkbox"
                                                        name="{{ $colour }}_visibility[]"
                                                        value="{{ $role }}"
-                                                       {{ in_array($role, $visibleRoles) ? 'checked' : '' }}
+                                                       {{ $isChecked ? 'checked' : '' }}
                                                        class="rounded">
-                                                <span style="color:var(--text-secondary);">{{ $role }}</span>
+                                                <span style="color:var(--text-secondary);">{{ str_replace('_', ' ', ucfirst($role)) }}</span>
                                             </label>
                                         @endforeach
                                     </div>

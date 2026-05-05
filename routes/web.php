@@ -742,6 +742,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/tasks/{task}/complete', [CommandCenterTaskController::class, 'complete'])->name('command-center.tasks.complete');
         Route::patch('/tasks/{task}/status', [CommandCenterTaskController::class, 'updateStatus'])->name('command-center.tasks.update-status');
 
+        Route::get('/buyers/pipeline', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'index'])->name('command-center.buyers.pipeline');
+        Route::patch('/buyers/{contact}/state', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'updateState'])->name('command-center.buyers.update-state');
+
         Route::get('/admin/duplicate-cleanup', [\App\Http\Controllers\CommandCenter\DuplicateCleanupController::class, 'index'])->middleware('permission:command_center.settings')->name('command-center.admin.duplicate-cleanup');
         Route::post('/admin/duplicate-cleanup/{clusterId}/dismiss', [\App\Http\Controllers\CommandCenter\DuplicateCleanupController::class, 'dismiss'])->middleware('permission:command_center.settings')->name('command-center.admin.duplicate-cleanup.dismiss');
 

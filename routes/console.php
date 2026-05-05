@@ -98,4 +98,7 @@ Schedule::command('corex:leave:cycle-rollover')->dailyAt('02:30')->onOneServer()
 // ── Contact Governance (M3.4) ──
 Schedule::command('contacts:purge-retention')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
 Schedule::command('contacts:detect-duplicates')->dailyAt('03:30')->onOneServer()->withoutOverlapping();
+
+// ── Buyer CRM (M4) ──
+Schedule::command('buyers:recompute-states')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();

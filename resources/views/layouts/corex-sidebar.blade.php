@@ -227,6 +227,7 @@
                     <a href="{{ route('command-center.settings.event-classes') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.settings.event-classes*') ? 'active' : '' }}">Event Classes</a>
                 @endif
                 <a href="{{ route('command-center.tasks') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.tasks*') ? 'active' : '' }}">Tasks</a>
+                <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
                 @permission('dashboard.oversight.view')
                     <a href="{{ route('corex.dashboard.oversight') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard.oversight') ? 'active' : '' }}">Oversight</a>
                 @endpermission

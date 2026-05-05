@@ -90,7 +90,8 @@ class SettingsController extends Controller
             ];
         })->values();
 
-        $availableRoles = ['agent', 'bm', 'admin', 'compliance_officer', 'payroll', 'hr', 'accountant'];
+        // Dynamic roles from Role Manager (excludes owner roles — they bypass visibility)
+        $availableRoles = \App\Models\Role::allRoles()->where('is_owner', false)->pluck('name')->toArray();
         $availableChannels = ['in_app', 'email'];
 
         return view('command-center.settings.event-classes', compact(

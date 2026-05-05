@@ -35,6 +35,8 @@ class Contact extends Model
         'bank_branch_name', 'bank_branch_code', 'bank_account_type',
         'opt_out_email', 'opt_out_sms', 'opt_out_whatsapp', 'opt_out_call',
         'last_consent_check_at',
+        'is_buyer', 'buyer_state', 'last_activity_at',
+        'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
     ];
 
     protected $casts = [
@@ -42,6 +44,9 @@ class Contact extends Model
         'loaded_at'         => 'datetime',
         'modified_at'       => 'datetime',
         'last_contacted_at' => 'datetime',
+        'is_buyer'          => 'boolean',
+        'last_activity_at'  => 'datetime',
+        'buyer_pipeline_entered_at' => 'datetime',
     ];
 
     public function type(): BelongsTo
@@ -260,6 +265,35 @@ class Contact extends Model
         }
 
         $this->updateQuietly($updates);
+    }
+
+    // ── Buyer CRM (M4) ──
+
+    public function buyerActivityLog(): HasMany
+    {
+        return $this->hasMany(BuyerActivityLog::class)->latest('activity_date');
+    }
+
+    public function buyerStateTransitions(): HasMany
+    {
+        return $this->hasMany(BuyerStateTransition::class)->latest('occurred_at');
+    }
+
+    public function buyerPropertyViews(): HasMany
+    {
+        return $this->hasMany(BuyerPropertyView::class);
+    }
+
+    public function scopeBuyers($query)
+    {
+        return $query->where('is_buyer', true);
+    }
+
+    public function recordManualActivity(string $type, int $userId, ?string $notes = null): void
+    {
+        app(\App\Services\BuyerStateService::class)->markActivity(
+            $this, $type, null, null, null, $userId, $notes ? ['notes' => $notes] : null
+        );
     }
 
     // ── Calendar event links (M2.2) ──

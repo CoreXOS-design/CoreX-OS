@@ -76,19 +76,27 @@ class ContactGovernanceController extends Controller
         $agencyId = $this->resolveAgencyId();
         $matrix = AgencyLeaveVisibilityMatrix::matrixForAgency($agencyId);
 
-        // Group by viewing_role for the grid display
-        $roles = ['agent', 'bm', 'admin', 'super_admin'];
+        // Dynamic roles from Role Manager
+        $roles = \App\Models\Role::allRoles()->pluck('name')->toArray();
+
+        // Alias map for legacy data (matrix stores 'bm', roles table has 'branch_manager')
+        $roleAliases = ['branch_manager' => 'bm', 'bm' => 'branch_manager'];
+
         $grid = [];
         foreach ($roles as $viewingRole) {
             foreach ($roles as $ownerRole) {
+                // Check both the actual role name and its alias in legacy data
+                $viewerVariants = array_filter([$viewingRole, $roleAliases[$viewingRole] ?? null]);
+                $ownerVariants = array_filter([$ownerRole, $roleAliases[$ownerRole] ?? null]);
+
                 $sameBranchRow = $matrix->first(fn($r) =>
-                    $r->viewing_role === $viewingRole &&
-                    $r->leave_owner_role === $ownerRole &&
+                    in_array($r->viewing_role, $viewerVariants) &&
+                    in_array($r->leave_owner_role, $ownerVariants) &&
                     $r->same_branch_only === true
                 );
                 $crossBranchRow = $matrix->first(fn($r) =>
-                    $r->viewing_role === $viewingRole &&
-                    $r->leave_owner_role === $ownerRole &&
+                    in_array($r->viewing_role, $viewerVariants) &&
+                    in_array($r->leave_owner_role, $ownerVariants) &&
                     $r->same_branch_only === false
                 );
                 $grid[$viewingRole][$ownerRole] = [
@@ -110,7 +118,7 @@ class ContactGovernanceController extends Controller
     public function updateLeaveVisibility(Request $request)
     {
         $agencyId = $this->resolveAgencyId();
-        $roles = ['agent', 'bm', 'admin', 'super_admin'];
+        $roles = \App\Models\Role::allRoles()->pluck('name')->toArray();
 
         $matrixData = $request->input('matrix', []);
 

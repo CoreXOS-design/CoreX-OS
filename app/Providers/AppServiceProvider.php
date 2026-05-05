@@ -10,14 +10,18 @@ use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Agency;
+use App\Models\CommandCenter\CalendarEventFeedback;
 use App\Models\CommandCenter\CommandTask;
 use App\Models\Contact;
+use App\Models\ContactAccessLog;
 use App\Models\ContactConsentRecord;
 use App\Models\Deal;
 use App\Models\DealSettlement;
 use App\Models\Property;
 use App\Observers\AgencyObserver;
+use App\Observers\CalendarEventFeedbackObserver;
 use App\Observers\CommandTaskObserver;
+use App\Observers\ContactAccessLogObserver;
 use App\Observers\ContactConsentRecordObserver;
 use App\Observers\ContactObserver;
 use App\Observers\DealObserver;
@@ -37,7 +41,9 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Agency::observe(AgencyObserver::class);
+        CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         Contact::observe(ContactObserver::class);
+        ContactAccessLog::observe(ContactAccessLogObserver::class);
         ContactConsentRecord::observe(ContactConsentRecordObserver::class);
         Deal::observe(DealObserver::class);
         DealSettlement::observe(DealSettlementObserver::class);
