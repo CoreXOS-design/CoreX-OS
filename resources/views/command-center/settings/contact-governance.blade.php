@@ -82,24 +82,31 @@
 
                 <div class="space-y-3">
                     <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background:var(--surface-2);">
-                        <input type="radio" name="duplicate_mode" value="hard_block" {{ $settings->duplicate_mode === 'hard_block' ? 'checked' : '' }} class="mt-0.5">
+                        <input type="radio" name="duplicate_mode" value="auto_link" {{ $settings->duplicate_mode === 'auto_link' ? 'checked' : '' }} class="mt-0.5">
                         <div>
-                            <span class="text-sm font-medium" style="color:var(--text-primary);">Hard Block</span>
-                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Agent cannot create a matching contact without admin permission.</p>
+                            <span class="text-sm font-medium" style="color:var(--text-primary);">Auto-Link</span>
+                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Silent. Duplicate creation is rejected and user is linked to the existing contact automatically. Best for high-volume capture workflows.</p>
                         </div>
                     </label>
                     <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background:var(--surface-2);">
                         <input type="radio" name="duplicate_mode" value="soft_warn" {{ $settings->duplicate_mode === 'soft_warn' ? 'checked' : '' }} class="mt-0.5">
                         <div>
                             <span class="text-sm font-medium" style="color:var(--text-primary);">Soft Warn</span>
-                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Agent is warned but may proceed. Surfaced to admin cleanup queue.</p>
+                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Agent sees "duplicate found" modal and can choose: use existing or create anyway. All attempts logged for admin review.</p>
                         </div>
                     </label>
                     <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background:var(--surface-2);">
-                        <input type="radio" name="duplicate_mode" value="auto_link" {{ $settings->duplicate_mode === 'auto_link' ? 'checked' : '' }} class="mt-0.5">
+                        <input type="radio" name="duplicate_mode" value="hard_block_override" {{ $settings->duplicate_mode === 'hard_block_override' ? 'checked' : '' }} class="mt-0.5">
                         <div>
-                            <span class="text-sm font-medium" style="color:var(--text-primary);">Auto-Link</span>
-                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Existing contact found — both agents are automatically linked to it.</p>
+                            <span class="text-sm font-medium" style="color:var(--text-primary);">Hard Block (Admin Override)</span>
+                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Agent cannot create — must use existing. Admin/owner can override with a documented reason.</p>
+                        </div>
+                    </label>
+                    <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background:var(--surface-2);">
+                        <input type="radio" name="duplicate_mode" value="hard_block_request" {{ $settings->duplicate_mode === 'hard_block_request' ? 'checked' : '' }} class="mt-0.5">
+                        <div>
+                            <span class="text-sm font-medium" style="color:var(--text-primary);">Hard Block (Request Access)</span>
+                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Agent cannot create and sees owner's name only (privacy). Can request access from the owner agent. Best for closed-mode agencies.</p>
                         </div>
                     </label>
                 </div>

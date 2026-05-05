@@ -310,56 +310,12 @@
                         $weekSlots = $barSlotsByWeek[$weekIdx] ?? [];
                         $barCount = count($weekSlots);
                     @endphp
-                    <div class="grid grid-cols-7" style="border-bottom: 1px solid var(--border);">
-                        @foreach($weekDates as $colIdx => $cellDate)
-                            @php
-                                $dateStr = $cellDate->toDateString();
-                                $dayEvents = $byDate[$dateStr] ?? [];
-                                $isCurrentMonth = $cellDate->month === $month;
-                                $isToday = $cellDate->isSameDay($today);
-                                $isWeekend = in_array($cellDate->dayOfWeekIso, [6, 7]);
-                                $cellBg = $isWeekend ? 'var(--surface-2)' : 'transparent';
-                                $cellOpacity = $isCurrentMonth ? '1' : '0.5';
-                                $chipCap = 6;
-                                // Spanning bars that start in this column
-                                $colBars = [];
-                                foreach ($weekSlots as $slotIdx => $slotBars) {
-                                    foreach ($slotBars as $bar) {
-                                        if ($bar['start_col'] === ($colIdx + 1)) {
-                                            $colBars[] = array_merge($bar, ['slot' => $slotIdx]);
-                                        }
-                                    }
-                                }
-                            @endphp
-                            <div @click="selectedDate = '{{ $dateStr }}'"
-                                 @dblclick="window.location.href='{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $dateStr])) }}'"
-                                 class="relative min-h-[5rem] px-1 pt-1 pb-1 cursor-pointer transition-colors hover:brightness-110"
-                                 style="opacity: {{ $cellOpacity }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
-                                 :class="selectedDate === '{{ $dateStr }}' && 'ring-2 ring-inset ring-[#00d4aa]'"
-                                 :style="selectedDate === '{{ $dateStr }}' ? 'background: color-mix(in srgb, #00d4aa 8%, {{ $cellBg === 'transparent' ? 'var(--surface)' : $cellBg }});' : 'background: {{ $cellBg }};'">
-                                {{-- Date number --}}
-                                <div class="flex items-center justify-between mb-0.5">
-                                    @if($isToday)
-                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
-                                              style="background: #00d4aa; color: #0f172a;">
-                                            {{ $cellDate->day }}
-                                        </span>
-                                    @else
-                                        <span class="text-xs font-semibold px-0.5" style="color: var(--text-secondary);">
-                                            {{ $cellDate->day }}
-                                        </span>
-                                    @endif
-                                    @if(count($dayEvents) > $chipCap)
-                                        <span class="text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
-                                              style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
-                                            +{{ count($dayEvents) - $chipCap }}
-                                        </span>
-                                    @endif
-                                </div>
-
-                                {{-- Spanning bars that START in this cell (rendered inline, span visually via width) --}}
-                                @if($barCount > 0 && !empty($colBars))
-                                    @foreach($colBars as $bar)
+                    <div style="border-bottom: 1px solid var(--border);">
+                        {{-- ZONE 1: Spanning bars (row-wide, separate from cells) --}}
+                        @if($barCount > 0)
+                            <div class="relative" style="min-height: {{ $barCount * 22 + 4 }}px; padding: 2px 0;">
+                                @foreach($weekSlots as $slotIdx => $slotBars)
+                                    @foreach($slotBars as $bar)
                                         @php
                                             $barEvt = $bar['event'];
                                             $isInformational = ($barEvt->resolved_colour ?? 'neutral') === 'neutral';
@@ -379,9 +335,10 @@
                                         <button type="button"
                                                 data-event-id="{{ $bar['event_id'] }}"
                                                 @click.stop="openEventPanel({{ $bar['event_id'] }})"
-                                                class="block text-[11px] text-white font-medium px-1.5 mb-0.5 truncate hover:opacity-90 transition-opacity cursor-pointer"
-                                                style="height: 18px; line-height: 18px;
-                                                       width: calc({{ $bar['span'] }} * 100% - 4px);
+                                                class="absolute text-[11px] text-white font-medium px-2 truncate hover:opacity-90 transition-opacity cursor-pointer"
+                                                style="top: {{ $slotIdx * 22 + 2 }}px; height: 18px; line-height: 18px;
+                                                       left: calc(({{ $bar['start_col'] - 1 }} / 7) * 100% + 3px);
+                                                       width: calc(({{ $bar['span'] }} / 7) * 100% - 6px);
                                                        background: {{ $barBg }};
                                                        border: 2px solid {{ $barBorder }};
                                                        border-radius: 3px;"
@@ -389,24 +346,66 @@
                                             {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
                                         </button>
                                     @endforeach
-                                @endif
-
-                                {{-- Single-day chips --}}
-                                <div class="space-y-0.5">
-                                    @foreach(array_slice($dayEvents, 0, $chipCap) as $evt)
-                                        @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
-                                        <button type="button"
-                                                data-event-id="{{ $evt->id }}"
-                                                @click.stop="openEventPanel({{ $evt->id }})"
-                                                class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity {{ $evt->status === 'completed' ? 'line-through opacity-70' : '' }}"
-                                                style="{{ $chipStyle }}"
-                                                title="{{ $evt->title }}">
-                                            <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>{{ $evt->all_day ? '' : $evt->event_date->format('H:i') . ' ' }}{{ \Illuminate\Support\Str::limit($evt->title, 20) }}
-                                        </button>
-                                    @endforeach
-                                </div>
+                                @endforeach
                             </div>
-                        @endforeach
+                        @endif
+
+                        {{-- ZONE 2: Cell grid (date numbers + single-day chips) --}}
+                        <div class="grid grid-cols-7">
+                            @foreach($weekDates as $colIdx => $cellDate)
+                                @php
+                                    $dateStr = $cellDate->toDateString();
+                                    $dayEvents = $byDate[$dateStr] ?? [];
+                                    $isCurrentMonth = $cellDate->month === $month;
+                                    $isToday = $cellDate->isSameDay($today);
+                                    $isWeekend = in_array($cellDate->dayOfWeekIso, [6, 7]);
+                                    $cellBg = $isWeekend ? 'var(--surface-2)' : 'transparent';
+                                    $cellOpacity = $isCurrentMonth ? '1' : '0.5';
+                                    $chipCap = 6;
+                                @endphp
+                                <div @click="selectedDate = '{{ $dateStr }}'"
+                                     @dblclick="window.location.href='{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $dateStr])) }}'"
+                                     class="relative min-h-[3.5rem] px-1 pt-1 pb-1 cursor-pointer transition-colors hover:brightness-110"
+                                     style="opacity: {{ $cellOpacity }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
+                                     :class="selectedDate === '{{ $dateStr }}' && 'ring-2 ring-inset ring-[#00d4aa]'"
+                                     :style="selectedDate === '{{ $dateStr }}' ? 'background: color-mix(in srgb, #00d4aa 8%, {{ $cellBg === 'transparent' ? 'var(--surface)' : $cellBg }});' : 'background: {{ $cellBg }};'">
+                                    {{-- Date number --}}
+                                    <div class="flex items-center justify-between mb-0.5">
+                                        @if($isToday)
+                                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold"
+                                                  style="background: #00d4aa; color: #0f172a;">
+                                                {{ $cellDate->day }}
+                                            </span>
+                                        @else
+                                            <span class="text-xs font-semibold px-0.5" style="color: var(--text-secondary);">
+                                                {{ $cellDate->day }}
+                                            </span>
+                                        @endif
+                                        @if(count($dayEvents) > $chipCap)
+                                            <span class="text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap"
+                                                  style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">
+                                                +{{ count($dayEvents) - $chipCap }}
+                                            </span>
+                                        @endif
+                                    </div>
+
+                                    {{-- Single-day chips --}}
+                                    <div class="space-y-0.5">
+                                        @foreach(array_slice($dayEvents, 0, $chipCap) as $evt)
+                                            @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
+                                            <button type="button"
+                                                    data-event-id="{{ $evt->id }}"
+                                                    @click.stop="openEventPanel({{ $evt->id }})"
+                                                    class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity {{ $evt->status === 'completed' ? 'line-through opacity-70' : '' }}"
+                                                    style="{{ $chipStyle }}"
+                                                    title="{{ $evt->title }}">
+                                                <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>{{ $evt->all_day ? '' : $evt->event_date->format('H:i') . ' ' }}{{ \Illuminate\Support\Str::limit($evt->title, 20) }}
+                                            </button>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
                     </div>
                 @endforeach
             </div>

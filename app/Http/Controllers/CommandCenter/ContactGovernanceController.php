@@ -39,7 +39,7 @@ class ContactGovernanceController extends Controller
     {
         $request->validate([
             'sharing_mode' => 'required|in:open,branch,closed',
-            'duplicate_mode' => 'required|in:hard_block,soft_warn,auto_link',
+            'duplicate_mode' => 'required|in:auto_link,soft_warn,hard_block_override,hard_block_request',
             'duplicate_match_fields' => 'required|array|min:1',
             'duplicate_match_fields.*' => 'in:phone,email,id_number',
             'buyer_warm_days' => 'required|integer|min:1|max:365',

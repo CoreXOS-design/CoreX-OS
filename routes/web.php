@@ -742,6 +742,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/tasks/{task}/complete', [CommandCenterTaskController::class, 'complete'])->name('command-center.tasks.complete');
         Route::patch('/tasks/{task}/status', [CommandCenterTaskController::class, 'updateStatus'])->name('command-center.tasks.update-status');
 
+        Route::get('/admin/duplicate-cleanup', [\App\Http\Controllers\CommandCenter\DuplicateCleanupController::class, 'index'])->middleware('permission:command_center.settings')->name('command-center.admin.duplicate-cleanup');
+        Route::post('/admin/duplicate-cleanup/{clusterId}/dismiss', [\App\Http\Controllers\CommandCenter\DuplicateCleanupController::class, 'dismiss'])->middleware('permission:command_center.settings')->name('command-center.admin.duplicate-cleanup.dismiss');
+
         Route::get('/settings', [CommandCenterSettingsController::class, 'index'])->name('command-center.settings');
         Route::get('/settings/contact-governance', [CommandCenterContactGovernanceController::class, 'contactGovernance'])->middleware('permission:command_center.settings')->name('command-center.settings.contact-governance');
         Route::put('/settings/contact-governance', [CommandCenterContactGovernanceController::class, 'updateContactGovernance'])->middleware('permission:command_center.settings')->name('command-center.settings.contact-governance.update');
