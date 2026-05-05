@@ -92,6 +92,16 @@
         $activeGroup = 'compliance';
     } elseif (request()->routeIs('command-center.*', 'corex.dashboard')) {
         $activeGroup = 'command-center';
+    } elseif (request()->routeIs(
+        'prospecting.*',
+        'corex.properties.*',
+        'admin.p24.*',
+        'corex.contacts.*',
+        'corex.core-matches.*',
+        'presentations.*',
+        'commercial-evaluations.*'
+    )) {
+        $activeGroup = 'real-estate';
     }
 @endphp
 
@@ -192,30 +202,38 @@
     </div>
     @endif
 
-    {{-- Navigation — single Alpine state for group toggling --}}
-    <nav class="flex-1 py-2 overflow-y-auto min-h-0"
-         x-data="{ openGroup: '{{ $activeGroup }}', toggle(g) { this.openGroup = this.openGroup === g ? null : g } }"
-         x-init="$el.scrollTop = sessionStorage.getItem('sidebarScroll') || 0"
-         @scroll.debounce.100ms="sessionStorage.setItem('sidebarScroll', $el.scrollTop)">
+    {{-- Navigation — sliding-panel drill-down (root + per-group overlay panels) --}}
+    <nav class="flex-1 min-h-0 corex-nav-viewport"
+         x-data="{
+            stack: @js($activeGroup ? [$activeGroup] : []),
+            push(g) { if (this.stack[this.stack.length - 1] !== g) this.stack.push(g) },
+            pop() { this.stack.pop() },
+            inStack(g) { return this.stack.includes(g) }
+         }">
+        <div class="corex-nav-root"
+             x-init="$el.scrollTop = sessionStorage.getItem('sidebarScroll') || 0"
+             @scroll.debounce.100ms="sessionStorage.setItem('sidebarScroll', $el.scrollTop)">
 
         {{-- ═══════════════════════════════════════════
              DASHBOARD (expandable — Calendar & Tasks as sub-items)
              ═══════════════════════════════════════════ --}}
         @permission('view_dashboard')
         <div>
-            <button type="button" @click="toggle('command-center')"
+            <button type="button" @click="push('command-center')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'command-center' ? 'active' : '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
                 </svg>
                 <span>Dashboard</span>
-                <svg class="corex-chevron transition-transform duration-200" :class="(openGroup === 'command-center') && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div x-show="openGroup === 'command-center'" @unless($activeGroup === 'command-center') x-cloak @endunless
-                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                 class="corex-nav-children">
+            <div class="corex-nav-panel {{ $activeGroup === 'command-center' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('command-center') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Dashboard</div>
 
                 <a href="{{ route('corex.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard') ? 'active' : '' }}">Today</a>
                 <a href="{{ route('command-center.calendar') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar*') ? 'active' : '' }}">Calendar</a>
@@ -253,6 +271,70 @@
             @endif
         </a>
         @endpermission
+
+        {{-- ═══════════════════════════════════════════
+             REAL ESTATE (expandable group)
+             ═══════════════════════════════════════════ --}}
+        <div>
+            <button type="button" @click="push('real-estate')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'real-estate' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                </svg>
+                <span>Real Estate</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'real-estate' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('real-estate') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Real Estate</div>
+
+                @permission('access_prospecting')
+                @if(\Illuminate\Support\Facades\Route::has('prospecting.index'))
+                <a href="{{ route('prospecting.index') }}" class="corex-nav-subitem {{ request()->routeIs('prospecting.*') ? 'active' : '' }}">Prospecting</a>
+                @endif
+                @endpermission
+
+                @permission('access_properties')
+                @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
+                <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.properties.*') ? 'active' : '' }}">Properties</a>
+                @endif
+                @endpermission
+
+                @permission('access_contacts')
+                @if(\Illuminate\Support\Facades\Route::has('corex.contacts.index'))
+                <a href="{{ route('corex.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Contacts</a>
+                @endif
+                @endpermission
+
+                @permission('access_core_matches')
+                @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
+                <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">Core Matches</a>
+                @endif
+                @endpermission
+
+                @permission('access_presentations')
+                @if(config('features.presentations') && \Illuminate\Support\Facades\Route::has('presentations.index'))
+                <a href="{{ route('presentations.index') }}" class="corex-nav-subitem {{ request()->routeIs('presentations.*') ? 'active' : '' }}">Presentations</a>
+                @endif
+                @endpermission
+
+                @permission('access_commercial_evaluations')
+                @if(\Illuminate\Support\Facades\Route::has('commercial-evaluations.index'))
+                <a href="{{ route('commercial-evaluations.index') }}" class="corex-nav-subitem {{ request()->routeIs('commercial-evaluations.*') ? 'active' : '' }}">Commercial Evaluations</a>
+                @endif
+                @endpermission
+
+                @permission('manage_p24')
+                @if(\Illuminate\Support\Facades\Route::has('admin.p24.index'))
+                <a href="{{ route('admin.p24.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.p24.*') ? 'active' : '' }}">P24 Alerts</a>
+                @endif
+                @endpermission
+            </div>
+        </div>
 
         {{-- ═══════════════════════════════════════════
              AGENCY DOCUMENTS (staff read-only)
@@ -317,19 +399,21 @@
              ═══════════════════════════════════════════ --}}
         @permission('access_agency_tracker')
         <div>
-            <button type="button" @click="toggle('agency-tracker')"
+            <button type="button" @click="push('agency-tracker')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'agency-tracker' ? 'active' : '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 0 0 .75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 0 0-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0 1 12 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 0 1-.673-.38m0 0A2.18 2.18 0 0 1 3 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 0 1 3.413-.387m7.5 0V5.25A2.25 2.25 0 0 0 13.5 3h-3a2.25 2.25 0 0 0-2.25 2.25v.894m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                 </svg>
                 <span>Agency Tracker</span>
-                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'agency-tracker' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div x-show="openGroup === 'agency-tracker'" @unless($activeGroup === 'agency-tracker') x-cloak @endunless
-                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                 class="corex-nav-children">
+            <div class="corex-nav-panel {{ $activeGroup === 'agency-tracker' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('agency-tracker') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Agency Tracker</div>
 
                 {{-- Common items (all roles) --}}
                 @permission('view_worksheet')
@@ -447,39 +531,26 @@
         @endpermission
 
         {{-- ═══════════════════════════════════════════
-             PROSPECTING
-             ═══════════════════════════════════════════ --}}
-        @permission('access_prospecting')
-        @if(\Illuminate\Support\Facades\Route::has('prospecting.index'))
-        <a href="{{ route('prospecting.index') }}"
-           class="corex-nav-item {{ request()->routeIs('prospecting.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-            </svg>
-            <span>Prospecting</span>
-        </a>
-        @endif
-        @endpermission
-
-        {{-- ═══════════════════════════════════════════
              DOCUMENTS (DocuPerfect — expandable group)
              ═══════════════════════════════════════════ --}}
         @permission('access_docuperfect')
         @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard'))
         <div>
-            <button type="button" @click="toggle('documents')"
+            <button type="button" @click="push('documents')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'documents' ? 'active' : '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m0 0a2.625 2.625 0 1 1 5.25 0" />
                 </svg>
                 <span>Documents</span>
-                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'documents' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div x-show="openGroup === 'documents'" @unless($activeGroup === 'documents') x-cloak @endunless
-                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                 class="corex-nav-children">
+            <div class="corex-nav-panel {{ $activeGroup === 'documents' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('documents') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Documents</div>
                 @permission('create_docuperfect_docs')
                 <a href="{{ route('docuperfect.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.create') ? 'active' : '' }}">Create Document</a>
                 <a href="{{ route('docuperfect.esign.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.create') ? 'active' : '' }}">E-Sign Document</a>
@@ -513,19 +584,21 @@
              ═══════════════════════════════════════════ --}}
         @permission('view_rentals')
         <div>
-            <button type="button" @click="toggle('rentals')"
+            <button type="button" @click="push('rentals')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'rentals' ? 'active' : '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 21v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21m0 0h4.5V3.545M12.75 21h7.5V10.75M2.25 21h1.5m18 0h-18M2.25 9l4.5-1.636M18.75 3l-1.5.545m0 6.205 3 1m1.5.5-1.5-.5M6.75 7.364V3h-3v18m3-13.636 10.5-3.819" />
                 </svg>
                 <span>Rentals</span>
-                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'rentals' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div x-show="openGroup === 'rentals'" @unless($activeGroup === 'rentals') x-cloak @endunless
-                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                 class="corex-nav-children">
+            <div class="corex-nav-panel {{ $activeGroup === 'rentals' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('rentals') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Rentals</div>
                 @permission('view_rentals')
                 <a href="{{ route('rental.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('rental.dashboard') ? 'active' : '' }}">Dashboard</a>
                 @endpermission
@@ -547,19 +620,21 @@
         {{-- Compliance (expandable group) --}}
         @permission('access_compliance')
         <div>
-            <button type="button" @click="toggle('compliance')"
+            <button type="button" @click="push('compliance')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'compliance' ? 'active' : '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
                 </svg>
                 <span>Compliance</span>
-                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'compliance' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div x-show="openGroup === 'compliance'" @unless($activeGroup === 'compliance') x-cloak @endunless
-                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                 class="corex-nav-children">
+            <div class="corex-nav-panel {{ $activeGroup === 'compliance' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('compliance') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Compliance</div>
                 <a href="{{ route('compliance.fica.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.fica.*') ? 'active' : '' }}">FICA</a>
                 @permission('access_rmcp')
                 <a href="{{ route('compliance.rmcp.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.*') && !request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP</a>
@@ -600,17 +675,20 @@
 
         {{-- Training (LMS) — moved to agent section above as "Training" --}}
 
-        {{-- Sales Documents --}}
-        @permission('access_sales_documents')
+        {{-- Sales Documents — visible to system owners only (hidden from agency users) --}}
+        @if($isOwner)
         @if(\Illuminate\Support\Facades\Route::has('docuperfect.sales'))
         <a href="{{ route('docuperfect.sales') }}" class="corex-nav-item {{ request()->routeIs('docuperfect.sales*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v7.5M12 12.75h3m-3 0h-3m-2.25 0H5.625c-.621 0-1.125-.504-1.125-1.125V4.125c0-.621.504-1.125 1.125-1.125h5.25a2.25 2.25 0 0 1 2.25 2.25v1.5m-6 9V21m0-6.75h9" />
             </svg>
             <span>Sales Documents</span>
+            <span class="ml-auto inline-flex items-center px-1.5 py-0.5 rounded text-[0.625rem] font-semibold uppercase tracking-wider flex-shrink-0"
+                  style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b); letter-spacing:0.06em;"
+                  title="Hidden from agency users — visible to system owners only">Hidden</span>
         </a>
         @endif
-        @endpermission
+        @endif
 
         {{-- Filing Register --}}
         @permission('access_filing_register')
@@ -622,49 +700,24 @@
         </a>
         @endpermission
 
-        {{-- Presentations --}}
-        @permission('access_presentations')
-        @if(config('features.presentations') && \Illuminate\Support\Facades\Route::has('presentations.index'))
-        <a href="{{ route('presentations.index') }}" class="corex-nav-item {{ request()->routeIs('presentations.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M4 4h16v10H4z"/>
-                <path d="M8 20h8"/>
-                <path d="M12 14v6"/>
-            </svg>
-            <span>Presentations</span>
-        </a>
-        @endif
-        @endpermission
-
-        {{-- Commercial Evaluations --}}
-        @permission('access_commercial_evaluations')
-        @if(\Illuminate\Support\Facades\Route::has('commercial-evaluations.index'))
-        <a href="{{ route('commercial-evaluations.index') }}" class="corex-nav-item {{ request()->routeIs('commercial-evaluations.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                <path d="M9 22V12h6v10"/>
-            </svg>
-            <span>Commercial Evaluations</span>
-        </a>
-        @endif
-        @endpermission
-
         {{-- Evaluation --}}
         @permission('access_evaluation')
         <div>
-            <button type="button" @click="toggle('evaluation')"
+            <button type="button" @click="push('evaluation')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'evaluation' ? 'active' : '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
                 </svg>
                 <span>Evaluation</span>
-                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'evaluation' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div x-show="openGroup === 'evaluation'" @unless($activeGroup === 'evaluation') x-cloak @endunless
-                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                 class="corex-nav-children">
+            <div class="corex-nav-panel {{ $activeGroup === 'evaluation' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('evaluation') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Evaluation</div>
                 <a href="{{ route('evaluation.index') }}#tab=property" class="corex-nav-subitem {{ request()->routeIs('evaluation.*') ? 'active' : '' }}">Property Report</a>
                 <a href="{{ route('evaluation.index') }}#tab=suburb" class="corex-nav-subitem">Suburb Report</a>
                 <a href="{{ route('evaluation.index') }}#tab=town" class="corex-nav-subitem">Town Report</a>
@@ -674,43 +727,6 @@
             </div>
         </div>
         @endpermission
-
-        {{-- Properties --}}
-        @permission('access_properties')
-        @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
-        <a href="{{ route('corex.properties.index') }}" class="corex-nav-item {{ request()->routeIs('corex.properties.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-            </svg>
-            <span>Properties</span>
-        </a>
-        @endif
-        @endpermission
-
-        {{-- Contacts --}}
-        @permission('access_contacts')
-        @if(\Illuminate\Support\Facades\Route::has('corex.contacts.index'))
-        <a href="{{ route('corex.contacts.index') }}" class="corex-nav-item {{ request()->routeIs('corex.contacts.*') && !request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-            </svg>
-            <span>Contacts</span>
-        </a>
-        @endif
-        @endpermission
-
-        {{-- Core Matches --}}
-        @permission('access_core_matches')
-        @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
-        <a href="{{ route('corex.core-matches.index') }}" class="corex-nav-item {{ request()->routeIs('corex.core-matches.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
-            </svg>
-            <span>Core Matches</span>
-        </a>
-        @endif
-        @endpermission
-
 
         {{-- ═══════════════════════════════════════════
              TOOLS SECTION
@@ -760,19 +776,6 @@
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </svg>
             <span>PP Agents</span>
-        </a>
-        @endif
-        @endpermission
-
-        {{-- P24 Alerts (admin only) --}}
-        @permission('manage_p24')
-        @if(\Illuminate\Support\Facades\Route::has('admin.p24.index'))
-        <a href="{{ route('admin.p24.index') }}" class="corex-nav-item {{ request()->routeIs('admin.p24.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
-                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
-            </svg>
-            <span>P24 Alerts</span>
         </a>
         @endif
         @endpermission
@@ -1019,6 +1022,7 @@
         </a>
         @endpermission
         @endif
+        </div>{{-- /corex-nav-root --}}
     </nav>
 
     {{-- ═══════════════════════════════════════════
