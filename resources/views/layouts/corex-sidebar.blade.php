@@ -225,6 +225,8 @@
                 <a href="{{ route('command-center.calendar') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar*') ? 'active' : '' }}">Calendar</a>
                 @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
                     <a href="{{ route('command-center.settings.event-classes') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.settings.event-classes*') ? 'active' : '' }}">Event Classes</a>
+                    <a href="{{ route('command-center.settings.contact-governance') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.settings.contact-governance*') ? 'active' : '' }}">Contact Governance</a>
+                    <a href="{{ route('command-center.settings.leave-visibility') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.settings.leave-visibility*') ? 'active' : '' }}">Leave Visibility</a>
                 @endif
                 <a href="{{ route('command-center.tasks') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.tasks*') ? 'active' : '' }}">Tasks</a>
                 @permission('dashboard.oversight.view')

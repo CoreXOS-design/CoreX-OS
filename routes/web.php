@@ -693,6 +693,7 @@ use App\Http\Controllers\CommandCenter\DashboardController as CommandCenterDashb
 use App\Http\Controllers\CommandCenter\CalendarController as CommandCenterCalendarController;
 use App\Http\Controllers\CommandCenter\TaskController as CommandCenterTaskController;
 use App\Http\Controllers\CommandCenter\SettingsController as CommandCenterSettingsController;
+use App\Http\Controllers\CommandCenter\ContactGovernanceController as CommandCenterContactGovernanceController;
 use App\Http\Controllers\CommandCenter\UserSettingsController as CommandCenterUserSettingsController;
 use App\Http\Controllers\CoreX\SettingsController as CoreXSettingsController;
 use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerController;
@@ -742,6 +743,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::patch('/tasks/{task}/status', [CommandCenterTaskController::class, 'updateStatus'])->name('command-center.tasks.update-status');
 
         Route::get('/settings', [CommandCenterSettingsController::class, 'index'])->name('command-center.settings');
+        Route::get('/settings/contact-governance', [CommandCenterContactGovernanceController::class, 'contactGovernance'])->middleware('permission:command_center.settings')->name('command-center.settings.contact-governance');
+        Route::put('/settings/contact-governance', [CommandCenterContactGovernanceController::class, 'updateContactGovernance'])->middleware('permission:command_center.settings')->name('command-center.settings.contact-governance.update');
+        Route::get('/settings/leave-visibility', [CommandCenterContactGovernanceController::class, 'leaveVisibility'])->middleware('permission:command_center.settings')->name('command-center.settings.leave-visibility');
+        Route::put('/settings/leave-visibility', [CommandCenterContactGovernanceController::class, 'updateLeaveVisibility'])->middleware('permission:command_center.settings')->name('command-center.settings.leave-visibility.update');
         Route::patch('/settings/rules/{rule}/toggle', [CommandCenterSettingsController::class, 'toggleRule'])->name('command-center.settings.toggle-rule');
         Route::post('/settings/expectations', [CommandCenterSettingsController::class, 'storeExpectation'])->name('command-center.settings.store-expectation');
         Route::delete('/settings/expectations/{expectation}', [CommandCenterSettingsController::class, 'destroyExpectation'])->name('command-center.settings.destroy-expectation');

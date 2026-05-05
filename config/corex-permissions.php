@@ -367,6 +367,10 @@ return [
         ['key' => 'command_center.automation.manage','label' => 'Manage Automation Rules',      'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 16],
         ['key' => 'command_center.settings',         'label' => 'Manage Command Center Settings','section' => 'command-center',  'type' => 'access',  'module' => 'command_center',   'sort_order' => 17],
 
+        // ── Contact Governance ──
+        ['key' => 'contact_governance.manage',       'label' => 'Manage Contact Governance Settings', 'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 50],
+        ['key' => 'contact_governance.leave_matrix', 'label' => 'Manage Leave Visibility Matrix',    'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 51],
+
         // ── Payroll ──
         ['key' => 'manage_payroll',        'label' => 'Manage Payroll (employees, types)', 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 120],
         ['key' => 'run_payroll',           'label' => 'Run & Finalise Payroll',            'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 121],
