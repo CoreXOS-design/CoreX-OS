@@ -40,6 +40,10 @@ class DatabaseSeeder extends Seeder
             DepositTrustInterestSeeder::class,
             DealPipelineTemplateSeeder::class,
             AgencyDocumentTypeConfigSeeder::class,
+            PayrollSeeder::class,
+            NotificationEventTypeSeeder::class,
+            PublicHolidaySeeder::class,
+            LeaveTypeSeeder::class,
         ]);
     }
 }

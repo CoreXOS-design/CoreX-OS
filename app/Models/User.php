@@ -77,6 +77,26 @@ class User extends Authenticatable
         'risk_tier',
         'screening_status',
         'screening_due_on',
+
+        // Payroll
+        'date_of_birth',
+        'tax_reference_number',
+        'employment_date',
+
+        // Leave / Take-On
+        'emergency_contact_name',
+        'emergency_contact_phone',
+        'emergency_contact_relationship',
+        'next_of_kin_name',
+        'next_of_kin_phone',
+        'next_of_kin_relationship',
+        'home_address',
+        'marital_status',
+        'dependents_count',
+        'medical_aid_provider',
+        'medical_aid_number',
+        'medical_aid_main_member',
+        'medical_aid_dependents_count',
     ];
 
     protected $hidden = [
@@ -101,6 +121,11 @@ class User extends Authenticatable
         'ffc_expiry_date' => 'date',
         'pi_insurance_expiry' => 'date',
         'tax_clearance_expiry' => 'date',
+        'date_of_birth' => 'date',
+        'employment_date' => 'date',
+        'medical_aid_main_member' => 'boolean',
+        'dependents_count' => 'integer',
+        'medical_aid_dependents_count' => 'integer',
     ];
 
     // --- View-As support (session override) ---
@@ -459,5 +484,102 @@ class User extends Authenticatable
         return in_array($this->screening_status, [
             'never_screened', 'pre_employment_pending', 'overdue', 'expired',
         ]);
+    }
+
+    // ── Payroll ──
+
+    public function payrollEmployee(): HasOne
+    {
+        return $this->hasOne(Payroll\PayrollEmployee::class);
+    }
+
+    public function payrollPayslips(): HasMany
+    {
+        return $this->hasMany(Payroll\PayrollPayslip::class, 'user_id');
+    }
+
+    public function bankingDetail(): HasOne
+    {
+        return $this->hasOne(UserBankingDetail::class);
+    }
+
+    public function isOnPayroll(): bool
+    {
+        return $this->payrollEmployee()
+            ->where('is_active', true)
+            ->exists();
+    }
+
+    /**
+     * Calculate age at a given date from date_of_birth, falling back to
+     * SA ID number first 6 digits (YYMMDD) if date_of_birth is null.
+     */
+    public function getAgeOnDate(\Carbon\Carbon $date): ?int
+    {
+        $dob = $this->date_of_birth;
+
+        if (! $dob && $this->id_number && strlen($this->id_number) >= 6) {
+            $raw = substr($this->id_number, 0, 6);
+            $yy = (int) substr($raw, 0, 2);
+            $mm = (int) substr($raw, 2, 2);
+            $dd = (int) substr($raw, 4, 2);
+            // SA IDs: 00-29 → 2000s, 30-99 → 1900s
+            $yyyy = $yy <= 29 ? 2000 + $yy : 1900 + $yy;
+            try {
+                $dob = \Carbon\Carbon::createFromDate($yyyy, $mm, $dd);
+            } catch (\Exception $e) {
+                return null;
+            }
+        }
+
+        if (! $dob) {
+            return null;
+        }
+
+        return (int) $dob->diffInYears($date);
+    }
+
+    // ── Leave ──
+
+    public function leaveEntitlements(): HasMany
+    {
+        return $this->hasMany(Leave\LeaveEntitlement::class);
+    }
+
+    public function leaveApplications(): HasMany
+    {
+        return $this->hasMany(Leave\LeaveApplication::class);
+    }
+
+    public function leaveTransactions(): HasMany
+    {
+        return $this->hasMany(Leave\LeaveTransaction::class);
+    }
+
+    public function staffTakeOnRecord(): HasOne
+    {
+        return $this->hasOne(Leave\StaffTakeOnRecord::class);
+    }
+
+    public function getLeaveBalanceFor(Leave\LeaveType $type, ?\Carbon\Carbon $asOf = null): ?Leave\LeaveEntitlement
+    {
+        $date = $asOf ?? now();
+
+        return $this->leaveEntitlements()
+            ->where('leave_type_id', $type->id)
+            ->where('cycle_start_date', '<=', $date)
+            ->where('cycle_end_date', '>=', $date)
+            ->first();
+    }
+
+    public function hasActiveLeave(?\Carbon\Carbon $on = null): bool
+    {
+        $date = ($on ?? now())->toDateString();
+
+        return $this->leaveApplications()
+            ->whereIn('status', ['approved', 'taken'])
+            ->where('start_date', '<=', $date)
+            ->where('end_date', '>=', $date)
+            ->exists();
     }
 }

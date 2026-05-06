@@ -43,14 +43,23 @@
     {{-- Tab navigation (fixed spacing) --}}
     <div style="border-bottom:1px solid var(--border);">
         <nav class="-mb-px flex gap-1 overflow-x-auto" aria-label="Tabs">
-            @foreach([
-                'overview' => 'Overview',
-                'profile' => 'Profile',
-                'documents' => 'Documents',
-                'compliance' => 'Compliance',
-                'training' => 'Training',
-                'password' => 'Password',
-            ] as $key => $label)
+            @php
+                $portalTabs = [
+                    'overview' => 'Overview',
+                    'profile' => 'Profile',
+                    'documents' => 'Documents',
+                    'compliance' => 'Compliance',
+                    'training' => 'Training',
+                    'password' => 'Password',
+                ];
+                if (auth()->user()->hasPermission('view_own_payslips')) {
+                    $portalTabs['payslips'] = 'Payslips';
+                }
+                if (auth()->user()->hasPermission('apply_for_leave')) {
+                    $portalTabs['leave'] = 'Leave';
+                }
+            @endphp
+            @foreach($portalTabs as $key => $label)
             <button type="button"
                     @click="setTab('{{ $key }}')"
                     class="whitespace-nowrap px-4 py-3 text-sm border-b-2 transition-colors"
@@ -848,6 +857,55 @@
             </div>
         </div>
     </div>
+
+    {{-- ══ Payslips tab ══ --}}
+    @if(auth()->user()->hasPermission('view_own_payslips'))
+    <div x-show="tab === 'payslips'" x-cloak>
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Payslips</h3>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">Your finalised payslips from the payroll system.</p>
+
+            @if(isset($latestPayslip) && $latestPayslip)
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:20px;">
+                    <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:14px; text-align:center;">
+                        <p style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin:0 0 4px;">Latest Period</p>
+                        <p style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">{{ $latestPayslip->period_month->format('M Y') }}</p>
+                    </div>
+                    <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:14px; text-align:center;">
+                        <p style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin:0 0 4px;">Latest Net Pay</p>
+                        <p style="font-size:1rem; font-weight:700; color:var(--brand-icon); margin:0;">R {{ number_format($latestPayslip->net_pay, 2) }}</p>
+                    </div>
+                    <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:14px; text-align:center;">
+                        <p style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin:0 0 4px;">Total on File</p>
+                        <p style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">{{ $payslipCount ?? 0 }}</p>
+                    </div>
+                </div>
+
+                <a href="{{ route('my-portal.payslips') }}" class="corex-btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
+                    View All Payslips
+                    <svg style="width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+                </a>
+            @else
+                <p style="font-size:0.8125rem; color:var(--text-muted); text-align:center; padding:24px 0;">No payslips yet. Your payslips will appear here once your employer finalises a payroll run.</p>
+            @endif
+        </div>
+    </div>
+    @endif
+
+    {{-- ══ Leave tab ══ --}}
+    @if(auth()->user()->hasPermission('apply_for_leave'))
+    <div x-show="tab === 'leave'" x-cloak>
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Leave</h3>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">View your leave balances, apply for leave, and track your applications.</p>
+
+            <a href="{{ route('my-portal.leave.index') }}" class="corex-btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
+                View Leave Dashboard
+                <svg style="width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+            </a>
+        </div>
+    </div>
+    @endif
 
         </div>{{-- .max-w-5xl --}}
     </div>{{-- .p-4 --}}

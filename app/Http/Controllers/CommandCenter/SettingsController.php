@@ -4,8 +4,8 @@ namespace App\Http\Controllers\CommandCenter;
 
 use App\Http\Controllers\Controller;
 use App\Models\CommandCenter\AutomationRule;
+use App\Models\CommandCenter\CalendarEventClassSetting;
 use App\Models\CommandCenter\DocumentExpectation;
-use App\Models\CommandCenter\ReminderDefault;
 use Illuminate\Http\Request;
 
 class SettingsController extends Controller
@@ -17,12 +17,10 @@ class SettingsController extends Controller
     {
         $automationRules = AutomationRule::orderBy('sort_order')->get();
         $docExpectations = DocumentExpectation::orderBy('property_type')->orderBy('sort_order')->get();
-        $reminderDefaults = ReminderDefault::orderBy('event_category')->get();
 
         return view('command-center.settings.index', [
             'automationRules'  => $automationRules,
             'docExpectations'  => $docExpectations,
-            'reminderDefaults' => $reminderDefaults,
         ]);
     }
 
@@ -62,33 +60,147 @@ class SettingsController extends Controller
         return back()->with('success', 'Document expectation removed.');
     }
 
+    // ── Event Class Settings ──
+
     /**
-     * Store/update a reminder default.
+     * List all 38 event classes with effective config per agency.
      */
-    public function storeReminderDefault(Request $request)
+    public function eventClasses(Request $request)
     {
-        $request->validate([
-            'event_category'     => 'required|string|max:80',
-            'reminder_offsets'   => 'required|string',
-            'escalation_enabled' => 'nullable|boolean',
-            'escalation_delay'   => 'nullable|integer|min:1',
-            'escalation_to'      => 'nullable|in:bm,admin,both',
+        $agencyId = auth()->user()->effectiveAgencyId();
+
+        $globals = CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereNull('agency_id')
+            ->orderBy('label')
+            ->get()
+            ->keyBy('event_class');
+
+        $agencyOverrides = $agencyId
+            ? CalendarEventClassSetting::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->get()
+                ->keyBy('event_class')
+            : collect();
+
+        $effective = $globals->map(function ($global) use ($agencyOverrides) {
+            $override = $agencyOverrides->get($global->event_class);
+            return [
+                'config'        => $override ?? $global,
+                'is_overridden' => $override !== null,
+            ];
+        })->values();
+
+        // Dynamic roles from Role Manager (excludes owner roles — they bypass visibility)
+        $availableRoles = \App\Models\Role::allRoles()->where('is_owner', false)->pluck('name')->toArray();
+        $availableChannels = ['in_app', 'email'];
+
+        return view('command-center.settings.event-classes', compact(
+            'effective', 'availableRoles', 'availableChannels'
+        ));
+    }
+
+    /**
+     * Save an agency-specific override for an event class.
+     */
+    public function updateEventClass(Request $request, string $eventClass)
+    {
+        $agencyId = auth()->user()->effectiveAgencyId();
+        if (!$agencyId) {
+            return back()->with('error', 'Unable to save — no active agency context.');
+        }
+
+        $validated = $request->validate([
+            'is_active'            => 'required|boolean',
+            'green_days'           => 'required|integer|min:0|max:365',
+            'amber_days'           => 'required|integer|min:0|max:365',
+            'red_days'             => 'required|integer|min:0|max:365',
+            'show_days'            => 'nullable|integer|min:0|max:730',
+            'green_visibility'     => 'array',
+            'green_visibility.*'   => 'string',
+            'amber_visibility'     => 'array',
+            'amber_visibility.*'   => 'string',
+            'red_visibility'       => 'array',
+            'red_visibility.*'     => 'string',
+            'green_notifications'  => 'array',
+            'amber_notifications'  => 'array',
+            'red_notifications'    => 'array',
+            'daily_digest_enabled' => 'required|boolean',
+            'daily_digest_roles'   => 'array',
+            'daily_digest_roles.*' => 'string',
+            'actor_role'           => 'nullable|in:buyer_action,seller_action,both,neither',
+            'completion_behaviour' => 'nullable|in:require_feedback,require_reason,freeform',
         ]);
 
-        // Parse comma-separated offsets (in days) into minutes
-        $daysInput = array_map('trim', explode(',', $request->reminder_offsets));
-        $offsetMinutes = array_map(fn ($d) => (int) $d * 1440, $daysInput);
+        if ($validated['red_days'] > $validated['amber_days']
+         || $validated['amber_days'] > $validated['green_days']) {
+            return back()
+                ->withInput()
+                ->with('error', 'Threshold order invalid: red_days ≤ amber_days ≤ green_days required.');
+        }
 
-        ReminderDefault::updateOrCreate(
-            ['event_category' => $request->event_category],
-            [
-                'reminder_offsets'   => $offsetMinutes,
-                'escalation_enabled' => $request->boolean('escalation_enabled'),
-                'escalation_delay'   => $request->escalation_delay ?? 1440,
-                'escalation_to'      => $request->escalation_to ?? 'bm',
-            ]
-        );
+        $global = CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereNull('agency_id')
+            ->where('event_class', $eventClass)
+            ->first();
 
-        return back()->with('success', 'Reminder defaults saved.');
+        if (!$global) {
+            return back()->with('error', 'Unknown event class.');
+        }
+
+        $normaliseRouting = function (array $raw) {
+            $out = [];
+            foreach ($raw as $role => $channels) {
+                if (is_array($channels) && !empty($channels)) {
+                    $out[$role] = array_values(array_unique($channels));
+                }
+            }
+            return $out;
+        };
+
+        CalendarEventClassSetting::withoutGlobalScopes()
+            ->updateOrCreate(
+                ['agency_id' => $agencyId, 'event_class' => $eventClass],
+                [
+                    'label'                => $global->label,
+                    'description'          => $global->description,
+                    'is_active'            => $validated['is_active'],
+                    'green_days'           => $validated['green_days'],
+                    'amber_days'           => $validated['amber_days'],
+                    'red_days'             => $validated['red_days'],
+                    'show_days'            => $validated['show_days'] ?? null,
+                    'green_visibility'     => array_values($validated['green_visibility'] ?? []),
+                    'amber_visibility'     => array_values($validated['amber_visibility'] ?? []),
+                    'red_visibility'       => array_values($validated['red_visibility'] ?? []),
+                    'green_notifications'  => $normaliseRouting($validated['green_notifications'] ?? []),
+                    'amber_notifications'  => $normaliseRouting($validated['amber_notifications'] ?? []),
+                    'red_notifications'    => $normaliseRouting($validated['red_notifications'] ?? []),
+                    'daily_digest_enabled' => $validated['daily_digest_enabled'],
+                    'daily_digest_roles'   => $validated['daily_digest_enabled']
+                        ? array_values($validated['daily_digest_roles'] ?? [])
+                        : null,
+                    'actor_role'           => $validated['actor_role'] ?? $global->actor_role ?? 'neither',
+                    'completion_behaviour' => $validated['completion_behaviour'] ?? $global->completion_behaviour ?? 'freeform',
+                ]
+            );
+
+        return back()->with('success', "Event class '{$global->label}' saved.");
+    }
+
+    /**
+     * Reset an agency-specific override back to global defaults.
+     */
+    public function resetEventClass(Request $request, string $eventClass)
+    {
+        $agencyId = auth()->user()->effectiveAgencyId();
+        if (!$agencyId) {
+            return back()->with('error', 'No active agency context.');
+        }
+
+        CalendarEventClassSetting::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('event_class', $eventClass)
+            ->delete();
+
+        return back()->with('success', 'Event class reset to global default.');
     }
 }

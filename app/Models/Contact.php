@@ -2,17 +2,26 @@
 
 namespace App\Models;
 
+use App\Models\CommandCenter\CalendarEvent;
+use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
+use App\Models\Scopes\ContactScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Contact extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch;
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new ContactScope());
+    }
 
     protected $fillable = [
         'agency_id',
@@ -24,6 +33,10 @@ class Contact extends Model
         'whatsapp_count', 'email_count',
         'bank_name', 'bank_account_name', 'bank_account_number',
         'bank_branch_name', 'bank_branch_code', 'bank_account_type',
+        'opt_out_email', 'opt_out_sms', 'opt_out_whatsapp', 'opt_out_call',
+        'last_consent_check_at',
+        'is_buyer', 'buyer_state', 'last_activity_at',
+        'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
     ];
 
     protected $casts = [
@@ -31,6 +44,9 @@ class Contact extends Model
         'loaded_at'         => 'datetime',
         'modified_at'       => 'datetime',
         'last_contacted_at' => 'datetime',
+        'is_buyer'          => 'boolean',
+        'last_activity_at'  => 'datetime',
+        'buyer_pipeline_entered_at' => 'datetime',
     ];
 
     public function type(): BelongsTo
@@ -162,5 +178,133 @@ class Contact extends Model
     public function getInitialsAttribute(): string
     {
         return strtoupper(substr($this->first_name, 0, 1) . substr($this->last_name, 0, 1));
+    }
+
+    // ── Consent & Compliance (M3.4) ──
+
+    public function consentRecords(): HasMany
+    {
+        return $this->hasMany(ContactConsentRecord::class)->latest('given_at');
+    }
+
+    public function hasActiveConsent(string $consentType): bool
+    {
+        return $this->consentRecords()
+            ->where('consent_type', $consentType)
+            ->whereNull('revoked_at')
+            ->exists();
+    }
+
+    public function recordConsent(string $type, string $method, int $userId, ?int $documentId = null): ContactConsentRecord
+    {
+        return ContactConsentRecord::create([
+            'contact_id' => $this->id,
+            'agency_id' => $this->agency_id,
+            'consent_type' => $type,
+            'given_at' => now(),
+            'given_by_user_id' => $userId,
+            'method' => $method,
+            'evidence_document_id' => $documentId,
+        ]);
+    }
+
+    public function revokeConsent(string $type, int $userId, ?string $reason = null): void
+    {
+        $this->consentRecords()
+            ->where('consent_type', $type)
+            ->whereNull('revoked_at')
+            ->update([
+                'revoked_at' => now(),
+                'revoked_by_user_id' => $userId,
+                'revoked_reason' => $reason,
+            ]);
+    }
+
+    public function accessLog(): HasMany
+    {
+        return $this->hasMany(ContactAccessLog::class)->latest('accessed_at');
+    }
+
+    // ── Channel opt-out (M3.6) ──
+
+    /**
+     * Check if this contact can be contacted via a given channel.
+     * Returns false if opted out (consent revoked or never given).
+     */
+    public function canSendVia(string $channel): bool
+    {
+        return match ($channel) {
+            'email' => !$this->opt_out_email,
+            'sms' => !$this->opt_out_sms,
+            'whatsapp' => !$this->opt_out_whatsapp,
+            'call' => !$this->opt_out_call,
+            default => true,
+        };
+    }
+
+    /**
+     * Recompute denormalised opt-out flags from consent records.
+     * Opted out = no active consent for that channel type.
+     */
+    public function recomputeChannelConsent(): void
+    {
+        $channelMap = [
+            'channel_email' => 'opt_out_email',
+            'channel_sms' => 'opt_out_sms',
+            'channel_whatsapp' => 'opt_out_whatsapp',
+            'channel_call' => 'opt_out_call',
+        ];
+
+        $updates = ['last_consent_check_at' => now()];
+        foreach ($channelMap as $consentType => $column) {
+            $hasActive = $this->consentRecords()
+                ->where('consent_type', $consentType)
+                ->whereNull('revoked_at')
+                ->exists();
+            $updates[$column] = !$hasActive;
+        }
+
+        $this->updateQuietly($updates);
+    }
+
+    // ── Buyer CRM (M4) ──
+
+    public function buyerActivityLog(): HasMany
+    {
+        return $this->hasMany(BuyerActivityLog::class)->latest('activity_date');
+    }
+
+    public function buyerStateTransitions(): HasMany
+    {
+        return $this->hasMany(BuyerStateTransition::class)->latest('occurred_at');
+    }
+
+    public function buyerPropertyViews(): HasMany
+    {
+        return $this->hasMany(BuyerPropertyView::class);
+    }
+
+    public function scopeBuyers($query)
+    {
+        return $query->where('is_buyer', true);
+    }
+
+    public function recordManualActivity(string $type, int $userId, ?string $notes = null): void
+    {
+        app(\App\Services\BuyerStateService::class)->markActivity(
+            $this, $type, null, null, null, $userId, $notes ? ['notes' => $notes] : null
+        );
+    }
+
+    // ── Calendar event links (M2.2) ──
+
+    public function calendarEventLinks(): MorphMany
+    {
+        return $this->morphMany(CalendarEventLink::class, 'linkable');
+    }
+
+    public function calendarEvents()
+    {
+        return $this->morphToMany(CalendarEvent::class, 'linkable', 'calendar_event_links', null, 'calendar_event_id');
     }
 }

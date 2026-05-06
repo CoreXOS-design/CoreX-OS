@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactType;
 use App\Models\Property;
+use App\Services\ContactDuplicateService;
 use Illuminate\Http\Request;
 
 class PropertyContactController extends Controller
@@ -82,11 +83,43 @@ class PropertyContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'role'            => 'nullable|string|max:50',
+            'bypass_duplicate_check' => 'nullable|boolean',
         ]);
 
         $role = $data['role'] ?? null;
         unset($data['role']);
-        $data['created_by_user_id'] = auth()->id();
+
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $service = app(ContactDuplicateService::class);
+
+        if (empty($data['bypass_duplicate_check'])) {
+            $duplicates = $service->findDuplicates($data, $agencyId);
+            if ($duplicates->isNotEmpty()) {
+                $mode = $service->resolveMode($agencyId);
+                if ($mode === 'auto_link') {
+                    $existing = $duplicates->first();
+                    $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $role]]);
+                    $match = $service->identifyMatch($data, $existing, $agencyId);
+                    $service->logAttempt($agencyId, $user->id, $mode, $match['field'], $match['value'], $existing->id, $data, 'auto_linked');
+                    return back()->with('info', 'Existing contact found and linked.')->with('tab', 'contacts');
+                }
+                return back()->withInput()->with('duplicate_detected', [
+                    'duplicates' => $duplicates->map(fn($c) => [
+                        'id' => $c->id, 'name' => $c->full_name,
+                        'phone' => $mode === 'hard_block_request' ? null : $c->phone,
+                        'email' => $mode === 'hard_block_request' ? null : $c->email,
+                        'owner' => optional($c->createdBy)->name ?? 'Unknown',
+                        'url' => route('corex.contacts.show', $c),
+                    ])->toArray(),
+                    'mode' => $mode,
+                    'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
+                ])->with('tab', 'contacts');
+            }
+        }
+
+        unset($data['bypass_duplicate_check']);
+        $data['created_by_user_id'] = $user->id;
 
         $contact = Contact::create($data);
         $property->contacts()->attach($contact->id, ['role' => $role]);

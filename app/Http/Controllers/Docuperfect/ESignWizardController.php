@@ -759,14 +759,26 @@ class ESignWizardController extends Controller
                         $contactTypeId = \App\Models\ContactType::where('name', 'like', '%' . ($r['role'] ?? '') . '%')->value('id');
                     }
 
-                    $contact = Contact::create([
-                        'first_name' => $firstName,
-                        'last_name' => $lastName,
-                        'email' => $email ?: null,
-                        'id_number' => $idNumber ?: null,
-                        'contact_type_id' => $contactTypeId,
-                        'created_by_user_id' => $request->user()?->id,
-                    ]);
+                    // Duplicate detection: auto-link if match found (non-blocking in e-sign flow)
+                    $dupSvc = app(\App\Services\ContactDuplicateService::class);
+                    $dupAgencyId = $request->user()?->effectiveAgencyId() ?? 1;
+                    $dupData = ['phone' => '', 'email' => $email ?: '', 'id_number' => $idNumber ?: ''];
+                    $dupExisting = $dupSvc->findDuplicates($dupData, $dupAgencyId)->first();
+
+                    if ($dupExisting) {
+                        $contact = $dupExisting;
+                        $match = $dupSvc->identifyMatch($dupData, $dupExisting, $dupAgencyId);
+                        $dupSvc->logAttempt($dupAgencyId, $request->user()?->id ?? 0, 'auto_link', $match['field'], $match['value'], $dupExisting->id, $dupData, 'auto_linked');
+                    } else {
+                        $contact = Contact::create([
+                            'first_name' => $firstName,
+                            'last_name' => $lastName,
+                            'email' => $email ?: null,
+                            'id_number' => $idNumber ?: null,
+                            'contact_type_id' => $contactTypeId,
+                            'created_by_user_id' => $request->user()?->id,
+                        ]);
+                    }
 
                     $r['_contact_id'] = $contact->id;
 

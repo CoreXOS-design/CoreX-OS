@@ -9,6 +9,7 @@ use App\Models\ContactType;
 use App\Models\DocumentType;
 use App\Models\PropertySettingItem;
 use App\Models\User;
+use App\Services\ContactDuplicateService;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
 
@@ -84,8 +85,20 @@ class ContactController extends Controller
         ));
     }
 
-    public function show(Contact $contact)
+    public function show(Request $request, Contact $contact)
     {
+        // JSON response for prefill / AJAX
+        if ($request->wantsJson()) {
+            return response()->json([
+                'id' => $contact->id,
+                'first_name' => $contact->first_name,
+                'last_name' => $contact->last_name,
+                'phone' => $contact->phone,
+                'email' => $contact->email,
+                'is_buyer' => $contact->is_buyer,
+            ]);
+        }
+
         $contact->load(['type', 'createdBy', 'contactNotes.user', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
         $contactTypes     = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
@@ -162,29 +175,82 @@ class ContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'notes'           => 'nullable|string|max:1000',
+            // Duplicate bypass fields
+            'bypass_duplicate_check' => 'nullable|boolean',
+            'override_reason'        => 'nullable|string|max:500',
         ]);
 
-        // Duplicate check — email or phone already exists under a different contact
-        $duplicate = Contact::with('createdBy')
-            ->where(function ($q) use ($data) {
-                $q->where('phone', $data['phone']);
-                if (!empty($data['email'])) {
-                    $q->orWhere('email', $data['email']);
-                }
-            })
-            ->first();
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $service = app(ContactDuplicateService::class);
 
-        if ($duplicate) {
-            $ownerName = optional($duplicate->createdBy)->name ?? 'another agent';
-            $field     = $duplicate->phone === $data['phone'] ? 'phone number' : 'email address';
-            return back()->withInput()->withErrors([
-                'phone' => "This contact's {$field} already exists under a contact created by {$ownerName}.",
-            ]);
+        // Skip duplicate check if explicitly bypassed (user already chose "create anyway")
+        if (empty($data['bypass_duplicate_check'])) {
+            $duplicates = $service->findDuplicates($data, $agencyId);
+
+            if ($duplicates->isNotEmpty()) {
+                $mode = $service->resolveMode($agencyId);
+                $match = $service->identifyMatch($data, $duplicates->first(), $agencyId);
+
+                // auto_link: silently redirect to existing contact
+                if ($mode === 'auto_link') {
+                    $existing = $duplicates->first();
+                    $service->logAttempt(
+                        $agencyId, $user->id, $mode,
+                        $match['field'], $match['value'],
+                        $existing->id, $data, 'auto_linked'
+                    );
+                    return redirect()->route('corex.contacts.show', $existing)
+                        ->with('info', 'Existing contact found and linked automatically.');
+                }
+
+                // Return 422 with duplicates for modal display
+                if ($request->wantsJson() || $request->ajax()) {
+                    return response()->json([
+                        'duplicates' => $duplicates->map(fn($c) => [
+                            'id' => $c->id,
+                            'name' => $c->full_name,
+                            'phone' => $mode === 'hard_block_request' ? null : $c->phone,
+                            'email' => $mode === 'hard_block_request' ? null : $c->email,
+                            'owner' => optional($c->createdBy)->name ?? 'Unknown',
+                            'url' => route('corex.contacts.show', $c),
+                        ]),
+                        'mode' => $mode,
+                        'match_field' => $match['field'],
+                        'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
+                    ], 422);
+                }
+
+                // Non-AJAX fallback: redirect back with duplicate info in session
+                return back()->withInput()->with('duplicate_detected', [
+                    'duplicates' => $duplicates->map(fn($c) => [
+                        'id' => $c->id,
+                        'name' => $c->full_name,
+                        'phone' => $mode === 'hard_block_request' ? null : $c->phone,
+                        'email' => $mode === 'hard_block_request' ? null : $c->email,
+                        'owner' => optional($c->createdBy)->name ?? 'Unknown',
+                        'url' => route('corex.contacts.show', $c),
+                    ])->toArray(),
+                    'mode' => $mode,
+                    'match_field' => $match['field'],
+                    'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
+                ]);
+            }
+        } else {
+            // Bypassed — log the override
+            $mode = $service->resolveMode($agencyId);
+            $actionTaken = !empty($data['override_reason']) ? 'override_with_reason' : 'created_anyway';
+            $service->logAttempt(
+                $agencyId, $user->id, $mode,
+                'bypass', '', null, $data, $actionTaken, $data['override_reason'] ?? null
+            );
         }
 
-        $data['created_by_user_id'] = auth()->id();
+        // Remove bypass fields before creating
+        unset($data['bypass_duplicate_check'], $data['override_reason']);
+        $data['created_by_user_id'] = $user->id;
 
-        Contact::create($data);
+        $contact = Contact::create($data);
 
         return redirect()->route('corex.contacts.index')->with('success', 'Contact added successfully.');
     }
@@ -260,6 +326,38 @@ class ContactController extends Controller
         $contact->delete();
 
         return redirect()->route('corex.contacts.index')->with('success', 'Contact deleted.');
+    }
+
+    public function recordConsent(Request $request, Contact $contact)
+    {
+        $request->validate([
+            'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
+            'method' => 'nullable|in:verbal,written,electronic,signed_document',
+        ]);
+
+        $contact->recordConsent(
+            $request->input('consent_type'),
+            $request->input('method', 'electronic'),
+            auth()->id()
+        );
+
+        return back()->with('success', 'Consent recorded.')->with('tab', 'consent');
+    }
+
+    public function revokeConsent(Request $request, Contact $contact)
+    {
+        $request->validate([
+            'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $contact->revokeConsent(
+            $request->input('consent_type'),
+            auth()->id(),
+            $request->input('reason')
+        );
+
+        return back()->with('success', 'Consent revoked.')->with('tab', 'consent');
     }
 
     public function destroyAll()

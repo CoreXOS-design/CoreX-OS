@@ -47,6 +47,8 @@ class FicaSubmission extends Model
         'intake_type',
         'wet_ink_received_date',
         'wet_ink_confirmed_by',
+        // FICA validity
+        'fica_expires_at',
     ];
 
     protected $casts = [
@@ -61,6 +63,7 @@ class FicaSubmission extends Model
         'co_verified_at'           => 'datetime',
         'risk_rating'              => 'integer',
         'wet_ink_received_date'    => 'date',
+        'fica_expires_at'          => 'date',
     ];
 
     // ── Relationships ──
@@ -134,9 +137,35 @@ class FicaSubmission extends Model
         return $this->intake_type === 'wet_ink';
     }
 
-    public function isExpired(): bool
+    public function isTokenExpired(): bool
     {
         return $this->token_expires_at && $this->token_expires_at->isPast();
+    }
+
+    /**
+     * Alias for isTokenExpired() — preserves backward compatibility.
+     * For FICA validity expiry, use isFicaExpired() instead.
+     */
+    public function isExpired(): bool
+    {
+        return $this->isTokenExpired();
+    }
+
+    public function isFicaExpired(): bool
+    {
+        return $this->fica_expires_at && $this->fica_expires_at->isPast();
+    }
+
+    public function scopeExpiringSoon(Builder $query, int $days = 60): Builder
+    {
+        return $query->whereNotNull('fica_expires_at')
+            ->whereBetween('fica_expires_at', [now(), now()->addDays($days)]);
+    }
+
+    public function scopeExpired(Builder $query): Builder
+    {
+        return $query->whereNotNull('fica_expires_at')
+            ->where('fica_expires_at', '<', now());
     }
 
     public function isSubmitted(): bool

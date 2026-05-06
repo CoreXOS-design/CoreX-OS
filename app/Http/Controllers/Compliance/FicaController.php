@@ -337,6 +337,7 @@ class FicaController extends Controller
             'risk_rating'          => $validated['risk_rating'],
             'verified_by'          => Auth::id(),
             'verified_at'          => now(),
+            'fica_expires_at'      => now()->addMonths(24),
             'co_verified_by'       => Auth::id(),
             'co_verified_at'       => now(),
             'co_verification_data' => $coChecklistData,

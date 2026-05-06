@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\CommandCenter\CalendarEvent;
+use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
@@ -408,5 +411,17 @@ class Property extends Model
             $this->gallery_images_json ?? [],
             $this->images_json         ?? [],
         );
+    }
+
+    // ── Calendar event links (M2.2) ──
+
+    public function calendarEventLinks(): MorphMany
+    {
+        return $this->morphMany(CalendarEventLink::class, 'linkable');
+    }
+
+    public function calendarEvents()
+    {
+        return $this->morphToMany(CalendarEvent::class, 'linkable', 'calendar_event_links', null, 'calendar_event_id');
     }
 }

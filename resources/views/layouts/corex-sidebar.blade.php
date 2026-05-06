@@ -102,13 +102,20 @@
         'commercial-evaluations.*'
     )) {
         $activeGroup = 'real-estate';
+    } elseif (request()->routeIs('payroll.*')) {
+        $activeGroup = 'payroll';
+    } elseif (request()->routeIs('leave.*')) {
+        $activeGroup = 'leave';
     }
 @endphp
 
 <div class="corex-sidebar">
-    {{-- Logo --}}
-    <div class="corex-sidebar-logo">
-        CoreX <span>Os</span>
+    {{-- Logo + Help icon --}}
+    <div class="corex-sidebar-logo" style="display:flex; align-items:center; justify-content:space-between;">
+        <span>CoreX <span>Os</span></span>
+        @auth
+        <div id="help-widget-slot" style="flex-shrink:0;"></div>
+        @endauth
     </div>
     @if($_userAgency)
     <div class="px-4 -mt-1 pb-2">
@@ -236,8 +243,26 @@
                 <div class="corex-nav-panel-title">Dashboard</div>
 
                 <a href="{{ route('corex.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard') ? 'active' : '' }}">Today</a>
-                <a href="{{ route('command-center.calendar') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar*') ? 'active' : '' }}">Calendar</a>
+                <a href="{{ route('command-center.calendar') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar') ? 'active' : '' }}">Calendar</a>
+                @php $pendingInvites = auth()->check() ? \App\Models\CommandCenter\CalendarEventInvitation::forUser(auth()->id())->pending()->count() : 0; @endphp
+                <a href="{{ route('command-center.calendar.invitations') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar.invitations*') ? 'active' : '' }}">
+                    Invitations @if($pendingInvites > 0) <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420; color:#ef4444;">{{ $pendingInvites }}</span> @endif
+                </a>
+                @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
+                    <a href="{{ route('command-center.settings.event-classes') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.settings.event-classes*') ? 'active' : '' }}">Event Classes</a>
+                @endif
                 <a href="{{ route('command-center.tasks') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.tasks*') ? 'active' : '' }}">Tasks</a>
+                <a href="{{ route('command-center.reporting.agent') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.agent') ? 'active' : '' }}">My Performance</a>
+                @permission('dashboard.oversight.view')
+                <a href="{{ route('command-center.reporting.branch') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.branch') ? 'active' : '' }}">Branch Report</a>
+                @endpermission
+                @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
+                <a href="{{ route('command-center.reporting.agency') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.agency') ? 'active' : '' }}">Agency Report</a>
+                @endif
+                <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') ? 'active' : '' }}">Buyer Pipeline</a>
+                @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
+                <a href="{{ route('command-center.lost-deals') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.lost-deals') ? 'active' : '' }}">Lost Deals</a>
+                @endif
                 @permission('dashboard.oversight.view')
                     <a href="{{ route('corex.dashboard.oversight') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard.oversight') ? 'active' : '' }}">Oversight</a>
                 @endpermission
@@ -893,7 +918,7 @@
         {{-- ═══════════════════════════════════════════
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
-        @if($user && $user->hasAnyPermission(['access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings']))
+        @if($user && $user->hasAnyPermission(['access_knowledge_base', 'access_role_manager', 'access_finance_engine', 'access_settings', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
@@ -958,6 +983,125 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5ZM8.25 6h7.5v2.25h-7.5V6ZM12 2.25c-1.892 0-3.758.11-5.593.322C5.307 2.7 4.5 3.65 4.5 4.757V19.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V4.757c0-1.108-.806-2.057-1.907-2.185A48.507 48.507 0 0 0 12 2.25Z" />
             </svg>
             <span>Finance Engine</span>
+        </a>
+        @endpermission
+
+        {{-- Contact Governance + Leave Visibility (admin/super_admin/owner) --}}
+        @if($user && in_array($user->role, ['admin', 'super_admin', 'owner']))
+        <a href="{{ route('command-center.settings.contact-governance') }}" class="corex-nav-item {{ request()->routeIs('command-center.settings.contact-governance*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+            </svg>
+            <span>Contact Governance</span>
+        </a>
+        <a href="{{ route('command-center.settings.leave-visibility') }}" class="corex-nav-item {{ request()->routeIs('command-center.settings.leave-visibility*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            <span>Leave Visibility</span>
+        </a>
+        <a href="{{ route('command-center.admin.duplicate-cleanup') }}" class="corex-nav-item {{ request()->routeIs('command-center.admin.duplicate-cleanup*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+            </svg>
+            <span>Duplicate Cleanup</span>
+        </a>
+        <a href="{{ route('command-center.settings.market-intelligence') }}" class="corex-nav-item {{ request()->routeIs('command-center.settings.market-intelligence*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+            </svg>
+            <span>Market Intelligence</span>
+        </a>
+        @php $feedbackCount = DB::table('feedback_reports')->where('agency_id', auth()->user()->effectiveAgencyId() ?? 1)->where('status', 'new')->count(); @endphp
+        <a href="{{ route('command-center.feedback-reports') }}" class="corex-nav-item {{ request()->routeIs('command-center.feedback-reports*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
+            <span>Feedback Reports</span>
+            @if($feedbackCount > 0)<span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420;color:#ef4444;">{{ $feedbackCount }}</span>@endif
+        </a>
+        @endif
+
+        {{-- Payroll (expandable group) --}}
+        @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        <div>
+            <button type="button" @click="toggle('payroll')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'payroll' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                </svg>
+                <span>Payroll</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'payroll' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'payroll'" @unless($activeGroup === 'payroll') x-cloak @endunless
+                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+
+                @permission('manage_payroll')
+                <a href="{{ route('payroll.employees.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.employees.*') ? 'active' : '' }}">Employees</a>
+                <a href="{{ route('payroll.earning-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.earning-types.*') ? 'active' : '' }}">Earning Types</a>
+                <a href="{{ route('payroll.deduction-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.deduction-types.*') ? 'active' : '' }}">Deduction Types</a>
+                @endpermission
+
+                @permission('run_payroll')
+                <a href="{{ route('payroll.runs.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.runs.*') ? 'active' : '' }}">Runs</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
+
+        {{-- Leave Management (expandable group) --}}
+        @if($user && $user->hasAnyPermission(['manage_leave', 'approve_leave', 'view_leave_reports', 'manage_leave_types', 'adjust_leave_balances']))
+        <div>
+            <button type="button" @click="toggle('leave')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'leave' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" />
+                </svg>
+                <span>Leave Management</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'leave' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'leave'" @unless($activeGroup === 'leave') x-cloak @endunless
+                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+
+                @permission('manage_leave')
+                <a href="{{ route('payroll.leave.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.dashboard') ? 'active' : '' }}">Dashboard</a>
+                @endpermission
+
+                @permission('approve_leave')
+                <a href="{{ route('payroll.leave.applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.applications.*') ? 'active' : '' }}">Applications</a>
+                @endpermission
+
+                @permission('manage_leave')
+                <a href="{{ route('payroll.leave.balances.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.balances.*') ? 'active' : '' }}">Balances</a>
+                @endpermission
+
+                @permission('manage_leave_types')
+                <a href="{{ route('payroll.leave.types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.types.*') ? 'active' : '' }}">Leave Types</a>
+                @endpermission
+
+                @permission('view_leave_reports')
+                <a href="{{ route('payroll.leave.reports.register') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.reports.*') ? 'active' : '' }}">Reports</a>
+                @endpermission
+
+                @permission('manage_leave_types')
+                <a href="{{ route('payroll.leave.public-holidays.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.leave.public-holidays.*') ? 'active' : '' }}">Public Holidays</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
+
+        {{-- Staff Take-On --}}
+        @permission('manage_staff_take_on')
+        <a href="{{ route('staff-take-on.index') }}" class="corex-nav-item {{ request()->routeIs('staff-take-on.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" />
+            </svg>
+            <span>Staff Take-On</span>
         </a>
         @endpermission
 

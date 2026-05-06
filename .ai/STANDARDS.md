@@ -139,3 +139,30 @@ Before any code changes, read CLAUDE.md, STANDARDS.md, and the relevant spec fro
 
 ### Rule 16: Functional Verification Required
 php -l and dev-check are necessary but not sufficient. Every feature must be verified via Tinker or equivalent to confirm it actually works end-to-end, not just compiles.
+
+---
+
+## Known Limitations
+
+### View-As vs Switch User (Impersonation)
+
+CoreX has TWO user-perspective features. They are NOT the same:
+
+| Feature | Trigger | What it does | Visibility scopes work? |
+|---------|---------|--------------|------------------------|
+| **View As** (role dropdown) | Owner header dropdown → "View As [role]" | Swaps `role` + `branch_id` in session ONLY. Auth::user() unchanged. | **NO** — scopes still see original user |
+| **Switch User** (impersonation) | Sidebar user menu → "Switch User" → pick user | Full `Auth::login($target)`. Auth::user() fully swapped. | **YES** — all scopes behave correctly |
+
+**Rule: To test visibility-scoped features (ContactScope, CalendarVisibilityResolver, future scopes), use "Switch User" — NOT "View As".**
+
+The "View As" role dropdown is useful ONLY for testing permission/UI gating (what menu items appear, what buttons show). It does NOT affect data visibility scopes because `Auth::user()` remains the original super_admin.
+
+**Impersonation system details:**
+- Controller: `App\Http\Controllers\Admin\ImpersonateController`
+- Routes: `POST /admin/impersonate/{user}` (start), `POST /admin/impersonate/stop` (exit)
+- Permission required: `impersonate_users` or owner role
+- Audit log: `impersonation_logs` table (admin_user_id, target_user_id, action, ip, user_agent)
+- Banner shown during impersonation (amber "Viewing as [name]" with exit button)
+- Session marker: `impersonator_id` stores original admin's id for restoration
+
+**Diagnostic pattern:** If a visibility-scoped feature shows wrong results, check which feature was used. If "View As" → switch to "Switch User" instead. If "Switch User" → the scope has a genuine bug.

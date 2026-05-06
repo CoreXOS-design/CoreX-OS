@@ -15,6 +15,48 @@ use Illuminate\Support\Facades\Log;
 class PropertyObserver
 {
     /**
+     * Ensure branch_id is populated on new properties.
+     * Derives from agent's branch_id; falls back to agency's default branch.
+     */
+    public function creating(Property $property): void
+    {
+        if (!empty($property->branch_id)) {
+            return;
+        }
+
+        // Try agent's branch
+        if ($property->agent_id) {
+            $agentBranch = \DB::table('users')->where('id', $property->agent_id)->value('branch_id');
+            if ($agentBranch) {
+                $property->branch_id = $agentBranch;
+                return;
+            }
+        }
+
+        // Try creator's branch
+        $user = \Illuminate\Support\Facades\Auth::user();
+        if ($user && $user->branch_id) {
+            $property->branch_id = $user->branch_id;
+            return;
+        }
+
+        // Fallback: agency's default branch
+        $agencyId = $property->agency_id ?? ($user ? $user->effectiveAgencyId() : null);
+        if ($agencyId) {
+            $agency = \App\Models\Agency::withoutGlobalScopes()->find($agencyId);
+            if ($agency && $agency->default_branch_id) {
+                $property->branch_id = $agency->default_branch_id;
+            } else {
+                $property->branch_id = \App\Models\Branch::withoutGlobalScopes()
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->orderBy('id')
+                    ->value('id') ?? 1;
+            }
+        }
+    }
+
+    /**
      * Reject owner-role users as listing agents. System Owners are
      * platform identities — they don't own properties, they supervise
      * every agency. This observer closes the write side; the read side

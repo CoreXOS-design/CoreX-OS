@@ -83,6 +83,20 @@ return new class extends Migration
             $this->row('agent.ffc_expiring', 'agent', 'Compliance', 'FFC expiring',
                 'Notifies you ahead of your Fidelity Fund Certificate expiry.',
                 'days', 30, 1, 180, true, 'ffc_reminders'),
+
+            // Leave
+            $this->row('leave.submitted', 'agent', 'Leave', 'Leave application submitted',
+                'A team member has submitted a leave application for your review.', 'none', null, null, null),
+            $this->row('leave.approved', 'agent', 'Leave', 'Leave application approved',
+                'Your leave application has been approved.', 'none', null, null, null),
+            $this->row('leave.rejected', 'agent', 'Leave', 'Leave application rejected',
+                'Your leave application has been rejected.', 'none', null, null, null),
+            $this->row('leave.cancelled', 'agent', 'Leave', 'Leave application cancelled',
+                'A leave application has been cancelled.', 'none', null, null, null),
+            $this->row('leave.starting_soon', 'agent', 'Leave', 'Leave starting in 3 days',
+                'Your approved leave is starting in 3 days.', 'none', null, null, null),
+            $this->row('leave.ending_soon', 'agent', 'Leave', 'Leave ends today',
+                'Your leave ends today — welcome back tomorrow.', 'none', null, null, null),
         ];
     }
 

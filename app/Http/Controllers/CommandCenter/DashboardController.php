@@ -9,6 +9,8 @@ use App\Models\CommandCenter\PropertyHealthScore;
 use App\Models\CommandCenter\AgentScorecard;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Services\CandidatePractitionerService;
+use App\Services\CommandCenter\Calendar\CalendarThresholdResolver;
+use App\Services\CommandCenter\Calendar\CalendarVisibilityResolver;
 use App\Services\CommandCenter\CalendarEventService;
 use App\Services\CommandCenter\PropertyHealthCalculator;
 use App\Services\CommandCenter\TaskService;
@@ -95,6 +97,33 @@ class DashboardController extends Controller
 
         $inboxTotal = $inboxOverdueTasks->count() + $inboxOverdueEvents->count() + $candidateDocs->count();
 
+        // ── Calendar widget — Coming up (next 7 days) ──
+        $thresholdResolver = app(CalendarThresholdResolver::class);
+        $visibilityResolver = app(CalendarVisibilityResolver::class);
+
+        $widgetRaw = $calendarService->getEventsForRange(
+            $user,
+            now()->startOfDay()->toDateString(),
+            now()->copy()->addDays(7)->endOfDay()->toDateString()
+        );
+
+        $upcomingEvents = collect($visibilityResolver->filterVisible($widgetRaw, $user))
+            ->map(function ($e) use ($thresholdResolver) {
+                $e->resolved_colour = $thresholdResolver->resolveForEvent($e);
+                return $e;
+            })
+            ->filter(fn ($e) => $e->resolved_colour !== null)
+            ->sortBy('event_date')
+            ->take(12)
+            ->values();
+
+        $upcomingClassLabels = \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
+            ->whereIn('event_class', $upcomingEvents->pluck('category')->unique()->all())
+            ->whereNull('agency_id')
+            ->pluck('label', 'event_class');
+
+        $upcomingByDate = $upcomingEvents->groupBy(fn ($e) => $e->event_date->toDateString());
+
         return view('command-center.dashboard', [
             'user'                => $user,
             'period'              => $period,
@@ -110,6 +139,9 @@ class DashboardController extends Controller
             'inboxOverdueTasks'   => $inboxOverdueTasks,
             'inboxOverdueEvents'  => $inboxOverdueEvents,
             'inboxTotal'          => $inboxTotal,
+            'upcomingEvents'      => $upcomingEvents,
+            'upcomingByDate'      => $upcomingByDate,
+            'upcomingClassLabels' => $upcomingClassLabels,
         ]);
     }
 

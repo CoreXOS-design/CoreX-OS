@@ -97,3 +97,25 @@ Schedule::job(new \App\Jobs\OversightDigestJob())->hourly()->withoutOverlapping(
 Schedule::command('notifications:scan-properties')->everyThirtyMinutes()->withoutOverlapping();
 Schedule::command('notifications:scan-contacts')->hourly()->withoutOverlapping();
 Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOverlapping();
+
+// ── Calendar Event Classes ──
+Schedule::command('corex:calendar:send-digests')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
+Schedule::command('corex:calendar:reconcile')->dailyAt('03:00')->withoutOverlapping()->onOneServer();
+
+// ── Leave Management ──
+Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
+Schedule::command('corex:leave:cycle-rollover')->dailyAt('02:30')->onOneServer()->withoutOverlapping();
+
+// ── Contact Governance (M3.4) ──
+Schedule::command('contacts:purge-retention')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
+Schedule::command('contacts:detect-duplicates')->dailyAt('03:30')->onOneServer()->withoutOverlapping();
+
+// ── Buyer CRM (M4) ──
+Schedule::command('buyers:recompute-states')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
+
+// ── Property Intelligence (M5) ──
+Schedule::command('properties:generate-recommendations')->weeklyOn(1, '05:00')->onOneServer()->withoutOverlapping();
+
+// ── Buyer Matching Engine (M6) ──
+Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
+Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();

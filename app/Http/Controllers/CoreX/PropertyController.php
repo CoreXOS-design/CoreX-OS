@@ -467,17 +467,29 @@ class PropertyController extends Controller
             }
         }
 
-        // Create + link new contacts added during create
+        // Create + link new contacts added during create (with duplicate detection)
+        $dupService = app(\App\Services\ContactDuplicateService::class);
+        $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+
         foreach ((array) $request->input('pending_new_contacts', []) as $nc) {
             if (empty($nc['first_name']) || empty($nc['last_name']) || empty($nc['phone'])) continue;
-            $contact = \App\Models\Contact::create([
-                'first_name'         => substr($nc['first_name'], 0, 100),
-                'last_name'          => substr($nc['last_name'],  0, 100),
-                'phone'              => substr($nc['phone'],       0, 30),
-                'email'              => !empty($nc['email']) ? substr($nc['email'], 0, 150) : null,
-                'contact_type_id'    => !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null,
-                'created_by_user_id' => auth()->id(),
-            ]);
+            $ncData = [
+                'first_name' => substr($nc['first_name'], 0, 100),
+                'last_name'  => substr($nc['last_name'],  0, 100),
+                'phone'      => substr($nc['phone'],       0, 30),
+                'email'      => !empty($nc['email']) ? substr($nc['email'], 0, 150) : null,
+            ];
+            // Auto-link if duplicate found (non-blocking in bulk create context)
+            $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
+            if ($existing) {
+                $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => null]]);
+                $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
+                $dupService->logAttempt($agencyId, auth()->id(), 'auto_link', $match['field'], $match['value'], $existing->id, $ncData, 'auto_linked');
+                continue;
+            }
+            $ncData['contact_type_id'] = !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null;
+            $ncData['created_by_user_id'] = auth()->id();
+            $contact = \App\Models\Contact::create($ncData);
             $property->contacts()->attach($contact->id, ['role' => null]);
         }
 

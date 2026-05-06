@@ -28,6 +28,8 @@
 
         <!-- x-cloak: inline so it works before Vite CSS loads -->
         <style>[x-cloak] { display: none !important; }</style>
+        <!-- html2canvas-pro: modern CSS color function support (color(), oklch(), color-mix()) -->
+        <script src="https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/dist/html2canvas-pro.min.js" defer></script>
         <!-- Scripts & Styles (Alpine.js bundled via Vite — no external CDN) -->
         @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
         <link rel="stylesheet" href="/css/paye-fix.css">
@@ -78,7 +80,7 @@
 
             {{-- Main area --}}
             <div class="flex-1 flex flex-col overflow-hidden min-w-0">
-                {{-- Header --}}
+                {{-- Mobile header --}}
                 <div class="corex-mobile-bar flex items-center lg:hidden px-4 py-2">
                     <button @click="sidebarOpen = true" type="button" style="color:var(--text-secondary)">
                         <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -116,9 +118,9 @@
         {{-- Global toast notifications --}}
         <x-toast-notifications />
 
-        {{-- Ellie widget (available on all pages) --}}
+        {{-- Combined Help Widget (Ellie + Feedback) — header-mounted panel --}}
         @auth
-            @include('layouts.partials.ellie-widget')
+            @include('layouts.partials.help-widget')
         @endauth
 
         @stack('scripts')
