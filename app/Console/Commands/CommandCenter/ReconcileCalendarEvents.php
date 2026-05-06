@@ -229,38 +229,84 @@ class ReconcileCalendarEvents extends Command
                 continue;
             }
 
-            $contactCount = $evt->linkedContacts->count();
-            $contactLabel = $contactCount === 1 ? 'contact' : 'contacts';
+            $contacts = $evt->linkedContacts;
+            $properties = $evt->linkedProperties;
+            $contactCount = $contacts->count();
 
-            CommandTask::create([
-                'title'            => 'Capture feedback — ' . $evt->title,
-                'description'      => "Feedback not yet captured for {$contactCount} {$contactLabel} from this event on " . $evt->event_date->format('j M, H:i') . '.',
-                'task_type'        => 'feedback',
-                'status'           => CommandTask::STATUS_TODO,
-                'priority'         => 'normal',
-                'due_date'         => now()->addDays(2),
-                'assigned_to'      => $evt->user_id,
-                'source_type'      => 'calendar:missed_feedback',
-                'calendar_event_id' => $evt->id,
-                'agency_id'        => $evt->agency_id,
-                'branch_id'        => $evt->branch_id,
-                'metadata'         => [
+            // Multi-property fan-out: one task per (event × property × buyer)
+            if ($properties->count() > 1) {
+                foreach ($properties as $prop) {
+                    // Check if feedback already exists for this property
+                    $hasFeedback = \App\Models\CommandCenter\CalendarEventFeedback::query()
+                        ->where('calendar_event_id', $evt->id)
+                        ->where('property_id', $prop->id)
+                        ->whereNotNull('captured_at')
+                        ->exists();
+                    if ($hasFeedback) continue;
+
+                    // Check no existing task for this (event × property)
+                    $taskExists = CommandTask::query()
+                        ->where('source_type', 'calendar:missed_feedback')
+                        ->where('calendar_event_id', $evt->id)
+                        ->whereJsonContains('metadata->property_id', $prop->id)
+                        ->whereIn('status', [CommandTask::STATUS_TODO, CommandTask::STATUS_IN_PROGRESS, CommandTask::STATUS_AWAITING])
+                        ->exists();
+                    if ($taskExists) continue;
+
+                    $propAddr = method_exists($prop, 'buildDisplayAddress') ? $prop->buildDisplayAddress() : ($prop->title ?? "Property #{$prop->id}");
+                    CommandTask::create([
+                        'title'            => 'Capture feedback — ' . $propAddr,
+                        'description'      => "Feedback not yet captured for {$contactCount} attendee(s) on {$propAddr} from event on " . $evt->event_date->format('j M, H:i') . '.',
+                        'task_type'        => 'feedback',
+                        'status'           => CommandTask::STATUS_TODO,
+                        'priority'         => 'normal',
+                        'due_date'         => now()->addDays(2),
+                        'assigned_to'      => $evt->user_id,
+                        'source_type'      => 'calendar:missed_feedback',
+                        'calendar_event_id' => $evt->id,
+                        'agency_id'        => $evt->agency_id,
+                        'branch_id'        => $evt->branch_id,
+                        'metadata'         => [
+                            'calendar_event_id' => $evt->id,
+                            'property_id'       => $prop->id,
+                            'auto_created'      => true,
+                            'created_via'       => 'reconcile_command',
+                        ],
+                    ]);
+                    $created++;
+                }
+            } else {
+                // Single-property event: one task per event (existing pattern)
+                $contactLabel = $contactCount === 1 ? 'contact' : 'contacts';
+                CommandTask::create([
+                    'title'            => 'Capture feedback — ' . $evt->title,
+                    'description'      => "Feedback not yet captured for {$contactCount} {$contactLabel} from this event on " . $evt->event_date->format('j M, H:i') . '.',
+                    'task_type'        => 'feedback',
+                    'status'           => CommandTask::STATUS_TODO,
+                    'priority'         => 'normal',
+                    'due_date'         => now()->addDays(2),
+                    'assigned_to'      => $evt->user_id,
+                    'source_type'      => 'calendar:missed_feedback',
                     'calendar_event_id' => $evt->id,
-                    'auto_created'      => true,
-                    'created_via'       => 'reconcile_command',
-                ],
-            ]);
+                    'agency_id'        => $evt->agency_id,
+                    'branch_id'        => $evt->branch_id,
+                    'metadata'         => [
+                        'calendar_event_id' => $evt->id,
+                        'auto_created'      => true,
+                        'created_via'       => 'reconcile_command',
+                    ],
+                ]);
+                $created++;
+            }
 
             CalendarEventAuditEntry::create([
                 'calendar_event_id'    => $evt->id,
                 'action'               => 'feedback_task_created',
-                'new_values'           => ['reason' => 'feedback_missed_24h_grace'],
+                'new_values'           => ['reason' => 'feedback_missed_24h_grace', 'properties_count' => $properties->count()],
                 'performed_by_user_id' => null,
                 'performed_at'         => now(),
                 'notes'                => 'Auto-task created by reconciliation command',
             ]);
-
-            $created++;
         }
 
         return $created;

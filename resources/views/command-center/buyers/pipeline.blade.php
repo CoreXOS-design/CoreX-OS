@@ -23,8 +23,8 @@
     </div>
 
     @if($view === 'kanban')
-        {{-- Kanban View --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {{-- Kanban View (drag-drop enabled) --}}
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" x-data="kanbanDrag()">
             @foreach(['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost'] as $stateKey => $stateLabel)
                 @php
                     $stateColour = match($stateKey) {
@@ -35,16 +35,28 @@
                     };
                     $stateItems = $columns[$stateKey] ?? collect();
                 @endphp
-                <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);"
+                     @dragover.prevent="dragOverColumn('{{ $stateKey }}')"
+                     @drop.prevent="dropOnColumn('{{ $stateKey }}')"
+                     :style="dragTarget === '{{ $stateKey }}' ? 'outline: 2px solid {{ $stateColour }}; outline-offset: -2px;' : ''">
                     <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 2px solid {{ $stateColour }};">
                         <span class="text-sm font-semibold" style="color: var(--text-primary);">{{ $stateLabel }}</span>
                         <span class="text-xs px-2 py-0.5 rounded-full font-bold" style="background: {{ $stateColour }}20; color: {{ $stateColour }};">{{ $counts[$stateKey] ?? 0 }}</span>
                     </div>
                     <div class="p-2 space-y-2 max-h-[60vh] overflow-y-auto">
                         @forelse($stateItems as $buyer)
-                            <a href="{{ route('corex.contacts.show', $buyer) }}"
-                               class="block p-3 rounded-md transition hover:opacity-80 no-underline"
+                            @php $buyerRisk = $riskScores[$buyer->id] ?? null; @endphp
+                            <a href="{{ route('command-center.buyers.show', $buyer) }}"
+                               draggable="true"
+                               @dragstart="startDrag({{ $buyer->id }}, '{{ $stateKey }}')"
+                               @dragend="endDrag()"
+                               class="block p-3 rounded-md transition hover:opacity-80 no-underline relative cursor-grab active:cursor-grabbing"
                                style="background: var(--surface-2); border: 1px solid var(--border);">
+                                @if($buyerRisk !== null && $buyerRisk > 30)
+                                    <span class="absolute top-2 right-2 w-2.5 h-2.5 rounded-full"
+                                          style="background: {{ $buyerRisk > 60 ? '#ef4444' : '#f59e0b' }};"
+                                          title="Lost risk: {{ $buyerRisk }}/100"></span>
+                                @endif
                                 <div class="flex items-center gap-2 mb-1">
                                     <div class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
                                          style="background: {{ $stateColour }};">
@@ -59,6 +71,11 @@
                                     <span>{{ $buyer->last_activity_at ? $buyer->last_activity_at->diffForHumans() : 'No activity' }}</span>
                                     <span>{{ $buyer->buyerPropertyViews()->count() }} properties</span>
                                 </div>
+                            </a>
+                            <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
+                               class="block mt-1 text-center text-[10px] font-medium py-1 rounded no-underline hover:opacity-80"
+                               style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 8%, transparent);">
+                                Schedule Viewing
                             </a>
                         @empty
                             <div class="py-6 text-center text-xs" style="color: var(--text-muted);">No buyers in this state</div>
@@ -93,7 +110,7 @@
                         @endphp
                         <tr style="border-bottom: 1px solid var(--border);">
                             <td class="px-4 py-3">
-                                <a href="{{ route('corex.contacts.show', $buyer) }}" class="text-sm font-medium no-underline" style="color: var(--text-primary);">
+                                <a href="{{ route('command-center.buyers.show', $buyer) }}" class="text-sm font-medium no-underline" style="color: var(--text-primary);">
                                     {{ $buyer->full_name }}
                                 </a>
                             </td>
@@ -118,4 +135,60 @@
         </div>
     @endif
 </div>
+
+<script>
+function kanbanDrag() {
+    return {
+        draggingId: null,
+        draggingFrom: null,
+        dragTarget: null,
+
+        startDrag(buyerId, fromState) {
+            this.draggingId = buyerId;
+            this.draggingFrom = fromState;
+        },
+        endDrag() {
+            this.draggingId = null;
+            this.draggingFrom = null;
+            this.dragTarget = null;
+        },
+        dragOverColumn(stateKey) {
+            if (!this.draggingId) return;
+            this.dragTarget = stateKey;
+        },
+        async dropOnColumn(newState) {
+            if (!this.draggingId || newState === this.draggingFrom) {
+                this.endDrag();
+                return;
+            }
+
+            // Lost requires reason — redirect to buyer hub Mark Lost
+            if (newState === 'lost') {
+                window.location.href = '/corex/command-center/buyers/' + this.draggingId + '?action=mark-lost';
+                return;
+            }
+
+            try {
+                const r = await fetch('/corex/command-center/buyers/' + this.draggingId + '/state', {
+                    method: 'PATCH',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({ state: newState }),
+                });
+                if (r.ok) {
+                    window.location.reload();
+                } else {
+                    alert('Could not transition buyer state.');
+                }
+            } catch (e) {
+                alert('Network error.');
+            }
+            this.endDrag();
+        },
+    };
+}
+</script>
 @endsection

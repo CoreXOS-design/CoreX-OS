@@ -13,6 +13,15 @@ use App\Http\Controllers\Admin\DealController;
 use App\Http\Controllers\Agent\DealRegisterController;
 use App\Http\Controllers\Admin\MonthlyGoalController;
 
+// ── Seller Live Link (public, no auth) ──
+Route::get('/property/live/demo', [\App\Http\Controllers\SellerLinkController::class, 'demo'])->name('seller-link.demo');
+Route::get('/property/live/{token}', [\App\Http\Controllers\SellerLinkController::class, 'show'])->name('seller-link.show');
+
+// ── Buyer Portal (public, no auth) ──
+Route::get('/buyer/portal/demo', [\App\Http\Controllers\BuyerPortalController::class, 'demo'])->name('buyer-portal.demo');
+Route::get('/buyer/portal/{token}', [\App\Http\Controllers\BuyerPortalController::class, 'show'])->name('buyer-portal.show');
+Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalController::class, 'respond'])->name('buyer-portal.respond');
+
 Route::get('/', function () {
     return auth()->check()
         ? redirect()->route('dashboard')
@@ -742,7 +751,85 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/tasks/{task}/complete', [CommandCenterTaskController::class, 'complete'])->name('command-center.tasks.complete');
         Route::patch('/tasks/{task}/status', [CommandCenterTaskController::class, 'updateStatus'])->name('command-center.tasks.update-status');
 
+        // Market Intelligence
+        Route::get('/settings/market-intelligence', function () {
+            $records = \Illuminate\Support\Facades\DB::table('property_sold_records')->whereNull('property_id')->orderByDesc('sold_date')->paginate(25);
+            return view('command-center.settings.market-intelligence', ['records' => $records]);
+        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence');
+        Route::post('/settings/market-intelligence', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate(['address' => 'required|string', 'suburb' => 'required|string', 'area' => 'nullable|string', 'sold_price' => 'required|numeric', 'sold_date' => 'required|date', 'property_type' => 'nullable|string', 'bedrooms' => 'nullable|integer', 'sqm' => 'nullable|numeric', 'source_reference' => 'required|string']);
+            \Illuminate\Support\Facades\DB::table('property_sold_records')->insert(array_merge($data, ['source' => 'manual', 'captured_by_user_id' => auth()->id(), 'captured_at' => now(), 'agency_id' => auth()->user()->effectiveAgencyId() ?? 1, 'created_at' => now(), 'updated_at' => now()]));
+            return back()->with('success', 'Market intelligence record added.');
+        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence.store');
+        Route::post('/settings/market-intelligence/{id}/verify', function (int $id) {
+            \Illuminate\Support\Facades\DB::table('property_sold_records')->where('id', $id)->update(['verified' => true, 'verified_by_user_id' => auth()->id(), 'verified_at' => now()]);
+            return back()->with('success', 'Record verified.');
+        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence.verify');
+
+        // Buyer Portal Links — agent management
+        Route::post('/buyers/portal-links/generate', function (\Illuminate\Http\Request $request) {
+            $request->validate(['contact_id' => 'required|integer|exists:contacts,id']);
+            // Revoke existing active links
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $request->contact_id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            $token = bin2hex(random_bytes(32));
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->insert([
+                'contact_id' => $request->contact_id, 'token' => $token,
+                'generated_by_user_id' => auth()->id(), 'generated_at' => now(),
+                'access_count' => 0, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            return back()->with('success', 'Buyer portal link generated.')->with('buyer_portal_url', url('/buyer/portal/' . $token));
+        })->name('command-center.buyers.portal-links.generate');
+
+        Route::post('/buyers/portal-links/{id}/revoke', function (int $id) {
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('id', $id)->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            return back()->with('success', 'Buyer portal link revoked.');
+        })->name('command-center.buyers.portal-links.revoke');
+
+        // Calendar Invitations
+        Route::get('/calendar/invitations', function () {
+            $invitations = \App\Models\CommandCenter\CalendarEventInvitation::forUser(auth()->id())
+                ->with(['event', 'inviter'])->whereIn('status', ['pending', 'tentative'])
+                ->orderByDesc('created_at')->paginate(20);
+            return view('command-center.calendar.invitations', ['invitations' => $invitations]);
+        })->name('command-center.calendar.invitations');
+        Route::post('/calendar/invitations/{invitation}/respond', function (\Illuminate\Http\Request $request, \App\Models\CommandCenter\CalendarEventInvitation $invitation) {
+            if ((int) $invitation->invitee_user_id !== auth()->id()) abort(403);
+            $data = $request->validate(['action' => 'required|in:accepted,tentative,declined', 'notes' => 'nullable|string|max:500']);
+            $invitation->update(['status' => $data['action'], 'response_at' => now(), 'response_notes' => $data['notes'] ?? null]);
+            \Illuminate\Support\Facades\DB::table('notifications')->insert([
+                'id' => \Illuminate\Support\Str::uuid(), 'type' => 'invitation_response', 'notifiable_type' => 'App\\Models\\User',
+                'notifiable_id' => $invitation->inviter_user_id,
+                'data' => json_encode(['message' => auth()->user()->name . ' ' . $data['action'] . ': ' . ($invitation->event?->title ?? 'Event'), 'event_id' => $invitation->event_id]),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            return back()->with('success', 'Response recorded.');
+        })->name('command-center.calendar.invitations.respond');
+        Route::get('/calendar/check-conflicts', function (\Illuminate\Http\Request $request) {
+            $svc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);
+            return response()->json($svc->checkUserConflicts((int)$request->get('user_id'), $request->get('start'), $request->get('end'), $request->get('exclude_event_id')));
+        })->name('command-center.calendar.check-conflicts');
+
+        Route::get('/reporting/agent', [\App\Http\Controllers\CommandCenter\ReportingController::class, 'agentDashboard'])->name('command-center.reporting.agent');
+        Route::get('/reporting/branch', [\App\Http\Controllers\CommandCenter\ReportingController::class, 'branchDashboard'])->middleware('permission:dashboard.oversight.view')->name('command-center.reporting.branch');
+        Route::get('/reporting/agency', [\App\Http\Controllers\CommandCenter\ReportingController::class, 'agencyDashboard'])->name('command-center.reporting.agency');
+
         Route::get('/buyers/pipeline', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'index'])->name('command-center.buyers.pipeline');
+        Route::get('/buyers/{contact}', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'show'])->name('command-center.buyers.show');
+        Route::post('/buyers/{contact}/preferences', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'savePreferences'])->name('command-center.buyers.preferences');
+        Route::post('/buyers/{contact}/playbook-action', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markPlaybookAction'])->name('command-center.buyers.playbook-action');
+        Route::post('/buyers/{contact}/mark-lost', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markLost'])->name('command-center.buyers.mark-lost');
+        Route::post('/buyers/{contact}/reengage', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'reengage'])->name('command-center.buyers.reengage');
+
+        Route::get('/lost-deals', function (\Illuminate\Http\Request $request) {
+            $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+            $days = (int) $request->get('days', 90);
+            $analytics = app(\App\Services\LostDealAnalyticsService::class);
+            return view('command-center.lost-deals', [
+                'days' => $days,
+                'distribution' => $analytics->getReasonDistribution($agencyId, $days),
+                'valueData' => $analytics->getValueAtLoss($agencyId, $days),
+            ]);
+        })->middleware('permission:command_center.settings')->name('command-center.lost-deals');
         Route::patch('/buyers/{contact}/state', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'updateState'])->name('command-center.buyers.update-state');
 
         Route::get('/admin/duplicate-cleanup', [\App\Http\Controllers\CommandCenter\DuplicateCleanupController::class, 'index'])->middleware('permission:command_center.settings')->name('command-center.admin.duplicate-cleanup');
@@ -1230,6 +1317,87 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Properties — listing sync to website
     Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required'])->name('corex.properties.')->group(function () {
+        // Seller Live Links — agent management
+        Route::post('/seller-links/generate', [\App\Http\Controllers\SellerLinkController::class, 'generate'])->name('seller-links.generate');
+        Route::post('/seller-links/{link}/revoke', [\App\Http\Controllers\SellerLinkController::class, 'revoke'])->name('seller-links.revoke');
+
+        // Mark as Sold
+        Route::post('/mark-sold', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate([
+                'property_id' => 'required|integer|exists:properties,id',
+                'sold_price' => 'required|numeric|min:0',
+                'sold_date' => 'required|date',
+                'listing_price_at_sale' => 'nullable|numeric',
+                'notes' => 'nullable|string|max:1000',
+            ]);
+            $property = \App\Models\Property::withoutGlobalScopes()->findOrFail($data['property_id']);
+            $dom = $property->published_at ? (int) $property->published_at->diffInDays(now()) : null;
+
+            \Illuminate\Support\Facades\DB::table('property_sold_records')->insert([
+                'property_id' => $property->id,
+                'address' => $property->title,
+                'suburb' => $property->suburb,
+                'sold_price' => $data['sold_price'],
+                'sold_date' => $data['sold_date'],
+                'listing_price_at_sale' => $data['listing_price_at_sale'] ?? $property->price,
+                'days_on_market' => $dom,
+                'property_type' => $property->property_type,
+                'source' => 'manual',
+                'captured_by_user_id' => auth()->id(),
+                'captured_at' => now(),
+                'agency_id' => $property->agency_id,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            $property->update(['status' => 'sold']);
+
+            \App\Models\PropertyMarketingActivity::create([
+                'property_id' => $property->id,
+                'activity_type' => 'other',
+                'activity_data' => ['action' => 'marked_sold', 'sold_price' => $data['sold_price']],
+                'occurred_at' => now(),
+                'logged_by_user_id' => auth()->id(),
+            ]);
+
+            return back()->with('success', 'Property marked as sold. Sold record created.');
+        })->name('mark-sold');
+
+        // Marketing Activity — manual logging
+        Route::post('/marketing-activity', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate([
+                'property_id' => 'required|integer|exists:properties,id',
+                'activity_type' => 'required|string|max:50',
+                'notes' => 'nullable|string|max:1000',
+                'occurred_at' => 'nullable|date',
+                'internal_only' => 'nullable|boolean',
+            ]);
+            \App\Models\PropertyMarketingActivity::create([
+                'property_id' => $data['property_id'],
+                'activity_type' => $data['activity_type'],
+                'activity_data' => $data['notes'] ? ['notes' => $data['notes']] : null,
+                'occurred_at' => $data['occurred_at'] ?? now(),
+                'logged_by_user_id' => auth()->id(),
+                'internal_only' => $data['internal_only'] ?? false,
+            ]);
+            return back()->with('success', 'Marketing activity logged.');
+        })->name('marketing-activity.store');
+
+        // Property Intelligence Hub — recommendation actions
+        Route::post('/recommendations/{id}/action', function (\Illuminate\Http\Request $request, int $id) {
+            $rec = \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->first();
+            if (!$rec) abort(404);
+            $action = $request->input('action'); // 'actioned' or 'dismissed'
+            if ($action === 'actioned') {
+                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['actioned_at' => now(), 'actioned_by' => auth()->id()]);
+            } elseif ($action === 'dismissed') {
+                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['dismissed_at' => now(), 'dismissed_by' => auth()->id()]);
+            } elseif ($action === 'toggle_seller_visible') {
+                $current = (bool) $rec->seller_visible;
+                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['seller_visible' => !$current]);
+            }
+            return $request->wantsJson() ? response()->json(['ok' => true]) : back()->with('success', 'Recommendation updated.');
+        })->name('recommendations.action');
+
         Route::get('/',                        [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])->name('index');
         Route::get('/create',                  [\App\Http\Controllers\CoreX\PropertyController::class, 'create'])->name('create');
         Route::post('/',                       [\App\Http\Controllers\CoreX\PropertyController::class, 'store'])->name('store');

@@ -389,7 +389,7 @@ class CalendarController extends Controller
                 ->where('is_active', true)
                 ->whereIn('event_class', self::MANUAL_CREATABLE_CLASSES)
                 ->orderBy('label')
-                ->get(['event_class', 'label']),
+                ->get(['event_class', 'label', 'allow_multiple_properties', 'actor_role', 'completion_behaviour']),
         ];
     }
 
@@ -457,6 +457,8 @@ class CalendarController extends Controller
             'has_contacts' => $calendarEvent->linkedContacts()->exists(),
             'is_editable' => $isManual,
             'is_actionable' => ($cfg->event_nature ?? 'actionable') === 'actionable',
+            'actor_role' => $cfg->actor_role ?? 'neither',
+            'completion_behaviour' => $cfg->completion_behaviour ?? 'freeform',
             'is_draggable' => $isManual,
             'linked_property' => $calendarEvent->property_id ? [
                 'id' => $calendarEvent->property_id,
@@ -467,11 +469,12 @@ class CalendarController extends Controller
                 'address' => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
             ])->values(),
             'attendees' => $isManual ? $calendarEvent->links()
-                ->where('role', 'attendee')
+                ->whereIn('role', ['attendee', 'buyer_contact', 'seller_contact', 'agent_contact'])
                 ->get()
                 ->map(fn ($l) => [
                     'id'   => $l->linkable_id,
                     'type' => $l->linkable_type === \App\Models\User::class ? 'agent' : 'contact',
+                    'role' => $l->role,
                     'name' => $l->linkable_type === \App\Models\User::class
                         ? optional(\App\Models\User::find($l->linkable_id))->name
                         : optional(\App\Models\Contact::withoutGlobalScopes()->find($l->linkable_id), fn ($c) => trim($c->first_name . ' ' . $c->last_name)) ?? ('Contact #' . $l->linkable_id),
@@ -626,6 +629,8 @@ class CalendarController extends Controller
             'end_date'          => 'nullable|date|after_or_equal:event_date',
             'description'       => 'nullable|string|max:2000',
             'property_id'       => 'nullable|integer|exists:properties,id',
+            'property_ids'      => 'nullable|array',
+            'property_ids.*'    => 'integer|exists:properties,id',
             'contact_ids'       => 'nullable|array',
             'contact_ids.*'     => 'integer|exists:contacts,id',
             'attendees'         => 'nullable|array',
@@ -634,7 +639,29 @@ class CalendarController extends Controller
             'deal_id'           => 'nullable|integer',
         ]);
 
-        $event = DB::transaction(function () use ($data, $user) {
+        // Resolve property_ids from either property_ids[] array or single property_id
+        $propertyIds = $data['property_ids'] ?? ($data['property_id'] ? [$data['property_id']] : []);
+        $data['_resolved_property_ids'] = $propertyIds;
+
+        // Class-config cap enforcement: reject multiple properties for single-property classes
+        if (count($propertyIds) > 1) {
+            $classConfig = CalendarEventClassSetting::withoutGlobalScopes()
+                ->where('event_class', $data['category'])
+                ->where(fn($q) => $q->where('agency_id', $user->effectiveAgencyId())->orWhereNull('agency_id'))
+                ->orderByRaw('agency_id IS NULL')
+                ->first();
+            if ($classConfig && !$classConfig->allow_multiple_properties) {
+                $propertyIds = [array_shift($propertyIds)]; // Keep only first
+                $data['_resolved_property_ids'] = $propertyIds;
+            }
+        }
+
+        // For multi-property events: append count to title if user didn't already
+        if (count($propertyIds) > 1 && !str_contains($data['title'], 'properties')) {
+            $data['title'] = $data['title'] . ' — ' . count($propertyIds) . ' properties';
+        }
+
+        $event = DB::transaction(function () use ($data, $user, $propertyIds) {
             $event = CalendarEvent::create([
                 'event_type'    => 'manual',
                 'category'      => $data['category'],
@@ -727,11 +754,14 @@ class CalendarController extends Controller
             'status'            => 'nullable|in:pending,completed,overdue,dismissed',
             'priority'          => 'nullable|in:low,normal,high,critical',
             'property_id'       => 'nullable|integer|exists:properties,id',
+            'property_ids'      => 'nullable|array',
+            'property_ids.*'    => 'integer|exists:properties,id',
             'contact_ids'       => 'nullable|array',
             'contact_ids.*'     => 'integer|exists:contacts,id',
             'attendees'         => 'nullable|array',
             'attendees.*.id'    => 'required_with:attendees|integer',
             'attendees.*.type'  => 'required_with:attendees|string|in:contact,agent',
+            'attendees.*.role'  => 'nullable|string',
             'deal_id'           => 'nullable|integer',
         ]);
 
@@ -769,6 +799,27 @@ class CalendarController extends Controller
                     'performed_at'         => now(),
                 ]);
             }
+
+            // Fix 5: Time-change re-notification to accepted attendees
+            if (isset($changed['event_date']) || isset($changed['end_date'])) {
+                $invitations = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
+                    ->whereIn('status', ['accepted', 'tentative'])->get();
+                foreach ($invitations as $inv) {
+                    DB::table('notifications')->insert([
+                        'id' => \Illuminate\Support\Str::uuid(),
+                        'type' => 'event_time_changed',
+                        'notifiable_type' => 'App\\Models\\User',
+                        'notifiable_id' => $inv->invitee_user_id,
+                        'data' => json_encode([
+                            'message' => 'Time changed: ' . $calendarEvent->title . ' is now ' . $calendarEvent->fresh()->event_date->format('D d M, H:i'),
+                            'event_id' => $calendarEvent->id,
+                            'old_start' => $oldValues['event_date'] ?? null,
+                            'new_start' => $changed['event_date'] ?? null,
+                        ]),
+                        'created_at' => now(), 'updated_at' => now(),
+                    ]);
+                }
+            }
         });
 
         $event = $calendarEvent->fresh();
@@ -777,6 +828,25 @@ class CalendarController extends Controller
 
     public function destroy(Request $request, CalendarEvent $calendarEvent)
     {
+        // Fix 6: Cancel cascade — notify attendees + cancel invitations
+        $invitations = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
+            ->whereIn('status', ['pending', 'accepted', 'tentative'])->get();
+        foreach ($invitations as $inv) {
+            $inv->update(['status' => 'cancelled']);
+            DB::table('notifications')->insert([
+                'id' => \Illuminate\Support\Str::uuid(),
+                'type' => 'event_cancelled',
+                'notifiable_type' => 'App\\Models\\User',
+                'notifiable_id' => $inv->invitee_user_id,
+                'data' => json_encode([
+                    'message' => 'Event cancelled: ' . $calendarEvent->title,
+                    'event_id' => $calendarEvent->id,
+                    'cancelled_by' => auth()->user()->name ?? 'Unknown',
+                ]),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
         $this->service->delete($calendarEvent);
         return $request->wantsJson() ? response()->json(['ok' => true]) : back()->with('success', 'Event removed.');
     }
@@ -804,10 +874,24 @@ class CalendarController extends Controller
             ->when($scope === 'branch' && $user->branch_id, fn ($c) => $c->where('branch_id', $user->branch_id));
 
         $visible = $this->visibilityResolver->filterVisible($filtered, $user);
-        return collect($visible)->map(function ($event) {
+        $result = collect($visible)->map(function ($event) {
             $event->resolved_colour = $this->thresholdResolver->resolveForEvent($event);
             return $event;
         })->filter(fn ($e) => $e->resolved_colour !== null)->values();
+
+        // Batch invitation status lookup (Fix 4 — single query, not N+1)
+        $eventIds = $result->pluck('id')->toArray();
+        if (!empty($eventIds)) {
+            $invitationStatuses = DB::table('calendar_event_invitations')
+                ->where('invitee_user_id', $user->id)
+                ->whereIn('event_id', $eventIds)
+                ->pluck('status', 'event_id');
+            foreach ($result as $event) {
+                $event->user_invitation_status = $invitationStatuses[$event->id] ?? null;
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -872,33 +956,72 @@ class CalendarController extends Controller
     {
         $records = [];
 
-        // Linked properties (via calendar_event_links pivot)
+        // Linked properties
         $properties = $event->linkedProperties;
         foreach ($properties as $p) {
             try {
                 $records[] = [
-                    'type' => 'property',
-                    'icon' => 'building',
-                    'label' => 'Property',
-                    'name' => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
+                    'type' => 'property', 'group' => 'properties', 'icon' => 'building',
+                    'label' => 'Property', 'name' => method_exists($p, 'buildDisplayAddress') ? $p->buildDisplayAddress() : ($p->title ?? "Property #{$p->id}"),
                     'url' => route('corex.properties.show', $p->id),
                 ];
-            } catch (\Throwable $e) { /* route doesn't exist */ }
+            } catch (\Throwable $e) {}
         }
 
-        // Linked contacts (attendees)
+        // Linked contacts with role grouping
         if ($user->hasPermission('access_contacts')) {
-            $contacts = $event->linkedContacts;
-            foreach ($contacts as $c) {
+            $links = $event->links()->where('linkable_type', \App\Models\Contact::class)->get();
+            foreach ($links as $link) {
+                $c = \App\Models\Contact::withoutGlobalScopes()->find($link->linkable_id);
+                if (!$c) continue;
+                $role = $link->role ?? 'attendee';
+                $group = match ($role) {
+                    'buyer_contact' => 'buyers',
+                    'seller_contact' => 'sellers',
+                    default => 'attendees',
+                };
+                $badge = match ($role) {
+                    'buyer_contact' => 'Buyer',
+                    'seller_contact' => 'Seller',
+                    default => null,
+                };
                 try {
                     $records[] = [
-                        'type' => 'contact',
-                        'icon' => 'person',
-                        'label' => 'Contact',
+                        'type' => 'contact', 'group' => $group, 'icon' => 'person',
+                        'label' => $badge ?? 'Attendee',
                         'name' => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: "Contact #{$c->id}",
-                        'url' => route('corex.contacts.show', $c->id),
+                        'url' => $c->is_buyer ? route('command-center.buyers.show', $c->id) : route('corex.contacts.show', $c->id),
+                        'badge' => $badge,
                     ];
-                } catch (\Throwable $e) { /* route doesn't exist */ }
+                } catch (\Throwable $e) {}
+            }
+
+            // Auto-derive sellers from linked properties (even if not on attendee list)
+            $sellerContactIds = collect($records)->where('group', 'sellers')->pluck('url')->toArray();
+            foreach ($properties as $p) {
+                $owners = $p->contacts()->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])->get();
+                foreach ($owners as $owner) {
+                    $ownerUrl = route('corex.contacts.show', $owner->id);
+                    if (in_array($ownerUrl, $sellerContactIds)) continue; // dedup
+                    $sellerContactIds[] = $ownerUrl;
+                    $records[] = [
+                        'type' => 'contact', 'group' => 'sellers', 'icon' => 'person',
+                        'label' => 'Seller', 'name' => $owner->full_name,
+                        'url' => $ownerUrl, 'badge' => 'Seller',
+                    ];
+                }
+            }
+        }
+
+        // Agent on event
+        if ($event->user_id) {
+            $agent = \App\Models\User::withoutGlobalScopes()->find($event->user_id);
+            if ($agent) {
+                $records[] = [
+                    'type' => 'agent', 'group' => 'agents', 'icon' => 'person',
+                    'label' => 'Agent', 'name' => $agent->name,
+                    'url' => '#', 'badge' => 'Agent',
+                ];
             }
         }
 
@@ -907,13 +1030,11 @@ class CalendarController extends Controller
         foreach ($deals as $d) {
             try {
                 $records[] = [
-                    'type' => 'deal',
-                    'icon' => 'briefcase',
-                    'label' => 'Deal',
-                    'name' => $d->reference ?? "Deal #{$d->id}",
+                    'type' => 'deal', 'group' => 'deals', 'icon' => 'briefcase',
+                    'label' => 'Deal', 'name' => $d->reference ?? "Deal #{$d->id}",
                     'url' => route('deals-v2.show', $d->id),
                 ];
-            } catch (\Throwable $e) { /* route doesn't exist */ }
+            } catch (\Throwable $e) {}
         }
 
         // Source entity (if different from above and has a resolvable link)
@@ -955,21 +1076,42 @@ class CalendarController extends Controller
      */
     private function syncEventLinks(CalendarEvent $event, array $data, $user): void
     {
-        // Remove existing user-created links (hard delete — soft delete leaves
-        // rows that violate the unique constraint on re-insert)
-        DB::table('calendar_event_links')
-            ->where('calendar_event_id', $event->id)
-            ->whereNotNull('created_by_user_id')
-            ->delete();
+        // Only delete link types that are being re-submitted (prevent edit-wipe bug)
+        $rolesToSync = [];
+        if (array_key_exists('property_ids', $data) || array_key_exists('property_id', $data) || array_key_exists('_resolved_property_ids', $data)) {
+            $rolesToSync[] = CalendarEventLink::ROLE_SUBJECT_PROPERTY;
+        }
+        if (array_key_exists('attendees', $data) || array_key_exists('contact_ids', $data)) {
+            $rolesToSync[] = CalendarEventLink::ROLE_ATTENDEE;
+            $rolesToSync[] = 'buyer_contact';
+            $rolesToSync[] = 'seller_contact';
+            $rolesToSync[] = 'agent_contact';
+        }
+        if (array_key_exists('deal_id', $data)) {
+            $rolesToSync[] = CalendarEventLink::ROLE_RELATED_DEAL;
+        }
+
+        if (!empty($rolesToSync)) {
+            DB::table('calendar_event_links')
+                ->where('calendar_event_id', $event->id)
+                ->whereNotNull('created_by_user_id')
+                ->whereIn('role', $rolesToSync)
+                ->delete();
+        }
 
         $links = [];
         $now = now();
 
-        if (!empty($data['property_id'])) {
+        // Multi-property support: use property_ids[] if available, else single property_id
+        $propertyIds = $data['_resolved_property_ids'] ?? ($data['property_ids'] ?? []);
+        if (empty($propertyIds) && !empty($data['property_id'])) {
+            $propertyIds = [$data['property_id']];
+        }
+        foreach ($propertyIds as $pid) {
             $links[] = [
                 'calendar_event_id'  => $event->id,
                 'linkable_type'      => Property::class,
-                'linkable_id'        => $data['property_id'],
+                'linkable_id'        => (int) $pid,
                 'role'               => CalendarEventLink::ROLE_SUBJECT_PROPERTY,
                 'created_by_user_id' => $user->id,
                 'created_at'         => $now,
@@ -977,20 +1119,34 @@ class CalendarController extends Controller
             ];
         }
 
+        // Derive default contact role from event class actor_role
+        $classConfig = CalendarEventClassSetting::withoutGlobalScopes()
+            ->where('event_class', $data['category'] ?? '')
+            ->where(fn($q) => $q->where('agency_id', $user->effectiveAgencyId())->orWhereNull('agency_id'))
+            ->orderByRaw('agency_id IS NULL')
+            ->first();
+        $defaultRole = match ($classConfig->actor_role ?? 'neither') {
+            'buyer_action' => 'buyer_contact',
+            'seller_action' => 'seller_contact',
+            default => CalendarEventLink::ROLE_ATTENDEE,
+        };
+
         foreach (($data['attendees'] ?? $data['contact_ids'] ?? []) as $attendee) {
-            // Support both old format (plain IDs) and new format ({id, type})
             if (is_array($attendee)) {
                 $type = ($attendee['type'] ?? 'contact') === 'agent' ? \App\Models\User::class : Contact::class;
                 $id = $attendee['id'];
+                // Use role from frontend if provided, else default from class config
+                $role = $attendee['role'] ?? ($type === \App\Models\User::class ? 'agent_contact' : $defaultRole);
             } else {
                 $type = Contact::class;
                 $id = $attendee;
+                $role = $defaultRole;
             }
             $links[] = [
                 'calendar_event_id'  => $event->id,
                 'linkable_type'      => $type,
                 'linkable_id'        => $id,
-                'role'               => CalendarEventLink::ROLE_ATTENDEE,
+                'role'               => $role,
                 'created_by_user_id' => $user->id,
                 'created_at'         => $now,
                 'updated_at'         => $now,
@@ -1011,6 +1167,38 @@ class CalendarController extends Controller
 
         if (!empty($links)) {
             DB::table('calendar_event_links')->insert($links);
+        }
+
+        // Create invitations for user attendees (agents)
+        foreach ($links as $link) {
+            if (($link['linkable_type'] ?? '') === \App\Models\User::class && (int) ($link['linkable_id'] ?? 0) !== (int) $user->id) {
+                $conflicts = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class)
+                    ->checkUserConflicts((int) $link['linkable_id'], $event->event_date->toDateTimeString(), ($event->end_date ?? $event->event_date)->toDateTimeString(), $event->id);
+
+                \App\Models\CommandCenter\CalendarEventInvitation::updateOrCreate(
+                    ['event_id' => $event->id, 'invitee_user_id' => $link['linkable_id']],
+                    [
+                        'inviter_user_id' => $user->id,
+                        'status' => 'pending',
+                        'conflict_at_invite' => !empty($conflicts) ? $conflicts : null,
+                    ]
+                );
+
+                // Notify invitee
+                DB::table('notifications')->insert([
+                    'id' => \Illuminate\Support\Str::uuid(),
+                    'type' => 'invitation_received',
+                    'notifiable_type' => 'App\\Models\\User',
+                    'notifiable_id' => $link['linkable_id'],
+                    'data' => json_encode([
+                        'message' => $user->name . ' invited you to: ' . $event->title,
+                        'event_id' => $event->id,
+                        'has_conflict' => !empty($conflicts),
+                    ]),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
         }
     }
 

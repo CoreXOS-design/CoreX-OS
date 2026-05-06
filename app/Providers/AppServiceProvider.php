@@ -17,6 +17,7 @@ use App\Models\ContactAccessLog;
 use App\Models\ContactConsentRecord;
 use App\Models\Deal;
 use App\Models\DealSettlement;
+use App\Models\Presentation;
 use App\Models\Property;
 use App\Observers\AgencyObserver;
 use App\Observers\CalendarEventFeedbackObserver;
@@ -26,6 +27,7 @@ use App\Observers\ContactConsentRecordObserver;
 use App\Observers\ContactObserver;
 use App\Observers\DealObserver;
 use App\Observers\DealSettlementObserver;
+use App\Observers\PresentationObserver;
 use App\Observers\PropertyObserver;
 
 class AppServiceProvider extends ServiceProvider
@@ -46,6 +48,7 @@ class AppServiceProvider extends ServiceProvider
         ContactAccessLog::observe(ContactAccessLogObserver::class);
         ContactConsentRecord::observe(ContactConsentRecordObserver::class);
         Deal::observe(DealObserver::class);
+        Presentation::observe(PresentationObserver::class);
         DealSettlement::observe(DealSettlementObserver::class);
         Property::observe(PropertyObserver::class);
         CommandTask::observe(CommandTaskObserver::class);

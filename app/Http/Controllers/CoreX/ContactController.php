@@ -85,8 +85,20 @@ class ContactController extends Controller
         ));
     }
 
-    public function show(Contact $contact)
+    public function show(Request $request, Contact $contact)
     {
+        // JSON response for prefill / AJAX
+        if ($request->wantsJson()) {
+            return response()->json([
+                'id' => $contact->id,
+                'first_name' => $contact->first_name,
+                'last_name' => $contact->last_name,
+                'phone' => $contact->phone,
+                'email' => $contact->email,
+                'is_buyer' => $contact->is_buyer,
+            ]);
+        }
+
         $contact->load(['type', 'createdBy', 'contactNotes.user', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
         $contactTypes     = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();

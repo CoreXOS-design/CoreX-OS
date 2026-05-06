@@ -46,10 +46,19 @@ class BuyerPipelineController extends Controller
             'lost' => $allBuyers->where('buyer_state', 'lost')->values(),
         ];
 
+        // Load latest risk scores for all buyers
+        $riskScores = \Illuminate\Support\Facades\DB::table('buyer_lost_risk_scores as brs')
+            ->joinSub(
+                \Illuminate\Support\Facades\DB::table('buyer_lost_risk_scores')->selectRaw('contact_id, MAX(id) as max_id')->groupBy('contact_id'),
+                'latest', fn($j) => $j->on('brs.id', '=', 'latest.max_id')
+            )
+            ->pluck('brs.score', 'brs.contact_id');
+
         return view('command-center.buyers.pipeline', [
             'view' => 'kanban',
             'columns' => $columns,
             'counts' => $this->stateCounts(),
+            'riskScores' => $riskScores,
         ]);
     }
 

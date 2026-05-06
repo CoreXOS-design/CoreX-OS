@@ -127,6 +127,8 @@ class SettingsController extends Controller
             'daily_digest_enabled' => 'required|boolean',
             'daily_digest_roles'   => 'array',
             'daily_digest_roles.*' => 'string',
+            'actor_role'           => 'nullable|in:buyer_action,seller_action,both,neither',
+            'completion_behaviour' => 'nullable|in:require_feedback,require_reason,freeform',
         ]);
 
         if ($validated['red_days'] > $validated['amber_days']
@@ -176,6 +178,8 @@ class SettingsController extends Controller
                     'daily_digest_roles'   => $validated['daily_digest_enabled']
                         ? array_values($validated['daily_digest_roles'] ?? [])
                         : null,
+                    'actor_role'           => $validated['actor_role'] ?? $global->actor_role ?? 'neither',
+                    'completion_behaviour' => $validated['completion_behaviour'] ?? $global->completion_behaviour ?? 'freeform',
                 ]
             );
 

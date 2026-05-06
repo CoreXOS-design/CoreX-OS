@@ -800,6 +800,7 @@
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
                 ['key'=>'drive',        'label'=>'Drive'],
+                ['key'=>'intelligence', 'label'=>'Intelligence'],
                 ['key'=>'core-matches', 'label'=>'Core Matches'],
             ] as $tab)
             @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
@@ -3007,6 +3008,372 @@
                 @endif
             </div>
         @endif {{-- /!$isNew drive --}}
+        </div>
+
+        {{-- ── INTELLIGENCE TAB ──────────────────────────────────────────── --}}
+        <div x-show="activeTab === 'intelligence'" x-cloak class="p-6 space-y-6"
+             x-data="{ sellerPreview: false }">
+            @if($isNew)
+                <p class="text-sm" style="color:var(--text-muted);">Save the property first to see Intelligence data.</p>
+            @else
+                @php
+                    $intel = app(\App\Services\PropertyIntelligenceService::class);
+                    $feedbackRollup = $intel->getFeedbackRollup($property->id);
+                    $portalPerf = $intel->getPortalPerformance($property->id);
+                    $compliance = $intel->getComplianceStatus($property->id);
+                    $recommendations = $intel->getAgentRecommendations($property->id);
+                    $comparables = $intel->getComparableListings($property->id);
+                    $buyerSignals = $intel->getBuyerInterestSignals($property->id);
+                @endphp
+
+                {{-- Controls row: Preview toggle + Log Marketing Action + Mark as Sold --}}
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2" x-show="!sellerPreview">
+                        @if(in_array($property->status, ['active', 'for_sale', 'under_offer', 'to_let']))
+                        <details class="inline">
+                            <summary class="text-xs font-medium cursor-pointer px-2 py-1 rounded" style="color: #ef4444; background: color-mix(in srgb, #ef4444 8%, transparent);">Mark as Sold</summary>
+                            <form method="POST" action="{{ route('corex.properties.mark-sold') }}" class="mt-2 p-3 rounded space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                @csrf
+                                <input type="hidden" name="property_id" value="{{ $property->id }}">
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Sold Price (R)*</label>
+                                        <input type="number" name="sold_price" required placeholder="e.g. 2500000" class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Sold Date*</label>
+                                        <input type="date" name="sold_date" value="{{ now()->toDateString() }}" required class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Listing Price at Sale</label>
+                                    <input type="number" name="listing_price_at_sale" value="{{ $property->price }}" class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                <input type="text" name="notes" placeholder="Notes (optional)" class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                <button type="submit" class="text-[10px] font-medium px-3 py-1 rounded text-white" style="background: #ef4444;">Confirm Sold</button>
+                            </form>
+                        </details>
+                        @endif
+                    <details class="inline">
+                        <summary class="text-xs font-medium cursor-pointer px-2 py-1 rounded" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 8%, transparent);">+ Log Marketing Action</summary>
+                        <form method="POST" action="{{ route('corex.properties.marketing-activity.store') }}" class="mt-2 p-3 rounded space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            @csrf
+                            <input type="hidden" name="property_id" value="{{ $property->id }}">
+                            <div class="grid grid-cols-2 gap-2">
+                                <select name="activity_type" required class="rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <option value="">Activity type…</option>
+                                    @foreach(['portal_listed'=>'Portal Listed','portal_renewed'=>'Portal Renewed','photos_refreshed'=>'Photos Refreshed','price_adjusted'=>'Price Adjusted','show_day_held'=>'Show Day Held','social_share'=>'Social Media Share','featured_upgrade'=>'Featured Upgrade','marketing_email'=>'Marketing Email','other'=>'Other'] as $v => $l)
+                                        <option value="{{ $v }}">{{ $l }}</option>
+                                    @endforeach
+                                </select>
+                                <input type="date" name="occurred_at" value="{{ now()->toDateString() }}" class="rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            </div>
+                            <input type="text" name="notes" placeholder="Notes (optional)" class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            <div class="flex items-center justify-between">
+                                <label class="flex items-center gap-1 text-[10px]" style="color: var(--text-muted);">
+                                    <input type="checkbox" name="internal_only" value="1" class="rounded w-3 h-3"> Internal only
+                                </label>
+                                <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded text-white" style="background: var(--brand-button);">Log</button>
+                            </div>
+                        </form>
+                    </details>
+                    </div>{{-- end buttons group --}}
+                    <label class="flex items-center gap-2 text-xs cursor-pointer" style="color: var(--text-muted);">
+                        <input type="checkbox" x-model="sellerPreview" class="rounded w-3 h-3">
+                        Preview as Seller
+                    </label>
+                </div>
+
+                {{-- Section A: Performance Dashboard --}}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ $feedbackRollup['total_viewings'] }}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Total Viewings</div>
+                    </div>
+                    <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ $portalPerf['views'] }}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Portal Views (30d)</div>
+                    </div>
+                    <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ $buyerSignals->count() }}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Buyer Matches</div>
+                    </div>
+                    <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        @php $dom = $compliance['days_on_market']; @endphp
+                        <div class="text-2xl font-bold" style="color: {{ $dom === null ? 'var(--text-muted)' : ($dom > 60 ? '#ef4444' : ($dom > 30 ? '#f59e0b' : '#10b981')) }};">
+                            {{ $dom ?? '—' }}
+                        </div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Days on Market</div>
+                    </div>
+                </div>
+
+                {{-- Section B: Agent Recommendations --}}
+                @if($recommendations->isNotEmpty())
+                {{-- Agent view --}}
+                <div x-show="!sellerPreview" class="space-y-2">
+                    <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Agent Recommendations</h3>
+                    @foreach($recommendations as $rec)
+                        <div class="rounded-md p-3" style="background: color-mix(in srgb, #00d4aa 5%, var(--surface)); border: 1px solid color-mix(in srgb, #00d4aa 20%, var(--border));">
+                            <div class="flex items-start gap-3">
+                                <svg class="w-4 h-4 mt-0.5 flex-shrink-0" style="color: #00d4aa;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" /></svg>
+                                <div class="flex-1">
+                                    <div class="text-xs font-semibold" style="color: var(--text-primary);">{{ $rec->title }}</div>
+                                    <div class="text-[11px] mt-0.5" style="color: var(--text-secondary);">{{ $rec->reasoning }}</div>
+                                    @if($rec->suggested_action)
+                                        <div class="text-[10px] mt-1 font-medium" style="color: #00d4aa;">→ {{ $rec->suggested_action }}</div>
+                                    @endif
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between mt-2 pt-2" style="border-top: 1px solid var(--border);">
+                                <div class="flex items-center gap-2">
+                                    <form method="POST" action="{{ route('corex.properties.recommendations.action', $rec->id) }}">
+                                        @csrf <input type="hidden" name="action" value="actioned">
+                                        <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded hover:opacity-80" style="background: #00d4aa; color: #fff;">Mark Actioned</button>
+                                    </form>
+                                    <form method="POST" action="{{ route('corex.properties.recommendations.action', $rec->id) }}">
+                                        @csrf <input type="hidden" name="action" value="dismissed">
+                                        <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded hover:opacity-80" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">Dismiss</button>
+                                    </form>
+                                </div>
+                                <form method="POST" action="{{ route('corex.properties.recommendations.action', $rec->id) }}">
+                                    @csrf <input type="hidden" name="action" value="toggle_seller_visible">
+                                    <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color: var(--text-muted);">
+                                        <input type="checkbox" {{ $rec->seller_visible ? 'checked' : '' }} onchange="this.form.submit()" class="w-3 h-3 rounded">
+                                        Seller visible
+                                    </label>
+                                </form>
+                            </div>
+                        </div>
+                    @endforeach
+
+                    {{-- Past recommendations history --}}
+                    @php $pastRecs = DB::table('property_recommendations')->where('property_id', $property->id)->where(fn($q) => $q->whereNotNull('dismissed_at')->orWhereNotNull('actioned_at'))->orderByDesc('generated_at')->get(); @endphp
+                    @if($pastRecs->isNotEmpty())
+                        <details class="text-xs mt-2">
+                            <summary class="cursor-pointer font-medium" style="color: var(--text-muted);">View {{ $pastRecs->count() }} past recommendations</summary>
+                            <div class="mt-2 space-y-1">
+                                @foreach($pastRecs as $past)
+                                    <div class="flex items-center justify-between px-2 py-1 rounded" style="background: var(--surface-2);">
+                                        <span style="color: var(--text-secondary);">{{ $past->title }}</span>
+                                        <span class="text-[10px]" style="color: var(--text-muted);">{{ $past->actioned_at ? 'Actioned' : 'Dismissed' }} {{ \Carbon\Carbon::parse($past->actioned_at ?? $past->dismissed_at)->format('d M') }}</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </details>
+                    @endif
+                </div>
+
+                {{-- Seller view — rephrased recommendations --}}
+                <div x-show="sellerPreview" x-cloak class="space-y-2">
+                    <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Agent Insights</h3>
+                    @foreach($recommendations->where('seller_visible', true) as $rec)
+                        @if($rec->seller_facing_title)
+                        <div class="rounded-md p-3 flex items-start gap-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <svg class="w-4 h-4 mt-0.5 flex-shrink-0" style="color: var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" /></svg>
+                            <div>
+                                <div class="text-xs font-semibold" style="color: var(--text-primary);">{{ $rec->seller_facing_title }}</div>
+                                @if($rec->seller_facing_reasoning)
+                                    <div class="text-[11px] mt-0.5" style="color: var(--text-secondary);">{{ $rec->seller_facing_reasoning }}</div>
+                                @endif
+                            </div>
+                        </div>
+                        @endif
+                    @endforeach
+                </div>
+                @endif
+
+                {{-- Section C: Feedback Rollup --}}
+                <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Feedback Summary</h3>
+                    <div class="grid grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <span style="color: var(--text-muted);">Total feedback captures:</span>
+                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['total_feedback_rows'] }}</span>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-muted);">Unique viewings with feedback:</span>
+                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['total_viewings'] }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Section: Seller Live Links (agent management) --}}
+                <div x-show="!sellerPreview">
+                    @php
+                        $sellerLinks = DB::table('property_seller_links')->where('property_id', $property->id)->orderByDesc('generated_at')->get();
+                        $sellers = $property->contacts()->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])->get();
+                    @endphp
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Seller Live Links</h3>
+                    @if($sellerLinks->isNotEmpty())
+                        <div class="space-y-1 mb-2">
+                            @foreach($sellerLinks as $sl)
+                                @php $slContact = App\Models\Contact::withoutGlobalScopes()->find($sl->contact_id); @endphp
+                                <div class="flex items-center justify-between px-3 py-2 rounded text-xs" style="background: var(--surface-2);">
+                                    <div>
+                                        <span style="color: var(--text-primary);">{{ $slContact?->full_name ?? 'Contact' }}</span>
+                                        <span class="ml-2 text-[10px]" style="color: var(--text-muted);">
+                                            {{ $sl->revoked_at ? 'Revoked' : 'Active' }}
+                                            · Viewed {{ $sl->access_count }}x
+                                            @if($sl->last_accessed_at) · Last: {{ \Carbon\Carbon::parse($sl->last_accessed_at)->diffForHumans() }} @endif
+                                        </span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        @if(!$sl->revoked_at)
+                                            <button type="button" onclick="navigator.clipboard.writeText('{{ url('/property/live/' . $sl->token) }}'); this.textContent='Copied!';"
+                                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 10%, transparent);">Copy</button>
+                                            @php $sellerEmail = $slContact?->email; @endphp
+                                            @if($sellerEmail)
+                                                <a href="mailto:{{ $sellerEmail }}?subject={{ urlencode('Your live marketing dashboard for ' . ($property->title ?? 'your property')) }}&body={{ urlencode("Hi " . ($slContact->first_name ?? 'there') . ",\n\nYour live marketing dashboard is ready. Bookmark this link to see real-time updates on viewings, feedback, and marketing activity:\n\n" . url('/property/live/' . $sl->token) . "\n\nThis page updates automatically. Any questions, just reply to this email or call me.\n\nBest regards,\n" . (auth()->user()->name ?? 'Your Agent')) }}"
+                                                   class="text-[10px] font-medium px-2 py-0.5 rounded no-underline" style="color: var(--brand-icon);">Email</a>
+                                            @endif
+                                            <form method="POST" action="{{ route('corex.properties.seller-links.revoke', $sl->id) }}" class="inline">
+                                                @csrf
+                                                <button type="submit" class="text-[10px] font-medium px-2 py-0.5 rounded" style="color: var(--text-muted);">Revoke</button>
+                                            </form>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                    @foreach($sellers as $seller)
+                        @php $hasActive = $sellerLinks->where('contact_id', $seller->id)->whereNull('revoked_at')->isNotEmpty(); @endphp
+                        @if(!$hasActive)
+                            <form method="POST" action="{{ route('corex.properties.seller-links.generate') }}" class="inline">
+                                @csrf
+                                <input type="hidden" name="property_id" value="{{ $property->id }}">
+                                <input type="hidden" name="contact_id" value="{{ $seller->id }}">
+                                <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded mr-1 mb-1" style="background: #00d4aa; color: #0f172a;">
+                                    Generate Link for {{ $seller->first_name }}
+                                </button>
+                            </form>
+                        @endif
+                    @endforeach
+                </div>
+
+                {{-- Section D2: Presentations & Market Positioning --}}
+                @php
+                    $presentations = $intel->getPresentations($property->id);
+                    $marketPosition = $intel->getLatestMarketPosition($property->id);
+                @endphp
+                <div>
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Presentations & Market Positioning</h3>
+
+                    {{-- Market Position card (if snapshot exists) --}}
+                    @if($marketPosition)
+                        <div class="rounded-md p-3 mb-3 grid grid-cols-3 gap-3 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['recommended_price'] ?? 0) }}</div>
+                                <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['area_avg_price'] ?? 0) }}</div>
+                                <div class="text-[10px]" style="color: var(--text-muted);">Area Average</div>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold" style="color: var(--text-primary);">{{ $marketPosition['comparable_sales_count'] ?? 0 }}</div>
+                                <div class="text-[10px]" style="color: var(--text-muted);">Recent Comps</div>
+                            </div>
+                        </div>
+                    @endif
+
+                    {{-- Presentation list --}}
+                    @if($presentations->isNotEmpty())
+                        <div class="space-y-1">
+                            @foreach($presentations as $pres)
+                                <div class="flex items-center justify-between px-3 py-2 rounded" style="background: var(--surface-2);">
+                                    <div>
+                                        <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $pres->title }}</span>
+                                        <span class="text-[10px] ml-2" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($pres->created_at)->format('d M Y') }}</span>
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded ml-1" style="background: {{ $pres->status === 'finalized' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)' }}; color: {{ $pres->status === 'finalized' ? '#10b981' : '#f59e0b' }};">{{ ucfirst($pres->status) }}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2" x-show="!sellerPreview">
+                                        @if(\Illuminate\Support\Facades\Route::has('presentations.show'))
+                                            <a href="{{ route('presentations.show', $pres->id) }}" target="_blank" class="text-[10px] font-medium no-underline" style="color: var(--brand-icon);">View</a>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="text-xs" style="color: var(--text-muted);">No presentations created for this property yet.</p>
+                    @endif
+
+                    {{-- Generate Updated Presentation (Phase 2 placeholder) --}}
+                    <div x-show="!sellerPreview" class="mt-2">
+                        <button type="button" disabled
+                                class="text-[10px] font-medium px-3 py-1.5 rounded opacity-50 cursor-not-allowed"
+                                style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);"
+                                title="Coming soon: weekly auto-refreshed market positioning. Market data is being captured now to power this.">
+                            Generate Updated Presentation (Coming Soon)
+                        </button>
+                    </div>
+                </div>
+
+                {{-- Section E: Buyer Interest Signals --}}
+                @if($buyerSignals->isNotEmpty())
+                <div>
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">
+                        <span x-show="!sellerPreview">Buyer Interest Signals</span>
+                        <span x-show="sellerPreview" x-cloak>Buyer Interest</span>
+                    </h3>
+                    <div x-show="sellerPreview" x-cloak class="text-xs" style="color: var(--text-secondary);">
+                        {{ $buyerSignals->count() }} potential buyers match this property's profile.
+                    </div>
+                    <div x-show="!sellerPreview" class="space-y-1">
+                        @foreach($buyerSignals as $buyer)
+                            <div class="flex items-center justify-between px-3 py-2 rounded" style="background: var(--surface-2);">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $buyer['name'] }}</span>
+                                    @php $statePill = match($buyer['state']) { 'warm' => '#10b981', 'cold' => '#f59e0b', 'lost' => '#ef4444', default => '#3b82f6' }; @endphp
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style="background: {{ $statePill }}20; color: {{ $statePill }};">{{ $buyer['state'] ?? 'new' }}</span>
+                                </div>
+                                <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer['id'], 'prefill_class' => 'viewing']) }}"
+                                   class="text-[10px] font-medium no-underline" style="color: #00d4aa;">Schedule Viewing</a>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Section F: Comparable Listings --}}
+                @if($comparables->isNotEmpty())
+                <div>
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Comparable Listings</h3>
+                    <div class="space-y-1">
+                        @foreach($comparables as $comp)
+                            <a href="{{ route('corex.properties.show', $comp['id']) }}" target="_blank"
+                               class="flex items-center justify-between px-3 py-2 rounded no-underline hover:opacity-80" style="background: var(--surface-2);">
+                                <div>
+                                    <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $comp['title'] }}</span>
+                                    <span class="text-[10px] ml-2" style="color: var(--text-muted);">{{ $comp['suburb'] }}</span>
+                                </div>
+                                <div class="text-xs" style="color: var(--text-secondary);">
+                                    R {{ number_format($comp['price'] ?? 0) }}
+                                    @if($comp['days_on_market']) · {{ $comp['days_on_market'] }}d @endif
+                                </div>
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Section G: Compliance Badges --}}
+                <div class="flex flex-wrap gap-3">
+                    <span class="text-[10px] px-2 py-1 rounded font-medium"
+                          style="background: {{ $compliance['mandate_expired'] ?? true ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)' }}; color: {{ $compliance['mandate_expired'] ?? true ? '#ef4444' : '#10b981' }}; border: 1px solid {{ $compliance['mandate_expired'] ?? true ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)' }};">
+                        Mandate: {{ $compliance['mandate_type'] ?? 'None' }} {{ $compliance['mandate_expired'] ?? true ? '(EXPIRED)' : ($compliance['mandate_expiry'] ? 'until ' . $compliance['mandate_expiry'] : '') }}
+                    </span>
+                    <span class="text-[10px] px-2 py-1 rounded font-medium"
+                          style="background: {{ ($compliance['seller_fica_complete'] ?? false) ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' }}; color: {{ ($compliance['seller_fica_complete'] ?? false) ? '#10b981' : '#ef4444' }};">
+                        Seller FICA: {{ ($compliance['seller_fica_complete'] ?? false) ? 'Complete' : 'Outstanding' }}
+                    </span>
+                    <span class="text-[10px] px-2 py-1 rounded font-medium"
+                          style="background: {{ ($compliance['published'] ?? false) ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)' }}; color: {{ ($compliance['published'] ?? false) ? '#10b981' : '#6b7280' }};">
+                        Listing: {{ ($compliance['published'] ?? false) ? 'Active' : 'Unpublished' }}
+                    </span>
+                </div>
+            @endif
         </div>
 
         {{-- ── CORE MATCHES TAB ──────────────────────────────────────────── --}}

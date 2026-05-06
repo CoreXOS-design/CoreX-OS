@@ -46,7 +46,7 @@
     };
 @endphp
 
-<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }})" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill();" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
     {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-1" style="background: var(--bg);">
@@ -401,9 +401,11 @@
                                 @endphp
                                 <div @click="selectedDate = '{{ $dateStr }}'"
                                      @dblclick="window.location.href='{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $dateStr])) }}'"
+                                     @dragover.prevent="rescheduleDragOver = '{{ $dateStr }}'"
+                                     @drop.prevent="rescheduleDropOnDate('{{ $dateStr }}')"
                                      class="relative min-h-[2.5rem] px-1 pt-0.5 pb-1 cursor-pointer transition-colors hover:brightness-110"
                                      style="opacity: {{ $cellOpacity }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
-                                     :class="selectedDate === '{{ $dateStr }}' && 'ring-2 ring-inset ring-[#00d4aa]'"
+                                     :class="[selectedDate === '{{ $dateStr }}' && 'ring-2 ring-inset ring-[#00d4aa]', rescheduleDragOver === '{{ $dateStr }}' && 'ring-2 ring-inset ring-amber-400']"
                                      :style="selectedDate === '{{ $dateStr }}' ? 'background: color-mix(in srgb, #00d4aa 8%, {{ $cellBg === 'transparent' ? 'var(--surface)' : $cellBg }});' : 'background: {{ $cellBg }};'">
                                     @if(count($dayEvents) > $chipCap)
                                         <div class="flex justify-end mb-0.5">
@@ -415,13 +417,20 @@
                                     @endif
                                     <div class="space-y-0.5">
                                         @foreach(array_slice($dayEvents, 0, $chipCap) as $evt)
-                                            @php $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip; @endphp
+                                            @php
+                                                $chipStyle = $ragChip[$evt->resolved_colour] ?? $defaultChip;
+                                                $isTentative = ($evt->user_invitation_status ?? null) === 'tentative';
+                                                if ($isTentative) $chipStyle .= ' border: 2px dashed rgba(255,255,255,0.5); opacity: 0.75;';
+                                            @endphp
                                             <button type="button"
                                                     data-event-id="{{ $evt->id }}"
+                                                    draggable="true"
+                                                    @dragstart.stop="rescheduleStartDrag({{ $evt->id }}, '{{ $dateStr }}')"
+                                                    @dragend="rescheduleDragOver = null"
                                                     @click.stop="openEventPanel({{ $evt->id }})"
-                                                    class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity {{ $evt->status === 'completed' ? 'line-through opacity-70' : '' }}"
+                                                    class="block w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing {{ $evt->status === 'completed' ? 'line-through opacity-70' : '' }}"
                                                     style="{{ $chipStyle }}"
-                                                    title="{{ $evt->title }}">
+                                                    title="{{ $evt->title }}{{ $isTentative ? ' (Tentative)' : '' }}">
                                                 <span class="rag-dot w-1.5 h-1.5 rounded-full inline-block mr-0.5 align-middle" style="display:none;"></span>{{ $evt->all_day ? '' : $evt->event_date->format('H:i') . ' ' }}{{ \Illuminate\Support\Str::limit($evt->title, 20) }}
                                             </button>
                                         @endforeach
@@ -960,9 +969,17 @@
                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="">Select type…</option>
                         @foreach($manualCreatableClasses as $cls)
-                            <option value="{{ $cls->event_class }}">{{ $cls->label }}</option>
+                            <option value="{{ $cls->event_class }}" data-multi-property="{{ $cls->allow_multiple_properties ? '1' : '0' }}">{{ $cls->label }}</option>
                         @endforeach
                     </select>
+                    @php
+                        $classConfigMap = $manualCreatableClasses->mapWithKeys(fn($c) => [$c->event_class => [
+                            'multi' => (bool) $c->allow_multiple_properties,
+                            'actor_role' => $c->actor_role ?? 'neither',
+                            'completion' => $c->completion_behaviour ?? 'freeform',
+                        ]])->toArray();
+                    @endphp
+                    <script type="application/json" id="classConfigMap">{!! json_encode($classConfigMap) !!}</script>
                 </div>
 
                 {{-- All day toggle --}}
@@ -977,7 +994,7 @@
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Start <span style="color:#ef4444">*</span></label>
                     <div class="grid gap-2" :class="form.allDay ? 'grid-cols-1' : 'grid-cols-2'">
-                        <input type="date" x-model="form.startDate" required
+                        <input type="date" x-model="form.startDate" @change="onStartDateChange()" required
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <select x-show="!form.allDay" x-model="form.startTime" @change="onStartTimeChange()" required
@@ -1000,7 +1017,7 @@
                 <div x-show="!form.allDay">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">End</label>
                     <div class="grid grid-cols-2 gap-2">
-                        <input type="date" x-model="form.endDate"
+                        <input type="date" x-model="form.endDate" @change="endManuallyEdited = true"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <select x-model="form.endTime" @change="onEndTimeChange()"
@@ -1024,41 +1041,48 @@
                 <input type="hidden" name="event_date" :value="computedEventDate">
                 <input type="hidden" name="end_date" :value="computedEndDate">
 
-                {{-- Property search --}}
+                {{-- Property multi-select (mirrors attendee pattern) --}}
                 <div x-data="propertySearch()">
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property</label>
-                    <template x-if="!selected">
-                        <div class="relative">
-                            <input type="text" x-model="query" @input.debounce.250ms="search()"
-                                   placeholder="Search address or suburb…"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                            <div x-show="results.length > 0" x-cloak
-                                 class="absolute z-20 left-0 right-0 mt-1 rounded-md max-h-48 overflow-y-auto shadow-lg"
-                                 style="background: var(--surface); border: 1px solid var(--border);">
-                                <template x-for="r in results" :key="r.id">
-                                    <button type="button" @click="pick(r)"
-                                            class="block w-full text-left px-3 py-2 text-sm transition"
-                                            style="color: var(--text-primary);"
-                                            onmouseover="this.style.background='var(--surface-2)'"
-                                            onmouseout="this.style.background='transparent'">
-                                        <span x-text="r.address"></span>
-                                        <span class="text-xs opacity-60 ml-1" x-text="r.listing_agent_name ? '(' + r.listing_agent_name + ')' : ''"></span>
-                                    </button>
-                                </template>
-                            </div>
-                            <div x-show="query.length >= 2 && results.length === 0 && !loading" x-cloak
-                                 class="text-xs mt-1" style="color: var(--text-muted);">No properties found.</div>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Properties</label>
+                    {{-- Selected property chips --}}
+                    <div class="flex flex-wrap gap-1 mb-1.5" x-show="chosen.length > 0">
+                        <template x-for="p in chosen" :key="p.id">
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                                  style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                <span x-text="p.address" class="truncate max-w-[180px]"></span>
+                                <button type="button" @click="remove(p)" class="opacity-60 hover:opacity-100">&times;</button>
+                            </span>
+                        </template>
+                    </div>
+                    {{-- Search input --}}
+                    <div class="relative">
+                        <input type="text" x-model="query" @input.debounce.250ms="search()"
+                               placeholder="Search address or suburb…"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <div x-show="results.length > 0" x-cloak
+                             class="absolute z-20 left-0 right-0 mt-1 rounded-md max-h-48 overflow-y-auto shadow-lg"
+                             style="background: var(--surface); border: 1px solid var(--border);">
+                            <template x-for="r in results" :key="r.id">
+                                <button type="button" @click="pick(r)"
+                                        class="block w-full text-left px-3 py-2 text-sm transition"
+                                        style="color: var(--text-primary);"
+                                        onmouseover="this.style.background='var(--surface-2)'"
+                                        onmouseout="this.style.background='transparent'">
+                                    <span x-text="r.address"></span>
+                                    <span class="text-xs opacity-60 ml-1" x-text="r.listing_agent_name ? '(' + r.listing_agent_name + ')' : ''"></span>
+                                </button>
+                            </template>
                         </div>
+                        <div x-show="query.length >= 2 && results.length === 0 && !loading" x-cloak
+                             class="text-xs mt-1" style="color: var(--text-muted);">No properties found.</div>
+                    </div>
+                    {{-- Hidden inputs for form submission --}}
+                    <template x-for="(p, idx) in chosen" :key="p.id">
+                        <input type="hidden" :name="'property_ids[' + idx + ']'" :value="p.id">
                     </template>
-                    <template x-if="selected">
-                        <div class="flex items-center justify-between px-3 py-2 rounded-md text-sm"
-                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                            <span x-text="selected.address"></span>
-                            <button type="button" @click="clear()" class="text-sm px-1 opacity-60 hover:opacity-100">&times;</button>
-                        </div>
-                    </template>
-                    <input type="hidden" name="property_id" :value="selected ? selected.id : ''">
+                    {{-- Legacy fallback for single property --}}
+                    <input type="hidden" name="property_id" :value="chosen.length === 1 ? chosen[0].id : ''">
                 </div>
 
                 {{-- Attendees multi-select (contacts + agents) --}}
@@ -1067,9 +1091,13 @@
                     <div class="flex flex-wrap gap-1 mb-1.5">
                         <template x-for="c in chosen" :key="(c.type||'contact') + ':' + c.id">
                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
-                                  style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                  :style="c.conflict ? 'background: var(--surface-2); border: 2px solid #f59e0b; color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
+                                  :title="c.conflictLabel ? '⚠ Conflict: ' + c.conflictLabel : ''">
+                                <span class="text-[10px] px-1 py-0.5 rounded font-bold"
+                                      :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : 'background:#00d4aa;color:#fff')"
+                                      x-text="c.type === 'agent' ? 'Agent' : (c.role === 'seller_contact' ? 'Seller' : 'Buyer')"></span>
+                                <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">⚠</span></template>
                                 <span x-text="c.name"></span>
-                                <span class="text-[10px] opacity-50" x-text="c.type === 'agent' ? '(agent)' : ''"></span>
                                 <button type="button" @click="remove(c)" class="opacity-60 hover:opacity-100">&times;</button>
                             </span>
                         </template>
@@ -1102,6 +1130,7 @@
                         <div>
                             <input type="hidden" :name="'attendees[' + idx + '][id]'" :value="c.id">
                             <input type="hidden" :name="'attendees[' + idx + '][type]'" :value="c.type || 'contact'">
+                            <input type="hidden" :name="'attendees[' + idx + '][role]'" :value="c.role || ''">
                         </div>
                     </template>
                 </div>
@@ -1237,40 +1266,35 @@
                     </div>
                 </template>
 
-                {{-- Linked Records (deep-links to entities — open in new tab) --}}
+                {{-- Linked Records (grouped by role: Buyers / Sellers / Agents / Properties) --}}
                 <template x-if="panelData.linked_records && panelData.linked_records.length > 0">
                     <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
-                        <div class="text-[10px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Linked Records</div>
-                        <div class="space-y-1">
-                            <template x-for="rec in panelData.linked_records" :key="rec.url">
-                                <a :href="rec.url" target="_blank" rel="noopener"
-                                   class="flex items-center gap-2 px-2 py-1.5 rounded transition hover:opacity-80 no-underline"
-                                   style="background: var(--surface-2);"
-                                   title="Open in new tab">
-                                    <svg class="w-3.5 h-3.5 flex-shrink-0" style="color: var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                        <template x-if="rec.icon === 'building'">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5M3.75 3v18h6V12h4.5v9h6V3H3.75Z" />
+                        <template x-for="group in [{key:'buyers',label:'Buyers',color:'#00d4aa'},{key:'sellers',label:'Sellers',color:'#0f172a'},{key:'agents',label:'Agents',color:'#475569'},{key:'properties',label:'Properties',color:'var(--brand-icon)'},{key:'attendees',label:'Attendees',color:'var(--text-muted)'},{key:'deals',label:'Deals',color:'var(--brand-icon)'}]" :key="group.key">
+                            <template x-if="panelData.linked_records.filter(r => r.group === group.key).length > 0">
+                                <div class="mb-2">
+                                    <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" :style="'color:' + group.color" x-text="group.label + ' (' + panelData.linked_records.filter(r => r.group === group.key).length + ')'"></div>
+                                    <div class="space-y-1">
+                                        <template x-for="rec in panelData.linked_records.filter(r => r.group === group.key)" :key="rec.url + rec.name">
+                                            <a :href="rec.url" :target="rec.url === '#' ? '' : '_blank'" rel="noopener"
+                                               class="flex items-center gap-2 px-2 py-1 rounded transition hover:opacity-80 no-underline"
+                                               style="background: var(--surface-2);">
+                                                <template x-if="rec.badge">
+                                                    <span class="text-[9px] px-1 py-0.5 rounded font-bold text-white"
+                                                          :style="'background:' + (rec.badge === 'Buyer' ? '#00d4aa' : rec.badge === 'Seller' ? '#0f172a' : '#475569')"
+                                                          x-text="rec.badge"></span>
+                                                </template>
+                                                <div class="min-w-0 flex-1">
+                                                    <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="rec.name"></div>
+                                                </div>
+                                                <template x-if="rec.url !== '#'">
+                                                    <svg class="w-3 h-3 flex-shrink-0 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                                </template>
+                                            </a>
                                         </template>
-                                        <template x-if="rec.icon === 'person'">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0" />
-                                        </template>
-                                        <template x-if="rec.icon === 'briefcase'">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 0 0 .75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 0 0-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0 1 12 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 0 1-.673-.38m0 0A2.18 2.18 0 0 1 3 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 0 1 3.413-.387m7.5 0V5.25A2.25 2.25 0 0 0 13.5 3h-3a2.25 2.25 0 0 0-2.25 2.25v.894m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                                        </template>
-                                        <template x-if="rec.icon === 'link'">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
-                                        </template>
-                                    </svg>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="rec.name"></div>
-                                        <div class="text-[10px]" style="color: var(--text-muted);" x-text="rec.label"></div>
                                     </div>
-                                    <svg class="w-3 h-3 flex-shrink-0 opacity-50" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                                    </svg>
-                                </a>
+                                </div>
                             </template>
-                        </div>
+                        </template>
                     </div>
                 </template>
 
@@ -1320,7 +1344,24 @@
                         Edit
                     </button>
                 </template>
-                <template x-if="panelData.is_actionable">
+                {{-- Mark Complete (behaviour-aware) --}}
+                <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
+                    <button type="button" @click="openFeedbackModal(panelData.id)"
+                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                            style="color: #00d4aa;">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                        Capture Feedback to Complete
+                    </button>
+                </template>
+                <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_reason'">
+                    <button type="button" @click="reasonPickerAction = 'complete'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
+                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                            style="color: var(--text-secondary);">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                        Complete with Reason
+                    </button>
+                </template>
+                <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
                     <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST">
                         @csrf
                         <button type="submit" class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
@@ -1330,18 +1371,48 @@
                         </button>
                     </form>
                 </template>
+                {{-- Dismiss (always requires reason) --}}
                 <template x-if="panelData.is_actionable">
-                    <form :action="'/corex/command-center/calendar/' + panelData.id + '/dismiss'" method="POST">
-                        @csrf
-                        <button type="submit" class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
-                                style="color: var(--text-muted);">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
-                            Dismiss
-                        </button>
-                    </form>
+                    <button type="button" @click="reasonPickerAction = 'dismiss'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
+                            class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                            style="color: var(--text-muted);">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                        Dismiss
+                    </button>
                 </template>
             </div>
         </aside>
+    </div>
+
+    {{-- ══════ REASON PICKER MODAL (dismiss + require_reason complete) ══════ --}}
+    <div x-show="reasonPickerOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50" @click="reasonPickerOpen = false"></div>
+        <div class="relative w-full max-w-sm rounded-md shadow-2xl p-5" style="background: var(--surface); border: 1px solid var(--border);">
+            <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);"
+                x-text="reasonPickerAction === 'dismiss' ? 'Why is this being dismissed?' : 'Why is this being completed?'"></h3>
+            <div class="space-y-2 mb-4">
+                <template x-for="reason in getReasonOptions()" :key="reason.code">
+                    <label class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs" style="color: var(--text-primary);"
+                           :style="reasonPickerCode === reason.code ? 'background: var(--surface-2); border: 1px solid var(--brand-button);' : 'background: transparent;'">
+                        <input type="radio" :value="reason.code" x-model="reasonPickerCode" class="w-3 h-3">
+                        <span x-text="reason.label"></span>
+                    </label>
+                </template>
+            </div>
+            <div x-show="reasonPickerCode === 'other'" class="mb-4">
+                <textarea x-model="reasonPickerNotes" rows="2" placeholder="Additional details…"
+                          class="w-full rounded-md px-3 py-2 text-sm"
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" @click="reasonPickerOpen = false" class="text-xs px-3 py-1.5 rounded" style="color: var(--text-muted);">Cancel</button>
+                <button type="button" @click="submitReasonPicker()" :disabled="!reasonPickerCode || reasonPickerSaving"
+                        class="text-xs font-semibold px-3 py-1.5 rounded text-white disabled:opacity-50" style="background: var(--brand-button);">
+                    <span x-show="!reasonPickerSaving" x-text="reasonPickerAction === 'dismiss' ? 'Dismiss' : 'Complete'"></span>
+                    <span x-show="reasonPickerSaving" x-cloak>Saving…</span>
+                </button>
+            </div>
+        </div>
     </div>
 
     {{-- ══════ FEEDBACK CAPTURE MODAL ══════ --}}
@@ -1356,6 +1427,15 @@
                 <div>
                     <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Capture Feedback</h2>
                     <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="feedbackData.event?.title + ' — ' + feedbackData.event?.date"></p>
+                    {{-- Multi-property step indicator --}}
+                    <template x-if="feedbackData.is_multi_property && feedbackData.properties.length > 1">
+                        <div class="mt-1.5 flex items-center gap-2">
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded" style="background: var(--brand-button); color: #fff;"
+                                  x-text="'Property ' + (feedbackPropertyStep + 1) + ' of ' + feedbackData.properties.length"></span>
+                            <span class="text-xs font-medium" style="color: var(--text-primary);"
+                                  x-text="feedbackData.properties[feedbackPropertyStep]?.address"></span>
+                        </div>
+                    </template>
                 </div>
                 <button type="button" @click="feedbackOpen = false" class="text-xl leading-none px-2" style="color: var(--text-muted);">&times;</button>
             </div>
@@ -1425,14 +1505,33 @@
                 </template>
             </div>
 
-            {{-- Footer --}}
-            <div class="px-6 py-4 flex items-center justify-end gap-2" style="border-top: 1px solid var(--border);">
-                <button type="button" @click="feedbackOpen = false" class="corex-btn-outline">Cancel</button>
-                <button type="button" @click="saveFeedback()" :disabled="feedbackSaving"
-                        class="corex-btn-primary disabled:opacity-50">
-                    <span x-show="!feedbackSaving">Save Feedback</span>
-                    <span x-show="feedbackSaving" x-cloak>Saving…</span>
-                </button>
+            {{-- Footer (step-aware for multi-property) --}}
+            <div class="px-6 py-4 flex items-center justify-between gap-2" style="border-top: 1px solid var(--border);">
+                <div>
+                    <template x-if="feedbackData.is_multi_property && feedbackData.properties.length > 1">
+                        <button type="button" @click="skipFeedbackProperty()"
+                                class="text-xs font-medium px-3 py-1.5 rounded" style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">
+                            Skip this property
+                        </button>
+                    </template>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" @click="feedbackOpen = false" class="corex-btn-outline">Cancel</button>
+                    <template x-if="!feedbackData.is_multi_property || feedbackPropertyStep >= feedbackData.properties.length - 1">
+                        <button type="button" @click="saveFeedback()" :disabled="feedbackSaving"
+                                class="corex-btn-primary disabled:opacity-50">
+                            <span x-show="!feedbackSaving">Save Feedback</span>
+                            <span x-show="feedbackSaving" x-cloak>Saving…</span>
+                        </button>
+                    </template>
+                    <template x-if="feedbackData.is_multi_property && feedbackPropertyStep < feedbackData.properties.length - 1">
+                        <button type="button" @click="saveFeedbackAndNext()" :disabled="feedbackSaving"
+                                class="corex-btn-primary disabled:opacity-50">
+                            <span x-show="!feedbackSaving">Save & Next Property</span>
+                            <span x-show="feedbackSaving" x-cloak>Saving…</span>
+                        </button>
+                    </template>
+                </div>
             </div>
         </div>
     </div>
@@ -1593,10 +1692,21 @@ function calendarPage() {
         helpOpen: false,
         drag: { active: false, dayDate: null, startHour: null, startHalf: null, currentHour: null, currentHalf: null },
         reschedule: { dragging: false, eventId: null, originalDate: null },
+        rescheduleDragOver: null,
+        rescheduleDragEventId: null,
+        rescheduleDragFromDate: null,
         feedbackOpen: false,
-        feedbackData: { event: null, contacts: [], outcomes: [], concerns: [] },
+        feedbackData: { event: null, contacts: [], outcomes: [], concerns: [], properties: [], is_multi_property: false },
         feedbackForm: {},
         feedbackSaving: false,
+        feedbackPropertyStep: 0,
+        // Reason picker modal (dismiss + require_reason complete)
+        reasonPickerOpen: false,
+        reasonPickerAction: 'dismiss', // 'dismiss' or 'complete'
+        reasonPickerEventId: null,
+        reasonPickerCode: '',
+        reasonPickerNotes: '',
+        reasonPickerSaving: false,
 
         // Right panel state
         rightPanelOpen: false,
@@ -1703,6 +1813,78 @@ function calendarPage() {
             this.editingEventId = null;
             this.submitting = false;
             this.showCreateEvent = true;
+        },
+
+        // ── Prefill from URL params (Schedule from Contact/Buyer) ──
+        handlePrefill() {
+            const params = new URLSearchParams(window.location.search);
+            const prefillContactId = params.get('prefill_contact_id');
+            const prefillClass = params.get('prefill_class');
+            if (!prefillContactId) return;
+
+            this.$nextTick(() => {
+                const today = new Date().toISOString().slice(0, 10);
+                this.form = {
+                    title: '',
+                    category: prefillClass || 'viewing',
+                    startDate: today,
+                    startTime: prefillClass === 'viewing' ? '14:00' : '09:00',
+                    endDate: today,
+                    endTime: prefillClass === 'viewing' ? '15:00' : '10:00',
+                    description: '',
+                    allDay: false,
+                };
+                this.editMode = false;
+                this.editingEventId = null;
+                this.showCreateEvent = true;
+
+                // Fetch contact by ID and pre-populate
+                this.$nextTick(async () => {
+                    try {
+                        // Search by ID directly (attendee search works by name; use contact endpoint)
+                        const r = await fetch('/corex/contacts/' + prefillContactId, {
+                            headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+                        });
+                        if (r.ok) {
+                            const c = await r.json();
+                            const match = {
+                                id: c.id || parseInt(prefillContactId),
+                                name: (c.first_name || '') + ' ' + (c.last_name || ''),
+                                type: 'contact',
+                                role: prefillClass === 'viewing' ? 'buyer_contact' : 'attendee',
+                                phone: c.phone || null,
+                                email: c.email || null,
+                            };
+                            const form = document.getElementById('createEventFormV2');
+                            const picker = form?.querySelector('[x-ref="attendeePicker"]');
+                            if (picker) {
+                                Alpine.$data(picker).chosen = [match];
+                            }
+                            // Auto-fill title
+                            if (prefillClass === 'viewing' && match.name.trim()) {
+                                this.form.title = 'Viewing with ' + match.name.trim();
+                            }
+                        } else {
+                            // Fallback: try attendee search
+                            const r2 = await fetch('/corex/command-center/calendar/search/attendees?q=' + prefillContactId, {
+                                headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+                            });
+                            if (!r2.ok) return;
+                            const contacts = await r2.json();
+                            const fallback = contacts.find(c => String(c.id) === prefillContactId && c.type !== 'agent');
+                            if (fallback) {
+                                fallback.role = prefillClass === 'viewing' ? 'buyer_contact' : 'attendee';
+                                const form = document.getElementById('createEventFormV2');
+                                const picker = form?.querySelector('[x-ref="attendeePicker"]');
+                                if (picker) Alpine.$data(picker).chosen = [fallback];
+                                if (prefillClass === 'viewing' && fallback.name) {
+                                    this.form.title = 'Viewing with ' + fallback.name;
+                                }
+                            }
+                        }
+                    } catch (e) { console.warn('Prefill contact failed:', e); }
+                });
+            });
         },
 
         // ── Right Panel ──
@@ -1814,6 +1996,11 @@ function calendarPage() {
             const nh = h + 1 > 22 ? 22 : h + 1;
             return String(nh).padStart(2, '0') + ':' + String(m).padStart(2, '0');
         },
+        onStartDateChange() {
+            if (!this.endManuallyEdited && this.form.startDate) {
+                this.form.endDate = this.form.startDate;
+            }
+        },
         onStartTimeChange() {
             if (!this.endManuallyEdited && this.form.startTime) {
                 this.form.endTime = this.addHour(this.form.startTime);
@@ -1870,10 +2057,15 @@ function calendarPage() {
                 const form = document.getElementById('createEventFormV2');
                 if (!form) return;
 
-                // Property
+                // Property (multi-select: load all linked properties into chosen[])
                 const propPicker = form.querySelector('[x-data*="propertySearch"]');
-                if (propPicker && d.linked_property) {
-                    Alpine.$data(propPicker).selected = d.linked_property;
+                if (propPicker) {
+                    const propData = Alpine.$data(propPicker);
+                    if (d.linked_properties && d.linked_properties.length > 0) {
+                        propData.chosen = d.linked_properties.map(p => ({ id: p.id, address: p.address }));
+                    } else if (d.linked_property) {
+                        propData.chosen = [{ id: d.linked_property.id, address: d.linked_property.address }];
+                    }
                 }
 
                 // Attendees
@@ -1935,6 +2127,32 @@ function calendarPage() {
         rescheduleEnd() {
             this.reschedule = { dragging: false, eventId: null, originalDate: null };
         },
+        // Month-grid drag-to-reschedule
+        rescheduleStartDrag(eventId, fromDate) {
+            this.rescheduleDragEventId = eventId;
+            this.rescheduleDragFromDate = fromDate;
+        },
+        async rescheduleDropOnDate(newDate) {
+            const eventId = this.rescheduleDragEventId;
+            this.rescheduleDragOver = null;
+            this.rescheduleDragEventId = null;
+            if (!eventId || newDate === this.rescheduleDragFromDate) return;
+            // Block past dates
+            if (new Date(newDate) < new Date(new Date().toISOString().slice(0, 10))) {
+                alert('Cannot reschedule to past dates.'); return;
+            }
+            try {
+                const r = await fetch('/corex/command-center/calendar/' + eventId + '/reschedule', {
+                    method: 'PATCH',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ event_date: newDate + 'T' + '09:00:00' }),
+                });
+                if (r.ok) { window.location.reload(); }
+                else { alert('Reschedule failed.'); }
+            } catch (e) { alert('Network error.'); }
+        },
         async rescheduleDrop(dayDate, hour, half) {
             if (!this.reschedule.dragging || !this.reschedule.eventId) return;
             if (dayDate !== this.reschedule.originalDate) return;
@@ -1973,6 +2191,7 @@ function calendarPage() {
             if (!r.ok) return;
             const data = await r.json();
             this.feedbackData = data;
+            this.feedbackPropertyStep = 0;
             this.feedbackForm = {};
             data.contacts.forEach(c => {
                 this.feedbackForm[c.id] = {
@@ -1986,11 +2205,19 @@ function calendarPage() {
             this.panelOpen = false;
             this.feedbackOpen = true;
         },
-        async saveFeedback() {
-            this.feedbackSaving = true;
-            const payload = {
+        getCurrentFeedbackPropertyId() {
+            if (!this.feedbackData.is_multi_property || !this.feedbackData.properties.length) {
+                return (this.feedbackData.properties && this.feedbackData.properties[0]) ? this.feedbackData.properties[0].id : null;
+            }
+            return this.feedbackData.properties[this.feedbackPropertyStep]?.id || null;
+        },
+
+        buildFeedbackPayload() {
+            const propertyId = this.getCurrentFeedbackPropertyId();
+            return {
                 feedback: Object.entries(this.feedbackForm).map(([cid, f]) => ({
                     contact_id: parseInt(cid),
+                    property_id: propertyId,
                     outcome_id: f.outcome_id ? parseInt(f.outcome_id) : null,
                     concern_ids: (f.concern_ids || []).map(Number),
                     seller_visible_notes: f.seller_visible_notes || null,
@@ -1998,7 +2225,10 @@ function calendarPage() {
                     next_action_notes: f.next_action_notes || null,
                 })),
             };
-            const r = await fetch('/corex/command-center/calendar/' + this.feedbackData.event.id + '/feedback', {
+        },
+
+        async submitFeedbackPayload(payload) {
+            return await fetch('/corex/command-center/calendar/' + this.feedbackData.event.id + '/feedback', {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
@@ -2008,8 +2238,102 @@ function calendarPage() {
                 credentials: 'same-origin',
                 body: JSON.stringify(payload),
             });
+        },
+
+        async saveFeedback() {
+            this.feedbackSaving = true;
+            const payload = this.buildFeedbackPayload();
+            const r = await this.submitFeedbackPayload(payload);
             this.feedbackSaving = false;
             if (r.ok) { this.feedbackOpen = false; window.location.reload(); }
+        },
+
+        async saveFeedbackAndNext() {
+            this.feedbackSaving = true;
+            const payload = this.buildFeedbackPayload();
+            const r = await this.submitFeedbackPayload(payload);
+            this.feedbackSaving = false;
+            if (r.ok) {
+                this.feedbackPropertyStep++;
+                this.resetFeedbackForm();
+            }
+        },
+
+        skipFeedbackProperty() {
+            if (this.feedbackPropertyStep < this.feedbackData.properties.length - 1) {
+                this.feedbackPropertyStep++;
+                this.resetFeedbackForm();
+            } else {
+                this.feedbackOpen = false;
+                window.location.reload();
+            }
+        },
+
+        resetFeedbackForm() {
+            this.feedbackForm = {};
+            this.feedbackData.contacts.forEach(c => {
+                this.feedbackForm[c.id] = {
+                    outcome_id: '', concern_ids: [],
+                    seller_visible_notes: '', internal_notes: '', next_action_notes: '',
+                };
+            });
+        },
+
+        // ── Reason Picker ──
+        getReasonOptions() {
+            const actorRole = this.panelData?.actor_role || 'neither';
+            if (actorRole === 'buyer_action') {
+                return [
+                    { code: 'buyer_no_show', label: 'Buyer no-show' },
+                    { code: 'cancelled_by_buyer', label: 'Cancelled by buyer' },
+                    { code: 'cancelled_by_agent', label: 'Cancelled by agent' },
+                    { code: 'rescheduled', label: 'Rescheduled' },
+                    { code: 'other', label: 'Other' },
+                ];
+            }
+            if (actorRole === 'seller_action') {
+                return [
+                    { code: 'seller_no_show', label: 'Seller no-show' },
+                    { code: 'cancelled_by_seller', label: 'Cancelled by seller' },
+                    { code: 'cancelled_by_agent', label: 'Cancelled by agent' },
+                    { code: 'rescheduled', label: 'Rescheduled' },
+                    { code: 'mandate_not_signed', label: 'Mandate not signed' },
+                    { code: 'other', label: 'Other' },
+                ];
+            }
+            return [
+                { code: 'acknowledged', label: 'Acknowledged' },
+                { code: 'resolved', label: 'Resolved' },
+                { code: 'no_longer_relevant', label: 'No longer relevant' },
+                { code: 'rescheduled', label: 'Rescheduled' },
+                { code: 'other', label: 'Other' },
+            ];
+        },
+        async submitReasonPicker() {
+            this.reasonPickerSaving = true;
+            const endpoint = this.reasonPickerAction === 'dismiss'
+                ? '/corex/command-center/calendar/' + this.reasonPickerEventId + '/dismiss'
+                : '/corex/command-center/calendar/' + this.reasonPickerEventId + '/complete';
+            const r = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    completion_reason_code: this.reasonPickerCode,
+                    completion_reason: this.reasonPickerNotes || this.reasonPickerCode,
+                }),
+            });
+            this.reasonPickerSaving = false;
+            if (r.ok) {
+                this.reasonPickerOpen = false;
+                this.reasonPickerCode = '';
+                this.reasonPickerNotes = '';
+                window.location.reload();
+            }
         },
 
         openEventPanel(eventId) {
@@ -2058,36 +2382,52 @@ function calendarPage() {
 
 function propertySearch() {
     return {
-        query: '', results: [], selected: null, loading: false,
+        query: '', results: [], chosen: [], loading: false,
+        getClassConfig() {
+            const mapEl = document.getElementById('classConfigMap');
+            if (!mapEl) return { multi: true, actor_role: 'both', completion: 'freeform' };
+            try {
+                const map = JSON.parse(mapEl.textContent);
+                const form = this.$el?.closest?.('form');
+                const cat = form?.querySelector('[name="category"]')?.value || '';
+                return map[cat] || { multi: true, actor_role: 'both', completion: 'freeform' };
+            } catch { return { multi: true, actor_role: 'both', completion: 'freeform' }; }
+        },
+        get maxProperties() {
+            return this.getClassConfig().multi ? 99 : 1;
+        },
+        get atCap() { return this.chosen.length >= this.maxProperties; },
         async search() {
+            if (this.atCap) { this.results = []; return; }
             if (this.query.length < 2) { this.results = []; return; }
             this.loading = true;
             try {
                 const r = await fetch('/deals-v2/search/properties?q=' + encodeURIComponent(this.query), {
                     headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
                 });
-                this.results = r.ok ? await r.json() : [];
+                const data = r.ok ? await r.json() : [];
+                const ids = this.chosen.map(p => p.id);
+                this.results = data.filter(d => !ids.includes(d.id));
             } finally { this.loading = false; }
         },
         async pick(r) {
-            this.selected = r; this.results = []; this.query = '';
+            if (this.atCap) return;
+            this.chosen.push(r); this.results = []; this.query = '';
             await this.autoPopulateOwners(r.id);
         },
-        clear() { this.selected = null; },
+        remove(p) { this.chosen = this.chosen.filter(x => x.id !== p.id); },
+        get selected() { return this.chosen.length > 0 ? this.chosen[0] : null; },
         async autoPopulateOwners(propertyId) {
-            // Auto-populate attendees for seller-side event classes
+            const config = this.getClassConfig();
+            // Only auto-populate sellers for seller_action or both events
+            if (config.actor_role !== 'seller_action' && config.actor_role !== 'both') return;
             const form = this.$el?.closest?.('form');
-            const catSelect = form?.querySelector('[name="category"]');
-            const category = catSelect?.value || '';
-            const sellerClasses = ['property_evaluation', 'listing_presentation'];
-            if (!sellerClasses.includes(category)) return;
             try {
                 const r = await fetch('/corex/command-center/calendar/properties/' + propertyId + '/owners', {
                     headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
                 });
                 if (!r.ok) return;
                 const owners = await r.json();
-                // Find the attendee picker and call setOwners
                 const picker = form?.querySelector('[x-ref="attendeePicker"]');
                 if (picker) {
                     Alpine.$data(picker).setOwners(owners);
@@ -2109,12 +2449,51 @@ function contactSearch() {
             const keys = this.chosen.map(c => c.type + ':' + c.id);
             this.results = data.filter(d => !keys.includes((d.type || 'contact') + ':' + d.id));
         },
-        add(c) { if (!c.type) c.type = 'contact'; this.chosen.push(c); this.query = ''; this.results = []; },
+        add(c) {
+            if (!c.type) c.type = 'contact';
+            // Auto-assign role based on class actor_role
+            if (!c.role && c.type !== 'agent') {
+                const mapEl = document.getElementById('classConfigMap');
+                try {
+                    const map = JSON.parse(mapEl?.textContent || '{}');
+                    const form = this.$el?.closest?.('form');
+                    const cat = form?.querySelector('[name="category"]')?.value || '';
+                    const cfg = map[cat] || {};
+                    c.role = cfg.actor_role === 'buyer_action' ? 'buyer_contact'
+                           : cfg.actor_role === 'seller_action' ? 'seller_contact'
+                           : 'attendee';
+                } catch { c.role = 'attendee'; }
+            }
+            this.chosen.push(c); this.query = ''; this.results = [];
+            // Conflict check for user (agent) attendees
+            if (c.type === 'agent') { this.checkConflictForAttendee(c); }
+        },
         remove(c) { this.chosen = this.chosen.filter(x => !(x.id === c.id && x.type === c.type)); },
+        async checkConflictForAttendee(c) {
+            const form = this.$el?.closest?.('form');
+            const startDate = form?.querySelector('[name="event_date"]')?.value || form?.querySelector('[x-bind\\:value="computedEventDate"]')?.value;
+            const endDate = form?.querySelector('[name="end_date"]')?.value;
+            if (!startDate) return;
+            try {
+                const params = new URLSearchParams({ user_id: c.id, start: startDate, end: endDate || startDate });
+                const r = await fetch('/corex/command-center/calendar/check-conflicts?' + params, {
+                    headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+                });
+                if (!r.ok) return;
+                const data = await r.json();
+                if (data.has_conflict) {
+                    c.conflict = data.conflicts;
+                    c.conflictLabel = data.conflicts.map(cf => cf.title).join(', ');
+                    // Force reactivity
+                    this.chosen = [...this.chosen];
+                }
+            } catch (e) { /* silent */ }
+        },
         setOwners(owners) {
-            // Auto-populate with property owners (additive, don't duplicate)
+            // Auto-populate with property owners as seller_contact (additive, don't duplicate)
             owners.forEach(o => {
                 if (!o.type) o.type = 'contact';
+                if (!o.role) o.role = 'seller_contact';
                 const key = o.type + ':' + o.id;
                 if (!this.chosen.some(c => c.type + ':' + c.id === key)) {
                     this.chosen.push(o);

@@ -129,7 +129,7 @@ class CalendarEvent extends Model
     public function linkedContacts(): MorphToMany
     {
         return $this->morphedByMany(Contact::class, 'linkable', 'calendar_event_links', 'calendar_event_id')
-            ->wherePivot('role', CalendarEventLink::ROLE_ATTENDEE);
+            ->wherePivotIn('role', [CalendarEventLink::ROLE_ATTENDEE, 'buyer_contact', 'seller_contact']);
     }
 
     public function linkedDeals(): MorphToMany

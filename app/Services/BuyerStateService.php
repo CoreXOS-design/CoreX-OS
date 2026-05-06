@@ -57,6 +57,27 @@ class BuyerStateService
             'triggered_by_user_id' => $userId,
             'occurred_at' => now(),
         ]);
+
+        // Auto-record lost reason when transitioning to lost via cron
+        if ($newState === 'lost' && $reason === 'auto_recompute' && $oldState !== 'lost') {
+            \Illuminate\Support\Facades\DB::table('buyer_lost_records')->insert([
+                'contact_id' => $contact->id,
+                'agency_id' => $contact->agency_id ?? 1,
+                'reason_code' => 'no_activity',
+                'reason_label' => 'No activity (auto-transitioned)',
+                'notes' => 'Auto-transitioned after inactivity exceeding lost threshold.',
+                'recorded_by_user_id' => null,
+                'recorded_at' => now(),
+                'source' => 'auto_no_activity',
+                'buyer_state_at_loss' => $oldState,
+                'days_in_pipeline_at_loss' => $contact->buyer_pipeline_entered_at ? (int) $contact->buyer_pipeline_entered_at->diffInDays(now()) : null,
+                'days_since_last_activity_at_loss' => $contact->last_activity_at ? (int) $contact->last_activity_at->diffInDays(now()) : null,
+                'agent_owner_user_id_at_loss' => $contact->created_by_user_id,
+                'branch_id_at_loss' => $contact->branch_id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
     }
 
     /**

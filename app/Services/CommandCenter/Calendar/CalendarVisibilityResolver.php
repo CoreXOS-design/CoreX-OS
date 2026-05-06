@@ -47,6 +47,15 @@ class CalendarVisibilityResolver
             return true;
         }
 
+        // Invitation-based visibility: accepted/tentative attendees see the event
+        $hasInvitation = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $event->id)
+            ->where('invitee_user_id', $user->id)
+            ->whereIn('status', ['accepted', 'tentative'])
+            ->exists();
+        if ($hasInvitation) {
+            return true;
+        }
+
         // Leave visibility matrix check (M3.4) — consult agency-configured matrix
         // for leave event classes before falling through to general class visibility.
         $config = CalendarEventClassSetting::forAgencyAndClass($event->agency_id, $event->category ?? '');

@@ -169,6 +169,30 @@
                             </div>
                         </div>
 
+                        {{-- Actor role + Completion behaviour --}}
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                            <div class="rounded p-3 border" style="background:var(--surface-2); border-color:var(--border-default);">
+                                <h4 class="text-sm font-semibold mb-2" style="color:var(--text-primary);">Actor Role</h4>
+                                <p class="text-[10px] mb-2" style="color:var(--text-muted);">Who is the primary actor? Drives auto-populate and feedback flow.</p>
+                                @foreach(['buyer_action' => 'Buyer action', 'seller_action' => 'Seller action', 'both' => 'Both parties', 'neither' => 'Neither (informational)'] as $val => $lbl)
+                                    <label class="flex items-center gap-2 mb-1">
+                                        <input type="radio" name="actor_role" value="{{ $val }}" {{ ($cfg->actor_role ?? 'neither') === $val ? 'checked' : '' }} class="rounded">
+                                        <span class="text-xs" style="color:var(--text-secondary);">{{ $lbl }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                            <div class="rounded p-3 border" style="background:var(--surface-2); border-color:var(--border-default);">
+                                <h4 class="text-sm font-semibold mb-2" style="color:var(--text-primary);">Completion Behaviour</h4>
+                                <p class="text-[10px] mb-2" style="color:var(--text-muted);">How should agents complete events of this class?</p>
+                                @foreach(['require_feedback' => 'Require feedback per property', 'require_reason' => 'Require reason (no-show, cancelled, etc.)', 'freeform' => 'Freeform (single click)'] as $val => $lbl)
+                                    <label class="flex items-center gap-2 mb-1">
+                                        <input type="radio" name="completion_behaviour" value="{{ $val }}" {{ ($cfg->completion_behaviour ?? 'freeform') === $val ? 'checked' : '' }} class="rounded">
+                                        <span class="text-xs" style="color:var(--text-secondary);">{{ $lbl }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                        </div>
+
                         {{-- Daily digest --}}
                         <div class="rounded p-3 border" style="background:var(--surface-2); border-color:var(--border-default);">
                             <h4 class="text-sm font-semibold mb-2" style="color:var(--text-primary);">Daily digest</h4>

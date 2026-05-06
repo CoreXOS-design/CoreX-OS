@@ -101,4 +101,10 @@ Schedule::command('contacts:detect-duplicates')->dailyAt('03:30')->onOneServer()
 
 // ── Buyer CRM (M4) ──
 Schedule::command('buyers:recompute-states')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
+
+// ── Property Intelligence (M5) ──
+Schedule::command('properties:generate-recommendations')->weeklyOn(1, '05:00')->onOneServer()->withoutOverlapping();
+
+// ── Buyer Matching Engine (M6) ──
+Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
