@@ -106,12 +106,11 @@ class PrivatePropertyListingMapper
     {
         $ids = [];
 
-        if ($property->agent_id) {
-            $ids[] = (string) $property->agent_id;
-        }
-
-        if ($property->pp_second_agent_id) {
-            $ids[] = (string) $property->pp_second_agent_id;
+        foreach ([$property->agent_id, $property->pp_second_agent_id] as $userId) {
+            if (!$userId) continue;
+            $user = \App\Models\User::find($userId);
+            if (!$user) continue;
+            $ids[] = (string) ($user->pp_external_ref ?: $user->id);
         }
 
         return implode(',', $ids);
