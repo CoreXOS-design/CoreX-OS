@@ -2,10 +2,10 @@
 
 @section('corex-content')
 <div class="-m-4 lg:-m-6">
-    <x-page-header title="Payroll Report — {{ $run->run_number }}" :back-route="route('payroll.runs.show', $run)" back-label="Run {{ $run->run_number }}" :flush="true">
+    <x-page-header title="Payroll Report â€” {{ $run->run_number }}" :back-route="route('payroll.runs.show', $run)" back-label="Run {{ $run->run_number }}" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('payroll.runs.bundle', $run) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Download Bundle</a>
-            <button onclick="window.print()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:3px; background:none; cursor:pointer;">Print Report</button>
+            <a href="{{ route('payroll.runs.bundle', $run) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Download Bundle</a>
+            <button onclick="window.print()" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Print Report</button>
         </x-slot:actions>
     </x-page-header>
 
@@ -23,7 +23,7 @@
                 'Total UIF' => 'R ' . number_format($run->total_uif_employee ?? 0, 2),
                 'Net Pay' => 'R ' . number_format($run->total_net ?? 0, 2),
             ] as $lbl => $val)
-            <div class="p-3 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+            <div class="p-3 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                 <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">{{ $lbl }}</p>
                 <p class="text-sm font-bold" style="color:{{ $lbl === 'Net Pay' ? '#00d4aa' : 'var(--text-primary, #0f172a)' }};">{{ $val }}</p>
             </div>
@@ -31,7 +31,7 @@
         </div>
 
         {{-- SECTION 1: EMP201 Statutory Summary --}}
-        <div class="mb-6 p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+        <div class="mb-6 p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
             <div class="flex flex-col lg:flex-row gap-6">
                 <div class="lg:w-1/2">
                     <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">EMP201 Submission Data</h4>
@@ -178,11 +178,11 @@
                         <tr style="border-bottom:1px solid var(--border, #e5e7eb);">
                             <td class="px-3 py-2 text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ $la->user->name ?? '?' }}</td>
                             <td class="px-3 py-2 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $la->leaveType->label ?? '-' }}</td>
-                            <td class="px-3 py-2 text-xs" style="color:var(--text-primary, #0f172a);">{{ $la->start_date?->format('d M') }} — {{ $la->end_date?->format('d M') }}</td>
+                            <td class="px-3 py-2 text-xs" style="color:var(--text-primary, #0f172a);">{{ $la->start_date?->format('d M') }} â€” {{ $la->end_date?->format('d M') }}</td>
                             <td class="px-2 py-2 text-center text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ number_format($la->working_days_requested, 1) }}</td>
                             <td class="px-2 py-2 text-center">
                                 @if($la->affects_payroll)
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:3px;">Yes</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:6px;">Yes</span>
                                 @else
                                     <span class="text-xs" style="color:var(--text-secondary, #94a3b8);">No</span>
                                 @endif

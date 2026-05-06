@@ -4,7 +4,7 @@
     @method('PATCH')
 
     <div class="space-y-4">
-        <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+        <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
             <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">7. Compliance Documents</h4>
             <p class="text-xs mb-4" style="color:var(--text-secondary, #6b7280);">Upload required documents. Each is filed to the employee's document profile automatically.</p>
 
@@ -14,7 +14,7 @@
                 'qualification' => ['Qualifications', false],
                 'other' => ['Signed Employment Contract / Other', true],
             ] as $docType => [$label, $required])
-                <div class="mb-4 p-3" style="border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="mb-4 p-3" style="border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <div class="flex items-center justify-between mb-2">
                         <span class="text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ $label }} {{ $required ? '*' : '(optional)' }}</span>
                         @php
@@ -28,7 +28,7 @@
                         @csrf
                         <input type="hidden" name="document_type" value="{{ $docType }}">
                         <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" class="text-xs" style="color:var(--text-secondary, #6b7280);">
-                        <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Upload</button>
+                        <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Upload</button>
                     </form>
                     @if($existing->count() > 0)
                         <div class="mt-2 space-y-1">
@@ -42,6 +42,6 @@
         </div>
 
         <input type="hidden" name="contract_uploaded" value="{{ ($uploadedDocs ?? collect())->where('document_type', 'other')->count() > 0 ? '1' : '0' }}">
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;">Save & Continue</button>
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">Save & Continue</button>
     </div>
 </form>

@@ -6,33 +6,33 @@
 
     <div class="p-4 lg:p-6">
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:3px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
         @endif
 
         <form method="POST" action="{{ route('staff-take-on.store') }}">
             @csrf
             <div class="max-w-2xl space-y-5">
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Select User</h4>
                     @if($eligibleUsers->isEmpty())
                         <p class="text-xs" style="color:var(--text-secondary, #94a3b8);">All users are already on payroll. Create a new user in User Management first.</p>
                     @else
-                        <select name="user_id" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                        <select name="user_id" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                             <option value="">-- Choose a user --</option>
                             @foreach($eligibleUsers as $user)
-                                <option value="{{ $user->id }}">{{ $user->name }} ({{ $user->designation ?? 'No designation' }}) — {{ $user->email }}</option>
+                                <option value="{{ $user->id }}">{{ $user->name }} ({{ $user->designation ?? 'No designation' }}) â€” {{ $user->email }}</option>
                             @endforeach
                         </select>
                         @error('user_id') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                     @endif
                 </div>
 
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Take-On Details</h4>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Take-On Type <span class="text-red-500">*</span></label>
-                            <select name="take_on_type" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                            <select name="take_on_type" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                                 <option value="new_hire">New Hire</option>
                                 <option value="migration_from_old_system">Migration from Old System</option>
                                 <option value="transfer_from_other_branch">Transfer from Other Branch</option>
@@ -41,14 +41,14 @@
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Take-On Date <span class="text-red-500">*</span></label>
                             <input type="date" name="take_on_date" value="{{ date('Y-m-d') }}" required
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                         </div>
                     </div>
                 </div>
 
                 <div class="flex items-center gap-3">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" {{ $eligibleUsers->isEmpty() ? 'disabled' : '' }}>Start Wizard</button>
-                    <a href="{{ route('staff-take-on.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Cancel</a>
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" {{ $eligibleUsers->isEmpty() ? 'disabled' : '' }}>Start Wizard</button>
+                    <a href="{{ route('staff-take-on.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
                 </div>
             </div>
         </form>

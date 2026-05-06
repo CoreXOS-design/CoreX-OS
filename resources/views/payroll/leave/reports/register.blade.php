@@ -4,7 +4,7 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Leave Register" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('payroll.leave.reports.register.export', ['format' => 'xlsx', 'from' => $dateFrom, 'to' => $dateTo, 'status' => $status, 'type' => $typeFilter, 'branch' => $branchFilter]) }}" class="inline-flex items-center px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Export CSV</a>
+            <a href="{{ route('payroll.leave.reports.register.export', ['format' => 'xlsx', 'from' => $dateFrom, 'to' => $dateTo, 'status' => $status, 'type' => $typeFilter, 'branch' => $branchFilter]) }}" class="inline-flex items-center px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Export CSV</a>
         </x-slot:actions>
     </x-page-header>
 
@@ -19,26 +19,26 @@
         {{-- Filters --}}
         <form method="GET" action="{{ route('payroll.leave.reports.register') }}" class="flex flex-wrap items-end gap-3 mb-4">
             <div><label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">From</label>
-                <input type="date" name="from" value="{{ $dateFrom }}" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);"></div>
+                <input type="date" name="from" value="{{ $dateFrom }}" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);"></div>
             <div><label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">To</label>
-                <input type="date" name="to" value="{{ $dateTo }}" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);"></div>
+                <input type="date" name="to" value="{{ $dateTo }}" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);"></div>
             <div><label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Status</label>
-                <select name="status" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                <select name="status" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                     <option value="">All</option>
                     @foreach(['submitted','approved','rejected','cancelled','taken'] as $s)
                         <option value="{{ $s }}" {{ $status === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
                     @endforeach
                 </select></div>
             <div><label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Type</label>
-                <select name="type" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                <select name="type" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                     <option value="">All</option>
                     @foreach($leaveTypes as $lt)
                         <option value="{{ $lt->id }}" {{ ($typeFilter ?? '') == $lt->id ? 'selected' : '' }}>{{ $lt->label }}</option>
                     @endforeach
                 </select></div>
             <div><label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Search</label>
-                <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Employee name..." class="px-2 py-1.5 text-xs w-36 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);"></div>
-            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Apply</button>
+                <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Employee name..." class="px-2 py-1.5 text-xs w-36 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);"></div>
+            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Apply</button>
             <a href="{{ route('payroll.leave.reports.register') }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Reset</a>
         </form>
 
@@ -64,11 +64,11 @@
                             <td class="px-2 py-2 text-xs" style="font-family:monospace; color:var(--text-secondary, #94a3b8);">{{ $app->application_number }}</td>
                             <td class="px-2 py-2 text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ $app->user->name ?? '-' }}</td>
                             <td class="px-2 py-2 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $app->leaveType->label ?? '-' }}</td>
-                            <td class="px-2 py-2 text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->start_date?->format('d M') }} — {{ $app->end_date?->format('d M') }}</td>
+                            <td class="px-2 py-2 text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->start_date?->format('d M') }} â€” {{ $app->end_date?->format('d M') }}</td>
                             <td class="px-2 py-2 text-center text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ number_format($app->working_days_requested, 1) }}</td>
                             <td class="px-2 py-2 text-center">
                                 @php $sc = ['submitted'=>'#eab308','approved'=>'#00d4aa','rejected'=>'#ef4444','cancelled'=>'#94a3b8','taken'=>'#3b82f6']; @endphp
-                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:{{ $sc[$app->status] ?? '#94a3b8' }}15; color:{{ $sc[$app->status] ?? '#94a3b8' }}; border-radius:3px;">{{ ucfirst($app->status) }}</span>
+                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:{{ $sc[$app->status] ?? '#94a3b8' }}15; color:{{ $sc[$app->status] ?? '#94a3b8' }}; border-radius:6px;">{{ ucfirst($app->status) }}</span>
                             </td>
                             <td class="px-2 py-2 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $app->decidedBy->name ?? '-' }}</td>
                         </tr>

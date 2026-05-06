@@ -4,7 +4,7 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Staff Take-On" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('staff-take-on.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+            <a href="{{ route('staff-take-on.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 Start New Take-On
             </a>
@@ -13,7 +13,7 @@
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:3px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
         @endif
 
         <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
@@ -57,9 +57,9 @@
                             <td class="px-3 py-2.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $rec->created_at?->format('d M Y') }}</td>
                             <td class="px-3 py-2.5 text-center">
                                 @if($rec->isComplete())
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:3px;">Completed</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:6px;">Completed</span>
                                 @else
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:3px;">Step {{ array_search($rec->current_step, ['user','personal','tax_banking','employment','compensation','leave','compliance','review']) + 1 }} of 8</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:6px;">Step {{ array_search($rec->current_step, ['user','personal','tax_banking','employment','compensation','leave','compliance','review']) + 1 }} of 8</span>
                                 @endif
                             </td>
                             <td class="px-3 py-2.5 text-right">

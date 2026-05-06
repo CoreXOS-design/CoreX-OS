@@ -4,7 +4,7 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Payroll Deduction Types" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('payroll.deduction-types.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+            <a href="{{ route('payroll.deduction-types.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 Add Deduction Type
             </a>
@@ -15,15 +15,15 @@
         <p class="text-xs mb-4" style="color:var(--text-secondary, #6b7280);">Configure agency-specific deduction categories. Statutory deductions (PAYE, UIF) are auto-calculated by the payroll engine.</p>
 
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:3px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
         @endif
 
         {{-- Search + filters --}}
         <div class="flex flex-wrap items-center gap-3 mb-4">
             <form method="GET" action="{{ route('payroll.deduction-types.index') }}" class="flex items-center gap-2">
-                <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search code or label..." class="px-3 py-1.5 text-xs w-56 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search code or label..." class="px-3 py-1.5 text-xs w-56 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                 <input type="hidden" name="status" value="{{ $status }}">
-                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Search</button>
+                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Search</button>
                 @if($q)
                     <a href="{{ route('payroll.deduction-types.index', ['status' => $status]) }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Clear</a>
                 @endif
@@ -75,13 +75,13 @@
                             <td class="px-3 py-2.5 font-semibold" style="color:var(--text-primary, #0f172a);">
                                 {{ $type->label }}
                                 @if($type->is_system)
-                                    <span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-bold uppercase" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:3px;">System</span>
+                                    <span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-bold uppercase" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:6px;">System</span>
                                 @endif
                             </td>
                             <td class="px-3 py-2.5 text-xs" style="font-family:monospace; color:var(--text-secondary, #6b7280);">{{ $type->sars_source_code ?? '-' }}</td>
                             <td class="px-3 py-2.5 text-center">
                                 @if($type->is_statutory)
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:3px;">Statutory</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:6px;">Statutory</span>
                                 @else
                                     <span class="text-xs" style="color:var(--text-secondary, #94a3b8);">-</span>
                                 @endif
@@ -89,9 +89,9 @@
                             <td class="px-2 py-2.5 text-center text-xs" style="color:var(--text-secondary, #6b7280);">{{ $type->sort_order }}</td>
                             <td class="px-3 py-2.5 text-center">
                                 @if($type->is_active)
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:3px;">Active</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:6px;">Active</span>
                                 @else
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:3px;">Inactive</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:6px;">Inactive</span>
                                 @endif
                             </td>
                             <td class="px-3 py-2.5 text-right">

@@ -8,7 +8,7 @@
     sarsCode: '{{ old('sars_source_code', $type->sars_source_code ?? '') }}'
 }">
     @if(isset($locked) && ($locked['code'] ?? false))
-    <div class="p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:3px; color:#eab308;">
+    <div class="p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
         This is a system earning type. Code, SARS code, and tax treatment are locked. You can still edit the label, sort order, and active state.
     </div>
     @endif
@@ -18,16 +18,16 @@
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Code <span class="text-red-500">*</span></label>
             <input type="text" name="code" x-model="code" @blur="code = code.toLowerCase()" required maxlength="30"
-                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px; font-family:monospace;"
+                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px; font-family:monospace;"
                    placeholder="e.g. cell_allowance"
                    {{ isset($locked) && ($locked['code'] ?? false) ? 'disabled title=System types have locked codes' : '' }}>
-            <p class="text-[10px] mt-0.5" style="color:var(--text-secondary, #94a3b8);">Internal reference — lowercase, hyphens, underscores. e.g. 'cell_allowance'. Cannot change after creation if in use.</p>
+            <p class="text-[10px] mt-0.5" style="color:var(--text-secondary, #94a3b8);">Internal reference â€” lowercase, hyphens, underscores. e.g. 'cell_allowance'. Cannot change after creation if in use.</p>
             @error('code') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Label <span class="text-red-500">*</span></label>
             <input type="text" name="label" value="{{ old('label', $type->label ?? '') }}" required maxlength="100"
-                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;"
+                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"
                    placeholder="e.g. Cell Allowance">
             <p class="text-[10px] mt-0.5" style="color:var(--text-secondary, #94a3b8);">Shown on payslip. e.g. 'Cell Allowance'.</p>
             @error('label') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
@@ -38,7 +38,7 @@
     <div>
         <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">SARS Source Code</label>
         <input type="text" name="sars_source_code" x-model="sarsCode" maxlength="4" pattern="\d{4}"
-               class="w-32 px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px; font-family:monospace;"
+               class="w-32 px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px; font-family:monospace;"
                placeholder="e.g. 3713"
                {{ isset($locked) && ($locked['sars'] ?? false) ? 'disabled title=System types have locked SARS codes' : '' }}>
         <p class="text-[10px] mt-0.5" style="color:var(--text-secondary, #94a3b8);">IRP5 source code. e.g. 3713 for general allowances. Leave blank if not SARS-reportable.</p>
@@ -50,7 +50,7 @@
             @foreach(['3601' => '3601', '3605' => '3605', '3606' => '3606', '3607' => '3607', '3701' => '3701', '3703' => '3703', '3713' => '3713', '3714' => '3714'] as $code => $display)
                 <button type="button" @click="sarsCode = '{{ $code }}'"
                         class="px-2 py-0.5 text-[10px] font-semibold transition cursor-pointer"
-                        style="border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-secondary, #6b7280); background:var(--surface-2, #f8fafc);"
+                        style="border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-secondary, #6b7280); background:var(--surface-2, #f8fafc);"
                         onmouseover="this.style.borderColor='#00d4aa'; this.style.color='#00d4aa';"
                         onmouseout="this.style.borderColor=''; this.style.color='var(--text-secondary, #6b7280)';">{{ $display }}</button>
             @endforeach
@@ -59,8 +59,8 @@
     </div>
 
     {{-- Tax & contribution rules --}}
-    <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
-        <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em; font-family:'Plus Jakarta Sans',sans-serif;">Tax & Contribution Rules</h4>
+    <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
+        <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Tax & Contribution Rules</h4>
         <div class="space-y-4">
             {{-- is_taxable --}}
             <label class="relative inline-flex items-center cursor-pointer gap-3">
@@ -115,7 +115,7 @@
         <div class="w-32">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Sort Order</label>
             <input type="number" name="sort_order" min="0" value="{{ old('sort_order', $type->sort_order ?? ($nextSort ?? 10)) }}"
-                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Active</label>
@@ -130,9 +130,9 @@
 
     {{-- Actions --}}
     <div class="flex items-center gap-3 pt-2">
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
             {{ isset($type) && $type->exists ? 'Update' : 'Save' }} Earning Type
         </button>
-        <a href="{{ route('payroll.earning-types.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Cancel</a>
+        <a href="{{ route('payroll.earning-types.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
     </div>
 </div>

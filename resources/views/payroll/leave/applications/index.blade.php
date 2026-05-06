@@ -6,21 +6,21 @@
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:3px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
         @endif
 
         {{-- Search + type filter --}}
         <div class="flex flex-wrap items-center gap-3 mb-4">
             <form method="GET" action="{{ route('payroll.leave.applications.index') }}" class="flex items-center gap-2">
-                <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search name or app #..." class="px-3 py-1.5 text-xs w-48 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
-                <select name="type" class="px-3 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search name or app #..." class="px-3 py-1.5 text-xs w-48 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                <select name="type" class="px-3 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                     <option value="">All Types</option>
                     @foreach($leaveTypes as $lt)
                         <option value="{{ $lt->id }}" {{ ($typeFilter ?? '') == $lt->id ? 'selected' : '' }}>{{ $lt->label }}</option>
                     @endforeach
                 </select>
                 <input type="hidden" name="status" value="{{ $status }}">
-                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Filter</button>
+                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Filter</button>
                 @if($q || $typeFilter)
                     <a href="{{ route('payroll.leave.applications.index', ['status' => $status]) }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Clear</a>
                 @endif
@@ -71,11 +71,11 @@
                             <td class="px-3 py-2.5 text-xs" style="color:var(--text-secondary, #94a3b8); font-family:monospace;">{{ $app->application_number }}</td>
                             <td class="px-3 py-2.5 font-semibold text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->user->name ?? 'Unknown' }}</td>
                             <td class="px-2 py-2.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $app->leaveType->label ?? '-' }}</td>
-                            <td class="px-2 py-2.5 text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->start_date?->format('d M') }} — {{ $app->end_date?->format('d M Y') }}</td>
+                            <td class="px-2 py-2.5 text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->start_date?->format('d M') }} â€” {{ $app->end_date?->format('d M Y') }}</td>
                             <td class="px-2 py-2.5 text-center text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ number_format($app->working_days_requested, 1) }}</td>
                             <td class="px-2 py-2.5 text-center">
                                 @php $statusColors = ['submitted'=>'#eab308','approved'=>'#00d4aa','rejected'=>'#ef4444','cancelled'=>'#94a3b8','taken'=>'#3b82f6','draft'=>'#6b7280','no_show'=>'#ef4444']; @endphp
-                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:{{ $statusColors[$app->status] ?? '#94a3b8' }}15; color:{{ $statusColors[$app->status] ?? '#94a3b8' }}; border-radius:3px;">{{ ucfirst($app->status) }}</span>
+                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:{{ $statusColors[$app->status] ?? '#94a3b8' }}15; color:{{ $statusColors[$app->status] ?? '#94a3b8' }}; border-radius:6px;">{{ ucfirst($app->status) }}</span>
                             </td>
                             <td class="px-2 py-2.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $app->submitted_at?->format('d M H:i') }}</td>
                             <td class="px-3 py-2.5 text-right">

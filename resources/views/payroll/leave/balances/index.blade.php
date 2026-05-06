@@ -8,14 +8,14 @@
         {{-- Search + filter --}}
         <div class="flex flex-wrap items-center gap-3 mb-4">
             <form method="GET" action="{{ route('payroll.leave.balances.index') }}" class="flex items-center gap-2">
-                <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search employee..." class="px-3 py-1.5 text-xs w-48 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
-                <select name="branch" class="px-3 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search employee..." class="px-3 py-1.5 text-xs w-48 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                <select name="branch" class="px-3 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                     <option value="">All Branches</option>
                     @foreach($branches as $b)
                         <option value="{{ $b->id }}" {{ ($branchFilter ?? '') == $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
                     @endforeach
                 </select>
-                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Filter</button>
+                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Filter</button>
                 @if($q || $branchFilter)
                     <a href="{{ route('payroll.leave.balances.index') }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Clear</a>
                 @endif
@@ -74,9 +74,9 @@
                             <td class="px-2 py-2.5 text-center">
                                 @php $to = \App\Models\Leave\StaffTakeOnRecord::where('user_id', $emp->user_id)->first(); @endphp
                                 @if($to?->isComplete())
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:3px;">Done</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:6px;">Done</span>
                                 @elseif($to)
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:3px;">{{ $to->progressPercentage() }}%</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:6px;">{{ $to->progressPercentage() }}%</span>
                                 @else
                                     <span class="text-[10px]" style="color:var(--text-secondary, #94a3b8);">-</span>
                                 @endif

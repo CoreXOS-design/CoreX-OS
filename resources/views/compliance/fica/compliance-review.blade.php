@@ -216,7 +216,7 @@ function coReview() {
                 return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
             };
             const start = (e) => { e.preventDefault(); drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; };
-            const move = (e) => { if (!drawing) return; e.preventDefault(); const p = getPos(e); ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); lastX = p.x; lastY = p.y; };
+            const move = (e) => { if (!drawing) return; e.preventDefault(); const p = getPos(e); ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.strokeStyle = 'var(--text-primary)'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); lastX = p.x; lastY = p.y; };
             const end = () => { drawing = false; };
             canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move);
             canvas.addEventListener('mouseup', end); canvas.addEventListener('mouseleave', end);

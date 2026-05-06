@@ -4,30 +4,30 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Edit Payslip {{ $payslip->payslip_number }}" :back-route="route('payroll.runs.show', $run)" back-label="Run {{ $run->run_number }}" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('payroll.runs.payslips.pdf-preview', [$run, $payslip]) }}" target="_blank" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Preview PDF</a>
-            <a href="{{ route('payroll.runs.payslips.show', [$run, $payslip]) }}" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:3px;">View Payslip</a>
+            <a href="{{ route('payroll.runs.payslips.pdf-preview', [$run, $payslip]) }}" target="_blank" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Preview PDF</a>
+            <a href="{{ route('payroll.runs.payslips.show', [$run, $payslip]) }}" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;">View Payslip</a>
         </x-slot:actions>
     </x-page-header>
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:3px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
         @endif
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:3px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
         @endif
 
         @if($payslip->notes)
-            <div class="mb-4 p-3 text-xs" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:3px; color:#eab308;">
+            <div class="mb-4 p-3 text-xs" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
                 Auto-generated warnings: {{ $payslip->notes }}. Review and clear via Notes if appropriate.
             </div>
         @endif
 
         <div class="flex flex-col lg:flex-row gap-6 max-w-7xl">
-            {{-- ═══ LEFT COLUMN (1/3) ═══ --}}
+            {{-- â•â•â• LEFT COLUMN (1/3) â•â•â• --}}
             <div class="lg:w-1/3 space-y-4">
                 {{-- Employee snapshot --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Employee Snapshot</h4>
                     <dl class="space-y-1.5 text-xs">
                         <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Name</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a);">{{ $payslip->employee_name_snapshot }}</dd></div>
@@ -39,11 +39,11 @@
                 </div>
 
                 {{-- Recalculate --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Quick Actions</h4>
                     <form method="POST" action="{{ route('payroll.runs.payslips.recalculate', [$run, $payslip]) }}">
                         @csrf
-                        <button type="submit" class="w-full px-3 py-2 text-xs font-semibold text-white transition" style="background:#eab308; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" onclick="return confirm('This will discard all manual edits and recalculate from the employee\'s current earnings/deductions template. Continue?')">
+                        <button type="submit" class="w-full px-3 py-2 text-xs font-semibold text-white transition" style="background:#eab308; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" onclick="return confirm('This will discard all manual edits and recalculate from the employee\'s current earnings/deductions template. Continue?')">
                             Recalculate from Current Profile
                         </button>
                     </form>
@@ -51,21 +51,21 @@
                 </div>
 
                 {{-- Notes --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Notes</h4>
                     <form method="POST" action="{{ route('payroll.runs.payslips.notes', [$run, $payslip]) }}">
                         @csrf
                         @method('PATCH')
-                        <textarea name="notes" rows="3" maxlength="2000" class="w-full px-2 py-1.5 text-xs focus:outline-none mb-2" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">{{ $payslip->notes }}</textarea>
-                        <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save Notes</button>
+                        <textarea name="notes" rows="3" maxlength="2000" class="w-full px-2 py-1.5 text-xs focus:outline-none mb-2" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">{{ $payslip->notes }}</textarea>
+                        <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save Notes</button>
                     </form>
                     <p class="text-[10px] mt-1.5" style="color:var(--text-secondary, #94a3b8);">Internal notes visible to admin. Will appear on the run summary report.</p>
                 </div>
             </div>
 
-            {{-- ═══ RIGHT COLUMN (2/3) ═══ --}}
+            {{-- â•â•â• RIGHT COLUMN (2/3) â•â•â• --}}
             <div class="lg:w-2/3 space-y-6">
-                {{-- ── EARNINGS ── --}}
+                {{-- â”€â”€ EARNINGS â”€â”€ --}}
                 <div>
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Earnings</h4>
                     <div class="overflow-x-auto">
@@ -88,8 +88,8 @@
                                             @csrf
                                             @method('PATCH')
                                             <span class="text-xs" style="color:var(--text-secondary, #6b7280);">R</span>
-                                            <input type="number" name="amount" value="{{ $line->amount }}" step="0.01" min="0" required class="w-24 px-2 py-1 text-xs text-right focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
-                                            <button type="submit" class="px-2 py-1 text-[10px] font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
+                                            <input type="number" name="amount" value="{{ $line->amount }}" step="0.01" min="0" required class="w-24 px-2 py-1 text-xs text-right focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                            <button type="submit" class="px-2 py-1 text-[10px] font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
                                         </form>
                                     </td>
                                     <td class="px-2 py-2 text-right">
@@ -115,12 +115,12 @@
                     {{-- Add earning --}}
                     <div x-data="{ adding: false }" class="mt-2">
                         <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">+ Add Earning</button>
-                        <form method="POST" action="{{ route('payroll.runs.payslips.lines.store', [$run, $payslip]) }}" x-show="adding" x-cloak class="flex flex-wrap items-end gap-2 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:3px;">
+                        <form method="POST" action="{{ route('payroll.runs.payslips.lines.store', [$run, $payslip]) }}" x-show="adding" x-cloak class="flex flex-wrap items-end gap-2 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
                             @csrf
                             <input type="hidden" name="line_type" value="earning">
                             <div>
                                 <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Earning Type</label>
-                                <select name="source_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                <select name="source_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                     <option value="">-- Select --</option>
                                     @foreach($earningTypes as $et)
                                         <option value="{{ $et->id }}">{{ $et->label }}</option>
@@ -129,15 +129,15 @@
                             </div>
                             <div>
                                 <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Amount (R)</label>
-                                <input type="number" name="amount" step="0.01" min="0" required class="w-28 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                <input type="number" name="amount" step="0.01" min="0" required class="w-28 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                             </div>
-                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
-                            <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px; background:none; cursor:pointer;">Cancel</button>
+                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                            <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                         </form>
                     </div>
                 </div>
 
-                {{-- ── DEDUCTIONS ── --}}
+                {{-- â”€â”€ DEDUCTIONS â”€â”€ --}}
                 <div>
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Deductions</h4>
                     <div class="overflow-x-auto">
@@ -172,8 +172,8 @@
                                             @csrf
                                             @method('PATCH')
                                             <span class="text-xs" style="color:var(--text-secondary, #6b7280);">R</span>
-                                            <input type="number" name="amount" value="{{ $line->amount }}" step="0.01" min="0" required class="w-24 px-2 py-1 text-xs text-right focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
-                                            <button type="submit" class="px-2 py-1 text-[10px] font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
+                                            <input type="number" name="amount" value="{{ $line->amount }}" step="0.01" min="0" required class="w-24 px-2 py-1 text-xs text-right focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                                            <button type="submit" class="px-2 py-1 text-[10px] font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
                                         </form>
                                     </td>
                                     <td class="px-2 py-2 text-right">
@@ -203,12 +203,12 @@
                     {{-- Add deduction --}}
                     <div x-data="{ adding: false }" class="mt-2">
                         <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">+ Add Deduction</button>
-                        <form method="POST" action="{{ route('payroll.runs.payslips.lines.store', [$run, $payslip]) }}" x-show="adding" x-cloak class="flex flex-wrap items-end gap-2 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:3px;">
+                        <form method="POST" action="{{ route('payroll.runs.payslips.lines.store', [$run, $payslip]) }}" x-show="adding" x-cloak class="flex flex-wrap items-end gap-2 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
                             @csrf
                             <input type="hidden" name="line_type" value="deduction">
                             <div>
                                 <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Deduction Type</label>
-                                <select name="source_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                <select name="source_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                     <option value="">-- Select --</option>
                                     @foreach($deductionTypes as $dt)
                                         <option value="{{ $dt->id }}">{{ $dt->label }}{{ $dt->is_statutory ? ' (statutory)' : '' }}</option>
@@ -217,15 +217,15 @@
                             </div>
                             <div>
                                 <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Amount (R)</label>
-                                <input type="number" name="amount" step="0.01" min="0" required class="w-28 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                <input type="number" name="amount" step="0.01" min="0" required class="w-28 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                             </div>
-                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
-                            <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px; background:none; cursor:pointer;">Cancel</button>
+                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                            <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                         </form>
                     </div>
                 </div>
 
-                {{-- ── EMPLOYER CONTRIBUTIONS (read-only) ── --}}
+                {{-- â”€â”€ EMPLOYER CONTRIBUTIONS (read-only) â”€â”€ --}}
                 @if($contributionLines->isNotEmpty())
                 <div>
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Employer Contributions</h4>
@@ -243,21 +243,21 @@
                 </div>
                 @endif
 
-                {{-- ── TOTALS ── --}}
+                {{-- â”€â”€ TOTALS â”€â”€ --}}
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div class="p-3 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                    <div class="p-3 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                         <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">Gross</p>
                         <p class="text-sm font-bold" style="color:var(--text-primary, #0f172a);">R {{ number_format($payslip->total_earnings, 2) }}</p>
                     </div>
-                    <div class="p-3 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                    <div class="p-3 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                         <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">Total Deductions</p>
                         <p class="text-sm font-bold" style="color:var(--text-primary, #0f172a);">R {{ number_format($payslip->total_deductions, 2) }}</p>
                     </div>
-                    <div class="p-3 text-center" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:3px;">
+                    <div class="p-3 text-center" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
                         <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">Net Pay</p>
                         <p class="text-sm font-bold" style="color:#00d4aa;">R {{ number_format($payslip->net_pay, 2) }}</p>
                     </div>
-                    <div class="p-3 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                    <div class="p-3 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                         <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">Taxable Income</p>
                         <p class="text-sm font-bold" style="color:var(--text-primary, #0f172a);">R {{ number_format($payslip->taxable_income, 2) }}</p>
                     </div>

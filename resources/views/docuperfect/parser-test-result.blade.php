@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CDS Parser Result — {{ $title }}</title>
+    <title>CDS Parser Result â€” {{ $title }}</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="{{ asset('css/corex-document.css') }}" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Figtree', sans-serif;
             background: #0f172a;
             color: #e2e8f0;
             height: 100vh;
@@ -26,7 +26,7 @@
             align-items: center;
             flex-shrink: 0;
         }
-        .stats-bar .badge { background: #dc2626; color: white; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; }
+        .stats-bar .badge { background: #dc2626; color: white; padding: 2px 8px; border-radius:6px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; }
         .stats-bar .stat { color: #94a3b8; margin-left: 16px; }
         .stats-bar .stat strong { color: #e2e8f0; }
         .stats-bar a { color: #00d4aa; text-decoration: none; font-weight: 500; }

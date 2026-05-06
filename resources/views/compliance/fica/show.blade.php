@@ -14,18 +14,18 @@
                 {{ $submission->status_label }}
             </span>
             @if($submission->isWetInk())
-                <span class="inline-flex items-center px-2.5 py-1 text-xs font-semibold" style="background:rgba(245,158,11,0.12); color:#d97706; border-radius:3px;">
-                    Wet-Ink Intake — Received {{ $submission->wet_ink_received_date?->format('d M Y') }}
+                <span class="inline-flex items-center px-2.5 py-1 text-xs font-semibold" style="background:rgba(245,158,11,0.12); color:#d97706; border-radius:6px;">
+                    Wet-Ink Intake â€” Received {{ $submission->wet_ink_received_date?->format('d M Y') }}
                 </span>
             @else
-                <span class="inline-flex items-center px-2.5 py-1 text-xs font-semibold" style="background:rgba(0,212,170,0.12); color:#00d4aa; border-radius:3px;">
+                <span class="inline-flex items-center px-2.5 py-1 text-xs font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border-radius:6px;">
                     Online Intake
                 </span>
             @endif
         </div>
         <p class="text-sm text-slate-500 mt-1">
             {{ $submission->contact ? $submission->contact->full_name : 'Unknown contact' }}
-            — Requested by {{ $submission->requestedBy->name ?? 'Unknown' }} on {{ $submission->created_at->format('d M Y') }}
+            â€” Requested by {{ $submission->requestedBy->name ?? 'Unknown' }} on {{ $submission->created_at->format('d M Y') }}
         </p>
 
         {{-- Recipient Form Link (online intake only) --}}
@@ -66,13 +66,13 @@
 
     {{-- CO Corrections Banner --}}
     @if($submission->status === 'corrections_requested' && $submission->co_notes)
-        <div class="mb-4 p-4" style="background:rgba(245,158,11,0.08); border:2px solid rgba(245,158,11,0.4); border-radius:3px;">
+        <div class="mb-4 p-4" style="background:rgba(245,158,11,0.08); border:2px solid rgba(245,158,11,0.4); border-radius:6px;">
             <div class="flex items-start justify-between gap-4">
                 <div class="flex-1">
-                    <h4 class="text-sm font-bold text-amber-800 mb-1" style="font-family:'Plus Jakarta Sans',sans-serif;">Compliance Officer Requested Corrections</h4>
+                    <h4 class="text-sm font-bold text-amber-800 mb-1" style="">Compliance Officer Requested Corrections</h4>
                     <p class="text-sm text-amber-900">{{ $submission->co_notes }}</p>
                     @if($submission->coVerifiedBy)
-                        <p class="text-xs text-amber-600 mt-2">— {{ $submission->coVerifiedBy->name }}, {{ $submission->co_verified_at?->format('d M Y H:i') }}</p>
+                        <p class="text-xs text-amber-600 mt-2">â€” {{ $submission->coVerifiedBy->name }}, {{ $submission->co_verified_at?->format('d M Y H:i') }}</p>
                     @endif
                 </div>
                 @php
@@ -81,7 +81,7 @@
                 @if($canResubmit)
                     <form method="POST" action="{{ route('compliance.fica.resubmit-corrections', $submission) }}" class="flex-shrink-0">
                         @csrf
-                        <button type="submit" class="px-4 py-2 text-white text-xs font-semibold transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" onclick="return confirm('Resubmit this FICA for compliance officer review?')">
+                        <button type="submit" class="px-4 py-2 text-white text-xs font-semibold transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" onclick="return confirm('Resubmit this FICA for compliance officer review?')">
                             Resubmit for CO Review
                         </button>
                     </form>
@@ -107,32 +107,32 @@
             @if($submission->isWetInk())
                 {{-- Wet-ink: contact basics + uploaded documents --}}
                 <div class="bg-white border border-slate-200 p-5">
-                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #d97706; font-family:'Plus Jakarta Sans',sans-serif;">Client Details (from contact record)</h3>
+                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #d97706;">Client Details (from contact record)</h3>
                     <div class="grid grid-cols-2 gap-3 text-sm">
                         <div><span class="text-xs text-slate-400">Name</span><div class="text-slate-900 font-medium">{{ $personal['first_name'] ?? '' }} {{ $personal['last_name'] ?? '' }}</div></div>
                         <div><span class="text-xs text-slate-400">ID Number</span><div class="text-slate-900">{{ $personal['id_number'] ?? 'Not set' }}</div></div>
                         <div><span class="text-xs text-slate-400">Email</span><div class="text-slate-900">{{ $personal['email'] ?? 'Not set' }}</div></div>
                         <div><span class="text-xs text-slate-400">Phone</span><div class="text-slate-900">{{ $personal['phone'] ?? 'Not set' }}</div></div>
-                        <div><span class="text-xs text-slate-400">Entity Type</span><div class="text-slate-900 capitalize">{{ $entity['type'] ?? $submission->entity_type ?? '—' }}</div></div>
-                        <div><span class="text-xs text-slate-400">Received By</span><div class="text-slate-900">{{ $submission->form_data['intake']['received_by'] ?? '—' }}</div></div>
+                        <div><span class="text-xs text-slate-400">Entity Type</span><div class="text-slate-900 capitalize">{{ $entity['type'] ?? $submission->entity_type ?? 'â€”' }}</div></div>
+                        <div><span class="text-xs text-slate-400">Received By</span><div class="text-slate-900">{{ $submission->form_data['intake']['received_by'] ?? 'â€”' }}</div></div>
                     </div>
                 </div>
 
                 {{-- Uploaded documents --}}
                 <div class="bg-white border border-slate-200 p-5">
-                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #d97706; font-family:'Plus Jakarta Sans',sans-serif;">Uploaded Documents</h3>
+                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #d97706;">Uploaded Documents</h3>
                     @if($submission->documents->isEmpty())
                         <p class="text-sm text-slate-400">No documents uploaded.</p>
                     @else
                         <div class="space-y-3">
                             @foreach($submission->documents as $doc)
-                            <div style="border:1px solid var(--border, #e2e8f0); border-radius:3px; overflow:hidden;">
+                            <div style="border:1px solid var(--border, #e2e8f0); border-radius:6px; overflow:hidden;">
                                 <div class="flex items-center justify-between px-4 py-2" style="background:var(--surface-2, #f8fafc);">
                                     <div class="flex items-center gap-2">
                                         <span class="text-xs font-semibold text-slate-700">{{ $doc->document_type_label }}</span>
                                         <span class="text-[10px] text-slate-400">{{ $doc->file_name }}</span>
                                     </div>
-                                    <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" class="text-xs font-medium" style="color:#00d4aa; text-decoration:none;">Open in new tab</a>
+                                    <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" class="text-xs font-medium" style="color:var(--brand-icon); text-decoration:none;">Open in new tab</a>
                                 </div>
                                 @php $isImage = in_array($doc->mime_type, ['image/jpeg', 'image/png', 'image/jpg']); @endphp
                                 <div style="max-height:400px; overflow:auto;">
@@ -149,8 +149,8 @@
                 </div>
 
                 {{-- Paper form notice --}}
-                <div class="p-4 text-sm" style="background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.2); border-radius:3px; color:#92400e;">
-                    Client data captured on signed paper form — see uploaded FICA form above for full client responses.
+                <div class="p-4 text-sm" style="background:rgba(245,158,11,0.06); border:1px solid rgba(245,158,11,0.2); border-radius:6px; color:#92400e;">
+                    Client data captured on signed paper form â€” see uploaded FICA form above for full client responses.
                 </div>
             @else
                 @include('compliance.fica.partials.submitted-data', ['submission' => $submission, 'personal' => $personal, 'entity' => $entity, 'service' => $service, 'pepData' => $pepData, 'principalData' => $principalData, 'repData' => $repData, 'declData' => $declData])
@@ -163,14 +163,14 @@
             @endphp
             @if($canUpload)
                 <div class="bg-white border border-slate-200 p-5" x-data="{ uploading: false }">
-                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #00d4aa; font-family:'Plus Jakarta Sans',sans-serif;">Upload Supporting Document</h3>
+                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid var(--brand-icon);">Upload Supporting Document</h3>
                     <p class="text-xs text-slate-500 mb-3">Attach documents received from the client (e.g. WhatsApp photos of ID, proof of address).</p>
                     <form method="POST" action="{{ route('compliance.fica.agent-upload', $submission) }}" enctype="multipart/form-data" @submit="uploading = true">
                         @csrf
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                             <div>
                                 <label class="block text-xs font-semibold text-slate-700 mb-1">Document Type *</label>
-                                <select name="document_type" required class="w-full px-2 py-1.5 border border-slate-300 text-sm focus:outline-none focus:border-teal-500" style="border-radius:3px;">
+                                <select name="document_type" required class="w-full px-2 py-1.5 border border-slate-300 text-sm focus:outline-none focus:border-teal-500" style="border-radius:6px;">
                                     <option value="">Select type...</option>
                                     <option value="id_copy">ID Copy</option>
                                     <option value="proof_of_address">Proof of Address</option>
@@ -185,12 +185,12 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-slate-700 mb-1">File * <span class="text-slate-400 font-normal">(PDF, JPG, PNG — max 10 MB)</span></label>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">File * <span class="text-slate-400 font-normal">(PDF, JPG, PNG â€” max 10 MB)</span></label>
                                 <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.heic" class="w-full text-sm text-slate-700 file:mr-2 file:py-1 file:px-3 file:border file:border-slate-300 file:text-xs file:font-semibold file:bg-slate-50 file:text-slate-700 hover:file:bg-slate-100">
                             </div>
                         </div>
                         <div class="flex items-center gap-3">
-                            <button type="submit" class="px-4 py-1.5 text-white text-xs font-semibold transition" style="background:#00d4aa; border-radius:3px;" :disabled="uploading" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                            <button type="submit" class="px-4 py-1.5 text-white text-xs font-semibold transition" style="background:var(--brand-icon); border-radius:6px;" :disabled="uploading" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
                                 <span x-show="!uploading">Upload Document</span>
                                 <span x-show="uploading" x-cloak>Uploading...</span>
                             </button>
@@ -209,7 +209,7 @@
                 <div class="bg-white border border-slate-200 p-5">
                     <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-indigo-500">Agent Verification</h3>
                     <dl class="space-y-2 text-sm">
-                        <div><dt class="text-slate-400 text-xs">Agent</dt><dd class="text-slate-900">{{ $submission->agentVerifiedBy->name ?? '—' }}</dd></div>
+                        <div><dt class="text-slate-400 text-xs">Agent</dt><dd class="text-slate-900">{{ $submission->agentVerifiedBy->name ?? 'â€”' }}</dd></div>
                         <div><dt class="text-slate-400 text-xs">Date</dt><dd class="text-slate-900">{{ $submission->agent_verified_at?->format('d M Y H:i') }}</dd></div>
                         @if($submission->risk_rating)
                         <div><dt class="text-slate-400 text-xs">Risk Rating</dt><dd class="font-semibold {{ [1 => 'text-emerald-600', 2 => 'text-amber-600', 3 => 'text-red-600'][$submission->risk_rating] ?? '' }}">{{ [1 => 'Low', 2 => 'Medium', 3 => 'High'][$submission->risk_rating] ?? '' }}</dd></div>
@@ -229,7 +229,7 @@
                 <div class="bg-white border border-slate-200 p-5">
                     <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-emerald-500">Compliance Officer Verification</h3>
                     <dl class="space-y-2 text-sm">
-                        <div><dt class="text-slate-400 text-xs">Officer</dt><dd class="text-slate-900">{{ $submission->coVerifiedBy->name ?? '—' }}</dd></div>
+                        <div><dt class="text-slate-400 text-xs">Officer</dt><dd class="text-slate-900">{{ $submission->coVerifiedBy->name ?? 'â€”' }}</dd></div>
                         <div><dt class="text-slate-400 text-xs">Date</dt><dd class="text-slate-900">{{ $submission->co_verified_at?->format('d M Y H:i') }}</dd></div>
                         @if($submission->co_notes)
                         <div><dt class="text-slate-400 text-xs">Notes</dt><dd class="text-slate-900 text-xs">{{ $submission->co_notes }}</dd></div>
@@ -373,7 +373,7 @@
                 </form>
             @endif
 
-            {{-- Awaiting CO — message for non-CO users --}}
+            {{-- Awaiting CO â€” message for non-CO users --}}
             @if($submission->status === 'agent_approved' && !auth()->user()->isComplianceOfficer())
                 <div class="bg-indigo-50 border border-indigo-200 p-5 text-sm text-indigo-800">
                     <p class="font-semibold">Awaiting Compliance Officer Review</p>
@@ -386,7 +386,7 @@
                 <div class="bg-white border border-slate-200 p-5">
                     <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-emerald-500">Final Status: Approved</h3>
                     <dl class="space-y-2 text-sm">
-                        <div><dt class="text-slate-400 text-xs">Final Approved By</dt><dd class="text-slate-900">{{ $submission->coVerifiedBy->name ?? $submission->verifiedBy->name ?? '—' }}</dd></div>
+                        <div><dt class="text-slate-400 text-xs">Final Approved By</dt><dd class="text-slate-900">{{ $submission->coVerifiedBy->name ?? $submission->verifiedBy->name ?? 'â€”' }}</dd></div>
                         <div><dt class="text-slate-400 text-xs">Approved At</dt><dd class="text-slate-900">{{ $submission->co_verified_at?->format('d M Y H:i') ?? $submission->verified_at?->format('d M Y H:i') }}</dd></div>
                         @if($submission->risk_rating)
                         <div><dt class="text-slate-400 text-xs">Risk Rating</dt><dd class="font-semibold {{ [1 => 'text-emerald-600', 2 => 'text-amber-600', 3 => 'text-red-600'][$submission->risk_rating] ?? '' }}">{{ [1 => 'Low', 2 => 'Medium', 3 => 'High'][$submission->risk_rating] ?? '' }}</dd></div>
@@ -399,7 +399,7 @@
                 <div class="bg-white border border-slate-200 p-5">
                     <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-red-500">Rejected</h3>
                     <dl class="space-y-2 text-sm">
-                        <div><dt class="text-slate-400 text-xs">Rejected By</dt><dd class="text-slate-900">{{ $submission->verifiedBy->name ?? '—' }}</dd></div>
+                        <div><dt class="text-slate-400 text-xs">Rejected By</dt><dd class="text-slate-900">{{ $submission->verifiedBy->name ?? 'â€”' }}</dd></div>
                         <div><dt class="text-slate-400 text-xs">Date</dt><dd class="text-slate-900">{{ $submission->verified_at?->format('d M Y H:i') }}</dd></div>
                         @if($submission->reviewer_notes)
                         <div><dt class="text-slate-400 text-xs">Reason</dt><dd class="text-slate-900">{{ $submission->reviewer_notes }}</dd></div>

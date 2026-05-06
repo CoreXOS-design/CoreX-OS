@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sign Document — Home Finders Coastal</title>
+    <title>Sign Document â€” Home Finders Coastal</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -279,7 +279,7 @@
         </div>
     @endif
 
-    {{-- Section-by-Section Navigator — DISABLED (Phase 2: needs proper clause-level rejection, not section-level) --}}
+    {{-- Section-by-Section Navigator â€” DISABLED (Phase 2: needs proper clause-level rejection, not section-level) --}}
 
     {{-- Wet ink pending review notice --}}
     @if($wetInkPendingReview)
@@ -361,9 +361,9 @@
         </div>
     </div>
 
-    {{-- ══════════════════════════════════════════════
+    {{-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
          ELECTRONIC SIGNING
-    ══════════════════════════════════════════════ --}}
+    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• --}}
     <template x-if="signingMethod === 'electronic'">
         <div class="space-y-4">
 
@@ -381,7 +381,7 @@
                 </div>
             </div>
 
-            {{-- Completion overlay — prevents Alpine re-render issues --}}
+            {{-- Completion overlay â€” prevents Alpine re-render issues --}}
             <div x-show="completionDone" x-cloak class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-8 text-center" style="min-height:300px;">
                 <div class="flex flex-col items-center justify-center gap-4 py-12">
                     <svg class="w-16 h-16 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -391,7 +391,7 @@
                     <p class="text-sm text-gray-500">Your signatures have been saved successfully.</p>
                     <div class="flex flex-col items-center gap-3 mt-4">
                         <a href="{{ route('docuperfect.esign.myDocuments') }}"
-                           style="background: #00d4aa; color: #fff; border-radius: 3px; padding: 10px 24px; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-block; transition: opacity 0.2s;"
+                           style="background: #00d4aa; color: #fff; border-radius:6px; padding: 10px 24px; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-block; transition: opacity 0.2s;"
                            onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
                             Back to My Documents
                         </a>
@@ -405,14 +405,14 @@
             {{-- Document viewer --}}
             <div x-show="!completionDone" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 overflow-hidden flex flex-col" style="min-height:600px;">
 
-                {{-- Web template: render HTML directly — document elements are the interactive surface --}}
+                {{-- Web template: render HTML directly â€” document elements are the interactive surface --}}
                 <template x-if="isWebTemplate">
                     <div class="flex-1 overflow-auto" style="background:#e2e8f0; padding:16px 0; min-width:794px;">
                         <div x-ref="pageContainer" class="relative"
                              style="width:210mm; max-width:100%; margin:0 auto;">
                             <div x-ref="webDocContent" x-html="webTemplateHtml"></div>
 
-                            {{-- Floating signature markers — from zones drawn in setup.
+                            {{-- Floating signature markers â€” from zones drawn in setup.
                                  Positioned with absolute % values relative to the paginated container.
                                  Container width locked to 210mm (A4) to match setup coordinate system. --}}
                             <template x-for="marker in markers" :key="'wm-' + marker.id">
@@ -674,7 +674,7 @@
                                     </div>
                                 </template>
 
-                                {{-- My signed marker (only shown when NOT flattened — when flattened, sig is baked in) --}}
+                                {{-- My signed marker (only shown when NOT flattened â€” when flattened, sig is baked in) --}}
                                 <template x-if="marker.is_mine && marker.signed && !hasFlattened">
                                     <div class="flex flex-col items-center justify-center w-full h-full relative">
                                         <template x-if="marker.signature_data && marker.type !== 'date' && marker.type !== 'text'">
@@ -756,7 +756,7 @@
                 </div>
             </template>
 
-            {{-- Complete Signing (standard marker-based flow — hidden for web templates) --}}
+            {{-- Complete Signing (standard marker-based flow â€” hidden for web templates) --}}
             <div x-show="!isWebTemplate" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center justify-between">
                 <div class="text-sm text-slate-600">
                     <template x-if="signedCount < totalRequired">
@@ -783,7 +783,7 @@
                 </div>
             </div>
 
-            {{-- Floating progress bar — unified incomplete tracker for web templates --}}
+            {{-- Floating progress bar â€” unified incomplete tracker for web templates --}}
             <template x-if="isWebTemplate">
                 <div x-show="signingMethod === 'electronic'" x-cloak x-transition
                      class="fixed bottom-4 left-1/2 transform -translate-x-1/2 shadow-lg rounded-xl px-5 py-3 flex items-center gap-3 z-40 border border-gray-700"
@@ -835,7 +835,7 @@
                     <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
                         <h3 class="text-white font-semibold text-lg">
                             Sign: <span x-text="activeMarker ? markerLabel(activeMarker) : ''"></span>
-                            <span class="text-white/50 text-sm" x-text="activeMarker ? '— Page ' + activeMarker.page_number : ''"></span>
+                            <span class="text-white/50 text-sm" x-text="activeMarker ? 'â€” Page ' + activeMarker.page_number : ''"></span>
                         </h3>
                     </div>
 
@@ -970,7 +970,7 @@
                     <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
                         <h3 class="text-white font-semibold text-lg">
                             Enter Text: <span x-text="activeMarker ? (activeMarker.label || markerLabel(activeMarker)) : ''"></span>
-                            <span class="text-white/50 text-sm" x-text="activeMarker ? '— Page ' + activeMarker.page_number : ''"></span>
+                            <span class="text-white/50 text-sm" x-text="activeMarker ? 'â€” Page ' + activeMarker.page_number : ''"></span>
                         </h3>
                     </div>
                     <div class="p-6 space-y-4">
@@ -1001,9 +1001,9 @@
         </div>
     </template>
 
-    {{-- ══════════════════════════════════════════════
+    {{-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
          WET INK PATH
-    ══════════════════════════════════════════════ --}}
+    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• --}}
     <template x-if="signingMethod === 'wet_ink'">
         <div class="space-y-4">
 
@@ -1046,7 +1046,7 @@
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                     </svg>
-                    Generating PDF…
+                    Generating PDFâ€¦
                 </div>
                 <div x-show="dlDone && !dlError" x-cloak class="mt-2 text-xs text-green-600 flex items-center gap-1">
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
@@ -1403,7 +1403,7 @@ function externalSign() {
         /**
          * Web template interactive signing: find all [data-marker-party][data-marker-type="signature"]
          * elements in the document HTML and make the current signer's elements clickable.
-         * No floating overlays — the document elements ARE the signing surface.
+         * No floating overlays â€” the document elements ARE the signing surface.
          */
         _makeWebElementsInteractive() {
             const container = this.$refs.webDocContent || (this.$refs.pageContainer ? this.$refs.pageContainer.querySelector('[x-html]') : null);
@@ -1447,11 +1447,11 @@ function externalSign() {
                             self.$nextTick(() => self.initWebSigCanvas());
                         });
                     } else {
-                        // Other party — check if already signed (img embedded in HTML)
+                        // Other party â€” check if already signed (img embedded in HTML)
                         const existingImg = el.querySelector('img.web-sig-signed-img, img[alt="Signature"]');
                         if (existingImg) {
                             el.classList.add('web-sig-other-signed');
-                            // Already has a signature image embedded — leave as is
+                            // Already has a signature image embedded â€” leave as is
                         } else {
                             el.classList.add('web-sig-other-party');
                             const partyLabel = rawParty.replace(/_/g, ' ');
@@ -1480,7 +1480,7 @@ function externalSign() {
                 attempts++;
                 if (tryInit() || attempts > 20) {
                     clearInterval(interval);
-                    // Recompute counts after elements are interactive — ensures top/bottom agree
+                    // Recompute counts after elements are interactive â€” ensures top/bottom agree
                     setTimeout(() => this.updateIncompleteCount(), 100);
                 }
             }, 200);
@@ -1488,7 +1488,7 @@ function externalSign() {
 
         /**
          * Make "Thus done and signed" ceremony fields editable for the current signer.
-         * Adapted from agent sign.blade.php — filters to current signer's party only.
+         * Adapted from agent sign.blade.php â€” filters to current signer's party only.
          */
         _makeCeremonyFieldsEditable() {
             const container = this.$refs.webDocContent || null;
@@ -1523,7 +1523,7 @@ function externalSign() {
                     const isMine = self.isMyWebSigBlock(rawParty);
 
                     if (!isMine) {
-                        // Other party or already-filled — leave as read-only
+                        // Other party or already-filled â€” leave as read-only
                         if (!el.textContent.trim()) {
                             el.style.opacity = '0.5';
                         }
@@ -1564,7 +1564,7 @@ function externalSign() {
 
         /**
          * Make page-break initials elements interactive for the current signer.
-         * Adapted from agent sign.blade.php — filters to current signer's party.
+         * Adapted from agent sign.blade.php â€” filters to current signer's party.
          */
         _makeWebInitialsInteractive(container) {
             if (!container) return;
@@ -1704,7 +1704,7 @@ function externalSign() {
             let total = 0;
             let incomplete = 0;
 
-            // 0. DB markers (from zones drawn in setup — works for web templates too)
+            // 0. DB markers (from zones drawn in setup â€” works for web templates too)
             this.markers.forEach(m => {
                 if (m.is_mine) {
                     total++;
@@ -1712,7 +1712,7 @@ function externalSign() {
                 }
             });
 
-            // 1. Signature blocks (mine — marked with .web-sig-interactive from inline HTML)
+            // 1. Signature blocks (mine â€” marked with .web-sig-interactive from inline HTML)
             if (container) {
                 container.querySelectorAll('.web-sig-interactive').forEach(el => {
                     total++;
@@ -1728,7 +1728,7 @@ function externalSign() {
                 }
             });
 
-            // 3. Ceremony fields (mine — inputs with data-ceremony-field)
+            // 3. Ceremony fields (mine â€” inputs with data-ceremony-field)
             if (container) {
                 container.querySelectorAll('input[data-ceremony-field="true"]').forEach(inp => {
                     total++;
@@ -1782,7 +1782,7 @@ function externalSign() {
             }
         },
 
-        // ── Section-by-section navigation ──
+        // â”€â”€ Section-by-section navigation â”€â”€
         goToSection(idx) {
             if (idx < 0 || idx >= this.totalSections) return;
             this.currentSection = idx;
@@ -1860,7 +1860,7 @@ function externalSign() {
             return this.hasSections && this.sectionStates.every(s => s === 'accepted');
         },
 
-        // ── Web template field editing ──
+        // â”€â”€ Web template field editing â”€â”€
         initWebTemplateFields() {
             const container = this.$refs.webDocContent || null;
             if (!container) return;
@@ -1887,7 +1887,7 @@ function externalSign() {
                         input.addEventListener('input', () => { this.webFieldsDirty = true; });
                         span.replaceWith(input);
                     } else {
-                        // Locked field — add locked styling
+                        // Locked field â€” add locked styling
                         span.style.opacity = '0.85';
                     }
                 });
@@ -1937,7 +1937,7 @@ function externalSign() {
             }
         },
 
-        // ── Method choice ──
+        // â”€â”€ Method choice â”€â”€
         async chooseMethod(method) {
             try {
                 const resp = await fetch('/sign/' + this.token + '/choose-method', {
@@ -1976,7 +1976,7 @@ function externalSign() {
             }
         },
 
-        // ── Navigation ──
+        // â”€â”€ Navigation â”€â”€
         prevPage() { if (this.currentPage > 1) this.currentPage--; },
         nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
 
@@ -2029,7 +2029,7 @@ function externalSign() {
             return css;
         },
 
-        // ── Field assignment helpers ──
+        // â”€â”€ Field assignment helpers â”€â”€
         normalizeRole(role) {
             const aliases = { lessor: 'landlord', lessee: 'tenant' };
             return aliases[role] || role;
@@ -2101,7 +2101,7 @@ function externalSign() {
             }
         },
 
-        // ── Marker display ──
+        // â”€â”€ Marker display â”€â”€
         markerLabel(m) {
             const partyLabel = m.assigned_party.replace('_', ' ');
             const typeLabel = m.type.charAt(0).toUpperCase() + m.type.slice(1);
@@ -2129,7 +2129,7 @@ function externalSign() {
             return base + 'border-slate-300 bg-slate-100/70 cursor-default';
         },
 
-        // ── Marker interaction ──
+        // â”€â”€ Marker interaction â”€â”€
         handleMarkerClick(marker) {
             if (!marker.is_mine || marker.signed) return;
 
@@ -2156,7 +2156,7 @@ function externalSign() {
             this.$nextTick(() => this.initCanvas());
         },
 
-        // ── Canvas ──
+        // â”€â”€ Canvas â”€â”€
         initCanvas() {
             const canvas = this.$refs.signatureCanvas;
             if (!canvas) return;
@@ -2213,7 +2213,7 @@ function externalSign() {
             return canvas.toDataURL('image/png');
         },
 
-        // ── Date marker auto-sign (plain text, rendered server-side) ──
+        // â”€â”€ Date marker auto-sign (plain text, rendered server-side) â”€â”€
         async signDateMarker(marker) {
             const dateStr = this.formatDate(new Date());
             const success = await this.submitSignature(marker, null, 'typed', dateStr);
@@ -2223,7 +2223,7 @@ function externalSign() {
             }
         },
 
-        // ── Text marker input (plain text, rendered server-side) ──
+        // â”€â”€ Text marker input (plain text, rendered server-side) â”€â”€
         async applyTextValue() {
             if (!this.activeMarker || !this.textInputValue.trim()) return;
             this.applying = true;
@@ -2243,7 +2243,7 @@ function externalSign() {
             return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0');
         },
 
-        // ── Apply signature ──
+        // â”€â”€ Apply signature â”€â”€
         async applySignature() {
             if (!this.activeMarker) return;
             this.applying = true;
@@ -2290,7 +2290,7 @@ function externalSign() {
             this.applying = false;
         },
 
-        // ── Submit signature ──
+        // â”€â”€ Submit signature â”€â”€
         async submitSignature(marker, signatureData, signatureType, textValue = null) {
             try {
                 const body = { signature_type: signatureType };
@@ -2333,7 +2333,7 @@ function externalSign() {
             }
         },
 
-        // ── Apply to all (signatures or initials) ──
+        // â”€â”€ Apply to all (signatures or initials) â”€â”€
         async applyToAllSignatureMarkers() {
             this.applyingAll = true;
 
@@ -2359,15 +2359,15 @@ function externalSign() {
         },
         set remainingSignatureCount(v) {},
 
-        // ── Complete signing (with guided navigation if unsigned remain) ──
+        // â”€â”€ Complete signing (with guided navigation if unsigned remain) â”€â”€
         async completeSigning() {
-            // Check locally first — guide to unsigned markers
+            // Check locally first â€” guide to unsigned markers
             const unsignedMarkers = this.markers.filter(m => m.is_mine && !m.signed);
             if (unsignedMarkers.length > 0) {
                 const first = unsignedMarkers[0];
                 const typeLabel = first.type === 'text' ? 'enter text' : (first.type === 'initial' ? 'initial' : 'sign');
                 this.showNotification(
-                    `Please ${typeLabel} here — ${unsignedMarkers.length} remaining`,
+                    `Please ${typeLabel} here â€” ${unsignedMarkers.length} remaining`,
                     'warning'
                 );
                 this.navigateToMarker(first);
@@ -2431,7 +2431,7 @@ function externalSign() {
             if (!this.completionDone) this.completing = false;
         },
 
-        // ── Navigate to next unsigned marker ──
+        // â”€â”€ Navigate to next unsigned marker â”€â”€
         goToNextUnsigned() {
             const unsigned = this.markers.filter(m => m.is_mine && !m.signed);
             if (unsigned.length === 0) return;
@@ -2452,7 +2452,7 @@ function externalSign() {
             });
         },
 
-        // ── Notification toast ──
+        // â”€â”€ Notification toast â”€â”€
         _notificationTimeout: null,
         notificationText: '',
         notificationType: '',
@@ -2468,7 +2468,7 @@ function externalSign() {
             }, 5000);
         },
 
-        // ── Web template signing helpers ──
+        // â”€â”€ Web template signing helpers â”€â”€
         webTotalSigBlocksCount: 0,
 
         get webTotalSigBlocks() {
@@ -2479,7 +2479,7 @@ function externalSign() {
             return this.webConsented && this.webIncompleteCount === 0;
         },
 
-        // Legacy — replaced by _makeWebElementsInteractive()
+        // Legacy â€” replaced by _makeWebElementsInteractive()
         processWebSignatureBlocks() { /* no-op */ },
 
         isMyWebSigBlock(partyRole) {
@@ -2552,7 +2552,7 @@ function externalSign() {
 
         /**
          * Attach clause-level flagging to numbered clauses in the document.
-         * Signer can flag individual clauses with a concern — does NOT block signing.
+         * Signer can flag individual clauses with a concern â€” does NOT block signing.
          */
         _initClauseFlagging() {
             const container = this.$refs.webDocContent || null;
@@ -2574,7 +2574,7 @@ function externalSign() {
                 const flagBtn = document.createElement('span');
                 flagBtn.className = 'clause-flag-icon';
                 flagBtn.title = 'Flag this clause';
-                flagBtn.textContent = '⚑';
+                flagBtn.textContent = 'âš‘';
                 flagBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -2664,7 +2664,7 @@ function externalSign() {
                     if (cells.length === 1) return;
 
                     // Certificate compliance rows: 5 cells, cells[0] empty, cells[1] has cert text
-                    // e.g. [empty] | [Cert Name – If Yes, when was it issued?] | [] | [] | []
+                    // e.g. [empty] | [Cert Name â€“ If Yes, when was it issued?] | [] | [] | []
                     const cell0Text = (cells[0]?.textContent || '').trim();
                     const cell1Text = (cells[1]?.textContent || '').trim();
 
@@ -2674,7 +2674,7 @@ function externalSign() {
                         return;
                     }
 
-                    // Normal disclosure rows — need question text in cells[0]
+                    // Normal disclosure rows â€” need question text in cells[0]
                     if (!cell0Text) return;
 
                     // Skip sub-header rows like "Are you in possession of..." that end with ":"
@@ -2712,7 +2712,7 @@ function externalSign() {
                     });
                 });
 
-                // Process Additional Information rows — make them editable
+                // Process Additional Information rows â€” make them editable
                 self._processAdditionalInfoSection(table);
             });
 
@@ -2721,7 +2721,7 @@ function externalSign() {
 
         /**
          * Process a certificate compliance row with YES/NO radios + conditional date input.
-         * These rows have 5 cells: [spacer] | [Cert Name – If Yes, when was it issued?] | [] | [] | []
+         * These rows have 5 cells: [spacer] | [Cert Name â€“ If Yes, when was it issued?] | [] | [] | []
          * Radio buttons go in cells[2] (YES) and cells[3] (NO). Date input in cells[4].
          */
         _processCertificateRow(row, cells, rowIdx) {
@@ -2730,7 +2730,7 @@ function externalSign() {
 
             // Extract certificate name from cells[1] (everything before the dash)
             const fullText = cells[1].textContent.trim();
-            const certName = fullText.replace(/\s*[–-]\s*If Yes.*$/i, '').trim();
+            const certName = fullText.replace(/\s*[â€“-]\s*If Yes.*$/i, '').trim();
 
             // Replace cells[1] with just the certificate name
             cells[1].textContent = certName;
@@ -2783,7 +2783,7 @@ function externalSign() {
                 opt.cell.appendChild(label);
             });
 
-            // Date input in cells[4] (or cells[3] if only 4 cells) — hidden until YES
+            // Date input in cells[4] (or cells[3] if only 4 cells) â€” hidden until YES
             const dateCell = cells[4] || cells[3];
             if (dateCell && dateCell !== cells[3]) {
                 const wrapper = document.createElement('div');
@@ -2842,7 +2842,7 @@ function externalSign() {
                         inAdditionalInfo = false;
                         return;
                     }
-                    // Empty row — mark for removal
+                    // Empty row â€” mark for removal
                     if (!text) {
                         emptyRowsToRemove.push(row);
                     }
@@ -3036,7 +3036,7 @@ function externalSign() {
             this.showNotification('Initial applied to all page breaks.', 'info');
         },
 
-        // Decline apply-to-all — keep only the one that was just signed
+        // Decline apply-to-all â€” keep only the one that was just signed
         declineInitialApplyAll() {
             this.showInitialApplyAll = false;
             this.pendingInitialSigData = null;
@@ -3127,7 +3127,7 @@ function externalSign() {
             this.completing = false;
         },
 
-        // ── Decline ──
+        // â”€â”€ Decline â”€â”€
         async submitDecline() {
             this.declining = true;
             try {

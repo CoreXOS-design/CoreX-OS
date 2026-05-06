@@ -43,7 +43,7 @@
             </a>
             <span class="flex-shrink-0" style="color:var(--border, #d1d5db);">|</span>
             @endif
-            <h1 class="text-lg font-semibold truncate" style="color:var(--text-primary, #1f2937); font-family:'Plus Jakarta Sans',sans-serif;">{{ $title }}</h1>
+            <h1 class="text-xl font-bold truncate" style="color:var(--text-primary);">{{ $title }}</h1>
         </div>
 
         {{-- Right: action buttons --}}

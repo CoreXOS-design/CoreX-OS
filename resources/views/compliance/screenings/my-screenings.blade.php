@@ -9,8 +9,8 @@
             These are your employee screening records as required by the Financial Intelligence Centre Act. Screenings are conducted by the compliance officer.
         </div>
 
-        <div class="overflow-x-auto" style="border:1px solid var(--border, #e5e7eb); border-radius:3px;">
-            <table class="w-full text-sm" style="font-family:'Plus Jakarta Sans',sans-serif;">
+        <div class="overflow-x-auto" style="border:1px solid var(--border, #e5e7eb); border-radius:6px;">
+            <table class="w-full text-sm" style="">
                 <thead>
                     <tr style="background:var(--surface-alt, #f8fafc); border-bottom:1px solid var(--border, #e5e7eb);">
                         <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Type</th>
@@ -26,7 +26,7 @@
                     <tr style="border-bottom:1px solid var(--border, #f1f5f9);">
                         <td class="px-4 py-3 text-xs">{{ \App\Models\Compliance\EmployeeScreening::$typeLabels[$s->screening_type] ?? $s->screening_type }}</td>
                         <td class="px-4 py-3">
-                            <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold" style="border-radius:3px; background:{{ $s->status === 'completed' ? 'rgba(0,212,170,0.15)' : ($s->status === 'flagged' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)') }}; color:{{ $s->status === 'completed' ? '#00d4aa' : ($s->status === 'flagged' ? '#ef4444' : '#eab308') }};">{{ ucfirst($s->status) }}</span>
+                            <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold" style="border-radius:6px; background:{{ $s->status === 'completed' ? 'color-mix(in srgb, var(--brand-icon) 15%, transparent)' : ($s->status === 'flagged' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)') }}; color:{{ $s->status === 'completed' ? 'var(--brand-icon)' : ($s->status === 'flagged' ? 'var(--ds-crimson)' : 'var(--ds-amber)') }};">{{ ucfirst($s->status) }}</span>
                         </td>
                         <td class="px-4 py-3 text-xs" style="color:#64748b;">{{ $s->overall_result ? ucfirst(str_replace('_', ' ', $s->overall_result)) : '-' }}</td>
                         <td class="px-4 py-3 text-xs" style="color:#64748b;">{{ $s->initiated_on->format('d M Y') }}</td>

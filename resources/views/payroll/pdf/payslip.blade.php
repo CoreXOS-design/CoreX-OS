@@ -10,7 +10,7 @@
         .header { border-bottom: 2px solid #00d4aa; padding-bottom: 12pt; margin-bottom: 14pt; }
         .header h1 { font-size: 16pt; margin: 0; color: #0f172a; }
         .header .reg-info { font-size: 8.5pt; color: #475569; margin-top: 4pt; line-height: 1.5; }
-        .meta-bar { display: flex; justify-content: space-between; background: #f1f5f9; padding: 8pt 12pt; margin-bottom: 14pt; border-radius: 3px; }
+        .meta-bar { display: flex; justify-content: space-between; background: #f1f5f9; padding: 8pt 12pt; margin-bottom: 14pt; border-radius:6px; }
         .meta-bar .cell { }
         .meta-bar .label { font-size: 8pt; color: #64748b; text-transform: uppercase; letter-spacing: 0.5pt; }
         .meta-bar .value { font-size: 11pt; font-weight: 600; color: #0f172a; }
@@ -23,10 +23,10 @@
         table.lines td.amount { text-align: right; font-variant-numeric: tabular-nums; }
         table.lines td.code { font-size: 9pt; color: #94a3b8; width: 50pt; }
         table.lines tr.subtotal td { border-top: 1px solid #cbd5e1; border-bottom: none; padding-top: 6pt; font-weight: 600; }
-        .net-pay { background: #0f172a; color: #00d4aa; padding: 12pt; border-radius: 3px; display: flex; justify-content: space-between; align-items: center; margin: 12pt 0; }
+        .net-pay { background: #0f172a; color: #00d4aa; padding: 12pt; border-radius:6px; display: flex; justify-content: space-between; align-items: center; margin: 12pt 0; }
         .net-pay .label { font-size: 11pt; font-weight: 600; }
         .net-pay .value { font-size: 18pt; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .employer-contributions { font-size: 9pt; color: #64748b; margin-top: 8pt; padding: 6pt 8pt; background: #f8fafc; border-radius: 3px; }
+        .employer-contributions { font-size: 9pt; color: #64748b; margin-top: 8pt; padding: 6pt 8pt; background: #f8fafc; border-radius:6px; }
         .employer-contributions strong { color: #475569; }
         .employer-contributions table { width: 100%; margin-top: 3pt; }
         .employer-contributions td { padding: 2pt 0; }

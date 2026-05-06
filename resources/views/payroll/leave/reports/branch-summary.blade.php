@@ -17,13 +17,13 @@
         @else
             <div class="space-y-4">
                 @foreach($summary as $s)
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <div class="flex items-center justify-between mb-3">
                         <h4 class="text-sm font-bold" style="color:var(--text-primary, #0f172a);">{{ $s['branch']->name }}</h4>
                         <div class="flex items-center gap-2">
                             <span class="text-xs" style="color:var(--text-secondary, #6b7280);">{{ $s['employee_count'] }} employees</span>
                             @if($s['compliance_flags'] > 0)
-                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:3px;">{{ $s['compliance_flags'] }} at risk</span>
+                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:6px;">{{ $s['compliance_flags'] }} at risk</span>
                             @endif
                         </div>
                     </div>

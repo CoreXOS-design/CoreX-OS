@@ -4,15 +4,15 @@
     <meta charset="utf-8">
     <title>RMCP Compliance Register — {{ $agency->name }}</title>
     <style>
-        body { font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 12px; color: #334155; margin: 2rem; }
-        h1 { font-size: 16px; color: #0f172a; border-bottom: 2px solid #00d4aa; padding-bottom: 6px; }
-        h2 { font-size: 13px; color: #0f172a; margin-top: 1.5rem; }
+        body { font-family: 'Figtree', Arial, sans-serif; font-size: 12px; color: #334155; margin: 2rem; }
+        h1 { font-size: 16px; color: var(--text-primary); border-bottom: 2px solid var(--brand-icon); padding-bottom: 6px; }
+        h2 { font-size: 13px; color: var(--text-primary); margin-top: 1.5rem; }
         table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
         th { background: #f8fafc; text-align: left; padding: 6px 8px; border: 1px solid #e5e7eb; font-size: 11px; font-weight: 600; color: #64748b; }
         td { padding: 6px 8px; border: 1px solid #e5e7eb; font-size: 11px; }
-        .valid { color: #00d4aa; font-weight: 600; }
-        .expired { color: #ef4444; font-weight: 600; }
-        .notack { color: #ef4444; }
+        .valid { color: var(--brand-icon); font-weight: 600; }
+        .expired { color: var(--ds-crimson); font-weight: 600; }
+        .notack { color: var(--ds-crimson); }
         .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; font-size: 10px; color: #94a3b8; }
     </style>
 </head>

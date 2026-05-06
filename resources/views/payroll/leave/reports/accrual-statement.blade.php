@@ -8,7 +8,7 @@
         {{-- Employee selector --}}
         <div class="mb-4">
             <form method="GET" class="flex items-center gap-2">
-                <select onchange="window.location.href=this.value" class="px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                <select onchange="window.location.href=this.value" class="px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                     @foreach($employees as $emp)
                         <option value="{{ route('payroll.leave.reports.accrual-statement', $emp) }}" {{ $emp->id == $employee->id ? 'selected' : '' }}>{{ $emp->user->name }}</option>
                     @endforeach
@@ -17,7 +17,7 @@
         </div>
 
         {{-- Employee header --}}
-        <div class="p-4 mb-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+        <div class="p-4 mb-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
             <p class="text-sm font-bold" style="color:var(--text-primary, #0f172a);">{{ $employee->user->name }}</p>
             <p class="text-xs" style="color:var(--text-secondary, #6b7280);">{{ $employee->designation_snapshot }} | {{ $employee->user->branch->name ?? '-' }} | Employed: {{ $employee->employment_date?->format('d M Y') }}</p>
         </div>
@@ -30,7 +30,7 @@
 
             <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
                 @foreach(['Entitled'=>$bal['entitlement_days'],'Accrued'=>$bal['accrued_days'],'Carryover'=>$bal['carryover_from_previous_cycle'],'Taken'=>$bal['taken_days'],'Pending'=>$bal['pending_days'],'Available'=>$bal['available_days']] as $lbl=>$val)
-                <div class="p-2 text-center" style="background:{{ $lbl==='Available' ? 'rgba(0,212,170,0.04)' : 'var(--surface-2, #f8fafc)' }}; border:1px solid {{ $lbl==='Available' ? 'rgba(0,212,170,0.15)' : 'var(--border, #e5e7eb)' }}; border-radius:3px;">
+                <div class="p-2 text-center" style="background:{{ $lbl==='Available' ? 'rgba(0,212,170,0.04)' : 'var(--surface-2, #f8fafc)' }}; border:1px solid {{ $lbl==='Available' ? 'rgba(0,212,170,0.15)' : 'var(--border, #e5e7eb)' }}; border-radius:6px;">
                     <p class="text-[9px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">{{ $lbl }}</p>
                     <p class="text-sm font-bold" style="color:{{ $lbl==='Available' ? '#00d4aa' : 'var(--text-primary, #0f172a)' }};">{{ number_format((float)$val, 2) }}</p>
                 </div>
@@ -38,7 +38,7 @@
             </div>
 
             <p class="text-[10px] mb-2" style="color:var(--text-secondary, #94a3b8);">
-                Cycle: {{ $bal['cycle_start_date']?->format('d M Y') ?? '-' }} — {{ $bal['cycle_end_date']?->format('d M Y') ?? '-' }}
+                Cycle: {{ $bal['cycle_start_date']?->format('d M Y') ?? '-' }} â€” {{ $bal['cycle_end_date']?->format('d M Y') ?? '-' }}
             </p>
 
             @if($txns->count() > 0)

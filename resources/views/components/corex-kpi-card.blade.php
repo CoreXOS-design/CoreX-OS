@@ -1,4 +1,4 @@
-@props(['title', 'value', 'trend' => 0, 'trendUp' => true, 'iconBg' => 'bg-sky-100 text-[#00b4d8]'])
+@props(['title', 'value', 'trend' => 0, 'trendUp' => true, 'iconBg' => null])
 
 <div class="corex-kpi-card">
     <div class="flex items-start justify-between">
@@ -20,7 +20,7 @@
             </div>
         </div>
         @if(isset($icon))
-            <div class="corex-kpi-icon {{ $iconBg }}">
+            <div class="corex-kpi-icon {{ $iconBg }}" @if(!$iconBg) style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);" @endif>
                 {{ $icon }}
             </div>
         @endif

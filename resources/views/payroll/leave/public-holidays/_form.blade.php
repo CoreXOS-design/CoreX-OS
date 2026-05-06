@@ -3,25 +3,25 @@
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Date <span class="text-red-500">*</span></label>
             <input type="date" name="holiday_date" required value="{{ old('holiday_date', $holiday->holiday_date?->format('Y-m-d')) }}"
-                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
             @error('holiday_date') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Name <span class="text-red-500">*</span></label>
             <input type="text" name="name" required maxlength="100" value="{{ old('name', $holiday->name ?? '') }}"
-                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;"
+                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"
                    placeholder="e.g. Election Day">
             @error('name') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Country Code</label>
             <input type="text" name="country_code" required maxlength="2" value="{{ old('country_code', $holiday->country_code ?? 'ZA') }}"
-                   class="w-24 px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                   class="w-24 px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Year <span class="text-red-500">*</span></label>
             <input type="number" name="applies_to_year" required min="2020" max="2099" value="{{ old('applies_to_year', $holiday->applies_to_year ?? now()->year) }}"
-                   class="w-32 px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                   class="w-32 px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
         </div>
     </div>
     <label class="relative inline-flex items-center cursor-pointer gap-3">
@@ -32,7 +32,7 @@
     </label>
 
     <div class="flex items-center gap-3 pt-2">
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;">{{ $holiday->exists ? 'Update' : 'Save' }} Holiday</button>
-        <a href="{{ route('payroll.leave.public-holidays.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Cancel</a>
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">{{ $holiday->exists ? 'Update' : 'Save' }} Holiday</button>
+        <a href="{{ route('payroll.leave.public-holidays.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
     </div>
 </div>

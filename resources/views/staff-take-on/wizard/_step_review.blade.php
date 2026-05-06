@@ -2,7 +2,7 @@
 @php $pe = $takeOn->payrollEmployee; @endphp
 
 <div class="space-y-4">
-    <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+    <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">8. Review & Sign-Off</h4>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -40,7 +40,7 @@
     </div>
 
     {{-- Verification checklist --}}
-    <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+    <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
         <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Verification Status</h4>
         <div class="space-y-1.5 text-xs">
             @foreach([
@@ -68,17 +68,17 @@
     @if(!$takeOn->isComplete())
     <form method="POST" action="{{ route('staff-take-on.complete', $takeOn) }}" x-data="{ confirmed: false }">
         @csrf
-        <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+        <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
             <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-primary, #0f172a);">
                 <input type="checkbox" x-model="confirmed" style="accent-color:#00d4aa;">
                 I confirm all details have been verified and are correct.
             </label>
             <p class="text-[10px] mt-1" style="color:var(--text-secondary, #94a3b8);">Signed by: {{ auth()->user()->name }}</p>
         </div>
-        <button type="submit" :disabled="!confirmed" class="mt-4 px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" :style="!confirmed && 'opacity:0.5; cursor:not-allowed'">Submit Take-On</button>
+        <button type="submit" :disabled="!confirmed" class="mt-4 px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" :style="!confirmed && 'opacity:0.5; cursor:not-allowed'">Submit Take-On</button>
     </form>
     @else
-        <div class="p-3 text-xs font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:3px; color:#00d4aa;">
+        <div class="p-3 text-xs font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">
             Take-on completed on {{ $takeOn->completed_at->format('d M Y H:i') }} by {{ $takeOn->completedBy->name ?? '?' }}.
         </div>
     @endif

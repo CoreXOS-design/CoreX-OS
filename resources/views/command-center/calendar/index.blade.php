@@ -12,7 +12,7 @@
         $firstDayOfWeek = $carbon->dayOfWeekIso;
     }
 
-    // RAG colour classes — solid backgrounds, white text (WCAG AA compliant on any surface)
+    // RAG colour classes â€” solid backgrounds, white text (WCAG AA compliant on any surface)
     $ragChip = [
         'red'     => 'background:#dc2626; color:#ffffff; border-left:2px solid #991b1b;',
         'amber'   => 'background:#d97706; color:#ffffff; border-left:2px solid #92400e;',
@@ -48,10 +48,10 @@
 
 <div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill();" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
-    {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
+    {{-- â•â•â•â•â•â• HEADER BAND (fixed, never scrolls) â•â•â•â•â•â• --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-1" style="background: var(--bg);">
 
-    {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
+    {{-- â•â•â•â•â•â• PAGE HEADER (Pattern A â€” branded) â•â•â•â•â•â• --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
@@ -64,7 +64,7 @@
                     @elseif(isset($monthLabel))
                         {{ $monthLabel }}
                     @endif
-                    — deals, leases, compliance and personal events.
+                    â€” deals, leases, compliance and personal events.
                 </p>
             </div>
             <div class="flex items-center gap-2">
@@ -76,7 +76,7 @@
         </div>
     </div>
 
-    {{-- ══════ TOOLBAR (nav + view switcher) ══════ --}}
+    {{-- â•â•â•â•â•â• TOOLBAR (nav + view switcher) â•â•â•â•â•â• --}}
     @php
         // View-aware navigation URLs
         if (in_array($currentView, ['week', 'day'])) {
@@ -177,15 +177,15 @@
 
     </div>{{-- END sticky header band --}}
 
-    {{-- ══════ FLEX ROW: Calendar grid + Right panel (fills remaining height) ══════ --}}
+    {{-- â•â•â•â•â•â• FLEX ROW: Calendar grid + Right panel (fills remaining height) â•â•â•â•â•â• --}}
     <div class="flex gap-0 flex-1 min-h-0 overflow-hidden px-4 lg:px-6">
     {{-- Main calendar column (scrolls independently) --}}
     <div class="flex-1 min-w-0 overflow-y-auto space-y-4 pr-0">
 
-    {{-- ══════ FILTER BAR (compact — panel toggle + active filter summary) ══════ --}}
+    {{-- â•â•â•â•â•â• FILTER BAR (compact â€” panel toggle + active filter summary) â•â•â•â•â•â• --}}
     <div class="flex items-center gap-3 rounded-md px-4 py-2"
          style="background: var(--surface); border: 1px solid var(--border);">
-        {{-- Scope pills (kept inline — primary control) --}}
+        {{-- Scope pills (kept inline â€” primary control) --}}
         <form method="GET" action="{{ route('command-center.calendar') }}" id="calendar-filters" class="flex items-center gap-2">
             <input type="hidden" name="view" value="{{ $currentView }}">
             <input type="hidden" name="month" value="{{ $month ?? now()->month }}">
@@ -234,7 +234,7 @@
     </div>
 
     @if($currentView === 'month')
-        {{-- ══════ MONTH VIEW ══════ --}}
+        {{-- â•â•â•â•â•â• MONTH VIEW â•â•â•â•â•â• --}}
         @php
             // Build week rows: each row is an array of 7 date strings
             $gridStart = $grid['start'];
@@ -303,14 +303,14 @@
                 @endforeach
             </div>
 
-            {{-- Calendar grid — scrollable container --}}
+            {{-- Calendar grid â€” scrollable container --}}
             <div class="flex-1">
                 @foreach($weekRows as $weekIdx => $weekDates)
                     @php
                         $weekSlots = $barSlotsByWeek[$weekIdx] ?? [];
                         $barCount = count($weekSlots);
                     @endphp
-                    {{-- WEEK ROW STRUCTURE — do not change ordering:
+                    {{-- WEEK ROW STRUCTURE â€” do not change ordering:
                          1. Date numbers strip (7-col grid with day numbers)
                          2. Spanning bar zone (sits INSIDE row, between dates and chips)
                          3. Cell grid with single-day chips
@@ -348,7 +348,7 @@
                             @endforeach
                         </div>
 
-                        {{-- 2. SPANNING BAR ZONE (between dates and chips — NEVER move this) --}}
+                        {{-- 2. SPANNING BAR ZONE (between dates and chips â€” NEVER move this) --}}
                         @if($barCount > 0)
                             <div class="relative" style="min-height: {{ $barCount * 22 + 4 }}px; padding: 2px 0;">
                                 @foreach($weekSlots as $slotIdx => $slotBars)
@@ -378,8 +378,8 @@
                                                        width: calc(({{ $bar['span'] }} / 7) * 100% - 6px);
                                                        background: {{ $barBg }};
                                                        border: 2px solid {{ $barBorder }};
-                                                       border-radius: 3px;"
-                                                title="{{ $barEvt->title }} ({{ \Carbon\Carbon::parse($bar['start_date'])->format('d M') }}–{{ \Carbon\Carbon::parse($bar['end_date'])->format('d M') }})">
+                                                       border-radius:6px;"
+                                                title="{{ $barEvt->title }} ({{ \Carbon\Carbon::parse($bar['start_date'])->format('d M') }}â€“{{ \Carbon\Carbon::parse($bar['end_date'])->format('d M') }})">
                                             {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
                                         </button>
                                     @endforeach
@@ -387,7 +387,7 @@
                             </div>
                         @endif
 
-                        {{-- 3. CELL GRID (single-day chips only — no date numbers, no bars) --}}
+                        {{-- 3. CELL GRID (single-day chips only â€” no date numbers, no bars) --}}
                         <div class="grid grid-cols-7">
                             @foreach($weekDates as $colIdx => $cellDate)
                                 @php
@@ -444,7 +444,7 @@
             </div>
         </div>
     @elseif($currentView === 'week')
-        {{-- ══════ WEEK VIEW — Time-slot grid ══════ --}}
+        {{-- â•â•â•â•â•â• WEEK VIEW â€” Time-slot grid â•â•â•â•â•â• --}}
         @php
             $weekDaySplits = [];
             foreach ($weekDays as $day) {
@@ -531,7 +531,7 @@
                                                    width: calc(({{ $bar['span'] }} / 7) * 100% - 6px);
                                                    background: {{ $barBg }};
                                                    border: 2px solid {{ $barBorder }};
-                                                   border-radius: 3px;"
+                                                   border-radius:6px;"
                                             title="{{ $barEvt->title }}">
                                         {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
                                     </button>
@@ -648,7 +648,7 @@
         </div>
 
     @elseif($currentView === 'day')
-        {{-- ══════ DAY VIEW — Time-slot grid ══════ --}}
+        {{-- â•â•â•â•â•â• DAY VIEW â€” Time-slot grid â•â•â•â•â•â• --}}
         @php
             $dayAllDay = collect();
             $dayTimedByHour = [];
@@ -694,7 +694,7 @@
                                 if ($isMultiDayEvt) {
                                     $isInfo = ($evt->resolved_colour ?? 'neutral') === 'neutral';
                                     $chipStyle = $isInfo
-                                        ? 'background:#0f172a; color:#ffffff; border:2px solid #1e293b; border-radius:3px;'
+                                        ? 'background:#0f172a; color:#ffffff; border:2px solid #1e293b; border-radius:6px;'
                                         : $chipStyle;
                                 }
                             @endphp
@@ -793,7 +793,7 @@
         </div>
 
     @elseif($currentView === 'agenda')
-        {{-- ══════ AGENDA VIEW ══════ --}}
+        {{-- â•â•â•â•â•â• AGENDA VIEW â•â•â•â•â•â• --}}
         <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
             {{-- Range filter bar --}}
             <form method="GET" action="{{ route('command-center.calendar') }}"
@@ -819,7 +819,7 @@
                             </select>
                         </div>
 
-                        {{-- Custom from/to — editing a date forces range=custom --}}
+                        {{-- Custom from/to â€” editing a date forces range=custom --}}
                         <div class="flex flex-col gap-1">
                             <label for="agenda-from" class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">From</label>
                             <input id="agenda-from" type="date" name="from" value="{{ $agendaFrom }}"
@@ -844,7 +844,7 @@
 
                     <div class="flex items-center gap-3 self-end pb-1">
                         <span class="text-xs" style="color: var(--text-muted);">
-                            {{ \Carbon\Carbon::parse($agendaFrom)->format('d M Y') }} — {{ \Carbon\Carbon::parse($agendaTo)->format('d M Y') }}
+                            {{ \Carbon\Carbon::parse($agendaFrom)->format('d M Y') }} â€” {{ \Carbon\Carbon::parse($agendaTo)->format('d M Y') }}
                         </span>
                         <span class="text-xs font-semibold" style="color: var(--text-primary);">
                             {{ $agendaEvents->count() }} {{ Str::plural('event', $agendaEvents->count()) }}
@@ -933,7 +933,7 @@
         </div>
     @endif
 
-    {{-- ══════ CREATE EVENT MODAL V2 ══════ --}}
+    {{-- â•â•â•â•â•â• CREATE EVENT MODAL V2 â•â•â•â•â•â• --}}
     <div x-show="showCreateEvent" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/50" @click="showCreateEvent = false"></div>
@@ -967,7 +967,7 @@
                     <select name="category" x-model="form.category" required
                             class="w-full rounded-md px-3 py-2 text-sm"
                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                        <option value="">Select type…</option>
+                        <option value="">Select typeâ€¦</option>
                         @foreach($manualCreatableClasses as $cls)
                             <option value="{{ $cls->event_class }}" data-multi-property="{{ $cls->allow_multiple_properties ? '1' : '0' }}">{{ $cls->label }}</option>
                         @endforeach
@@ -1023,7 +1023,7 @@
                         <select x-model="form.endTime" @change="onEndTimeChange()"
                                 class="w-full rounded-md px-3 py-2 text-sm"
                                 style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                            <option value="">—</option>
+                            <option value="">â€”</option>
                             @for($h = 6; $h <= 22; $h++)
                                 @foreach([0, 15, 30, 45] as $m)
                                     @php
@@ -1057,7 +1057,7 @@
                     {{-- Search input --}}
                     <div class="relative">
                         <input type="text" x-model="query" @input.debounce.250ms="search()"
-                               placeholder="Search address or suburb…"
+                               placeholder="Search address or suburbâ€¦"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <div x-show="results.length > 0" x-cloak
@@ -1092,11 +1092,11 @@
                         <template x-for="c in chosen" :key="(c.type||'contact') + ':' + c.id">
                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
                                   :style="c.conflict ? 'background: var(--surface-2); border: 2px solid #f59e0b; color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
-                                  :title="c.conflictLabel ? '⚠ Conflict: ' + c.conflictLabel : ''">
+                                  :title="c.conflictLabel ? 'âš  Conflict: ' + c.conflictLabel : ''">
                                 <span class="text-[10px] px-1 py-0.5 rounded font-bold"
                                       :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : 'background:#00d4aa;color:#fff')"
                                       x-text="c.type === 'agent' ? 'Agent' : (c.role === 'seller_contact' ? 'Seller' : 'Buyer')"></span>
-                                <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">⚠</span></template>
+                                <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">âš </span></template>
                                 <span x-text="c.name"></span>
                                 <button type="button" @click="remove(c)" class="opacity-60 hover:opacity-100">&times;</button>
                             </span>
@@ -1104,7 +1104,7 @@
                     </div>
                     <div class="relative">
                         <input type="text" x-model="query" @input.debounce.250ms="search()"
-                               placeholder="Search contacts or agents…"
+                               placeholder="Search contacts or agentsâ€¦"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <div x-show="results.length > 0" x-cloak
@@ -1150,13 +1150,13 @@
                 <button type="submit" form="createEventFormV2" :disabled="submitting"
                         class="corex-btn-primary disabled:opacity-50">
                     <span x-show="!submitting" x-text="editMode ? 'Save Changes' : 'Create Event'"></span>
-                    <span x-show="submitting" x-cloak x-text="editMode ? 'Saving…' : 'Creating…'"></span>
+                    <span x-show="submitting" x-cloak x-text="editMode ? 'Savingâ€¦' : 'Creatingâ€¦'"></span>
                 </button>
             </div>
         </div>
     </div>
 
-    {{-- ══════ KEYBOARD SHORTCUT HELP ══════ --}}
+    {{-- â•â•â•â•â•â• KEYBOARD SHORTCUT HELP â•â•â•â•â•â• --}}
     <div x-show="helpOpen" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @click.self="helpOpen = false">
@@ -1172,7 +1172,7 @@
                     $shortcuts = [
                         ['T', 'Jump to today'],
                         ['M / W / D / A', 'Switch view'],
-                        ['← / →', 'Previous / next period'],
+                        ['â† / â†’', 'Previous / next period'],
                         ['N', 'New event'],
                         ['Esc', 'Close panel / modal'],
                         ['?', 'Show this help'],
@@ -1192,7 +1192,7 @@
         </div>
     </div>
 
-    {{-- ══════ EVENT DETAIL SIDE PANEL (Redesigned) ══════ --}}
+    {{-- â•â•â•â•â•â• EVENT DETAIL SIDE PANEL (Redesigned) â•â•â•â•â•â• --}}
     <div x-show="panelOpen" x-cloak class="fixed inset-0 z-40">
         <div class="absolute inset-0 bg-black/40" @click="panelOpen = false"></div>
         <aside class="absolute top-0 right-0 h-full w-full max-w-md flex flex-col shadow-2xl"
@@ -1384,7 +1384,7 @@
         </aside>
     </div>
 
-    {{-- ══════ REASON PICKER MODAL (dismiss + require_reason complete) ══════ --}}
+    {{-- â•â•â•â•â•â• REASON PICKER MODAL (dismiss + require_reason complete) â•â•â•â•â•â• --}}
     <div x-show="reasonPickerOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/50" @click="reasonPickerOpen = false"></div>
         <div class="relative w-full max-w-sm rounded-md shadow-2xl p-5" style="background: var(--surface); border: 1px solid var(--border);">
@@ -1400,7 +1400,7 @@
                 </template>
             </div>
             <div x-show="reasonPickerCode === 'other'" class="mb-4">
-                <textarea x-model="reasonPickerNotes" rows="2" placeholder="Additional details…"
+                <textarea x-model="reasonPickerNotes" rows="2" placeholder="Additional detailsâ€¦"
                           class="w-full rounded-md px-3 py-2 text-sm"
                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
             </div>
@@ -1409,13 +1409,13 @@
                 <button type="button" @click="submitReasonPicker()" :disabled="!reasonPickerCode || reasonPickerSaving"
                         class="text-xs font-semibold px-3 py-1.5 rounded text-white disabled:opacity-50" style="background: var(--brand-button);">
                     <span x-show="!reasonPickerSaving" x-text="reasonPickerAction === 'dismiss' ? 'Dismiss' : 'Complete'"></span>
-                    <span x-show="reasonPickerSaving" x-cloak>Saving…</span>
+                    <span x-show="reasonPickerSaving" x-cloak>Savingâ€¦</span>
                 </button>
             </div>
         </div>
     </div>
 
-    {{-- ══════ FEEDBACK CAPTURE MODAL ══════ --}}
+    {{-- â•â•â•â•â•â• FEEDBACK CAPTURE MODAL â•â•â•â•â•â• --}}
     <div x-show="feedbackOpen" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/50" @click="feedbackOpen = false"></div>
@@ -1426,7 +1426,7 @@
             <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
                 <div>
                     <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Capture Feedback</h2>
-                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="feedbackData.event?.title + ' — ' + feedbackData.event?.date"></p>
+                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="feedbackData.event?.title + ' â€” ' + feedbackData.event?.date"></p>
                     {{-- Multi-property step indicator --}}
                     <template x-if="feedbackData.is_multi_property && feedbackData.properties.length > 1">
                         <div class="mt-1.5 flex items-center gap-2">
@@ -1452,7 +1452,7 @@
                             <select x-model="feedbackForm[contact.id].outcome_id"
                                     class="w-full rounded-md px-3 py-2 text-sm"
                                     style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                <option value="">Select…</option>
+                                <option value="">Selectâ€¦</option>
                                 <template x-for="o in feedbackData.outcomes" :key="o.id">
                                     <option :value="o.id" x-text="o.label"></option>
                                 </template>
@@ -1481,7 +1481,7 @@
                             <textarea x-model="feedbackForm[contact.id].seller_visible_notes" rows="2"
                                       class="w-full rounded-md px-3 py-2 text-sm"
                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                      placeholder="Shown to seller on live link…"></textarea>
+                                      placeholder="Shown to seller on live linkâ€¦"></textarea>
                         </div>
 
                         {{-- Internal notes --}}
@@ -1490,7 +1490,7 @@
                             <textarea x-model="feedbackForm[contact.id].internal_notes" rows="2"
                                       class="w-full rounded-md px-3 py-2 text-sm"
                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                      placeholder="Agent-only notes…"></textarea>
+                                      placeholder="Agent-only notesâ€¦"></textarea>
                         </div>
 
                         {{-- Next action --}}
@@ -1499,7 +1499,7 @@
                             <input type="text" x-model="feedbackForm[contact.id].next_action_notes"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                   placeholder="Follow-up action…">
+                                   placeholder="Follow-up actionâ€¦">
                         </div>
                     </div>
                 </template>
@@ -1521,14 +1521,14 @@
                         <button type="button" @click="saveFeedback()" :disabled="feedbackSaving"
                                 class="corex-btn-primary disabled:opacity-50">
                             <span x-show="!feedbackSaving">Save Feedback</span>
-                            <span x-show="feedbackSaving" x-cloak>Saving…</span>
+                            <span x-show="feedbackSaving" x-cloak>Savingâ€¦</span>
                         </button>
                     </template>
                     <template x-if="feedbackData.is_multi_property && feedbackPropertyStep < feedbackData.properties.length - 1">
                         <button type="button" @click="saveFeedbackAndNext()" :disabled="feedbackSaving"
                                 class="corex-btn-primary disabled:opacity-50">
                             <span x-show="!feedbackSaving">Save & Next Property</span>
-                            <span x-show="feedbackSaving" x-cloak>Saving…</span>
+                            <span x-show="feedbackSaving" x-cloak>Savingâ€¦</span>
                         </button>
                     </template>
                 </div>
@@ -1538,7 +1538,7 @@
 
 </div>{{-- END main calendar column --}}
 
-{{-- ══════ RIGHT SIDE PANEL ══════ --}}
+{{-- â•â•â•â•â•â• RIGHT SIDE PANEL â•â•â•â•â•â• --}}
 <aside x-show="rightPanelOpen" x-cloak x-transition:enter="transition ease-out duration-200" x-transition:leave="transition ease-in duration-150"
        class="hidden lg:block flex-shrink-0 relative"
        :style="'width:' + panelWidth + 'px; border-left: 1px solid var(--border); background: var(--surface);'">
@@ -1547,7 +1547,7 @@
          @mousedown.prevent="startPanelResize($event)">
         <div class="absolute top-0 left-[2px] w-[2px] h-full group-hover:bg-blue-500/50 group-active:bg-blue-500/70 transition-colors"></div>
     </div>
-    {{-- Scrollable content (no explicit width — fills aside naturally) --}}
+    {{-- Scrollable content (no explicit width â€” fills aside naturally) --}}
     <div class="flex flex-col h-full overflow-y-auto">
 
         {{-- Panel header --}}
@@ -1638,7 +1638,7 @@
                     </label>
                 </template>
 
-                {{-- Legend removed — filter swatches serve as legend --}}
+                {{-- Legend removed â€” filter swatches serve as legend --}}
             </div>
         </div>
 
@@ -1665,7 +1665,7 @@
                         <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + ragHex(evt.rag)"></span>
                         <div class="min-w-0 flex-1">
                             <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="evt.title"></div>
-                            <div class="text-[10px]" style="color: var(--text-muted);" x-text="evt.time + ' · ' + evt.classLabel"></div>
+                            <div class="text-[10px]" style="color: var(--text-muted);" x-text="evt.time + ' Â· ' + evt.classLabel"></div>
                         </div>
                     </button>
                 </template>
@@ -1815,7 +1815,7 @@ function calendarPage() {
             this.showCreateEvent = true;
         },
 
-        // ── Prefill from URL params (Schedule from Contact/Buyer) ──
+        // â”€â”€ Prefill from URL params (Schedule from Contact/Buyer) â”€â”€
         handlePrefill() {
             const params = new URLSearchParams(window.location.search);
             const prefillContactId = params.get('prefill_contact_id');
@@ -1887,7 +1887,7 @@ function calendarPage() {
             });
         },
 
-        // ── Right Panel ──
+        // â”€â”€ Right Panel â”€â”€
         initPanel() {
             // Default: hidden on first visit. Only show if user previously opened it.
             const stored = localStorage.getItem('corex.calendar.panelOpen');
@@ -2279,7 +2279,7 @@ function calendarPage() {
             });
         },
 
-        // ── Reason Picker ──
+        // â”€â”€ Reason Picker â”€â”€
         getReasonOptions() {
             const actorRole = this.panelData?.actor_role || 'neither';
             if (actorRole === 'buyer_action') {

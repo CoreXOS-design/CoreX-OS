@@ -4,21 +4,21 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Payslip {{ $payslip->payslip_number }}" :back-route="route('payroll.runs.show', $run)" back-label="Run {{ $run->run_number }}" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('payroll.runs.payslips.pdf-preview', [$run, $payslip]) }}" target="_blank" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Preview PDF</a>
+            <a href="{{ route('payroll.runs.payslips.pdf-preview', [$run, $payslip]) }}" target="_blank" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Preview PDF</a>
             @if($run->isDraft())
-                <a href="{{ route('payroll.runs.payslips.edit', [$run, $payslip]) }}" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Edit Payslip</a>
+                <a href="{{ route('payroll.runs.payslips.edit', [$run, $payslip]) }}" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Edit Payslip</a>
             @endif
         </x-slot:actions>
     </x-page-header>
 
     <div class="p-4 lg:p-6">
         @if(!$run->isDraft())
-            <div class="mb-4 p-3 text-xs font-semibold" style="background:rgba(148,163,184,0.08); border:1px solid rgba(148,163,184,0.25); border-radius:3px; color:#94a3b8;">
+            <div class="mb-4 p-3 text-xs font-semibold" style="background:rgba(148,163,184,0.08); border:1px solid rgba(148,163,184,0.25); border-radius:6px; color:#94a3b8;">
                 This payslip is {{ $run->status }} and cannot be edited.
             </div>
         @endif
         @if($payslip->notes)
-            <div class="mb-4 p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:3px; color:#eab308;">
+            <div class="mb-4 p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
                 Warnings: {{ $payslip->notes }}
             </div>
         @endif
@@ -27,7 +27,7 @@
             {{-- LEFT COLUMN (1/3) --}}
             <div class="lg:w-1/3 space-y-4">
                 {{-- Employee details --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Employee</h4>
                     <dl class="space-y-1.5 text-xs">
                         <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Name</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a);">{{ $payslip->employee_name_snapshot }}</dd></div>
@@ -40,7 +40,7 @@
 
                 {{-- Banking --}}
                 @php $banking = $payslip->employee?->user?->bankingDetail; @endphp
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Banking</h4>
                     @if($banking)
                         <dl class="space-y-1.5 text-xs">
@@ -54,7 +54,7 @@
                 </div>
 
                 {{-- Period info --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Payslip Info</h4>
                     <dl class="space-y-1.5 text-xs">
                         <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Payslip #</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a); font-family:monospace;">{{ $payslip->payslip_number }}</dd></div>
@@ -68,7 +68,7 @@
             {{-- RIGHT COLUMN (2/3) --}}
             <div class="lg:w-2/3 space-y-4">
                 {{-- Earnings --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Earnings</h4>
                     <table class="w-full text-sm" style="border-collapse:collapse;">
                         <thead>
@@ -97,7 +97,7 @@
                 </div>
 
                 {{-- Deductions --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Deductions</h4>
                     <table class="w-full text-sm" style="border-collapse:collapse;">
                         <thead>
@@ -127,7 +127,7 @@
 
                 {{-- Employer contributions --}}
                 @if($contributionLines->isNotEmpty())
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Employer Contributions</h4>
                     <p class="text-[10px] mb-2" style="color:var(--text-secondary, #94a3b8);">Not deducted from employee.</p>
                     <table class="w-full text-sm" style="border-collapse:collapse;">
@@ -144,7 +144,7 @@
                 @endif
 
                 {{-- Net pay card --}}
-                <div class="p-4" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:3px;">
+                <div class="p-4" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
                     <div class="flex items-center justify-between">
                         <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Net Pay</h4>
                         <p class="text-xl font-bold" style="color:#00d4aa;">R {{ number_format($payslip->net_pay, 2) }}</p>

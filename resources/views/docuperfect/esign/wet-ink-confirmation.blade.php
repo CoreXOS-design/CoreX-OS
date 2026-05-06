@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wet-Ink Signing — {{ $document->name ?? 'Document' }}</title>
+    <title>Wet-Ink Signing â€” {{ $document->name ?? 'Document' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <link href="/css/corex-document.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -15,7 +15,7 @@
         body {
             margin: 0; padding: 0;
             background: #0f172a;
-            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif;
             color: #e2e8f0;
         }
 
@@ -92,7 +92,7 @@
         .wi-card {
             background: #0f172a;
             border: 1px solid #334155;
-            border-radius: 3px;
+            border-radius:6px;
             padding: 14px 16px;
         }
         .wi-card-teal {
@@ -118,7 +118,7 @@
             gap: 8px; width: 100%;
             padding: 10px 18px;
             font-size: 13px; font-weight: 600;
-            border-radius: 3px; cursor: pointer;
+            border-radius:6px; cursor: pointer;
             transition: all 0.15s;
             text-decoration: none; border: none;
         }
@@ -145,7 +145,7 @@
         /* Upload zone */
         .wi-upload-zone {
             border: 2px dashed #475569;
-            border-radius: 3px;
+            border-radius:6px;
             padding: 20px 14px;
             text-align: center;
             cursor: pointer;
@@ -287,7 +287,7 @@
                 <hr class="wi-divider">
 
                 <button @click="state = 2" class="wi-btn wi-btn-primary" style="background:#475569; color:#e2e8f0;">
-                    I've signed it — Continue to Upload
+                    I've signed it â€” Continue to Upload
                     <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                 </button>
             </div>
@@ -321,7 +321,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                         </svg>
                         <p style="font-size:12px; font-weight:500; color:#94a3b8;">Drop files here or click to browse</p>
-                        <p style="font-size:11px; color:#475569; margin-top:3px;">PDF, JPG, PNG — max 20MB each</p>
+                        <p style="font-size:11px; color:#475569; margin-top:3px;">PDF, JPG, PNG â€” max 20MB each</p>
                     </div>
 
                     <template x-if="selectedFiles.length > 0">

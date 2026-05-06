@@ -6,11 +6,11 @@
 
     <div class="p-4 lg:p-6">
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:3px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
         @endif
 
         @if($existingRun)
-            <div class="mb-4 p-3 text-sm" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:3px; color:#eab308;">
+            <div class="mb-4 p-3 text-sm" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
                 A {{ $existingRun->status }} run already exists for {{ $defaultPeriod->format('F Y') }}.
                 <a href="{{ route('payroll.runs.show', $existingRun) }}" class="underline font-semibold">View it here.</a>
             </div>
@@ -33,13 +33,13 @@
 
             <div class="max-w-5xl space-y-6">
                 {{-- Card 1: Run details --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
-                    <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em; font-family:'Plus Jakarta Sans',sans-serif;">Run Details</h4>
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
+                    <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Run Details</h4>
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Period Month <span class="text-red-500">*</span></label>
                             <input type="month" name="period_month_display" value="{{ old('period_month', $defaultPeriod->format('Y-m')) }}"
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;"
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"
                                    onchange="document.getElementById('period_month_hidden').value = this.value + '-01'">
                             <input type="hidden" name="period_month" id="period_month_hidden" value="{{ old('period_month', $defaultPeriod->format('Y-m-d')) }}">
                             @error('period_month') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
@@ -47,21 +47,21 @@
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Pay Date <span class="text-red-500">*</span></label>
                             <input type="date" name="pay_date" value="{{ old('pay_date', $defaultPeriod->copy()->day(25)->format('Y-m-d')) }}" required
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                             @error('pay_date') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Notes</label>
                             <input type="text" name="notes" value="{{ old('notes', '') }}" maxlength="2000" placeholder="Optional run notes"
-                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:3px;">
+                                   class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                         </div>
                     </div>
                 </div>
 
                 {{-- Card 2: Select employees --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <div class="flex items-center justify-between mb-3">
-                        <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em; font-family:'Plus Jakarta Sans',sans-serif;">Select Employees</h4>
+                        <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Select Employees</h4>
                         <span class="text-xs font-semibold" style="color:#00d4aa;" x-text="employeeIds.length + ' of {{ $employees->count() }} selected'"></span>
                     </div>
 
@@ -117,8 +117,8 @@
                 </div>
 
                 {{-- Card 3: Projected totals --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
-                    <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em; font-family:'Plus Jakarta Sans',sans-serif;">Projected Totals</h4>
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
+                    <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Projected Totals</h4>
                     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                         @foreach([
                             'Headcount' => $projectedTotals['headcount'],
@@ -129,22 +129,22 @@
                             'SDL' => 'R ' . number_format($projectedTotals['sdl'], 2),
                             'Net' => 'R ' . number_format($projectedTotals['net'], 2),
                         ] as $lbl => $val)
-                            <div class="p-2 text-center" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:3px;">
+                            <div class="p-2 text-center" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
                                 <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">{{ $lbl }}</p>
                                 <p class="text-sm font-bold" style="color:var(--text-primary, #0f172a);">{{ $val }}</p>
                             </div>
                         @endforeach
                     </div>
-                    <p class="text-[10px] mt-2" style="color:var(--text-secondary, #94a3b8);">Final amounts may differ slightly — verify on the run detail page after creation.</p>
+                    <p class="text-[10px] mt-2" style="color:var(--text-secondary, #94a3b8);">Final amounts may differ slightly â€” verify on the run detail page after creation.</p>
                 </div>
 
                 {{-- Actions --}}
                 <div class="flex items-center gap-3">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:3px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"
                             {{ $employees->isEmpty() ? 'disabled' : '' }}>
                         Create Draft Run
                     </button>
-                    <a href="{{ route('payroll.runs.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Cancel</a>
+                    <a href="{{ route('payroll.runs.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
                 </div>
             </div>
         </form>

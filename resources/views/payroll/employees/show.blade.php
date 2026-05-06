@@ -4,16 +4,16 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="{{ $employee->user->name ?? 'Employee' }}" :back-route="route('payroll.employees.index')" back-label="Employees" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('payroll.employees.edit', $employee) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Edit Profile</a>
+            <a href="{{ route('payroll.employees.edit', $employee) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Edit Profile</a>
             @if($employee->is_active && !$employee->termination_date)
                 <form method="POST" action="{{ route('payroll.employees.deactivate', $employee) }}" class="inline">
                     @csrf
-                    <button type="submit" class="px-3 py-2 text-xs font-semibold transition" style="color:#eab308; border:1px solid rgba(234,179,8,0.3); border-radius:3px; background:none; cursor:pointer;" onclick="return confirm('Deactivate this employee?')">Deactivate</button>
+                    <button type="submit" class="px-3 py-2 text-xs font-semibold transition" style="color:#eab308; border:1px solid rgba(234,179,8,0.3); border-radius:6px; background:none; cursor:pointer;" onclick="return confirm('Deactivate this employee?')">Deactivate</button>
                 </form>
             @elseif(!$employee->termination_date)
                 <form method="POST" action="{{ route('payroll.employees.reactivate', $employee) }}" class="inline">
                     @csrf
-                    <button type="submit" class="px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:3px; cursor:pointer;">Reactivate</button>
+                    <button type="submit" class="px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px; cursor:pointer;">Reactivate</button>
                 </form>
             @endif
         </x-slot:actions>
@@ -21,17 +21,17 @@
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:3px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
         @endif
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:3px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
         @endif
 
         <div class="flex flex-col lg:flex-row gap-6">
-            {{-- ═══ LEFT COLUMN (1/3) ═══ --}}
+            {{-- â•â•â• LEFT COLUMN (1/3) â•â•â• --}}
             <div class="lg:w-1/3 space-y-4">
                 {{-- Card 1: Employee header --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <div class="flex items-center gap-3 mb-3">
                         <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white" style="background:#00d4aa;">
                             {{ strtoupper(substr($employee->user->name ?? '?', 0, 1)) }}
@@ -43,16 +43,16 @@
                         </div>
                     </div>
                     @if($employee->termination_date)
-                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:3px;">Terminated {{ $employee->termination_date->format('d M Y') }}</span>
+                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:6px;">Terminated {{ $employee->termination_date->format('d M Y') }}</span>
                     @elseif($employee->is_active)
-                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:3px;">Active</span>
+                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:6px;">Active</span>
                     @else
-                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:3px;">Inactive</span>
+                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:6px;">Inactive</span>
                     @endif
                 </div>
 
                 {{-- Card 2: Employment details --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Employment Details</h4>
                     <dl class="space-y-1.5 text-xs">
                         <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Employment Date</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a);">{{ $employee->employment_date?->format('d M Y') ?? '-' }}</dd></div>
@@ -65,7 +65,7 @@
 
                 {{-- Card 3: Banking --}}
                 @php $banking = $employee->user->bankingDetail; @endphp
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;" x-data="{ editBanking: false }">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;" x-data="{ editBanking: false }">
                     <div class="flex items-center justify-between mb-2">
                         <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Banking</h4>
                         <button type="button" @click="editBanking = !editBanking" class="text-[10px] font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">
@@ -91,31 +91,31 @@
                         @csrf
                         @if($banking) @method('PATCH') @endif
                         <input type="text" name="account_holder" value="{{ old('account_holder', $banking->account_holder ?? $employee->user->name) }}" required maxlength="150" placeholder="Account holder"
-                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
-                        <select name="bank_name" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                        <select name="bank_name" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                             <option value="">-- Bank --</option>
                             @foreach(['ABSA', 'African Bank', 'Bidvest Bank', 'Capitec', 'Discovery Bank', 'FNB', 'Investec', 'Nedbank', 'Standard Bank', 'TymeBank', 'Other'] as $bank)
                                 <option value="{{ $bank }}" {{ ($banking->bank_name ?? '') === $bank ? 'selected' : '' }}>{{ $bank }}</option>
                             @endforeach
                         </select>
                         <input type="text" name="branch_code" value="{{ old('branch_code', $banking->branch_code ?? '') }}" required maxlength="10" placeholder="Branch code"
-                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                         <input type="text" name="account_number" value="{{ $banking->account_number ?? '' }}" required maxlength="30" placeholder="Account number"
-                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
-                        <select name="account_type" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                               class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
+                        <select name="account_type" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                             @foreach(['cheque' => 'Cheque', 'savings' => 'Savings', 'transmission' => 'Transmission'] as $val => $lbl)
                                 <option value="{{ $val }}" {{ ($banking->account_type ?? 'cheque') === $val ? 'selected' : '' }}>{{ $lbl }}</option>
                             @endforeach
                         </select>
                         <div class="flex gap-2">
-                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
-                            <button type="button" @click="editBanking = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px; background:none; cursor:pointer;">Cancel</button>
+                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                            <button type="button" @click="editBanking = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                         </div>
                     </form>
                 </div>
 
                 {{-- Card 4: Quick stats --}}
-                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px;">
+                <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Quick Stats</h4>
                     <dl class="space-y-1.5 text-xs">
                         <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Total Payslips</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a);">{{ $ytdStats->payslip_count ?? 0 }}</dd></div>
@@ -125,7 +125,7 @@
                 </div>
             </div>
 
-            {{-- ═══ RIGHT COLUMN (2/3) ═══ --}}
+            {{-- â•â•â• RIGHT COLUMN (2/3) â•â•â• --}}
             <div class="lg:w-2/3" x-data="{ tab: 'setup' }">
                 {{-- Tab bar --}}
                 <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
@@ -134,7 +134,7 @@
                     <button @click="tab = 'audit'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'audit' ? 'border-bottom:2px solid #00d4aa; color:#00d4aa;' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Audit Log</button>
                 </div>
 
-                {{-- ══ TAB 1: Current Setup ══ --}}
+                {{-- â•â• TAB 1: Current Setup â•â• --}}
                 <div x-show="tab === 'setup'">
                     {{-- EARNINGS TABLE --}}
                     <div class="mb-6">
@@ -190,18 +190,18 @@
                                                 @method('PATCH')
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">New Amount (R)</label>
-                                                    <input type="number" name="amount" value="{{ $earning->amount }}" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                                    <input type="number" name="amount" value="{{ $earning->amount }}" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective From</label>
-                                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
-                                                    <input type="text" name="notes" value="{{ $earning->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                                    <input type="text" name="notes" value="{{ $earning->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
-                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
-                                                <button type="button" @click="editing = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px; background:none; cursor:pointer;">Cancel</button>
+                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                                                <button type="button" @click="editing = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                                             </form>
                                         </td>
                                     </tr>
@@ -218,11 +218,11 @@
                         <div x-data="{ adding: false }" class="mt-2">
                             <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">+ Add Earning</button>
                             <form method="POST" action="{{ route('payroll.employees.earnings.store', $employee) }}" x-show="adding" x-cloak
-                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:3px;">
+                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
                                 @csrf
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Earning Type</label>
-                                    <select name="earning_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                    <select name="earning_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                         <option value="">-- Select --</option>
                                         @foreach($earningTypes as $et)
                                             <option value="{{ $et->id }}">{{ $et->label }}</option>
@@ -231,18 +231,18 @@
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Amount (R)</label>
-                                    <input type="number" name="amount" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                    <input type="number" name="amount" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective From</label>
-                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
-                                    <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                    <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
-                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
-                                <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px; background:none; cursor:pointer;">Cancel</button>
+                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                                <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                             </form>
                         </div>
                     </div>
@@ -313,11 +313,11 @@
                                                 @method('PATCH')
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Amount (R)</label>
-                                                    <input type="number" name="amount" value="{{ $deduction->amount }}" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                                    <input type="number" name="amount" value="{{ $deduction->amount }}" step="0.01" min="0" required class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective From</label>
-                                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
                                                 @if($deduction->deductionType?->is_statutory)
                                                 <div>
@@ -330,10 +330,10 @@
                                                 @endif
                                                 <div>
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
-                                                    <input type="text" name="notes" value="{{ $deduction->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                                    <input type="text" name="notes" value="{{ $deduction->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
-                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
-                                                <button type="button" @click="editing = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px; background:none; cursor:pointer;">Cancel</button>
+                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                                                <button type="button" @click="editing = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                                             </form>
                                         </td>
                                     </tr>
@@ -350,11 +350,11 @@
                         <div x-data="{ adding: false }" class="mt-2">
                             <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">+ Add Deduction</button>
                             <form method="POST" action="{{ route('payroll.employees.deductions.store', $employee) }}" x-show="adding" x-cloak
-                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:3px;">
+                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
                                 @csrf
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Deduction Type</label>
-                                    <select name="deduction_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                    <select name="deduction_type_id" required class="w-48 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                         <option value="">-- Select --</option>
                                         @foreach($deductionTypes as $dt)
                                             <option value="{{ $dt->id }}">{{ $dt->label }}{{ $dt->is_statutory ? ' (statutory)' : '' }}</option>
@@ -363,24 +363,24 @@
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Amount (R)</label>
-                                    <input type="number" name="amount" step="0.01" min="0" required value="0" class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                    <input type="number" name="amount" step="0.01" min="0" required value="0" class="w-32 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Effective From</label>
-                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                    <input type="date" name="effective_from" value="{{ date('Y-m-d') }}" required class="w-36 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
-                                    <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                                    <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
-                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save</button>
-                                <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px; background:none; cursor:pointer;">Cancel</button>
+                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                                <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                             </form>
                         </div>
                     </div>
                 </div>
 
-                {{-- ══ TAB 2: History ══ --}}
+                {{-- â•â• TAB 2: History â•â• --}}
                 <div x-show="tab === 'history'" x-cloak>
                     @if($payslips->isEmpty())
                         <div class="py-8 text-center text-xs" style="color:var(--text-secondary, #94a3b8);">No payslips yet. They will appear here after the first payroll run is finalised.</div>
@@ -416,7 +416,7 @@
                     @endif
                 </div>
 
-                {{-- ══ TAB 3: Audit Log ══ --}}
+                {{-- â•â• TAB 3: Audit Log â•â• --}}
                 <div x-show="tab === 'audit'" x-cloak>
                     @php
                         $auditItems = collect();

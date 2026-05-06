@@ -31,7 +31,7 @@
                       style="position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;background:#00d4aa;color:#0f172a;font-size:10px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;line-height:1;"></span>
             </button>
             <div x-show="open" x-cloak @click.outside="open=false"
-                 style="position:absolute;top:100%;right:0;margin-top:8px;width:340px;max-height:400px;overflow-y:auto;background:#1e293b;border:1px solid #334155;border-radius:3px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;">
+                 style="position:absolute;top:100%;right:0;margin-top:8px;width:340px;max-height:400px;overflow-y:auto;background:#1e293b;border:1px solid #334155;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;">
                 <div style="padding:10px 14px;border-bottom:1px solid #334155;display:flex;align-items:center;justify-content:space-between;">
                     <span style="font-size:12px;font-weight:600;color:#f1f5f9;">Notifications</span>
                     <button x-show="unreadCount > 0" @click.stop="markAllRead()" style="font-size:11px;color:#00d4aa;background:none;border:none;cursor:pointer;">Mark all read</button>

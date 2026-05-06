@@ -15,21 +15,21 @@
         {{-- Filters --}}
         <form method="GET" action="{{ route('payroll.leave.reports.audit-log') }}" class="flex flex-wrap items-end gap-3 mb-4">
             <div><label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">From</label>
-                <input type="date" name="from" value="{{ $dateFrom }}" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);"></div>
+                <input type="date" name="from" value="{{ $dateFrom }}" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);"></div>
             <div><label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">To</label>
-                <input type="date" name="to" value="{{ $dateTo }}" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);"></div>
+                <input type="date" name="to" value="{{ $dateTo }}" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);"></div>
             <div><label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Transaction Type</label>
-                <select name="txn_type" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:3px; color:var(--text-primary, #0f172a);">
+                <select name="txn_type" class="px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                     <option value="">All</option>
                     @foreach(['opening_balance','accrual','application_approved','application_cancelled','manual_adjustment','carry_over','forfeiture','reversal'] as $t)
                         <option value="{{ $t }}" {{ ($txnType ?? '') === $t ? 'selected' : '' }}>{{ ucfirst(str_replace('_',' ',$t)) }}</option>
                     @endforeach
                 </select></div>
-            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Apply</button>
+            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Apply</button>
             <a href="{{ route('payroll.leave.reports.audit-log') }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Reset</a>
         </form>
 
-        <p class="text-[10px] mb-3" style="color:var(--text-secondary, #94a3b8);">Showing {{ $transactions->total() }} transaction(s). This table is the immutable ledger — records cannot be edited or deleted.</p>
+        <p class="text-[10px] mb-3" style="color:var(--text-secondary, #94a3b8);">Showing {{ $transactions->total() }} transaction(s). This table is the immutable ledger â€” records cannot be edited or deleted.</p>
 
         @if($transactions->isEmpty())
             <div class="py-8 text-center text-xs" style="color:var(--text-secondary, #94a3b8);">No transactions found for this period.</div>

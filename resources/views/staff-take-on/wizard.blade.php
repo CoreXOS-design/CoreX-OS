@@ -5,17 +5,17 @@
     <x-page-header title="Take-On: {{ $takeOn->user->name }}" :back-route="route('staff-take-on.index')" back-label="Staff Take-On" :flush="true">
         <x-slot:actions>
             @if(!$takeOn->isComplete())
-                <a href="{{ route('staff-take-on.index') }}" class="inline-flex items-center px-3 py-2 text-xs font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:3px;">Save & Exit</a>
+                <a href="{{ route('staff-take-on.index') }}" class="inline-flex items-center px-3 py-2 text-xs font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Save & Exit</a>
             @endif
         </x-slot:actions>
     </x-page-header>
 
     <div class="p-4 lg:p-6 max-w-5xl">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:3px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
         @endif
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:3px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
         @endif
 
         {{-- Progress strip --}}
@@ -40,7 +40,7 @@
                 @endphp
                 <a href="{{ route('staff-take-on.wizard', [$takeOn, $s]) }}"
                    class="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold transition"
-                   style="{{ $isCurrent ? 'background:#00d4aa; color:white; border-radius:3px;' : ($isDone ? 'background:rgba(0,212,170,0.08); color:#00d4aa; border-radius:3px;' : 'background:var(--surface-2, #f1f5f9); color:var(--text-secondary, #94a3b8); border-radius:3px;') }}">
+                   style="{{ $isCurrent ? 'background:#00d4aa; color:white; border-radius:6px;' : ($isDone ? 'background:rgba(0,212,170,0.08); color:#00d4aa; border-radius:6px;' : 'background:var(--surface-2, #f1f5f9); color:var(--text-secondary, #94a3b8); border-radius:6px;') }}">
                     @if($isDone && !$isCurrent)
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     @else

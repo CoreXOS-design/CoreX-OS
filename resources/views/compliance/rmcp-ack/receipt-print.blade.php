@@ -7,28 +7,28 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Plus Jakarta Sans', sans-serif; color: #0f172a; background: #fff; padding: 10mm 15mm; max-width: 700px; margin: 0 auto; }
+        body { font-family: 'Figtree', sans-serif; color: var(--text-primary); background: #fff; padding: 10mm 15mm; max-width: 700px; margin: 0 auto; }
 
-        .header { background: #0f172a; color: #fff; padding: 0.6rem 1.5rem; text-align: center; border-radius: 3px 3px 0 0; }
-        .header .label { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; color: #00d4aa; letter-spacing: 2px; }
+        .header { background: var(--text-primary); color: #fff; padding: 0.6rem 1.5rem; text-align: center; border-radius:6px 3px 0 0; }
+        .header .label { font-size: 0.6rem; font-weight: 700; text-transform: uppercase; color: var(--brand-icon); letter-spacing: 2px; }
         .header .ref { font-size: 0.6rem; color: #94a3b8; margin-top: 0.2rem; }
 
         .body { border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 3px 3px; padding: 0.75rem 1.5rem; }
 
         .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.3rem 0.75rem; margin-bottom: 0.6rem; }
         .grid .cell-label { font-size: 0.55rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.03em; }
-        .grid .cell-value { font-size: 0.7rem; font-weight: 600; color: #0f172a; margin-top: 0.05rem; }
-        .grid .cell-value.teal { color: #00d4aa; }
+        .grid .cell-value { font-size: 0.7rem; font-weight: 600; color: var(--text-primary); margin-top: 0.05rem; }
+        .grid .cell-value.teal { color: var(--brand-icon); }
 
         h4 { font-size: 0.55rem; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
 
         .sections { margin-bottom: 0.5rem; }
         .section-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.6rem; padding: 0.15rem 0.5rem; background: #f8fafc; border-radius: 2px; margin-bottom: 1px; line-height: 1.3; }
-        .section-row .time { color: #00d4aa; font-size: 0.55rem; }
+        .section-row .time { color: var(--brand-icon); font-size: 0.55rem; }
 
         .signature-block { page-break-inside: avoid; }
-        .signature-box { border: 1px dashed #e5e7eb; border-radius: 3px; padding: 0.4rem; text-align: center; margin-bottom: 0.5rem; }
-        .signature-box .typed { font-family: 'Dancing Script', cursive; font-size: 1.2rem; color: #0f172a; }
+        .signature-box { border: 1px dashed #e5e7eb; border-radius:6px; padding: 0.4rem; text-align: center; margin-bottom: 0.5rem; }
+        .signature-box .typed { font-family: 'Dancing Script', cursive; font-size: 1.2rem; color: var(--text-primary); }
         .signature-box img { max-height: 50px; margin: 0 auto; display: block; }
 
         .footer { border-top: 1px solid #e5e7eb; padding-top: 0.3rem; text-align: center; font-size: 0.5rem; color: #94a3b8; }
