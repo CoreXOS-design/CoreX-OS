@@ -26,7 +26,7 @@
                 <a href="{{ route('corex.contacts.show', $buyer) }}" class="text-xs font-semibold px-3 py-1.5 rounded-md no-underline" style="background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);">Contact Record</a>
                 @if($buyer->buyer_state !== 'lost')
                 <button type="button" x-data x-on:click="$refs.lostModal.showModal()"
-                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3);">Mark Lost</button>
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">Mark Lost</button>
                 @else
                 <button type="button" x-data x-on:click="$refs.reengageModal.showModal()"
                         class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">Re-engage Buyer</button>

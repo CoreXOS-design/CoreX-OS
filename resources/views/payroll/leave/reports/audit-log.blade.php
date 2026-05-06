@@ -9,7 +9,7 @@
         <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
             <a href="{{ route('payroll.leave.reports.register') }}" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Register</a>
             <a href="{{ route('payroll.leave.reports.branch-summary') }}" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Branch Summary</a>
-            <a href="{{ route('payroll.leave.reports.audit-log') }}" class="px-3 py-1.5 text-xs font-semibold" style="border-bottom:2px solid #00d4aa; color:#00d4aa;">Audit Log</a>
+            <a href="{{ route('payroll.leave.reports.audit-log') }}" class="px-3 py-1.5 text-xs font-semibold" style="border-bottom:2px solid #00d4aa; color:var(--brand-icon);">Audit Log</a>
         </div>
 
         {{-- Filters --}}
@@ -25,7 +25,7 @@
                         <option value="{{ $t }}" {{ ($txnType ?? '') === $t ? 'selected' : '' }}>{{ ucfirst(str_replace('_',' ',$t)) }}</option>
                     @endforeach
                 </select></div>
-            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Apply</button>
+            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Apply</button>
             <a href="{{ route('payroll.leave.reports.audit-log') }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Reset</a>
         </form>
 

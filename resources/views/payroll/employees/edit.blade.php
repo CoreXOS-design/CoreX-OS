@@ -12,7 +12,7 @@
             <div class="max-w-2xl space-y-5">
                 {{-- Employee header (read-only) --}}
                 <div class="flex items-center gap-3 p-3" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
-                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:#00d4aa;">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:var(--brand-icon);">
                         {{ strtoupper(substr($employee->user->name ?? '?', 0, 1)) }}
                     </div>
                     <div>
@@ -61,7 +61,7 @@
                 </div>
 
                 <div class="flex items-center gap-3 pt-2">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
                         Update Profile
                     </button>
                     <a href="{{ route('payroll.employees.show', $employee) }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>

@@ -12,10 +12,10 @@
 
     <div class="p-4 lg:p-6 max-w-5xl">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">{{ session('success') }}</div>
         @endif
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:6px; color:var(--ds-crimson);">{{ session('error') }}</div>
         @endif
 
         {{-- Progress strip --}}
@@ -40,7 +40,7 @@
                 @endphp
                 <a href="{{ route('staff-take-on.wizard', [$takeOn, $s]) }}"
                    class="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold transition"
-                   style="{{ $isCurrent ? 'background:#00d4aa; color:white; border-radius:6px;' : ($isDone ? 'background:rgba(0,212,170,0.08); color:#00d4aa; border-radius:6px;' : 'background:var(--surface-2, #f1f5f9); color:var(--text-secondary, #94a3b8); border-radius:6px;') }}">
+                   style="{{ $isCurrent ? 'background:var(--brand-icon); color:white; border-radius:6px;' : ($isDone ? 'background:color-mix(in srgb, var(--brand-icon) 8%, transparent); color:var(--brand-icon); border-radius:6px;' : 'background:var(--surface-2, #f1f5f9); color:var(--text-secondary, #94a3b8); border-radius:6px;') }}">
                     @if($isDone && !$isCurrent)
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     @else

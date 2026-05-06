@@ -13,7 +13,7 @@
             </div>
             <div class="p-4 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                 <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">Approved This Month</p>
-                <p class="text-2xl font-bold" style="color:#00d4aa;">{{ $approvedThisMonth }}</p>
+                <p class="text-2xl font-bold" style="color:var(--brand-icon);">{{ $approvedThisMonth }}</p>
             </div>
             <div class="p-4 text-center" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                 <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">Pending Applications</p>
@@ -27,7 +27,7 @@
 
         {{-- Quick links --}}
         <div class="flex flex-wrap gap-3 mb-6">
-            <a href="{{ route('payroll.leave.balances.index') }}" class="px-4 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">View Balances</a>
+            <a href="{{ route('payroll.leave.balances.index') }}" class="px-4 py-2 text-xs font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">View Balances</a>
             <a href="#" class="px-4 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;" title="Coming in Prompt J">View Applications</a>
             <a href="#" class="px-4 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;" title="Coming in Prompt N">View Reports</a>
         </div>
@@ -35,7 +35,7 @@
         {{-- Compliance warnings --}}
         @if(!empty($warnings))
         <div class="p-4" style="background:rgba(234,179,8,0.04); border:1px solid rgba(234,179,8,0.15); border-radius:6px;">
-            <h4 class="text-xs font-bold uppercase mb-2" style="color:#eab308; letter-spacing:0.05em;">Compliance Warnings</h4>
+            <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--ds-amber); letter-spacing:0.05em;">Compliance Warnings</h4>
             <ul class="space-y-1.5">
                 @foreach($warnings as $w)
                     <li class="text-xs" style="color:var(--text-primary, #0f172a);">{{ $w }}</li>
@@ -43,8 +43,8 @@
             </ul>
         </div>
         @else
-        <div class="p-4" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
-            <p class="text-xs font-semibold" style="color:#00d4aa;">No compliance warnings. All leave balances within acceptable range.</p>
+        <div class="p-4" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
+            <p class="text-xs font-semibold" style="color:var(--brand-icon);">No compliance warnings. All leave balances within acceptable range.</p>
         </div>
         @endif
     </div>

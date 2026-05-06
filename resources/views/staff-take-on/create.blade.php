@@ -6,7 +6,7 @@
 
     <div class="p-4 lg:p-6">
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:6px; color:var(--ds-crimson);">{{ session('error') }}</div>
         @endif
 
         <form method="POST" action="{{ route('staff-take-on.store') }}">
@@ -47,7 +47,7 @@
                 </div>
 
                 <div class="flex items-center gap-3">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" {{ $eligibleUsers->isEmpty() ? 'disabled' : '' }}>Start Wizard</button>
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" {{ $eligibleUsers->isEmpty() ? 'disabled' : '' }}>Start Wizard</button>
                     <a href="{{ route('staff-take-on.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
                 </div>
             </div>

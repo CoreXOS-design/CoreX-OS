@@ -54,9 +54,9 @@
             ] as [$label, $done])
                 <div class="flex items-center gap-2">
                     @if($done)
-                        <svg class="w-3.5 h-3.5" style="color:#00d4aa;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <svg class="w-3.5 h-3.5" style="color:var(--brand-icon);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     @else
-                        <svg class="w-3.5 h-3.5" style="color:#ef4444;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        <svg class="w-3.5 h-3.5" style="color:var(--ds-crimson);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     @endif
                     <span style="color:{{ $done ? 'var(--text-primary, #0f172a)' : '#ef4444' }};">{{ $label }}</span>
                 </div>
@@ -70,15 +70,15 @@
         @csrf
         <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
             <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-primary, #0f172a);">
-                <input type="checkbox" x-model="confirmed" style="accent-color:#00d4aa;">
+                <input type="checkbox" x-model="confirmed" style="accent-color:var(--brand-icon);">
                 I confirm all details have been verified and are correct.
             </label>
             <p class="text-[10px] mt-1" style="color:var(--text-secondary, #94a3b8);">Signed by: {{ auth()->user()->name }}</p>
         </div>
-        <button type="submit" :disabled="!confirmed" class="mt-4 px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" :style="!confirmed && 'opacity:0.5; cursor:not-allowed'">Submit Take-On</button>
+        <button type="submit" :disabled="!confirmed" class="mt-4 px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" :style="!confirmed && 'opacity:0.5; cursor:not-allowed'">Submit Take-On</button>
     </form>
     @else
-        <div class="p-3 text-xs font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">
+        <div class="p-3 text-xs font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">
             Take-on completed on {{ $takeOn->completed_at->format('d M Y H:i') }} by {{ $takeOn->completedBy->name ?? '?' }}.
         </div>
     @endif

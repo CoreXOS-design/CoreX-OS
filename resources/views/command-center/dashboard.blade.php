@@ -387,7 +387,7 @@
                     'neutral' => 'background:#475569; color:#ffffff; border:1px solid #334155;',
                 ];
                 $widgetRagDot = [
-                    'red'   => 'background:#ef4444;',
+                    'red'   => 'background:var(--ds-crimson);',
                     'amber' => 'background:#f59e0b;',
                     'green' => 'background:#14b8a6;',
                 ];

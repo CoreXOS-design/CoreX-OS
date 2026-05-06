@@ -6,7 +6,7 @@
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">{{ session('success') }}</div>
         @endif
 
         {{-- Search + type filter --}}
@@ -20,7 +20,7 @@
                     @endforeach
                 </select>
                 <input type="hidden" name="status" value="{{ $status }}">
-                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Filter</button>
+                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Filter</button>
                 @if($q || $typeFilter)
                     <a href="{{ route('payroll.leave.applications.index', ['status' => $status]) }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Clear</a>
                 @endif
@@ -32,7 +32,7 @@
             @foreach(['all' => 'All', 'pending' => 'Pending', 'approved' => 'Approved', 'rejected' => 'Rejected', 'cancelled' => 'Cancelled', 'this_month' => 'This Month'] as $key => $label)
                 <a href="{{ route('payroll.leave.applications.index', ['status' => $key, 'q' => $q, 'type' => $typeFilter]) }}"
                    class="px-3 py-1.5 text-xs font-semibold transition"
-                   style="{{ $status === $key ? 'border-bottom:2px solid #00d4aa; color:#00d4aa;' : 'color:var(--text-secondary, #6b7280);' }}">
+                   style="{{ $status === $key ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);' }}">
                     {{ $label }} <span class="ml-1 text-[10px] opacity-60">{{ $counts[$key] }}</span>
                 </a>
             @endforeach
@@ -79,7 +79,7 @@
                             </td>
                             <td class="px-2 py-2.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $app->submitted_at?->format('d M H:i') }}</td>
                             <td class="px-3 py-2.5 text-right">
-                                <a href="{{ route('payroll.leave.applications.show', $app) }}" class="text-xs font-semibold" style="color:#00d4aa;">View</a>
+                                <a href="{{ route('payroll.leave.applications.show', $app) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>
                             </td>
                         </tr>
                         @endforeach

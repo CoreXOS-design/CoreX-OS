@@ -5,11 +5,11 @@
     sarsCode: '{{ old('sars_source_code', $type->sars_source_code ?? '') }}'
 }">
     @if(isset($locked) && ($locked['statutory'] ?? false))
-    <div class="p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
+    <div class="p-3 text-xs font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent); border-radius:6px; color:var(--ds-amber);">
         This is a statutory deduction (PAYE/UIF). Code, SARS code, and statutory flag are locked. PAYE and UIF amounts are auto-calculated by the payroll engine â€” these rows define the deduction TYPE only.
     </div>
     @elseif(isset($locked) && ($locked['code'] ?? false))
-    <div class="p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
+    <div class="p-3 text-xs font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent); border-radius:6px; color:var(--ds-amber);">
         This is a system deduction type. Code and SARS code are locked. You can still edit the label, sort order, and active state.
     </div>
     @endif
@@ -66,7 +66,7 @@
             <input type="hidden" name="is_statutory" value="0">
             <input type="checkbox" name="is_statutory" value="1" x-model="isStatutory" class="sr-only peer"
                    {{ isset($locked) && ($locked['statutory'] ?? false) ? 'disabled' : '' }}>
-            <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isStatutory ? 'background:#00d4aa' : ''"></div>
+            <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isStatutory ? 'background:var(--brand-icon)' : ''"></div>
             <div>
                 <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Statutory deduction</span>
                 <p class="text-[10px]" style="color:var(--text-secondary, #94a3b8);">PAYE, UIF â€” amounts auto-calculated by the payroll engine</p>
@@ -89,7 +89,7 @@
             <label class="relative inline-flex items-center cursor-pointer gap-3 mt-1">
                 <input type="hidden" name="is_active" value="0">
                 <input type="checkbox" name="is_active" value="1" x-model="isActive" class="sr-only peer">
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isActive ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isActive ? 'background:var(--brand-icon)' : ''"></div>
                 <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Active</span>
             </label>
         </div>
@@ -97,7 +97,7 @@
 
     {{-- Actions --}}
     <div class="flex items-center gap-3 pt-2">
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
             {{ isset($type) && $type->exists ? 'Update' : 'Save' }} Deduction Type
         </button>
         <a href="{{ route('payroll.deduction-types.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>

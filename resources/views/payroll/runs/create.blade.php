@@ -6,11 +6,11 @@
 
     <div class="p-4 lg:p-6">
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:6px; color:var(--ds-crimson);">{{ session('error') }}</div>
         @endif
 
         @if($existingRun)
-            <div class="mb-4 p-3 text-sm" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
+            <div class="mb-4 p-3 text-sm" style="background:color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent); border-radius:6px; color:var(--ds-amber);">
                 A {{ $existingRun->status }} run already exists for {{ $defaultPeriod->format('F Y') }}.
                 <a href="{{ route('payroll.runs.show', $existingRun) }}" class="underline font-semibold">View it here.</a>
             </div>
@@ -62,7 +62,7 @@
                 <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <div class="flex items-center justify-between mb-3">
                         <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Select Employees</h4>
-                        <span class="text-xs font-semibold" style="color:#00d4aa;" x-text="employeeIds.length + ' of {{ $employees->count() }} selected'"></span>
+                        <span class="text-xs font-semibold" style="color:var(--brand-icon);" x-text="employeeIds.length + ' of {{ $employees->count() }} selected'"></span>
                     </div>
 
                     @if($employees->isEmpty())
@@ -73,7 +73,7 @@
                                 <thead>
                                     <tr style="border-bottom:2px solid var(--border, #e5e7eb);">
                                         <th class="px-2 py-2 text-center" style="width:40px;">
-                                            <input type="checkbox" :checked="allChecked" @change="toggleAll()" style="accent-color:#00d4aa;">
+                                            <input type="checkbox" :checked="allChecked" @change="toggleAll()" style="accent-color:var(--brand-icon);">
                                         </th>
                                         <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Employee</th>
                                         <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Branch</th>
@@ -85,11 +85,11 @@
                                     @foreach($employees as $emp)
                                     <tr style="border-bottom:1px solid var(--border, #e5e7eb);">
                                         <td class="px-2 py-2.5 text-center">
-                                            <input type="checkbox" name="employee_ids[]" value="{{ $emp->id }}" checked @change="updateCount()" style="accent-color:#00d4aa;">
+                                            <input type="checkbox" name="employee_ids[]" value="{{ $emp->id }}" checked @change="updateCount()" style="accent-color:var(--brand-icon);">
                                         </td>
                                         <td class="px-3 py-2.5">
                                             <div class="flex items-center gap-2">
-                                                <div class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white" style="background:#00d4aa;">{{ strtoupper(substr($emp->user->name ?? '?', 0, 1)) }}</div>
+                                                <div class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white" style="background:var(--brand-icon);">{{ strtoupper(substr($emp->user->name ?? '?', 0, 1)) }}</div>
                                                 <div>
                                                     <p class="text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ $emp->user->name ?? 'Unknown' }}</p>
                                                     <p class="text-[10px]" style="color:var(--text-secondary, #94a3b8);">{{ $emp->designation_snapshot }}</p>
@@ -129,7 +129,7 @@
                             'SDL' => 'R ' . number_format($projectedTotals['sdl'], 2),
                             'Net' => 'R ' . number_format($projectedTotals['net'], 2),
                         ] as $lbl => $val)
-                            <div class="p-2 text-center" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
+                            <div class="p-2 text-center" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                                 <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">{{ $lbl }}</p>
                                 <p class="text-sm font-bold" style="color:var(--text-primary, #0f172a);">{{ $val }}</p>
                             </div>
@@ -140,7 +140,7 @@
 
                 {{-- Actions --}}
                 <div class="flex items-center gap-3">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'"
                             {{ $employees->isEmpty() ? 'disabled' : '' }}>
                         Create Draft Run
                     </button>

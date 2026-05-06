@@ -8,7 +8,7 @@
     sarsCode: '{{ old('sars_source_code', $type->sars_source_code ?? '') }}'
 }">
     @if(isset($locked) && ($locked['code'] ?? false))
-    <div class="p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
+    <div class="p-3 text-xs font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent); border-radius:6px; color:var(--ds-amber);">
         This is a system earning type. Code, SARS code, and tax treatment are locked. You can still edit the label, sort order, and active state.
     </div>
     @endif
@@ -67,7 +67,7 @@
                 <input type="hidden" name="is_taxable" value="0">
                 <input type="checkbox" name="is_taxable" value="1" x-model="isTaxable" class="sr-only peer"
                        {{ isset($locked) && ($locked['taxable'] ?? false) ? 'disabled' : '' }}>
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isTaxable ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isTaxable ? 'background:var(--brand-icon)' : ''"></div>
                 <div>
                     <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Subject to PAYE</span>
                     @if(isset($locked) && ($locked['taxable'] ?? false))
@@ -81,7 +81,7 @@
                 <input type="hidden" name="is_fringe_benefit" value="0">
                 <input type="checkbox" name="is_fringe_benefit" value="1" x-model="isFringeBenefit" class="sr-only peer"
                        {{ isset($locked) && ($locked['taxable'] ?? false) ? 'disabled' : '' }}>
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isFringeBenefit ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isFringeBenefit ? 'background:var(--brand-icon)' : ''"></div>
                 <div>
                     <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Treated as fringe benefit</span>
                     @if(isset($locked) && ($locked['taxable'] ?? false))
@@ -95,7 +95,7 @@
                 <input type="hidden" name="affects_uif_remuneration" value="0">
                 <input type="checkbox" name="affects_uif_remuneration" value="1" x-model="affectsUif" class="sr-only peer"
                        {{ isset($locked) && ($locked['taxable'] ?? false) ? 'disabled' : '' }}>
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="affectsUif ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="affectsUif ? 'background:var(--brand-icon)' : ''"></div>
                 <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Counts toward UIF</span>
             </label>
 
@@ -104,7 +104,7 @@
                 <input type="hidden" name="affects_sdl_remuneration" value="0">
                 <input type="checkbox" name="affects_sdl_remuneration" value="1" x-model="affectsSdl" class="sr-only peer"
                        {{ isset($locked) && ($locked['taxable'] ?? false) ? 'disabled' : '' }}>
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="affectsSdl ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="affectsSdl ? 'background:var(--brand-icon)' : ''"></div>
                 <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Counts toward SDL</span>
             </label>
         </div>
@@ -122,7 +122,7 @@
             <label class="relative inline-flex items-center cursor-pointer gap-3 mt-1">
                 <input type="hidden" name="is_active" value="0">
                 <input type="checkbox" name="is_active" value="1" x-model="isActive" class="sr-only peer">
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isActive ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isActive ? 'background:var(--brand-icon)' : ''"></div>
                 <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Active</span>
             </label>
         </div>
@@ -130,7 +130,7 @@
 
     {{-- Actions --}}
     <div class="flex items-center gap-3 pt-2">
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
             {{ isset($type) && $type->exists ? 'Update' : 'Save' }} Earning Type
         </button>
         <a href="{{ route('payroll.earning-types.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>

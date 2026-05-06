@@ -89,7 +89,7 @@
                                 <td class="py-2 px-2 text-xs" style="color:var(--text-muted);">{{ $exp->due_offset_hours }}h</td>
                                 <td class="py-2 px-2">
                                     @if($exp->required)
-                                        <span class="text-xs px-1.5 py-0.5 rounded" style="background:rgba(239,68,68,0.1); color:#ef4444;">Required</span>
+                                        <span class="text-xs px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson);">Required</span>
                                     @else
                                         <span class="text-xs" style="color:var(--text-muted);">Optional</span>
                                     @endif
@@ -97,7 +97,7 @@
                                 <td class="py-2 px-2">
                                     <form method="POST" action="{{ route('command-center.settings.destroy-expectation', $exp) }}">
                                         @csrf @method('DELETE')
-                                        <button type="submit" class="text-xs px-2 py-1 rounded hover:bg-red-500/10" style="color:#ef4444;" onclick="return confirm('Remove this expectation?')">Remove</button>
+                                        <button type="submit" class="text-xs px-2 py-1 rounded hover:bg-red-500/10" style="color:var(--ds-crimson);" onclick="return confirm('Remove this expectation?')">Remove</button>
                                     </form>
                                 </td>
                             </tr>

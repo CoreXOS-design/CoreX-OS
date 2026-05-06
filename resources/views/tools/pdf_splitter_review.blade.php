@@ -57,7 +57,7 @@
 #spr .alert-error {
     background: color-mix(in srgb, #ef4444 12%, var(--surface));
     border:1px solid color-mix(in srgb, #ef4444 25%, var(--border));
-    color:#ef4444;
+    color:var(--ds-crimson);
 }
 
 /* â”€â”€ Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -87,7 +87,7 @@
 }
 #spr button.tb-btn:hover { opacity:.85; }
 #spr .btn-apply  { background:var(--brand-button, #0ea5e9); color:#fff; }
-#spr .btn-reset  { background:var(--surface); color:#ef4444; border-color: color-mix(in srgb, #ef4444 40%, var(--border)); }
+#spr .btn-reset  { background:var(--surface); color:var(--ds-crimson); border-color: color-mix(in srgb, #ef4444 40%, var(--border)); }
 #spr .btn-other  { background:var(--surface-2, var(--surface)); color:var(--text-secondary); border-color:var(--border); }
 #spr .btn-gen    { background:var(--brand-button, #0ea5e9); color:#fff; border:none; border-radius:6px;
                    padding:0.625rem 1.5rem; font-size:.875rem; font-weight:600; cursor:pointer;

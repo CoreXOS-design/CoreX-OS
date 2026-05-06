@@ -6,10 +6,10 @@
 
     <div class="p-4 lg:p-6 max-w-7xl">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">{{ session('success') }}</div>
         @endif
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:6px; color:var(--ds-crimson);">{{ session('error') }}</div>
         @endif
 
         <div class="flex flex-col lg:flex-row gap-6">
@@ -19,7 +19,7 @@
                 <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Applicant</h4>
                     <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:#00d4aa;">{{ strtoupper(substr($application->user->name ?? '?', 0, 1)) }}</div>
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:var(--brand-icon);">{{ strtoupper(substr($application->user->name ?? '?', 0, 1)) }}</div>
                         <div>
                             <p class="text-sm font-semibold" style="color:var(--text-primary, #0f172a);">{{ $application->user->name }}</p>
                             <p class="text-xs" style="color:var(--text-secondary, #94a3b8);">{{ $application->payrollEmployee?->designation_snapshot }} | {{ $application->user->branch->name ?? '-' }}</p>
@@ -50,12 +50,12 @@
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Balance Impact</h4>
                     <dl class="space-y-1.5 text-xs">
                         <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Before</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a);">{{ number_format((float)$balanceBefore['available_days'], 2) }} days</dd></div>
-                        <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">This Application</dt><dd class="font-semibold" style="color:#ef4444;">-{{ number_format($application->working_days_requested, 2) }} days</dd></div>
+                        <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">This Application</dt><dd class="font-semibold" style="color:var(--ds-crimson);">-{{ number_format($application->working_days_requested, 2) }} days</dd></div>
                         @php $afterBalance = bcsub($balanceBefore['available_days'], (string)$application->working_days_requested, 2); @endphp
                         <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">After (if approved)</dt><dd class="font-semibold" style="color:{{ (float)$afterBalance < 0 ? '#ef4444' : '#00d4aa' }};">{{ number_format((float)$afterBalance, 2) }} days</dd></div>
                     </dl>
                     @if((float)$afterBalance < 0 && !$application->leaveType->allows_negative_balance)
-                        <div class="mt-2 p-2 text-[10px] font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.15); border-radius:6px; color:#ef4444;">
+                        <div class="mt-2 p-2 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid rgba(239,68,68,0.15); border-radius:6px; color:var(--ds-crimson);">
                             This will create a negative balance. {{ $application->leaveType->label }} does not allow negative balances.
                         </div>
                     @endif
@@ -76,7 +76,7 @@
             {{-- RIGHT (2/3) --}}
             <div class="lg:w-2/3 space-y-4">
                 {{-- Status banner --}}
-                @php $statusColors = ['submitted'=>['#eab308','rgba(234,179,8,0.08)'],'approved'=>['#00d4aa','rgba(0,212,170,0.08)'],'rejected'=>['#ef4444','rgba(239,68,68,0.08)'],'cancelled'=>['#94a3b8','rgba(148,163,184,0.08)'],'taken'=>['#3b82f6','rgba(59,130,246,0.08)']]; @endphp
+                @php $statusColors = ['submitted'=>['#eab308','color-mix(in srgb, var(--ds-amber) 8%, transparent)'],'approved'=>['#00d4aa','color-mix(in srgb, var(--brand-icon) 8%, transparent)'],'rejected'=>['#ef4444','color-mix(in srgb, var(--ds-crimson) 8%, transparent)'],'cancelled'=>['#94a3b8','rgba(148,163,184,0.08)'],'taken'=>['#3b82f6','rgba(59,130,246,0.08)']]; @endphp
                 @php $sc = $statusColors[$application->status] ?? ['#94a3b8','rgba(148,163,184,0.08)']; @endphp
                 <div class="p-4" style="background:{{ $sc[1] }}; border:1px solid {{ $sc[0] }}25; border-radius:6px;">
                     <div class="flex items-center gap-3">
@@ -102,9 +102,9 @@
                     <div class="flex gap-3">
                         <form method="POST" action="{{ route('payroll.leave.applications.approve', $application) }}" class="inline">
                             @csrf
-                            <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onclick="return confirm('Approve this leave application?')">Approve</button>
+                            <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onclick="return confirm('Approve this leave application?')">Approve</button>
                         </form>
-                        <button @click="showReject = !showReject" class="px-4 py-2 text-sm font-semibold transition" style="color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:6px; background:none; cursor:pointer;">Reject</button>
+                        <button @click="showReject = !showReject" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); border-radius:6px; background:none; cursor:pointer;">Reject</button>
                     </div>
 
                     <form method="POST" action="{{ route('payroll.leave.applications.reject', $application) }}" x-show="showReject" x-cloak class="mt-3 space-y-3">
@@ -115,7 +115,7 @@
                             @error('decision_reason') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div class="flex gap-2">
-                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#ef4444; border-radius:6px;">Confirm Reject</button>
+                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--ds-crimson); border-radius:6px;">Confirm Reject</button>
                             <button type="button" @click="showReject = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                         </div>
                     </form>

@@ -34,7 +34,7 @@
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Account Type</label>
                     <div class="flex gap-4 mt-1">
                         @foreach(['cheque'=>'Cheque','savings'=>'Savings','transmission'=>'Transmission'] as $v => $l)
-                            <label class="flex items-center gap-1.5 text-sm cursor-pointer"><input type="radio" name="account_type" value="{{ $v }}" {{ ($banking->account_type ?? 'cheque') === $v ? 'checked' : '' }} style="accent-color:#00d4aa;"> {{ $l }}</label>
+                            <label class="flex items-center gap-1.5 text-sm cursor-pointer"><input type="radio" name="account_type" value="{{ $v }}" {{ ($banking->account_type ?? 'cheque') === $v ? 'checked' : '' }} style="accent-color:var(--brand-icon);"> {{ $l }}</label>
                         @endforeach
                     </div></div>
             </div>
@@ -47,12 +47,12 @@
                     <input type="text" name="medical_aid_provider" value="{{ old('medical_aid_provider', $takeOn->user->medical_aid_provider) }}" maxlength="100" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"></div>
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Member Number</label>
                     <input type="text" name="medical_aid_number" value="{{ old('medical_aid_number', $takeOn->user->medical_aid_number) }}" maxlength="50" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"></div>
-                <div><label class="flex items-center gap-2 text-sm cursor-pointer mt-3"><input type="hidden" name="medical_aid_main_member" value="0"><input type="checkbox" name="medical_aid_main_member" value="1" {{ old('medical_aid_main_member', $takeOn->user->medical_aid_main_member) ? 'checked' : '' }} style="accent-color:#00d4aa;"> Main member</label></div>
+                <div><label class="flex items-center gap-2 text-sm cursor-pointer mt-3"><input type="hidden" name="medical_aid_main_member" value="0"><input type="checkbox" name="medical_aid_main_member" value="1" {{ old('medical_aid_main_member', $takeOn->user->medical_aid_main_member) ? 'checked' : '' }} style="accent-color:var(--brand-icon);"> Main member</label></div>
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Dependents on medical aid</label>
                     <input type="number" name="medical_aid_dependents_count" min="0" value="{{ old('medical_aid_dependents_count', $takeOn->user->medical_aid_dependents_count ?? 0) }}" class="w-32 px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;"></div>
             </div>
         </div>
 
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">Save & Continue</button>
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">Save & Continue</button>
     </div>
 </form>

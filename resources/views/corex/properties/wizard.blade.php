@@ -313,7 +313,7 @@
                                     style="background:#fff;color:var(--brand-default,#0b2a4a);">Cover</button>
                             <button type="button" @click="removePhoto(idx)"
                                     class="px-2 py-1 rounded-md text-[10px] font-semibold"
-                                    style="background:#ef4444;color:#fff;">Remove</button>
+                                    style="background:var(--ds-crimson);color:#fff;">Remove</button>
                         </div>
                     </div>
                 </template>

@@ -84,7 +84,7 @@
             {{-- Schedule Event from Contact --}}
             <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $contact->id, 'prefill_class' => $contact->is_buyer ? 'viewing' : 'meeting']) }}"
                class="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"
-               style="background:color-mix(in srgb, #00d4aa 12%, transparent); color:#00d4aa; border:1px solid color-mix(in srgb, #00d4aa 25%, transparent);"
+               style="background:color-mix(in srgb, #00d4aa 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, #00d4aa 25%, transparent);"
                onmouseover="this.style.background='color-mix(in srgb, #00d4aa 22%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, #00d4aa 12%, transparent)'">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
                 Schedule Event
@@ -94,7 +94,7 @@
             @if($contact->is_buyer)
             <a href="{{ route('command-center.buyers.show', $contact) }}"
                class="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"
-               style="background:color-mix(in srgb, #00d4aa 12%, transparent); color:#00d4aa; border:1px solid color-mix(in srgb, #00d4aa 25%, transparent);">
+               style="background:color-mix(in srgb, #00d4aa 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, #00d4aa 25%, transparent);">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
                 Buyer Hub
             </a>
@@ -1001,7 +1001,7 @@
                                 <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded" style="background: rgba(16,185,129,0.15); color: #10b981;">Active</span>
                                 <span class="ml-1 text-[10px]" style="color: var(--text-muted);">since {{ $activeRecord->given_at->format('d M Y') }}</span>
                             @else
-                                <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded" style="background: rgba(239,68,68,0.1); color: #ef4444;">Not given</span>
+                                <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: #ef4444;">Not given</span>
                             @endif
                         </div>
                         <div class="flex items-center gap-1">

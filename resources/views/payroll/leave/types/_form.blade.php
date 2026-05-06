@@ -6,7 +6,7 @@
     isActive: {{ old('is_active', $type->is_active ?? true) ? 'true' : 'false' }}
 }">
     @if(isset($locked) && ($locked['code'] ?? false))
-    <div class="p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
+    <div class="p-3 text-xs font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent); border-radius:6px; color:var(--ds-amber);">
         This is a BCEA-mandated leave type. Some fields are locked for compliance. You can adjust the label, description, documentation rules, advance notice, and active state.
     </div>
     @endif
@@ -68,7 +68,7 @@
                            {{ old($field, $type->$field ?? false) ? 'checked' : '' }}
                            {{ $isLocked ? 'disabled' : '' }}
                            @if($field === 'affects_payroll') x-model="affectsPayroll" @endif>
-                    <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="$el.previousElementSibling.checked ? 'background:#00d4aa' : ''"></div>
+                    <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="$el.previousElementSibling.checked ? 'background:var(--brand-icon)' : ''"></div>
                     <span class="text-sm" style="color:var(--text-primary, #0f172a);">{{ $label }}</span>
                 </label>
             @endforeach
@@ -128,7 +128,7 @@
                     <input type="hidden" name="{{ $field }}" value="0">
                     <input type="checkbox" name="{{ $field }}" value="1" class="sr-only peer"
                            {{ old($field, $type->$field ?? ($field === 'accrual_starts_at_employment_date' ? true : false)) ? 'checked' : '' }}>
-                    <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="$el.previousElementSibling.checked ? 'background:#00d4aa' : ''"></div>
+                    <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="$el.previousElementSibling.checked ? 'background:var(--brand-icon)' : ''"></div>
                     <span class="text-sm" style="color:var(--text-primary, #0f172a);">{{ $label }}</span>
                 </label>
             @endforeach
@@ -151,7 +151,7 @@
                 <input type="hidden" name="requires_pre_approval" value="0">
                 <input type="checkbox" name="requires_pre_approval" value="1" class="sr-only peer"
                        {{ old('requires_pre_approval', $type->requires_pre_approval ?? true) ? 'checked' : '' }}>
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="$el.previousElementSibling.checked ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="$el.previousElementSibling.checked ? 'background:var(--brand-icon)' : ''"></div>
                 <span class="text-sm" style="color:var(--text-primary, #0f172a);">Requires pre-approval</span>
             </label>
             <div class="w-48">
@@ -164,14 +164,14 @@
                 <input type="hidden" name="allows_negative_balance" value="0">
                 <input type="checkbox" name="allows_negative_balance" value="1" class="sr-only peer"
                        {{ old('allows_negative_balance', $type->allows_negative_balance ?? false) ? 'checked' : '' }}>
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="$el.previousElementSibling.checked ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="$el.previousElementSibling.checked ? 'background:var(--brand-icon)' : ''"></div>
                 <span class="text-sm" style="color:var(--text-primary, #0f172a);">Allow negative balance</span>
             </label>
             <label class="relative inline-flex items-center cursor-pointer gap-3">
                 <input type="hidden" name="requires_documentation" value="0">
                 <input type="checkbox" name="requires_documentation" value="1" x-model="requiresDoc" class="sr-only peer"
                        {{ old('requires_documentation', $type->requires_documentation ?? false) ? 'checked' : '' }}>
-                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="requiresDoc ? 'background:#00d4aa' : ''"></div>
+                <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="requiresDoc ? 'background:var(--brand-icon)' : ''"></div>
                 <span class="text-sm" style="color:var(--text-primary, #0f172a);">Requires documentation</span>
             </label>
             <div x-show="requiresDoc" x-cloak class="ml-[52px] grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -198,14 +198,14 @@
         <label class="relative inline-flex items-center cursor-pointer gap-3">
             <input type="hidden" name="is_active" value="0">
             <input type="checkbox" name="is_active" value="1" x-model="isActive" class="sr-only peer">
-            <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isActive ? 'background:#00d4aa' : ''"></div>
+            <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="isActive ? 'background:var(--brand-icon)' : ''"></div>
             <span class="text-sm font-medium" style="color:var(--text-primary, #0f172a);">Active</span>
         </label>
     </div>
 
     {{-- Actions --}}
     <div class="flex items-center gap-3 pt-2">
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
             {{ isset($type) && $type->exists ? 'Update' : 'Save' }} Leave Type
         </button>
         <a href="{{ route('payroll.leave.types.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>

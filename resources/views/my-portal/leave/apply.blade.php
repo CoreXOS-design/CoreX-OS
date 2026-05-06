@@ -6,7 +6,7 @@
 
     <div class="p-4 lg:p-6">
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:6px; color:var(--ds-crimson);">{{ session('error') }}</div>
         @endif
 
         <form method="POST" action="{{ route('my-portal.leave.store') }}" enctype="multipart/form-data">
@@ -82,27 +82,27 @@
                     <div class="mt-3" x-show="startDate && endDate && startDate === endDate">
                         <label class="flex items-center gap-2 text-xs cursor-pointer" style="color:var(--text-primary, #0f172a);">
                             <input type="hidden" name="is_half_day" value="0">
-                            <input type="checkbox" name="is_half_day" value="1" x-model="isHalfDay" @change="calculate()" style="accent-color:#00d4aa;">
+                            <input type="checkbox" name="is_half_day" value="1" x-model="isHalfDay" @change="calculate()" style="accent-color:var(--brand-icon);">
                             Half day only
                         </label>
                         <div x-show="isHalfDay" x-cloak class="mt-2 flex gap-4">
-                            <label class="flex items-center gap-1.5 text-xs"><input type="radio" name="half_day_period" value="morning" style="accent-color:#00d4aa;"> Morning</label>
-                            <label class="flex items-center gap-1.5 text-xs"><input type="radio" name="half_day_period" value="afternoon" style="accent-color:#00d4aa;"> Afternoon</label>
+                            <label class="flex items-center gap-1.5 text-xs"><input type="radio" name="half_day_period" value="morning" style="accent-color:var(--brand-icon);"> Morning</label>
+                            <label class="flex items-center gap-1.5 text-xs"><input type="radio" name="half_day_period" value="afternoon" style="accent-color:var(--brand-icon);"> Afternoon</label>
                         </div>
                     </div>
 
                     {{-- Live calculation --}}
-                    <div x-show="workingDays !== null" x-cloak class="mt-3 p-3" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
+                    <div x-show="workingDays !== null" x-cloak class="mt-3 p-3" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                             <div><span style="color:var(--text-secondary, #94a3b8);">Working days:</span><br><strong x-text="workingDays" style="color:var(--text-primary, #0f172a);"></strong></div>
                             <div><span style="color:var(--text-secondary, #94a3b8);">Balance before:</span><br><strong x-text="parseFloat(balanceBefore || 0).toFixed(2)" style="color:var(--text-primary, #0f172a);"></strong></div>
-                            <div><span style="color:var(--text-secondary, #94a3b8);">After application:</span><br><strong x-text="parseFloat(balanceAfter || 0).toFixed(2)" :style="parseFloat(balanceAfter) < 0 ? 'color:#ef4444' : 'color:#00d4aa'"></strong></div>
+                            <div><span style="color:var(--text-secondary, #94a3b8);">After application:</span><br><strong x-text="parseFloat(balanceAfter || 0).toFixed(2)" :style="parseFloat(balanceAfter) < 0 ? 'color:var(--ds-crimson)' : 'color:var(--brand-icon)'"></strong></div>
                             <div x-show="holidays.length > 0"><span style="color:var(--text-secondary, #94a3b8);">Public holidays:</span><br>
                                 <template x-for="h in holidays"><span class="text-[10px] block" x-text="h.name + ' (' + h.date + ')'"></span></template>
                             </div>
                         </div>
                         <template x-for="w in warnings">
-                            <p class="text-[10px] mt-1 font-semibold" style="color:#ef4444;" x-text="w"></p>
+                            <p class="text-[10px] mt-1 font-semibold" style="color:var(--ds-crimson);" x-text="w"></p>
                         </template>
                     </div>
                 </div>
@@ -138,7 +138,7 @@
 
                 {{-- Actions --}}
                 <div class="flex items-center gap-3">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">Submit Application</button>
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">Submit Application</button>
                     <a href="{{ route('my-portal.leave.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
                 </div>
             </div>

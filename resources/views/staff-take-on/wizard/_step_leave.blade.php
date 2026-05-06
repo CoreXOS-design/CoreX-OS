@@ -5,12 +5,12 @@
     @method('PATCH')
 
     <div class="space-y-4">
-        <div class="p-3 text-xs" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px; color:var(--text-secondary, #6b7280);">
+        <div class="p-3 text-xs" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
             Enter days already taken this cycle and any carryover from previous cycles. The system will calculate available balances based on the accrual engine.
         </div>
 
         @if(!$pe)
-            <p class="text-xs" style="color:#ef4444;">Employment must be set up first (Step 4).</p>
+            <p class="text-xs" style="color:var(--ds-crimson);">Employment must be set up first (Step 4).</p>
         @else
             @foreach($leaveTypes as $type)
                 @php
@@ -64,5 +64,5 @@
         @endif
     </div>
 
-    <button type="submit" class="mt-4 px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">Save & Continue</button>
+    <button type="submit" class="mt-4 px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">Save & Continue</button>
 </form>

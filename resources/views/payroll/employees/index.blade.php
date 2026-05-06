@@ -4,7 +4,7 @@
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Payroll Employees" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('payroll.employees.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+            <a href="{{ route('payroll.employees.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 Add Employee
             </a>
@@ -13,7 +13,7 @@
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">{{ session('success') }}</div>
         @endif
 
         {{-- Search --}}
@@ -21,7 +21,7 @@
             <form method="GET" action="{{ route('payroll.employees.index') }}" class="flex items-center gap-2">
                 <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search name or email..." class="px-3 py-1.5 text-xs w-56 focus:outline-none" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                 <input type="hidden" name="status" value="{{ $status }}">
-                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Search</button>
+                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Search</button>
                 @if($q)
                     <a href="{{ route('payroll.employees.index', ['status' => $status]) }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Clear</a>
                 @endif
@@ -33,7 +33,7 @@
             @foreach(['active' => 'Active', 'inactive' => 'Inactive', 'terminated' => 'Terminated', 'all' => 'All'] as $key => $label)
                 <a href="{{ route('payroll.employees.index', ['status' => $key, 'q' => $q]) }}"
                    class="px-3 py-1.5 text-xs font-semibold transition"
-                   style="{{ $status === $key ? 'border-bottom:2px solid #00d4aa; color:#00d4aa;' : 'color:var(--text-secondary, #6b7280);' }}">
+                   style="{{ $status === $key ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);' }}">
                     {{ $label }} <span class="ml-1 text-[10px] opacity-60">{{ $counts[$key] }}</span>
                 </a>
             @endforeach
@@ -69,7 +69,7 @@
                         <tr style="border-bottom:1px solid var(--border, #e5e7eb); {{ !$emp->is_active ? 'opacity:0.6;' : '' }}">
                             <td class="px-3 py-2.5">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:#00d4aa;">
+                                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:var(--brand-icon);">
                                         {{ strtoupper(substr($emp->user->name ?? '?', 0, 1)) }}
                                     </div>
                                     <div>
@@ -89,26 +89,26 @@
                             <td class="px-3 py-2.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $emp->employment_date?->format('d M Y') ?? '-' }}</td>
                             <td class="px-3 py-2.5 text-center">
                                 @if($emp->termination_date)
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:6px;">Terminated</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border-radius:6px;">Terminated</span>
                                 @elseif($emp->is_active)
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:6px;">Active</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:6px;">Active</span>
                                 @else
                                     <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:6px;">Inactive</span>
                                 @endif
                             </td>
                             <td class="px-3 py-2.5 text-right">
                                 <div class="flex items-center justify-end gap-2">
-                                    <a href="{{ route('payroll.employees.show', $emp) }}" class="text-xs font-semibold" style="color:#00d4aa;">View</a>
+                                    <a href="{{ route('payroll.employees.show', $emp) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>
                                     <a href="{{ route('payroll.employees.edit', $emp) }}" class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Edit</a>
                                     @if($emp->is_active && !$emp->termination_date)
                                         <form method="POST" action="{{ route('payroll.employees.deactivate', $emp) }}" class="inline">
                                             @csrf
-                                            <button type="submit" class="text-xs font-semibold" style="color:#eab308; background:none; border:none; cursor:pointer;" onclick="return confirm('Deactivate this employee? They will be skipped in future runs.')">Deactivate</button>
+                                            <button type="submit" class="text-xs font-semibold" style="color:var(--ds-amber); background:none; border:none; cursor:pointer;" onclick="return confirm('Deactivate this employee? They will be skipped in future runs.')">Deactivate</button>
                                         </form>
                                     @elseif(!$emp->termination_date)
                                         <form method="POST" action="{{ route('payroll.employees.reactivate', $emp) }}" class="inline">
                                             @csrf
-                                            <button type="submit" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">Reactivate</button>
+                                            <button type="submit" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">Reactivate</button>
                                         </form>
                                     @endif
                                 </div>

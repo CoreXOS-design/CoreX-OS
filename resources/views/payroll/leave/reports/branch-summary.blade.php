@@ -8,7 +8,7 @@
         {{-- Report navigation tabs --}}
         <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
             <a href="{{ route('payroll.leave.reports.register') }}" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Register</a>
-            <a href="{{ route('payroll.leave.reports.branch-summary') }}" class="px-3 py-1.5 text-xs font-semibold" style="border-bottom:2px solid #00d4aa; color:#00d4aa;">Branch Summary</a>
+            <a href="{{ route('payroll.leave.reports.branch-summary') }}" class="px-3 py-1.5 text-xs font-semibold" style="border-bottom:2px solid #00d4aa; color:var(--brand-icon);">Branch Summary</a>
             <a href="{{ route('payroll.leave.reports.audit-log') }}" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Audit Log</a>
         </div>
 
@@ -23,7 +23,7 @@
                         <div class="flex items-center gap-2">
                             <span class="text-xs" style="color:var(--text-secondary, #6b7280);">{{ $s['employee_count'] }} employees</span>
                             @if($s['compliance_flags'] > 0)
-                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:6px;">{{ $s['compliance_flags'] }} at risk</span>
+                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border-radius:6px;">{{ $s['compliance_flags'] }} at risk</span>
                             @endif
                         </div>
                     </div>
@@ -38,7 +38,7 @@
                         </div>
                         <div class="text-center">
                             <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">Annual Available</p>
-                            <p class="text-sm font-bold" style="color:#00d4aa;">{{ number_format((float)$s['annual_available'], 1) }}</p>
+                            <p class="text-sm font-bold" style="color:var(--brand-icon);">{{ number_format((float)$s['annual_available'], 1) }}</p>
                         </div>
                         <div class="text-center">
                             <p class="text-[10px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">Sick Taken</p>

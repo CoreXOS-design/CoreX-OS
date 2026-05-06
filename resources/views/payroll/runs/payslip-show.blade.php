@@ -6,7 +6,7 @@
         <x-slot:actions>
             <a href="{{ route('payroll.runs.payslips.pdf-preview', [$run, $payslip]) }}" target="_blank" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold transition" style="color:var(--text-primary, #0f172a); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Preview PDF</a>
             @if($run->isDraft())
-                <a href="{{ route('payroll.runs.payslips.edit', [$run, $payslip]) }}" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Edit Payslip</a>
+                <a href="{{ route('payroll.runs.payslips.edit', [$run, $payslip]) }}" class="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Edit Payslip</a>
             @endif
         </x-slot:actions>
     </x-page-header>
@@ -18,7 +18,7 @@
             </div>
         @endif
         @if($payslip->notes)
-            <div class="mb-4 p-3 text-xs font-semibold" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#eab308;">
+            <div class="mb-4 p-3 text-xs font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent); border-radius:6px; color:var(--ds-amber);">
                 Warnings: {{ $payslip->notes }}
             </div>
         @endif
@@ -144,10 +144,10 @@
                 @endif
 
                 {{-- Net pay card --}}
-                <div class="p-4" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
+                <div class="p-4" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                     <div class="flex items-center justify-between">
                         <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Net Pay</h4>
-                        <p class="text-xl font-bold" style="color:#00d4aa;">R {{ number_format($payslip->net_pay, 2) }}</p>
+                        <p class="text-xl font-bold" style="color:var(--brand-icon);">R {{ number_format($payslip->net_pay, 2) }}</p>
                     </div>
                     <div class="flex justify-between mt-2 text-[10px]" style="color:var(--text-secondary, #94a3b8);">
                         <span>Taxable income: R {{ number_format($payslip->taxable_income, 2) }}</span>

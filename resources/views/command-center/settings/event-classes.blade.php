@@ -20,7 +20,7 @@
         </div>
     @endif
     @if(session('error'))
-        <div class="px-4 py-3 rounded-md text-sm" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">
+        <div class="px-4 py-3 rounded-md text-sm" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
             {{ session('error') }}
         </div>
     @endif
@@ -51,7 +51,7 @@
                     <div class="flex items-center gap-4 text-xs" style="color:var(--text-muted);">
                         <span style="color:#14b8a6;">{{ $cfg->green_days }}d</span>
                         <span style="color:#f59e0b;">{{ $cfg->amber_days }}d</span>
-                        <span style="color:#ef4444;">{{ $cfg->red_days }}d</span>
+                        <span style="color:var(--ds-crimson);">{{ $cfg->red_days }}d</span>
                         <svg class="w-4 h-4 transition-transform" :class="openClass === '{{ $cls }}' ? 'rotate-180' : ''"
                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>

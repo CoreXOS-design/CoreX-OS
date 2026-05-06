@@ -36,10 +36,10 @@
                             <td class="px-3 py-2.5 text-sm font-semibold" style="color:var(--text-primary, #0f172a);">{{ $ps->period_month?->format('M Y') }}</td>
                             <td class="px-3 py-2.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $ps->pay_date?->format('d M Y') }}</td>
                             <td class="px-3 py-2.5 text-right text-xs" style="color:var(--text-secondary, #6b7280);">R {{ number_format($ps->total_earnings, 2) }}</td>
-                            <td class="px-3 py-2.5 text-right text-sm font-semibold" style="color:#00d4aa;">R {{ number_format($ps->net_pay, 2) }}</td>
+                            <td class="px-3 py-2.5 text-right text-sm font-semibold" style="color:var(--brand-icon);">R {{ number_format($ps->net_pay, 2) }}</td>
                             <td class="px-3 py-2.5 text-right">
                                 <div class="flex items-center justify-end gap-2">
-                                    <a href="{{ route('my-portal.payslips.show', $ps) }}" class="text-xs font-semibold" style="color:#00d4aa;">View</a>
+                                    <a href="{{ route('my-portal.payslips.show', $ps) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>
                                     <a href="{{ route('my-portal.payslips.pdf', $ps) }}" class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Download</a>
                                 </div>
                             </td>

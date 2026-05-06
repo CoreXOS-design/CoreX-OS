@@ -32,7 +32,7 @@
     </label>
 
     <div class="flex items-center gap-3 pt-2">
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">{{ $holiday->exists ? 'Update' : 'Save' }} Holiday</button>
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">{{ $holiday->exists ? 'Update' : 'Save' }} Holiday</button>
         <a href="{{ route('payroll.leave.public-holidays.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
     </div>
 </div>

@@ -24,7 +24,7 @@
                         <span class="text-[10px] px-1.5 py-0.5 rounded mt-1 inline-block" style="background: #f59e0b20; color: #f59e0b;">Tentative</span>
                     @endif
                     @if(!empty($inv->conflict_at_invite))
-                        <div class="mt-2 text-[10px] px-2 py-1 rounded" style="background: rgba(239,68,68,0.08); color: #ef4444; border: 1px solid rgba(239,68,68,0.2);">
+                        <div class="mt-2 text-[10px] px-2 py-1 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 8%, transparent); color: #ef4444; border: 1px solid rgba(239,68,68,0.2);">
                             ⚠ Conflict: {{ collect($inv->conflict_at_invite)->pluck('title')->implode(', ') }}
                         </div>
                     @endif
@@ -40,7 +40,7 @@
                     </form>
                     <form method="POST" action="{{ route('command-center.calendar.invitations.respond', $inv) }}">
                         @csrf <input type="hidden" name="action" value="declined">
-                        <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded" style="background: var(--surface-2); color: #ef4444; border: 1px solid rgba(239,68,68,0.3);">Decline</button>
+                        <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded" style="background: var(--surface-2); color: #ef4444; border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">Decline</button>
                     </form>
                 </div>
             </div>

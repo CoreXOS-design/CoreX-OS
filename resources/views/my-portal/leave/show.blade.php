@@ -6,11 +6,11 @@
 
     <div class="p-4 lg:p-6 max-w-3xl">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">{{ session('success') }}</div>
         @endif
 
         {{-- Status banner --}}
-        @php $sc = ['submitted'=>['#eab308','rgba(234,179,8,0.08)'],'approved'=>['#00d4aa','rgba(0,212,170,0.08)'],'rejected'=>['#ef4444','rgba(239,68,68,0.08)'],'cancelled'=>['#94a3b8','rgba(148,163,184,0.08)'],'taken'=>['#3b82f6','rgba(59,130,246,0.08)']]; @endphp
+        @php $sc = ['submitted'=>['#eab308','color-mix(in srgb, var(--ds-amber) 8%, transparent)'],'approved'=>['#00d4aa','color-mix(in srgb, var(--brand-icon) 8%, transparent)'],'rejected'=>['#ef4444','color-mix(in srgb, var(--ds-crimson) 8%, transparent)'],'cancelled'=>['#94a3b8','rgba(148,163,184,0.08)'],'taken'=>['#3b82f6','rgba(59,130,246,0.08)']]; @endphp
         @php $c = $sc[$application->status] ?? ['#94a3b8','rgba(148,163,184,0.08)']; @endphp
         <div class="p-4 mb-4" style="background:{{ $c[1] }}; border:1px solid {{ $c[0] }}25; border-radius:6px;">
             <span class="text-lg font-bold" style="color:{{ $c[0] }};">{{ ucfirst($application->status) }}</span>
@@ -56,7 +56,7 @@
         {{-- Cancel (if submitted) --}}
         @if($application->isSubmitted())
         <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;" x-data="{ showCancel: false }">
-            <button @click="showCancel = !showCancel" class="text-xs font-semibold" style="color:#ef4444; background:none; border:none; cursor:pointer;">Cancel this application</button>
+            <button @click="showCancel = !showCancel" class="text-xs font-semibold" style="color:var(--ds-crimson); background:none; border:none; cursor:pointer;">Cancel this application</button>
             <form method="POST" action="{{ route('my-portal.leave.cancel', $application) }}" x-show="showCancel" x-cloak class="mt-3 space-y-3">
                 @csrf
                 <div>
@@ -64,7 +64,7 @@
                     <input type="text" name="cancellation_reason" maxlength="500" placeholder="e.g. Plans changed" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                 </div>
                 <div class="flex gap-2">
-                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#ef4444; border-radius:6px;" onclick="return confirm('Cancel this leave application?')">Confirm Cancel</button>
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--ds-crimson); border-radius:6px;" onclick="return confirm('Cancel this leave application?')">Confirm Cancel</button>
                     <button type="button" @click="showCancel = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Keep Application</button>
                 </div>
             </form>

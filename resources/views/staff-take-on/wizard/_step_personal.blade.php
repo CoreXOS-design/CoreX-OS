@@ -49,6 +49,6 @@
             </div>
         </div>
 
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">Save & Continue</button>
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">Save & Continue</button>
     </div>
 </form>

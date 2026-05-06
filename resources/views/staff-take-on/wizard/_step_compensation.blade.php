@@ -8,7 +8,7 @@
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">5. Compensation Setup</h4>
 
         @if(!$pe)
-            <p class="text-xs" style="color:#ef4444;">Employment must be set up first (Step 4).</p>
+            <p class="text-xs" style="color:var(--ds-crimson);">Employment must be set up first (Step 4).</p>
         @else
             <div class="mb-4">
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Basic Salary (R) <span class="text-red-500">*</span></label>
@@ -24,5 +24,5 @@
         @endif
     </div>
 
-    <button type="submit" class="mt-4 px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">Save & Continue</button>
+    <button type="submit" class="mt-4 px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">Save & Continue</button>
 </form>

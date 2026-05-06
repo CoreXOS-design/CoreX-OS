@@ -30,7 +30,7 @@
 
             <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
                 @foreach(['Entitled'=>$bal['entitlement_days'],'Accrued'=>$bal['accrued_days'],'Carryover'=>$bal['carryover_from_previous_cycle'],'Taken'=>$bal['taken_days'],'Pending'=>$bal['pending_days'],'Available'=>$bal['available_days']] as $lbl=>$val)
-                <div class="p-2 text-center" style="background:{{ $lbl==='Available' ? 'rgba(0,212,170,0.04)' : 'var(--surface-2, #f8fafc)' }}; border:1px solid {{ $lbl==='Available' ? 'rgba(0,212,170,0.15)' : 'var(--border, #e5e7eb)' }}; border-radius:6px;">
+                <div class="p-2 text-center" style="background:{{ $lbl==='Available' ? 'rgba(0,212,170,0.04)' : 'var(--surface-2, #f8fafc)' }}; border:1px solid {{ $lbl==='Available' ? 'color-mix(in srgb, var(--brand-icon) 15%, transparent)' : 'var(--border, #e5e7eb)' }}; border-radius:6px;">
                     <p class="text-[9px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">{{ $lbl }}</p>
                     <p class="text-sm font-bold" style="color:{{ $lbl==='Available' ? '#00d4aa' : 'var(--text-primary, #0f172a)' }};">{{ number_format((float)$val, 2) }}</p>
                 </div>

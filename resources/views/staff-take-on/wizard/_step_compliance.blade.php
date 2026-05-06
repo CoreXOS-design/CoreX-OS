@@ -21,14 +21,14 @@
                             $existing = ($uploadedDocs ?? collect())->where('document_type', $docType);
                         @endphp
                         @if($existing->count() > 0)
-                            <span class="text-[10px] font-semibold" style="color:#00d4aa;">Uploaded ({{ $existing->count() }})</span>
+                            <span class="text-[10px] font-semibold" style="color:var(--brand-icon);">Uploaded ({{ $existing->count() }})</span>
                         @endif
                     </div>
                     <form method="POST" action="{{ route('staff-take-on.upload-document', $takeOn) }}" enctype="multipart/form-data" class="flex items-end gap-2">
                         @csrf
                         <input type="hidden" name="document_type" value="{{ $docType }}">
                         <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" class="text-xs" style="color:var(--text-secondary, #6b7280);">
-                        <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Upload</button>
+                        <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Upload</button>
                     </form>
                     @if($existing->count() > 0)
                         <div class="mt-2 space-y-1">
@@ -42,6 +42,6 @@
         </div>
 
         <input type="hidden" name="contract_uploaded" value="{{ ($uploadedDocs ?? collect())->where('document_type', 'other')->count() > 0 ? '1' : '0' }}">
-        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;">Save & Continue</button>
+        <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">Save & Continue</button>
     </div>
 </form>

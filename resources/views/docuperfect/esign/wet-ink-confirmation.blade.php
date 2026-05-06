@@ -97,7 +97,7 @@
         }
         .wi-card-teal {
             background: rgba(0,212,170,0.06);
-            border-color: rgba(0,212,170,0.2);
+            border-color: color-mix(in srgb, var(--brand-icon) 20%, transparent);
         }
         .wi-card-amber {
             background: rgba(245,158,11,0.06);
@@ -108,7 +108,7 @@
             border-color: rgba(16,185,129,0.2);
         }
         .wi-card-red {
-            background: rgba(239,68,68,0.06);
+            background: color-mix(in srgb, var(--ds-crimson) 6%, transparent);
             border-color: rgba(239,68,68,0.2);
         }
 
@@ -137,7 +137,7 @@
             background: transparent; color: #f87171;
             border: 1px solid #7f1d1d;
         }
-        .wi-btn-danger:hover { background: rgba(239,68,68,0.1); }
+        .wi-btn-danger:hover { background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); }
         .wi-btn:disabled, .wi-btn.disabled {
             opacity: 0.4; cursor: not-allowed;
         }
@@ -443,7 +443,7 @@
                 <div class="wi-card wi-card-teal">
                     <div style="display:flex; align-items:center; gap:8px;">
                         <svg width="16" height="16" fill="none" stroke="#00d4aa" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        <span style="font-size:13px; font-weight:600; color:#00d4aa;">Signed copy received</span>
+                        <span style="font-size:13px; font-weight:600; color:var(--brand-icon);">Signed copy received</span>
                     </div>
                     <p style="font-size:12px; color:#64748b; margin-top:6px;">Review the uploaded document and approve or reject it.</p>
                 </div>

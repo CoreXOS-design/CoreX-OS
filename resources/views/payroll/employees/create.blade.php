@@ -6,7 +6,7 @@
 
     <div class="p-4 lg:p-6">
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:6px; color:var(--ds-crimson);">{{ session('error') }}</div>
         @endif
 
         @if($eligibleUsers->isEmpty())
@@ -59,8 +59,8 @@
                     @error('user_id') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
 
                     {{-- Preview card --}}
-                    <div x-show="selectedUser" x-cloak class="mt-3 p-3 flex items-center gap-3" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
-                        <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:#00d4aa;">
+                    <div x-show="selectedUser" x-cloak class="mt-3 p-3 flex items-center gap-3" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:var(--brand-icon);">
                             <span x-text="selectedUser ? selectedUser.name.charAt(0).toUpperCase() : ''"></span>
                         </div>
                         <div>
@@ -132,7 +132,7 @@
                         <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">3. Banking Details</h4>
                         <label class="relative inline-flex items-center cursor-pointer gap-2">
                             <input type="checkbox" x-model="showBanking" class="sr-only peer">
-                            <div class="w-9 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="showBanking ? 'background:#00d4aa' : ''"></div>
+                            <div class="w-9 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" style="background:var(--border, #cbd5e1); border-radius:10px; transition:background 0.2s;" :style="showBanking ? 'background:var(--brand-icon)' : ''"></div>
                             <span class="text-xs" style="color:var(--text-secondary, #6b7280);">Add now (optional)</span>
                         </label>
                     </div>
@@ -171,7 +171,7 @@
                                 @foreach(['cheque' => 'Cheque', 'savings' => 'Savings', 'transmission' => 'Transmission'] as $val => $lbl)
                                     <label class="flex items-center gap-1.5 text-sm cursor-pointer" style="color:var(--text-primary, #0f172a);">
                                         <input type="radio" name="account_type" value="{{ $val }}" {{ old('account_type', 'cheque') === $val ? 'checked' : '' }}
-                                               style="accent-color:#00d4aa;">
+                                               style="accent-color:var(--brand-icon);">
                                         {{ $lbl }}
                                     </label>
                                 @endforeach
@@ -181,18 +181,18 @@
                 </div>
 
                 {{-- SECTION 4: Default Earnings --}}
-                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px; color:var(--text-secondary, #6b7280);">
-                    <strong style="color:#00d4aa;">Earnings:</strong> Basic Salary will be added at R0. You can update it and add more earnings on the next screen.
+                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
+                    <strong style="color:var(--brand-icon);">Earnings:</strong> Basic Salary will be added at R0. You can update it and add more earnings on the next screen.
                 </div>
 
                 {{-- SECTION 5: Default Deductions --}}
-                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:rgba(0,212,170,0.04); border:1px solid rgba(0,212,170,0.15); border-radius:6px; color:var(--text-secondary, #6b7280);">
-                    <strong style="color:#00d4aa;">Deductions:</strong> PAYE and UIF will be auto-calculated each run. You can add custom deductions on the next screen.
+                <div x-show="selectedUserId" x-cloak class="p-3 text-xs" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px; color:var(--text-secondary, #6b7280);">
+                    <strong style="color:var(--brand-icon);">Deductions:</strong> PAYE and UIF will be auto-calculated each run. You can add custom deductions on the next screen.
                 </div>
 
                 {{-- Actions --}}
                 <div x-show="selectedUserId" x-cloak class="flex items-center gap-3 pt-2">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:#00d4aa; border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
                         Add to Payroll
                     </button>
                     <a href="{{ route('payroll.employees.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>

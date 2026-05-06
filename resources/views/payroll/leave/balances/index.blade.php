@@ -15,7 +15,7 @@
                         <option value="{{ $b->id }}" {{ ($branchFilter ?? '') == $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
                     @endforeach
                 </select>
-                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Filter</button>
+                <button type="submit" class="px-2.5 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Filter</button>
                 @if($q || $branchFilter)
                     <a href="{{ route('payroll.leave.balances.index') }}" class="text-xs" style="color:var(--text-secondary, #94a3b8);">Clear</a>
                 @endif
@@ -74,15 +74,15 @@
                             <td class="px-2 py-2.5 text-center">
                                 @php $to = \App\Models\Leave\StaffTakeOnRecord::where('user_id', $emp->user_id)->first(); @endphp
                                 @if($to?->isComplete())
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:6px;">Done</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:6px;">Done</span>
                                 @elseif($to)
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:6px;">{{ $to->progressPercentage() }}%</span>
+                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border-radius:6px;">{{ $to->progressPercentage() }}%</span>
                                 @else
                                     <span class="text-[10px]" style="color:var(--text-secondary, #94a3b8);">-</span>
                                 @endif
                             </td>
                             <td class="px-3 py-2.5 text-right">
-                                <a href="{{ route('payroll.leave.balances.show', $emp) }}" class="text-xs font-semibold" style="color:#00d4aa;">View</a>
+                                <a href="{{ route('payroll.leave.balances.show', $emp) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>
                             </td>
                         </tr>
                         @endforeach

@@ -547,7 +547,7 @@
                                         {{-- Strikethrough field: interactive toggle for signer --}}
                                         <template x-if="field.type === 'strikethrough'">
                                             <div class="w-full h-full relative cursor-pointer"
-                                                 :style="field.active ? 'background:rgba(239,68,68,0.08);border:2px solid rgba(239,68,68,0.4);border-radius:4px;' : 'background:rgba(251,191,36,0.08);border:2px solid rgba(251,191,36,0.5);border-radius:4px;'"
+                                                 :style="field.active ? 'background:color-mix(in srgb, var(--ds-crimson) 8%, transparent);border:2px solid rgba(239,68,68,0.4);border-radius:4px;' : 'background:rgba(251,191,36,0.08);border:2px solid rgba(251,191,36,0.5);border-radius:4px;'"
                                                  @click="field.active = !field.active; fieldsDirty = true;">
                                                 <template x-if="field.active && (field.strikethroughType || 'horizontal') === 'horizontal'">
                                                     <div class="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 -translate-y-1/2"></div>

@@ -26,7 +26,7 @@
     @endif
 
     @if($errors->any())
-        <div class="px-4 py-3 rounded-lg text-sm" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2);">
+        <div class="px-4 py-3 rounded-lg text-sm" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.2);">
             <ul class="list-disc pl-4 space-y-1">
                 @foreach($errors->all() as $error)
                     <li>{{ $error }}</li>

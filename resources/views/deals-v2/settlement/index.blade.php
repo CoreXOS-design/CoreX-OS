@@ -27,7 +27,7 @@
                 <div class="p-3 rounded-lg text-sm" style="background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #34d399;">{{ session('status') }}</div>
             @endif
             @if(session('error'))
-                <div class="p-3 rounded-lg text-sm" style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #f87171;">{{ session('error') }}</div>
+                <div class="p-3 rounded-lg text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: #f87171;">{{ session('error') }}</div>
             @endif
 
             {{-- Deal Summary --}}
@@ -154,7 +154,7 @@
                 @endforeach
 
                 {{-- Checksum --}}
-                <div class="rounded-xl p-4 flex items-center justify-between" style="border: 1px solid {{ $summary['checksumOk'] ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)' }}; background: {{ $summary['checksumOk'] ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)' }};">
+                <div class="rounded-xl p-4 flex items-center justify-between" style="border: 1px solid {{ $summary['checksumOk'] ? 'rgba(16,185,129,0.3)' : 'color-mix(in srgb, var(--ds-crimson) 30%, transparent)' }}; background: {{ $summary['checksumOk'] ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)' }};">
                     <div class="text-sm" style="color: {{ $summary['checksumOk'] ? '#34d399' : '#f87171' }};">
                         Checksum: Net (R {{ number_format($summary['totals']['net'], 2) }}) + PAYE + Deductions + Company + External = R {{ number_format($summary['checksumTotal'], 2) }}
                         <span class="font-medium">vs Commission ex VAT R {{ number_format($summary['commExVat'], 2) }}</span>

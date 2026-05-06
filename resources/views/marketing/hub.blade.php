@@ -151,7 +151,7 @@
                 <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">
                     @csrf
                     <input type="hidden" name="platform" value="facebook">
-                    <button type="submit" class="text-xs px-3 py-1.5 rounded-lg font-medium" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2);">Disconnect</button>
+                    <button type="submit" class="text-xs px-3 py-1.5 rounded-lg font-medium" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.2);">Disconnect</button>
                 </form>
                 @else
                 <a href="{{ route('corex.social.oauth.redirect', ['platform'=>'facebook']) }}"
@@ -177,7 +177,7 @@
                 <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">
                     @csrf
                     <input type="hidden" name="platform" value="instagram">
-                    <button type="submit" class="text-xs px-3 py-1.5 rounded-lg font-medium" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.2);">Disconnect</button>
+                    <button type="submit" class="text-xs px-3 py-1.5 rounded-lg font-medium" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.2);">Disconnect</button>
                 </form>
                 @else
                 <a href="{{ route('corex.social.oauth.redirect', ['platform'=>'instagram']) }}"
@@ -475,7 +475,7 @@
             <div class="mt-4 space-y-2">
                 <template x-for="[platform, result] in Object.entries(publishResults)" :key="platform">
                     <div class="flex items-center gap-3 text-sm rounded-lg px-3 py-2"
-                         :style="result.ok ? 'background:rgba(34,197,94,0.08); color:#166534;' : 'background:rgba(239,68,68,0.08); color:#991b1b;'">
+                         :style="result.ok ? 'background:rgba(34,197,94,0.08); color:#166534;' : 'background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); color:#991b1b;'">
                         <span class="capitalize font-semibold" x-text="platform"></span>
                         <span x-text="result.ok ? 'Published successfully!' : ('Failed: ' + result.error)"></span>
                     </div>

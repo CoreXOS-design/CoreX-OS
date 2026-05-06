@@ -28,7 +28,7 @@
         @endif
 
         @if($errors->any())
-            <div class="mb-3 rounded-md px-4 py-3 text-sm" style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #ef4444;">
+            <div class="mb-3 rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: #ef4444;">
                 {{ $errors->first() }}
             </div>
         @endif

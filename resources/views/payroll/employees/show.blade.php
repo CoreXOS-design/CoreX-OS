@@ -8,12 +8,12 @@
             @if($employee->is_active && !$employee->termination_date)
                 <form method="POST" action="{{ route('payroll.employees.deactivate', $employee) }}" class="inline">
                     @csrf
-                    <button type="submit" class="px-3 py-2 text-xs font-semibold transition" style="color:#eab308; border:1px solid rgba(234,179,8,0.3); border-radius:6px; background:none; cursor:pointer;" onclick="return confirm('Deactivate this employee?')">Deactivate</button>
+                    <button type="submit" class="px-3 py-2 text-xs font-semibold transition" style="color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); border-radius:6px; background:none; cursor:pointer;" onclick="return confirm('Deactivate this employee?')">Deactivate</button>
                 </form>
             @elseif(!$employee->termination_date)
                 <form method="POST" action="{{ route('payroll.employees.reactivate', $employee) }}" class="inline">
                     @csrf
-                    <button type="submit" class="px-3 py-2 text-xs font-semibold text-white transition" style="background:#00d4aa; border-radius:6px; cursor:pointer;">Reactivate</button>
+                    <button type="submit" class="px-3 py-2 text-xs font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px; cursor:pointer;">Reactivate</button>
                 </form>
             @endif
         </x-slot:actions>
@@ -21,10 +21,10 @@
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">{{ session('success') }}</div>
         @endif
         @if(session('error'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:6px; color:#ef4444;">{{ session('error') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:6px; color:var(--ds-crimson);">{{ session('error') }}</div>
         @endif
 
         <div class="flex flex-col lg:flex-row gap-6">
@@ -33,7 +33,7 @@
                 {{-- Card 1: Employee header --}}
                 <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <div class="flex items-center gap-3 mb-3">
-                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white" style="background:#00d4aa;">
+                        <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white" style="background:var(--brand-icon);">
                             {{ strtoupper(substr($employee->user->name ?? '?', 0, 1)) }}
                         </div>
                         <div>
@@ -43,9 +43,9 @@
                         </div>
                     </div>
                     @if($employee->termination_date)
-                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(239,68,68,0.1); color:#ef4444; border-radius:6px;">Terminated {{ $employee->termination_date->format('d M Y') }}</span>
+                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border-radius:6px;">Terminated {{ $employee->termination_date->format('d M Y') }}</span>
                     @elseif($employee->is_active)
-                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:6px;">Active</span>
+                        <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:6px;">Active</span>
                     @else
                         <span class="px-2 py-0.5 text-[10px] font-semibold" style="background:rgba(148,163,184,0.15); color:#94a3b8; border-radius:6px;">Inactive</span>
                     @endif
@@ -68,7 +68,7 @@
                 <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;" x-data="{ editBanking: false }">
                     <div class="flex items-center justify-between mb-2">
                         <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Banking</h4>
-                        <button type="button" @click="editBanking = !editBanking" class="text-[10px] font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">
+                        <button type="button" @click="editBanking = !editBanking" class="text-[10px] font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">
                             {{ $banking ? 'Edit' : '+ Add Banking' }}
                         </button>
                     </div>
@@ -79,7 +79,7 @@
                             <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Account</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a); font-family:monospace;">{{ $banking->masked_account_number }}</dd></div>
                             <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Type</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a);">{{ ucfirst($banking->account_type) }}</dd></div>
                             @if($banking->verified_at)
-                                <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Verified</dt><dd class="font-semibold" style="color:#00d4aa;">{{ $banking->verified_at->format('d M Y') }}</dd></div>
+                                <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Verified</dt><dd class="font-semibold" style="color:var(--brand-icon);">{{ $banking->verified_at->format('d M Y') }}</dd></div>
                             @endif
                         </dl>
                     @else
@@ -108,7 +108,7 @@
                             @endforeach
                         </select>
                         <div class="flex gap-2">
-                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                            <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                             <button type="button" @click="editBanking = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                         </div>
                     </form>
@@ -129,9 +129,9 @@
             <div class="lg:w-2/3" x-data="{ tab: 'setup' }">
                 {{-- Tab bar --}}
                 <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
-                    <button @click="tab = 'setup'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'setup' ? 'border-bottom:2px solid #00d4aa; color:#00d4aa;' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Current Setup</button>
-                    <button @click="tab = 'history'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'history' ? 'border-bottom:2px solid #00d4aa; color:#00d4aa;' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">History <span class="text-[10px] opacity-60">{{ $payslips->count() }}</span></button>
-                    <button @click="tab = 'audit'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'audit' ? 'border-bottom:2px solid #00d4aa; color:#00d4aa;' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Audit Log</button>
+                    <button @click="tab = 'setup'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'setup' ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Current Setup</button>
+                    <button @click="tab = 'history'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'history' ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">History <span class="text-[10px] opacity-60">{{ $payslips->count() }}</span></button>
+                    <button @click="tab = 'audit'" class="px-3 py-1.5 text-xs font-semibold transition" :style="tab === 'audit' ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">Audit Log</button>
                 </div>
 
                 {{-- â•â• TAB 1: Current Setup â•â• --}}
@@ -173,11 +173,11 @@
                                         </td>
                                         <td class="px-3 py-2.5 text-right">
                                             <div class="flex items-center justify-end gap-2" x-show="!editing">
-                                                <button @click="editing = true" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">Edit</button>
+                                                <button @click="editing = true" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">Edit</button>
                                                 <form method="POST" action="{{ route('payroll.employees.earnings.destroy', [$employee, $earning]) }}" class="inline">
                                                     @csrf
                                                     @method('DELETE')
-                                                    <button type="submit" class="text-xs font-semibold" style="color:#ef4444; background:none; border:none; cursor:pointer;" onclick="return confirm('Remove this earning?')">Remove</button>
+                                                    <button type="submit" class="text-xs font-semibold" style="color:var(--ds-crimson); background:none; border:none; cursor:pointer;" onclick="return confirm('Remove this earning?')">Remove</button>
                                                 </form>
                                             </div>
                                         </td>
@@ -200,7 +200,7 @@
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
                                                     <input type="text" name="notes" value="{{ $earning->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
-                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                                                 <button type="button" @click="editing = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                                             </form>
                                         </td>
@@ -216,9 +216,9 @@
 
                         {{-- Add earning form --}}
                         <div x-data="{ adding: false }" class="mt-2">
-                            <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">+ Add Earning</button>
+                            <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">+ Add Earning</button>
                             <form method="POST" action="{{ route('payroll.employees.earnings.store', $employee) }}" x-show="adding" x-cloak
-                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
+                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                                 @csrf
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Earning Type</label>
@@ -241,7 +241,7 @@
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
                                     <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
-                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                                 <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                             </form>
                         </div>
@@ -271,9 +271,9 @@
                                             {{ $deduction->deductionType->label ?? 'Unknown' }}
                                             @if($deduction->deductionType?->is_statutory)
                                                 @if($deduction->override_statutory)
-                                                    <span class="ml-1 text-[9px] px-1 py-0.5 font-bold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:2px;">Override</span>
+                                                    <span class="ml-1 text-[9px] px-1 py-0.5 font-bold" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border-radius:2px;">Override</span>
                                                 @else
-                                                    <span class="ml-1 text-[9px] px-1 py-0.5 font-bold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:2px;">Auto-calculated</span>
+                                                    <span class="ml-1 text-[9px] px-1 py-0.5 font-bold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:2px;">Auto-calculated</span>
                                                 @endif
                                             @endif
                                         </td>
@@ -294,12 +294,12 @@
                                         </td>
                                         <td class="px-3 py-2.5 text-right">
                                             <div class="flex items-center justify-end gap-2" x-show="!editing">
-                                                <button @click="editing = true" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">Edit</button>
+                                                <button @click="editing = true" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">Edit</button>
                                                 @if(!$deduction->deductionType?->is_statutory)
                                                     <form method="POST" action="{{ route('payroll.employees.deductions.destroy', [$employee, $deduction]) }}" class="inline">
                                                         @csrf
                                                         @method('DELETE')
-                                                        <button type="submit" class="text-xs font-semibold" style="color:#ef4444; background:none; border:none; cursor:pointer;" onclick="return confirm('Remove this deduction?')">Remove</button>
+                                                        <button type="submit" class="text-xs font-semibold" style="color:var(--ds-crimson); background:none; border:none; cursor:pointer;" onclick="return confirm('Remove this deduction?')">Remove</button>
                                                     </form>
                                                 @endif
                                             </div>
@@ -323,7 +323,7 @@
                                                 <div>
                                                     <label class="flex items-center gap-2 text-xs cursor-pointer mt-3" style="color:var(--text-primary, #0f172a);">
                                                         <input type="hidden" name="override_statutory" value="0">
-                                                        <input type="checkbox" name="override_statutory" value="1" {{ $deduction->override_statutory ? 'checked' : '' }} style="accent-color:#00d4aa;">
+                                                        <input type="checkbox" name="override_statutory" value="1" {{ $deduction->override_statutory ? 'checked' : '' }} style="accent-color:var(--brand-icon);">
                                                         Override auto-calculation
                                                     </label>
                                                 </div>
@@ -332,7 +332,7 @@
                                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
                                                     <input type="text" name="notes" value="{{ $deduction->notes }}" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                                 </div>
-                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                                                 <button type="button" @click="editing = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                                             </form>
                                         </td>
@@ -348,9 +348,9 @@
 
                         {{-- Add deduction form --}}
                         <div x-data="{ adding: false }" class="mt-2">
-                            <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">+ Add Deduction</button>
+                            <button @click="adding = true" x-show="!adding" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">+ Add Deduction</button>
                             <form method="POST" action="{{ route('payroll.employees.deductions.store', $employee) }}" x-show="adding" x-cloak
-                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
+                                  class="flex flex-wrap items-end gap-3 p-3 mt-1" style="background:rgba(0,212,170,0.03); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                                 @csrf
                                 <div>
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Deduction Type</label>
@@ -373,7 +373,7 @@
                                     <label class="block text-[10px] font-semibold mb-0.5" style="color:var(--text-secondary, #6b7280);">Notes</label>
                                     <input type="text" name="notes" maxlength="500" class="w-40 px-2 py-1.5 text-xs focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); border-radius:6px; color:var(--text-primary, #0f172a);">
                                 </div>
-                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save</button>
+                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save</button>
                                 <button type="button" @click="adding = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                             </form>
                         </div>
@@ -404,7 +404,7 @@
                                     <td class="px-3 py-2.5 text-right text-xs font-semibold" style="color:var(--text-primary, #0f172a);">R {{ number_format($ps->net_pay, 2) }}</td>
                                     <td class="px-3 py-2.5 text-right">
                                         @if($ps->document_id)
-                                            <span class="text-xs font-semibold" style="color:#00d4aa;">PDF</span>
+                                            <span class="text-xs font-semibold" style="color:var(--brand-icon);">PDF</span>
                                         @else
                                             <span class="text-xs" style="color:var(--text-secondary, #94a3b8);">-</span>
                                         @endif

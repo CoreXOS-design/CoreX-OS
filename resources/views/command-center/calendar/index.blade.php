@@ -640,7 +640,7 @@
                          :style="(() => {
                              const ov = dragOverlay('{{ $day['date']->toDateString() }}');
                              if (!ov) return 'display:none';
-                             return `top:${ov.top}%;height:${ov.height}%;left:calc(56px + (100% - 56px) * {{ $dIdx }} / 7);width:calc((100% - 56px) / 7);background:rgba(0,212,170,0.2);border:1px solid var(--brand-button);border-radius:4px;`;
+                             return `top:${ov.top}%;height:${ov.height}%;left:calc(56px + (100% - 56px) * {{ $dIdx }} / 7);width:calc((100% - 56px) / 7);background:color-mix(in srgb, var(--brand-icon) 20%, transparent);border:1px solid var(--brand-button);border-radius:4px;`;
                          })()">
                     </div>
                 @endforeach
@@ -779,7 +779,7 @@
                      :style="(() => {
                          const ov = dragOverlay('{{ $anchorDate->toDateString() }}');
                          if (!ov) return 'display:none';
-                         return `top:${ov.top}%;height:${ov.height}%;left:56px;right:0;background:rgba(0,212,170,0.2);border:1px solid var(--brand-button);border-radius:4px;`;
+                         return `top:${ov.top}%;height:${ov.height}%;left:56px;right:0;background:color-mix(in srgb, var(--brand-icon) 20%, transparent);border:1px solid var(--brand-button);border-radius:4px;`;
                      })()">
                 </div>
             </div>
@@ -955,7 +955,7 @@
 
                 {{-- Title --}}
                 <div>
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title <span style="color:#ef4444">*</span></label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title <span style="color:var(--ds-crimson)">*</span></label>
                     <input type="text" name="title" x-model="form.title" required
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
@@ -963,7 +963,7 @@
 
                 {{-- Category --}}
                 <div>
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span style="color:#ef4444">*</span></label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span style="color:var(--ds-crimson)">*</span></label>
                     <select name="category" x-model="form.category" required
                             class="w-full rounded-md px-3 py-2 text-sm"
                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
@@ -992,7 +992,7 @@
 
                 {{-- Start date + time --}}
                 <div>
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Start <span style="color:#ef4444">*</span></label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Start <span style="color:var(--ds-crimson)">*</span></label>
                     <div class="grid gap-2" :class="form.allDay ? 'grid-cols-1' : 'grid-cols-2'">
                         <input type="date" x-model="form.startDate" @change="onStartDateChange()" required
                                class="w-full rounded-md px-3 py-2 text-sm"
@@ -1094,7 +1094,7 @@
                                   :style="c.conflict ? 'background: var(--surface-2); border: 2px solid #f59e0b; color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                                   :title="c.conflictLabel ? 'âš  Conflict: ' + c.conflictLabel : ''">
                                 <span class="text-[10px] px-1 py-0.5 rounded font-bold"
-                                      :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : 'background:#00d4aa;color:#fff')"
+                                      :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : 'background:var(--brand-icon);color:#fff')"
                                       x-text="c.type === 'agent' ? 'Agent' : (c.role === 'seller_contact' ? 'Seller' : 'Buyer')"></span>
                                 <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">âš </span></template>
                                 <span x-text="c.name"></span>

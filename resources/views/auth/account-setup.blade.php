@@ -7,7 +7,7 @@
     </div>
 
     @if($errors->any())
-        <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); border-radius:0.5rem; padding:0.625rem 0.75rem; margin-bottom:1rem;">
+        <div style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); border-radius:0.5rem; padding:0.625rem 0.75rem; margin-bottom:1rem;">
             @foreach($errors->all() as $err)
                 <p class="error-text" style="margin:0; font-size:0.8125rem;">{{ $err }}</p>
             @endforeach

@@ -22,13 +22,13 @@
     </div>
 
     @if($error)
-        <div class="rounded-md p-4 text-xs whitespace-pre-wrap break-all" style="background:rgba(239,68,68,0.12); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">
+        <div class="rounded-md p-4 text-xs whitespace-pre-wrap break-all" style="background:rgba(239,68,68,0.12); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
             {{ $error }}
         </div>
     @endif
 
     <p x-show="msg" x-cloak class="text-sm font-medium"
-       :style="ok ? 'color:#22c55e' : 'color:#ef4444'" x-text="msg"></p>
+       :style="ok ? 'color:#22c55e' : 'color:var(--ds-crimson)'" x-text="msg"></p>
 
     <div class="rounded-xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
         <table class="w-full text-sm">
@@ -45,7 +45,7 @@
             </thead>
             <tbody>
                 @forelse($agents as $a)
-                    <tr style="border-top:1px solid var(--border); {{ $a['is_duplicate_external_ref'] ? 'background:rgba(239,68,68,0.06);' : '' }}">
+                    <tr style="border-top:1px solid var(--border); {{ $a['is_duplicate_external_ref'] ? 'background:color-mix(in srgb, var(--ds-crimson) 6%, transparent);' : '' }}">
                         <td class="px-4 py-3 font-mono" style="color:var(--text-primary);">{{ $a['agent_id'] }}</td>
                         <td class="px-4 py-3" style="color:var(--text-primary);">{{ trim(($a['first_name'] ?? '') . ' ' . ($a['last_name'] ?? '')) }}</td>
                         <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $a['email'] }}</td>
@@ -69,7 +69,7 @@
                                     data-cell="{{ $a['contact_number'] }}"
                                     :disabled="busy === '{{ $a['pp_encrypted_id'] }}'"
                                     class="px-3 py-1.5 rounded-md text-xs font-medium"
-                                    style="color:#ef4444; border:1px solid rgba(239,68,68,0.3); background:rgba(239,68,68,0.08); cursor:pointer;">
+                                    style="color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); cursor:pointer;">
                                 <span x-show="busy !== '{{ $a['pp_encrypted_id'] }}'">Deactivate</span>
                                 <span x-show="busy === '{{ $a['pp_encrypted_id'] }}'" x-cloak>...</span>
                             </button>
@@ -114,7 +114,7 @@
                                 Listing #<span x-text="L.id"></span>
                                 <template x-if="L.pp_ref"><span class="ml-2">PP Ref: <span x-text="L.pp_ref"></span></span></template>
                                 <template x-if="L.soft_deleted"><span class="ml-2" style="color:#f59e0b;">(soft-deleted in CoreX)</span></template>
-                                <template x-if="!L.exists"><span class="ml-2" style="color:#ef4444;">(not found in CoreX)</span></template>
+                                <template x-if="!L.exists"><span class="ml-2" style="color:var(--ds-crimson);">(not found in CoreX)</span></template>
                             </div>
                             <div class="font-semibold mt-0.5" style="color:var(--text-primary);" x-text="L.headline"></div>
                             <div class="text-xs mt-0.5" style="color:var(--text-secondary);" x-text="L.address"></div>
@@ -132,7 +132,7 @@
                                         class="px-2 py-1 rounded-md text-xs font-medium"
                                         :style="L._done
                                             ? 'background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.3);'
-                                            : 'background:rgba(239,68,68,0.08); color:#ef4444; border:1px solid rgba(239,68,68,0.3);'">
+                                            : 'background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);'">
                                     <span x-show="!L._busy && !L._done">Delete Listing</span>
                                     <span x-show="L._busy" x-cloak>...</span>
                                     <span x-show="L._done" x-cloak>Deleted</span>
@@ -144,7 +144,7 @@
             </ul>
 
             <p x-show="modal.msg" x-cloak class="text-xs"
-               :style="modal.ok ? 'color:#22c55e' : 'color:#ef4444'" x-text="modal.msg"></p>
+               :style="modal.ok ? 'color:#22c55e' : 'color:var(--ds-crimson)'" x-text="modal.msg"></p>
 
             <div class="flex items-center justify-end gap-2 pt-2" style="border-top:1px solid var(--border);">
                 <button type="button" @click="modal.open = false"

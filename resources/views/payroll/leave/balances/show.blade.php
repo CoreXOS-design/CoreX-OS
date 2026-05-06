@@ -13,7 +13,7 @@
 
     <div class="p-4 lg:p-6">
         @if(session('success'))
-            <div class="mb-4 p-3 text-sm font-semibold" style="background:rgba(0,212,170,0.08); border:1px solid rgba(0,212,170,0.25); border-radius:6px; color:#00d4aa;">{{ session('success') }}</div>
+            <div class="mb-4 p-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); border-radius:6px; color:var(--brand-icon);">{{ session('success') }}</div>
         @endif
 
         <div class="flex flex-col lg:flex-row gap-6">
@@ -31,9 +31,9 @@
                 <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Take-On Status</h4>
                     @if($takeOn->isComplete())
-                        <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:6px;">Completed {{ $takeOn->completed_at->format('d M Y') }}</span>
+                        <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:6px;">Completed {{ $takeOn->completed_at->format('d M Y') }}</span>
                     @else
-                        <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:rgba(234,179,8,0.1); color:#eab308; border-radius:6px;">In Progress ({{ $takeOn->progressPercentage() }}%)</span>
+                        <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border-radius:6px;">In Progress ({{ $takeOn->progressPercentage() }}%)</span>
                     @endif
                 </div>
                 @endif
@@ -44,7 +44,7 @@
                 {{-- Type tabs --}}
                 <div class="flex flex-wrap gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
                     @foreach($leaveTypes as $type)
-                        <button @click="activeType = {{ $type->id }}" class="px-3 py-1.5 text-xs font-semibold transition" :style="activeType === {{ $type->id }} ? 'border-bottom:2px solid #00d4aa; color:#00d4aa;' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">{{ $type->label }}</button>
+                        <button @click="activeType = {{ $type->id }}" class="px-3 py-1.5 text-xs font-semibold transition" :style="activeType === {{ $type->id }} ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);'" style="background:none; border:none; cursor:pointer;">{{ $type->label }}</button>
                     @endforeach
                 </div>
 
@@ -61,7 +61,7 @@
                             'Pending' => $bal['pending_days'] ?? '0',
                             'Available' => $bal['available_days'] ?? '0',
                         ] as $lbl => $val)
-                            <div class="p-2 text-center" style="background:{{ $lbl === 'Available' ? 'rgba(0,212,170,0.04)' : 'var(--surface-2, #f8fafc)' }}; border:1px solid {{ $lbl === 'Available' ? 'rgba(0,212,170,0.15)' : 'var(--border, #e5e7eb)' }}; border-radius:6px;">
+                            <div class="p-2 text-center" style="background:{{ $lbl === 'Available' ? 'rgba(0,212,170,0.04)' : 'var(--surface-2, #f8fafc)' }}; border:1px solid {{ $lbl === 'Available' ? 'color-mix(in srgb, var(--brand-icon) 15%, transparent)' : 'var(--border, #e5e7eb)' }}; border-radius:6px;">
                                 <p class="text-[9px] font-semibold uppercase" style="color:var(--text-secondary, #94a3b8);">{{ $lbl }}</p>
                                 <p class="text-sm font-bold" style="color:{{ $lbl === 'Available' ? '#00d4aa' : 'var(--text-primary, #0f172a)' }};">{{ number_format((float)$val, 2) }}</p>
                             </div>
@@ -105,8 +105,8 @@
                     {{-- Manual adjust form --}}
                     @permission('adjust_leave_balances')
                     <div x-data="{ showAdjust: false }" class="mt-3">
-                        <button @click="showAdjust = !showAdjust" class="text-xs font-semibold" style="color:#00d4aa; background:none; border:none; cursor:pointer;">Manual Adjustment</button>
-                        <form method="POST" action="{{ route('payroll.leave.balances.adjust', $employee) }}" x-show="showAdjust" x-cloak class="mt-2 p-3 space-y-3" style="background:rgba(0,212,170,0.03); border:1px solid rgba(0,212,170,0.15); border-radius:6px;">
+                        <button @click="showAdjust = !showAdjust" class="text-xs font-semibold" style="color:var(--brand-icon); background:none; border:none; cursor:pointer;">Manual Adjustment</button>
+                        <form method="POST" action="{{ route('payroll.leave.balances.adjust', $employee) }}" x-show="showAdjust" x-cloak class="mt-2 p-3 space-y-3" style="background:rgba(0,212,170,0.03); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                             @csrf
                             <input type="hidden" name="leave_type_id" value="{{ $type->id }}">
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -124,7 +124,7 @@
                                 </div>
                             </div>
                             <div class="flex gap-2">
-                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:#00d4aa; border-radius:6px;">Save Adjustment</button>
+                                <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save Adjustment</button>
                                 <button type="button" @click="showAdjust = false" class="px-3 py-1.5 text-xs font-semibold" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px; background:none; cursor:pointer;">Cancel</button>
                             </div>
                         </form>
