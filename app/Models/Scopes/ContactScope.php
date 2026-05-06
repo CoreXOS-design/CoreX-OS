@@ -2,38 +2,38 @@
 
 namespace App\Models\Scopes;
 
-use App\Models\AgencyContactSettings;
+use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * Contact Governance scope — enforces sharing_mode visibility on Contact queries.
+ * Contact visibility scope — enforces role-based data access on Contact queries.
  *
- * Three modes (configured per agency in agency_contact_settings):
- *   - 'open'   : all contacts in agency visible to everyone (current HFC default)
- *   - 'branch' : contacts visible only within the owner's branch (BM+admin bypass)
- *   - 'closed' : contacts visible only to their owner (BM sees branch team, admin sees all)
+ * THREE-LAYER ARCHITECTURE:
  *
- * Manager chain ALWAYS bypasses (agency admin + super_admin see everything).
- * Cross-agency isolation is handled by AgencyScope (applied separately) — this
- * scope ONLY adds further restriction within the agency.
+ *   Layer 1: AgencyScope       — agency isolation (applied separately via BelongsToAgency)
+ *   Layer 2: ContactScope      — role-based read visibility (THIS SCOPE)
+ *   Layer 3: Pipeline filters  — personal workspace defaults (applied in controllers)
+ *
+ * Layer 2 reads the user's role scope from role_permissions (managed via Role Manager):
+ *   - 'all'    : see all contacts in agency (AgencyScope handles cross-agency isolation)
+ *   - 'branch' : see contacts in own branch only (BM sees branch team's contacts)
+ *   - 'own'    : see only contacts user created (BM sees branch team, admin sees all)
+ *
+ * Scope is configured per-role in Role Manager → Contacts → Scope dropdown.
+ * Previously this read agency_contact_settings.sharing_mode; that column is now
+ * deprecated in favour of role-based scope from role_permissions.
+ *
+ * Manager chain ALWAYS bypasses: admin/super_admin/owner see everything in agency.
+ * Cross-agency isolation handled by AgencyScope (applied separately).
  *
  * Bypass: Contact::withoutGlobalScope(ContactScope::class) for admin oversight queries.
  */
 class ContactScope implements Scope
 {
-    /**
-     * Re-entry guard to prevent infinite recursion when loading
-     * AgencyContactSettings triggers a query that itself needs scoping.
-     */
     private static bool $applying = false;
-
-    /**
-     * Per-request cache of sharing_mode per agency.
-     */
-    private static array $modeCache = [];
 
     public function apply(Builder $builder, Model $model): void
     {
@@ -61,7 +61,7 @@ class ContactScope implements Scope
             $hasAgencyOverride = session('active_agency_id') !== null
                 && session('active_agency_id') !== '';
             if (!$hasAgencyOverride) {
-                return; // Owner browsing globally — no contact scope
+                return;
             }
         }
 
@@ -73,16 +73,17 @@ class ContactScope implements Scope
             return; // No agency context — AgencyScope handles visibility
         }
 
-        $mode = $this->getSharingMode((int) $agencyId);
-
-        // Admin role bypass — admin/super_admin sees all in agency
+        // Admin/super_admin bypass — sees all in agency
         $role = method_exists($user, 'effectiveRole') ? $user->effectiveRole() : ($user->role ?? 'agent');
-        if (in_array($role, ['admin', 'super_admin'])) {
-            return; // Agency-level admin sees everything (AgencyScope already constrains to agency)
+        if (in_array($role, ['admin', 'super_admin'], true)) {
+            return;
         }
 
-        // 'open' mode — everyone in agency sees all contacts
-        if ($mode === 'open') {
+        // Read role-based scope from role_permissions via PermissionService
+        $scope = PermissionService::getDataScope($user, 'contacts');
+
+        // 'all' or null (no restriction beyond agency) — everyone in agency sees all
+        if ($scope === 'all' || $scope === null) {
             return;
         }
 
@@ -92,17 +93,19 @@ class ContactScope implements Scope
             ? $user->effectiveBranchId()
             : ($user->branch_id ?? null);
 
-        if ($mode === 'branch') {
-            // BM sees their branch (same as agent in branch mode)
-            if ($branchId) {
+        if ($scope === 'branch') {
+            if (in_array($role, ['bm', 'branch_manager'], true) && $branchId) {
+                // BM in branch mode: sees contacts in own branch
+                $builder->where($table . '.branch_id', $branchId);
+            } elseif ($branchId) {
+                // Agent in branch mode: sees contacts in own branch
                 $builder->where($table . '.branch_id', $branchId);
             } else {
-                // User with no branch assigned — see nothing in branch mode
-                $builder->whereRaw('1 = 0');
+                $builder->whereRaw('1 = 0'); // No branch assigned — see nothing
             }
-        } elseif ($mode === 'closed') {
-            if (in_array($role, ['bm', 'branch_manager'])) {
-                // BM sees contacts owned by anyone in their branch
+        } elseif ($scope === 'own') {
+            if (in_array($role, ['bm', 'branch_manager'], true)) {
+                // BM in 'own' mode: sees contacts owned by self + anyone in branch
                 if ($branchId) {
                     $builder->where(function (Builder $q) use ($table, $userId, $branchId) {
                         $q->where($table . '.created_by_user_id', $userId)
@@ -117,31 +120,9 @@ class ContactScope implements Scope
                     $builder->where($table . '.created_by_user_id', $userId);
                 }
             } else {
-                // Agent: only sees contacts they own
+                // Agent in 'own' mode: only contacts they created
                 $builder->where($table . '.created_by_user_id', $userId);
             }
         }
-    }
-
-    private function getSharingMode(int $agencyId): string
-    {
-        if (array_key_exists($agencyId, self::$modeCache)) {
-            return self::$modeCache[$agencyId];
-        }
-
-        // Direct DB query to avoid triggering model scopes on AgencyContactSettings
-        $mode = \Illuminate\Support\Facades\DB::table('agency_contact_settings')
-            ->where('agency_id', $agencyId)
-            ->value('sharing_mode');
-
-        return self::$modeCache[$agencyId] = $mode ?? 'open';
-    }
-
-    /**
-     * Clear the per-request cache. Useful in tests or after mode changes.
-     */
-    public static function flushCache(): void
-    {
-        self::$modeCache = [];
     }
 }

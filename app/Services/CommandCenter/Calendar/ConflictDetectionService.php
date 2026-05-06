@@ -3,6 +3,7 @@
 namespace App\Services\CommandCenter\Calendar;
 
 use App\Models\CommandCenter\CalendarEvent;
+use App\Models\CommandCenter\CalendarEventClassSetting;
 use App\Models\CommandCenter\CalendarEventInvitation;
 use Illuminate\Support\Facades\DB;
 
@@ -10,14 +11,17 @@ class ConflictDetectionService
 {
     /**
      * Check if a user has conflicting events in the given time range.
+     * Only appointment-type events (actor_role != 'neither') count as conflicts.
      */
     public function checkUserConflicts(int $userId, string $startsAt, string $endsAt, ?int $excludeEventId = null): array
     {
+        // Get event classes that are informational (actor_role = 'neither') — these never conflict.
+        $informationalClasses = CalendarEventClassSetting::where('actor_role', 'neither')
+            ->pluck('event_class')->toArray();
+
         $query = CalendarEvent::withoutGlobalScopes()
             ->where(function ($q) use ($userId) {
-                // Events owned by user
                 $q->where('user_id', $userId)
-                  // OR events they've accepted
                   ->orWhereIn('id', function ($sub) use ($userId) {
                       $sub->select('event_id')
                           ->from('calendar_event_invitations')
@@ -25,19 +29,19 @@ class ConflictDetectionService
                           ->whereIn('status', ['accepted', 'tentative']);
                   });
             })
-            ->where('event_date', '<', $endsAt)
-            ->where(function ($q) use ($endsAt) {
-                $q->where('end_date', '>', DB::raw("'" . $endsAt . "'"))
-                  ->orWhereNull('end_date');
-            })
             ->whereNull('deleted_at')
             ->whereNotIn('status', ['completed', 'dismissed']);
+
+        // Exclude informational event classes (expiries, leave, payroll, etc.)
+        if (!empty($informationalClasses)) {
+            $query->whereNotIn('category', $informationalClasses);
+        }
 
         if ($excludeEventId) {
             $query->where('id', '!=', $excludeEventId);
         }
 
-        // Simplified overlap: events that overlap the time range
+        // Time overlap check
         $conflicts = $query->where('event_date', '<', $endsAt)
             ->where(function ($q) use ($startsAt) {
                 $q->where('end_date', '>', $startsAt)

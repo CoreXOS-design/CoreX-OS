@@ -3,20 +3,33 @@
 namespace App\Http\Controllers\CommandCenter;
 
 use App\Http\Controllers\Controller;
+use App\Models\AgencyContactSettings;
 use App\Models\BuyerStateTransition;
 use App\Models\Contact;
 use App\Services\BuyerStateService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class BuyerPipelineController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
         $view = $request->get('view', 'kanban');
         $stateFilter = $request->get('state');
         $agentFilter = $request->get('agent_id');
 
+        // Layer 3: Pipeline workspace scope (independent of Layer 2 contact access)
+        $pipelineScope = $request->get('scope', $this->defaultPipelineScope($user));
+
         $query = Contact::buyers()->with('createdBy');
+
+        // Apply Layer 3 pipeline scope (admin/owner always see all)
+        $role = $user->effectiveRole();
+        if (!in_array($role, ['admin', 'super_admin', 'owner'], true)) {
+            $this->applyPipelineScope($query, $user, $pipelineScope);
+        }
 
         if ($stateFilter) {
             $query->where('buyer_state', $stateFilter);
@@ -33,7 +46,9 @@ class BuyerPipelineController extends Controller
             return view('command-center.buyers.pipeline', [
                 'view' => 'list',
                 'buyers' => $buyers,
-                'counts' => $this->stateCounts(),
+                'counts' => $this->stateCounts($user, $pipelineScope),
+                'pipelineScope' => $pipelineScope,
+                'canSeeBranch' => (bool) $user->branch_id,
             ]);
         }
 
@@ -46,10 +61,9 @@ class BuyerPipelineController extends Controller
             'lost' => $allBuyers->where('buyer_state', 'lost')->values(),
         ];
 
-        // Load latest risk scores for all buyers
-        $riskScores = \Illuminate\Support\Facades\DB::table('buyer_lost_risk_scores as brs')
+        $riskScores = DB::table('buyer_lost_risk_scores as brs')
             ->joinSub(
-                \Illuminate\Support\Facades\DB::table('buyer_lost_risk_scores')->selectRaw('contact_id, MAX(id) as max_id')->groupBy('contact_id'),
+                DB::table('buyer_lost_risk_scores')->selectRaw('contact_id, MAX(id) as max_id')->groupBy('contact_id'),
                 'latest', fn($j) => $j->on('brs.id', '=', 'latest.max_id')
             )
             ->pluck('brs.score', 'brs.contact_id');
@@ -57,8 +71,10 @@ class BuyerPipelineController extends Controller
         return view('command-center.buyers.pipeline', [
             'view' => 'kanban',
             'columns' => $columns,
-            'counts' => $this->stateCounts(),
+            'counts' => $this->stateCounts($user, $pipelineScope),
             'riskScores' => $riskScores,
+            'pipelineScope' => $pipelineScope,
+            'canSeeBranch' => (bool) $user->branch_id,
         ]);
     }
 
@@ -75,10 +91,52 @@ class BuyerPipelineController extends Controller
         return response()->json(['success' => true, 'new_state' => $request->input('state')]);
     }
 
-    private function stateCounts(): array
+    /**
+     * Get the agency's configured default pipeline scope for non-admin roles.
+     */
+    private function defaultPipelineScope($user): string
     {
-        return Contact::buyers()
-            ->selectRaw('buyer_state, count(*) as cnt')
+        $role = $user->effectiveRole();
+        if (in_array($role, ['admin', 'super_admin', 'owner'], true)) {
+            return 'agency';
+        }
+
+        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $settings = AgencyContactSettings::forAgency($agencyId);
+
+        return $settings->buyer_pipeline_default_scope ?? 'own';
+    }
+
+    /**
+     * Apply Layer 3 pipeline workspace filter to query.
+     */
+    private function applyPipelineScope(Builder $query, $user, string $scope): void
+    {
+        if ($scope === 'own') {
+            $query->where('contacts.created_by_user_id', $user->id);
+        } elseif ($scope === 'branch') {
+            $branchId = $user->effectiveBranchId() ?? $user->branch_id;
+            if ($branchId) {
+                $query->whereIn('contacts.created_by_user_id', function ($sub) use ($branchId) {
+                    $sub->select('id')->from('users')->where('branch_id', $branchId)->whereNull('deleted_at');
+                });
+            } else {
+                $query->where('contacts.created_by_user_id', $user->id);
+            }
+        }
+        // 'agency' = no additional filter (Layer 2 controls access)
+    }
+
+    private function stateCounts($user, string $pipelineScope): array
+    {
+        $query = Contact::buyers();
+
+        $role = $user->effectiveRole();
+        if (!in_array($role, ['admin', 'super_admin', 'owner'], true)) {
+            $this->applyPipelineScope($query, $user, $pipelineScope);
+        }
+
+        return $query->selectRaw('buyer_state, count(*) as cnt')
             ->groupBy('buyer_state')
             ->pluck('cnt', 'buyer_state')
             ->toArray();

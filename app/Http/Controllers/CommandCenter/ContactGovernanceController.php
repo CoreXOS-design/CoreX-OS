@@ -38,7 +38,7 @@ class ContactGovernanceController extends Controller
     public function updateContactGovernance(Request $request)
     {
         $request->validate([
-            'sharing_mode' => 'required|in:open,branch,closed',
+            'buyer_pipeline_default_scope' => 'required|in:own,branch,agency',
             'duplicate_mode' => 'required|in:auto_link,soft_warn,hard_block_override,hard_block_request',
             'duplicate_match_fields' => 'required|array|min:1',
             'duplicate_match_fields.*' => 'in:phone,email,id_number',
@@ -54,7 +54,7 @@ class ContactGovernanceController extends Controller
         $settings = AgencyContactSettings::forAgency($agencyId);
 
         $settings->update($request->only([
-            'sharing_mode',
+            'buyer_pipeline_default_scope',
             'duplicate_mode',
             'duplicate_match_fields',
             'buyer_warm_days',

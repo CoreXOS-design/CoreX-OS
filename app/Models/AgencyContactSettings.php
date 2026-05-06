@@ -14,7 +14,8 @@ class AgencyContactSettings extends Model
 
     protected $fillable = [
         'agency_id',
-        'sharing_mode',
+        'sharing_mode', // DEPRECATED — visibility now governed by role_permissions.scope
+        'buyer_pipeline_default_scope',
         'duplicate_mode',
         'duplicate_match_fields',
         'buyer_warm_days',
@@ -44,6 +45,7 @@ class AgencyContactSettings extends Model
             ['agency_id' => $agencyId],
             [
                 'sharing_mode' => 'branch',
+                'buyer_pipeline_default_scope' => 'own',
                 'duplicate_mode' => 'soft_warn',
                 'duplicate_match_fields' => ['phone', 'email', 'id_number'],
                 'buyer_warm_days' => 14,

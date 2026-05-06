@@ -35,6 +35,26 @@
             <div class="text-xs font-medium mb-1" style="color: var(--text-muted);">Cross-Listed</div>
             <div class="text-[1.625rem] font-semibold" style="color: var(--ds-amber);">{{ number_format($stats['cross_listed']) }}</div>
         </div>
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-xs font-medium mb-1" style="color: var(--text-muted);">Buyer Matched</div>
+            <div class="text-[1.625rem] font-semibold" style="color: #10b981;">{{ number_format($stats['buyer_matched'] ?? 0) }}</div>
+        </div>
+    </div>
+
+    {{-- Buyer Match Toggle --}}
+    <div class="flex items-center gap-3">
+        <a href="{{ route('prospecting.index', array_merge(request()->except('matched_only'), ['matched_only' => '1'])) }}"
+           class="text-xs px-3 py-1.5 rounded-md no-underline {{ request('matched_only') === '1' ? 'font-bold' : '' }}"
+           style="{{ request('matched_only') === '1' ? 'background:#10b981;color:#fff;' : 'background:var(--surface);color:var(--text-muted);border:1px solid var(--border);' }}">
+            Show Buyer-Matched Only
+        </a>
+        @if(request('matched_only'))
+        <a href="{{ route('prospecting.index', request()->except('matched_only')) }}" class="text-xs no-underline" style="color:var(--text-muted);">Clear filter</a>
+        @endif
+        <a href="{{ route('prospecting.index', array_merge(request()->except('sort','dir'), ['sort' => 'buyer_matches', 'dir' => 'desc'])) }}"
+           class="text-xs px-3 py-1.5 rounded-md no-underline" style="background:var(--surface);color:var(--text-muted);border:1px solid var(--border);">
+            Sort by Buyer Demand
+        </a>
     </div>
 
     {{-- Filter bar --}}
@@ -175,6 +195,7 @@
                             <a href="{{ request()->fullUrlWithQuery(['sort' => 'price', 'dir' => request('sort') === 'price' && request('dir', 'desc') === 'asc' ? 'desc' : 'asc']) }}"
                                style="color: var(--text-muted); text-decoration: none;">Price {!! request('sort') === 'price' ? (request('dir') === 'asc' ? '&#9650;' : '&#9660;') : '' !!}</a>
                         </th>
+                        <th class="px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wider" style="color: #10b981;">Buyers</th>
                         <th class="px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Bed|Bath|Gar</th>
                         <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Type</th>
                         <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
@@ -230,6 +251,16 @@
                                     <div class="text-xs" style="color: var(--ds-amber);">was R {{ number_format($lastChange->old_price) }} &#8593;</div>
                                     @endif
                                 @endif
+                            @endif
+                        </td>
+
+                        {{-- Buyer Matches --}}
+                        <td class="px-4 py-3 text-center">
+                            @if(($listing->buyer_match_count ?? 0) > 0)
+                                <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                      style="{{ ($listing->buyer_match_count ?? 0) >= 5 ? 'background:rgba(239,68,68,0.15);color:#ef4444;' : (($listing->buyer_match_count ?? 0) >= 2 ? 'background:rgba(245,158,11,0.15);color:#f59e0b;' : 'background:rgba(16,185,129,0.15);color:#10b981;') }}">
+                                    {{ $listing->buyer_match_count }} buyer{{ $listing->buyer_match_count > 1 ? 's' : '' }}
+                                </span>
                             @endif
                         </td>
 

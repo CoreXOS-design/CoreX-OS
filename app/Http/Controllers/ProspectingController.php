@@ -138,6 +138,32 @@ class ProspectingController extends Controller
             return $primary;
         })->values();
 
+        // Buyer match counts per listing (Subsystem A — prospecting intelligence)
+        $listingIds = $rows->pluck('id')->toArray();
+        $matchCounts = collect();
+        if (!empty($listingIds)) {
+            $matchCounts = DB::table('prospecting_buyer_matches')
+                ->whereIn('prospecting_listing_id', $listingIds)
+                ->whereNull('dismissed_at')
+                ->where('score', '>=', 50)
+                ->select('prospecting_listing_id', DB::raw('COUNT(*) as match_count'))
+                ->groupBy('prospecting_listing_id')
+                ->pluck('match_count', 'prospecting_listing_id');
+        }
+        foreach ($rows as $row) {
+            $row->buyer_match_count = $matchCounts[$row->id] ?? 0;
+        }
+
+        // Filter: show only matched properties
+        if ($request->filled('matched_only') && $request->matched_only === '1') {
+            $rows = $rows->filter(fn($r) => $r->buyer_match_count > 0)->values();
+        }
+
+        // Sort by buyer match count if requested
+        if ($request->get('sort') === 'buyer_matches') {
+            $rows = $rows->sortByDesc('buyer_match_count')->values();
+        }
+
         // Manual pagination
         $page = $request->get('page', 1);
         $perPage = 50;
@@ -164,6 +190,14 @@ class ProspectingController extends Controller
             ->get()
             ->count();
 
+        $matchedListingCount = DB::table('prospecting_buyer_matches')
+            ->join('prospecting_listings', 'prospecting_listings.id', '=', 'prospecting_buyer_matches.prospecting_listing_id')
+            ->where('prospecting_listings.agency_id', $agencyId)
+            ->where('prospecting_listings.is_active', true)
+            ->whereNull('prospecting_buyer_matches.dismissed_at')
+            ->distinct('prospecting_buyer_matches.prospecting_listing_id')
+            ->count('prospecting_buyer_matches.prospecting_listing_id');
+
         $stats = [
             'total'            => (clone $statsBase)->count(),
             'avg_price'        => (int) (clone $statsBase)->avg('price'),
@@ -171,6 +205,7 @@ class ProspectingController extends Controller
             'price_reductions' => ProspectingListing::where('agency_id', $agencyId)
                                     ->where('price_changed_at', '>=', $weekAgo)->count(),
             'cross_listed'     => $crossListed,
+            'buyer_matched'    => $matchedListingCount,
         ];
 
         // Filter dropdown options
@@ -287,11 +322,30 @@ class ProspectingController extends Controller
             $q->orderBy('changed_at', 'desc');
         }]);
 
+        // Buyer matches for this listing
+        $buyerMatches = DB::table('prospecting_buyer_matches as m')
+            ->join('contacts as c', 'c.id', '=', 'm.contact_id')
+            ->where('m.prospecting_listing_id', $listing->id)
+            ->whereNull('m.dismissed_at')
+            ->where('m.score', '>=', 50)
+            ->orderByDesc('m.score')
+            ->get([
+                'm.id as match_id', 'm.score', 'm.tier',
+                'm.matched_features', 'm.missing_features', 'm.matched_at',
+                'c.id as contact_id', 'c.first_name', 'c.last_name',
+                'c.last_activity_at', 'c.buyer_state',
+            ]);
+
+        $demand = app(\App\Services\PropertyMatchScoringService::class)->getProspectingDemand($listing->id);
+
         if (request()->wantsJson()) {
-            return response()->json($listing);
+            return response()->json(array_merge($listing->toArray(), [
+                'buyer_matches' => $buyerMatches,
+                'demand' => $demand,
+            ]));
         }
 
-        return view('prospecting.show', compact('listing'));
+        return view('prospecting.show', compact('listing', 'buyerMatches', 'demand'));
     }
 
     public function thumbnail(ProspectingListing $listing)

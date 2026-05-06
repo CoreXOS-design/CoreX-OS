@@ -24,8 +24,26 @@
                         <span class="text-[10px] px-1.5 py-0.5 rounded mt-1 inline-block" style="background: #f59e0b20; color: #f59e0b;">Tentative</span>
                     @endif
                     @if(!empty($inv->conflict_at_invite))
-                        <div class="mt-2 text-[10px] px-2 py-1 rounded" style="background: rgba(239,68,68,0.08); color: #ef4444; border: 1px solid rgba(239,68,68,0.2);">
-                            ⚠ Conflict: {{ collect($inv->conflict_at_invite)->pluck('title')->implode(', ') }}
+                        @php $conflicts = collect($inv->conflict_at_invite); @endphp
+                        <div class="mt-2 px-3 py-2 rounded" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15);" x-data="{ expanded: false }">
+                            <div class="text-xs font-semibold mb-1" style="color: #ef4444;">⚠ You have {{ $conflicts->count() }} event{{ $conflicts->count() > 1 ? 's' : '' }} at this time</div>
+                            @foreach($conflicts->take(3) as $c)
+                                <div class="text-xs py-0.5 flex items-start gap-1.5" style="color: var(--text-secondary);">
+                                    <span style="color:#ef4444; flex-shrink:0;">•</span>
+                                    <span>@if(!empty($c['start'])){{ \Carbon\Carbon::parse($c['start'])->format('H:i') }}@if(!empty($c['end']))–{{ \Carbon\Carbon::parse($c['end'])->format('H:i') }}@endif — @endif{{ $c['title'] ?? 'Event' }}</span>
+                                </div>
+                            @endforeach
+                            @if($conflicts->count() > 3)
+                                <div x-show="!expanded"><button type="button" @click="expanded = true" class="text-[11px] mt-1 underline" style="color:#ef4444;">Show all {{ $conflicts->count() }} conflicts</button></div>
+                                <div x-show="expanded" x-cloak>
+                                    @foreach($conflicts->slice(3) as $c)
+                                        <div class="text-xs py-0.5 flex items-start gap-1.5" style="color: var(--text-secondary);">
+                                            <span style="color:#ef4444; flex-shrink:0;">•</span>
+                                            <span>@if(!empty($c['start'])){{ \Carbon\Carbon::parse($c['start'])->format('H:i') }}@if(!empty($c['end']))–{{ \Carbon\Carbon::parse($c['end'])->format('H:i') }}@endif — @endif{{ $c['title'] ?? 'Event' }}</span>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
                         </div>
                     @endif
                 </div>

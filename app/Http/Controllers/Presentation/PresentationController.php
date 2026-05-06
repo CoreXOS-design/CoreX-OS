@@ -325,11 +325,19 @@ class PresentationController extends Controller
             $suggestedArticles = (new \App\Services\Articles\ArticleMatcherService())->suggest($presentation);
         }
 
+        // ── Buyer demand intelligence (Module 13) ──────────────────────
+        $buyerDemand = null;
+        if ($presentation->listing_id) {
+            $agencyId = $presentation->agency_id ?? (auth()->user()->effectiveAgencyId() ?? 1);
+            $buyerDemand = app(\App\Services\PropertyMatchScoringService::class)
+                ->getBuyerDemandForProperty($presentation->listing_id, $agencyId);
+        }
+
         return view('presentations.show', compact(
             'presentation', 'latestSnapshot', 'snapshotCount', 'links', 'readiness', 'powerPanel',
             'linkViews', 'isAdmin', 'latestVersion',
             'maxCaptureId', 'maxCaptureUpdatedAt', 'maxLinkUpdatedAt',
-            'addedArticles', 'suggestedArticles'
+            'addedArticles', 'suggestedArticles', 'buyerDemand'
         ));
     }
 

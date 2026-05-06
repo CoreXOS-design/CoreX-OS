@@ -439,6 +439,11 @@ class CalendarController extends Controller
 
         $isManual = in_array($calendarEvent->source_type, ['manual', 'manual:demo']);
 
+        // Check current user's invitation status for this event
+        $userInvitation = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
+            ->where('invitee_user_id', $user->id)->first();
+        $isOrganizer = (int) ($calendarEvent->user_id ?? 0) === (int) $user->id;
+
         return response()->json([
             'id' => $calendarEvent->id, 'title' => $calendarEvent->title,
             'description' => $calendarEvent->description,
@@ -490,6 +495,14 @@ class CalendarController extends Controller
                     'when'   => $a->performed_at->format('j M Y, H:i'),
                     'by'     => optional($a->performer)->name,
                 ]),
+            'is_organizer' => $isOrganizer,
+            'invitation' => $userInvitation ? [
+                'id' => $userInvitation->id,
+                'status' => $userInvitation->status,
+                'response_at' => $userInvitation->response_at?->format('j M Y'),
+                'inviter_name' => \App\Models\User::withoutGlobalScopes()->find($userInvitation->inviter_user_id)?->name ?? 'Unknown',
+                'respond_url' => route('command-center.calendar.invitations.respond', $userInvitation->id),
+            ] : null,
         ]);
     }
 

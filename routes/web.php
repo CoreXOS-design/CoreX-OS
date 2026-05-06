@@ -708,7 +708,10 @@ use App\Http\Controllers\CoreX\SettingsController as CoreXSettingsController;
 use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerController;
 
 Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
-    Route::get('/', [CommandCenterDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard');
+    Route::get('/', [CommandCenterDashboardController::class, 'today'])->name('corex.dashboard');
+    Route::get('/command-center/today', [CommandCenterDashboardController::class, 'today'])->name('command-center.today');
+    Route::get('/command-center/today/cards', [CommandCenterDashboardController::class, 'todayCards'])->name('command-center.today.cards');
+    Route::get('/legacy-dashboard', [CommandCenterDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard.legacy');
 
     // ── Manager Oversight ──
     Route::middleware('permission:dashboard.oversight.view')->group(function () {
@@ -724,6 +727,31 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::prefix('command-center')->group(function () {
         Route::get('/calendar', [CommandCenterCalendarController::class, 'index'])->name('command-center.calendar');
         Route::get('/calendar/events', [CommandCenterCalendarController::class, 'events'])->name('command-center.calendar.events');
+
+        // Calendar Invitations — MUST be before /calendar/{calendarEvent} wildcard
+        Route::get('/calendar/invitations', function () {
+            $invitations = \App\Models\CommandCenter\CalendarEventInvitation::forUser(auth()->id())
+                ->with([
+                    'event' => fn($q) => $q->withoutGlobalScopes(),
+                    'inviter',
+                ])
+                ->whereIn('status', ['pending', 'tentative'])
+                ->orderByDesc('created_at')->paginate(20);
+            return view('command-center.calendar.invitations', ['invitations' => $invitations]);
+        })->name('command-center.calendar.invitations');
+        Route::post('/calendar/invitations/{invitation}/respond', function (\Illuminate\Http\Request $request, \App\Models\CommandCenter\CalendarEventInvitation $invitation) {
+            if ((int) $invitation->invitee_user_id !== auth()->id()) abort(403);
+            $data = $request->validate(['action' => 'required|in:accepted,tentative,declined', 'notes' => 'nullable|string|max:500']);
+            $invitation->update(['status' => $data['action'], 'response_at' => now(), 'response_notes' => $data['notes'] ?? null]);
+            \Illuminate\Support\Facades\DB::table('notifications')->insert([
+                'id' => \Illuminate\Support\Str::uuid(), 'type' => 'invitation_response', 'notifiable_type' => 'App\\Models\\User',
+                'notifiable_id' => $invitation->inviter_user_id,
+                'data' => json_encode(['message' => auth()->user()->name . ' ' . $data['action'] . ': ' . ($invitation->event?->title ?? 'Event'), 'event_id' => $invitation->event_id]),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            return back()->with('success', 'Response recorded.');
+        })->name('command-center.calendar.invitations.respond');
+
         Route::get('/calendar/{calendarEvent}', [CommandCenterCalendarController::class, 'show'])->name('command-center.calendar.show');
         Route::post('/calendar', [CommandCenterCalendarController::class, 'store'])->name('command-center.calendar.store');
         Route::put('/calendar/{calendarEvent}', [CommandCenterCalendarController::class, 'update'])->name('command-center.calendar.update');
@@ -785,25 +813,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             return back()->with('success', 'Buyer portal link revoked.');
         })->name('command-center.buyers.portal-links.revoke');
 
-        // Calendar Invitations
-        Route::get('/calendar/invitations', function () {
-            $invitations = \App\Models\CommandCenter\CalendarEventInvitation::forUser(auth()->id())
-                ->with(['event', 'inviter'])->whereIn('status', ['pending', 'tentative'])
-                ->orderByDesc('created_at')->paginate(20);
-            return view('command-center.calendar.invitations', ['invitations' => $invitations]);
-        })->name('command-center.calendar.invitations');
-        Route::post('/calendar/invitations/{invitation}/respond', function (\Illuminate\Http\Request $request, \App\Models\CommandCenter\CalendarEventInvitation $invitation) {
-            if ((int) $invitation->invitee_user_id !== auth()->id()) abort(403);
-            $data = $request->validate(['action' => 'required|in:accepted,tentative,declined', 'notes' => 'nullable|string|max:500']);
-            $invitation->update(['status' => $data['action'], 'response_at' => now(), 'response_notes' => $data['notes'] ?? null]);
-            \Illuminate\Support\Facades\DB::table('notifications')->insert([
-                'id' => \Illuminate\Support\Str::uuid(), 'type' => 'invitation_response', 'notifiable_type' => 'App\\Models\\User',
-                'notifiable_id' => $invitation->inviter_user_id,
-                'data' => json_encode(['message' => auth()->user()->name . ' ' . $data['action'] . ': ' . ($invitation->event?->title ?? 'Event'), 'event_id' => $invitation->event_id]),
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
-            return back()->with('success', 'Response recorded.');
-        })->name('command-center.calendar.invitations.respond');
         Route::get('/calendar/check-conflicts', function (\Illuminate\Http\Request $request) {
             $svc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);
             return response()->json($svc->checkUserConflicts((int)$request->get('user_id'), $request->get('start'), $request->get('end'), $request->get('exclude_event_id')));

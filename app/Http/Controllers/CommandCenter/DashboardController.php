@@ -12,13 +12,45 @@ use App\Services\CandidatePractitionerService;
 use App\Services\CommandCenter\Calendar\CalendarThresholdResolver;
 use App\Services\CommandCenter\Calendar\CalendarVisibilityResolver;
 use App\Services\CommandCenter\CalendarEventService;
+use App\Services\CommandCenter\CommandCentreService;
 use App\Services\CommandCenter\PropertyHealthCalculator;
 use App\Services\CommandCenter\TaskService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    /**
+     * Personal Command Centre — the "What should I do now?" landing page.
+     */
+    public function today(Request $request)
+    {
+        $user = $request->user();
+        $service = app(CommandCentreService::class);
+        $cards = $service->assembleForUser($user);
+
+        if ($request->wantsJson()) {
+            return response()->json(['cards' => $cards]);
+        }
+
+        return view('command-center.today', [
+            'user' => $user,
+            'cards' => $cards,
+        ]);
+    }
+
+    /**
+     * AJAX refresh endpoint — returns fresh card data.
+     */
+    public function todayCards(Request $request)
+    {
+        $user = $request->user();
+        Cache::forget("command_centre_{$user->id}");
+        $service = app(CommandCentreService::class);
+        return response()->json(['cards' => $service->assembleForUser($user)]);
+    }
+
     public function index(Request $request)
     {
         $user   = $request->user();

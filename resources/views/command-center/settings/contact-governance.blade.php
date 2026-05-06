@@ -38,37 +38,57 @@
     <form method="POST" action="{{ route('command-center.settings.contact-governance.update') }}">
         @csrf @method('PUT')
 
-        {{-- ═══════ CONTACT SHARING ═══════ --}}
+        {{-- ═══════ CONTACT VISIBILITY (now in Role Manager) ═══════ --}}
         <div class="corex-panel mb-6">
             <div class="corex-panel-header">
-                <h3 class="corex-panel-title">Contact Sharing</h3>
+                <h3 class="corex-panel-title">Contact Visibility</h3>
+            </div>
+            <div class="corex-panel-body">
+                <div class="flex items-start gap-3 p-3 rounded-lg" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <svg class="w-5 h-5 mt-0.5 flex-shrink-0" style="color: var(--brand-button);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+                    </svg>
+                    <div class="text-xs" style="color: var(--text-secondary);">
+                        <p class="font-medium mb-1" style="color:var(--text-primary);">Contact visibility is now configured per role in Role Manager.</p>
+                        <p>Each role's <strong>Contacts &rarr; Scope</strong> setting controls what contacts that role can see: <em>Own</em> (created by them), <em>Branch</em> (their branch team), or <em>All</em> (agency-wide).</p>
+                        <a href="{{ route('corex.role-manager') }}" class="inline-block mt-2 font-medium hover:underline" style="color: var(--brand-button);">Configure in Role Manager &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- ═══════ BUYER PIPELINE DEFAULT SCOPE ═══════ --}}
+        <div class="corex-panel mb-6">
+            <div class="corex-panel-header">
+                <h3 class="corex-panel-title">Buyer Pipeline Default View</h3>
             </div>
             <div class="corex-panel-body space-y-4">
-                <p class="text-xs" style="color:var(--text-muted);">Controls how contacts are shared between agents within the agency.</p>
+                <p class="text-xs" style="color:var(--text-muted);">Controls what agents see by default when they open the Buyer Pipeline. This is a workspace preference — agents can still toggle to see other scopes if their role permits.</p>
 
                 <div class="space-y-3">
                     <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background:var(--surface-2);">
-                        <input type="radio" name="sharing_mode" value="open" {{ $settings->sharing_mode === 'open' ? 'checked' : '' }} class="mt-0.5">
+                        <input type="radio" name="buyer_pipeline_default_scope" value="own" {{ ($settings->buyer_pipeline_default_scope ?? 'own') === 'own' ? 'checked' : '' }} class="mt-0.5">
                         <div>
-                            <span class="text-sm font-medium" style="color:var(--text-primary);">Open</span>
-                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">All contacts visible agency-wide. Any agent can view any contact.</p>
+                            <span class="text-sm font-medium" style="color:var(--text-primary);">My Buyers</span>
+                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Agents see only buyers they created. Best for focused pipeline management.</p>
                         </div>
                     </label>
                     <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background:var(--surface-2);">
-                        <input type="radio" name="sharing_mode" value="branch" {{ $settings->sharing_mode === 'branch' ? 'checked' : '' }} class="mt-0.5">
+                        <input type="radio" name="buyer_pipeline_default_scope" value="branch" {{ ($settings->buyer_pipeline_default_scope ?? '') === 'branch' ? 'checked' : '' }} class="mt-0.5">
                         <div>
-                            <span class="text-sm font-medium" style="color:var(--text-primary);">Branch</span>
-                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Contacts visible within branch only. BM sees branch, admin sees all.</p>
+                            <span class="text-sm font-medium" style="color:var(--text-primary);">Branch Buyers</span>
+                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Agents see buyers from their entire branch team. Good for collaborative branches.</p>
                         </div>
                     </label>
                     <label class="flex items-start gap-3 p-3 rounded-lg cursor-pointer" style="background:var(--surface-2);">
-                        <input type="radio" name="sharing_mode" value="closed" {{ $settings->sharing_mode === 'closed' ? 'checked' : '' }} class="mt-0.5">
+                        <input type="radio" name="buyer_pipeline_default_scope" value="agency" {{ ($settings->buyer_pipeline_default_scope ?? '') === 'agency' ? 'checked' : '' }} class="mt-0.5">
                         <div>
-                            <span class="text-sm font-medium" style="color:var(--text-primary);">Closed</span>
-                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Contact owned by capturing agent only. BM sees branch, admin sees all.</p>
+                            <span class="text-sm font-medium" style="color:var(--text-primary);">All Agency Buyers</span>
+                            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Agents see all buyers agency-wide by default. Use when the entire team collaborates on buyer leads.</p>
                         </div>
                     </label>
                 </div>
+                <p class="text-[10px]" style="color:var(--text-muted);">Admin/Owner roles always see all buyers. This setting affects agents and branch managers only.</p>
             </div>
         </div>
 

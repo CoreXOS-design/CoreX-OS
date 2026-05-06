@@ -9,12 +9,27 @@
                 <h1 class="text-xl font-bold text-white">Buyer Pipeline</h1>
                 <p class="text-sm text-white/60">Track buyer lifecycle: New → Warm → Cold → Lost</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-3">
+                {{-- Pipeline scope toggle (Layer 3) --}}
+                <div class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);">
+                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'own'])) }}"
+                       class="px-2.5 py-1 text-[10px] font-semibold {{ ($pipelineScope ?? 'own') === 'own' ? 'text-white' : 'text-white/50' }}"
+                       style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-button);' : '' }}">Mine</a>
+                    @if($canSeeBranch ?? false)
+                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'branch'])) }}"
+                       class="px-2.5 py-1 text-[10px] font-semibold {{ ($pipelineScope ?? '') === 'branch' ? 'text-white' : 'text-white/50' }}"
+                       style="{{ ($pipelineScope ?? '') === 'branch' ? 'background: var(--brand-button);' : '' }}">Branch</a>
+                    @endif
+                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('view', 'state'), ['scope' => 'agency'])) }}"
+                       class="px-2.5 py-1 text-[10px] font-semibold {{ ($pipelineScope ?? '') === 'agency' ? 'text-white' : 'text-white/50' }}"
+                       style="{{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-button);' : '' }}">All</a>
+                </div>
+                {{-- View toggle --}}
                 <div class="inline-flex rounded-md overflow-hidden" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
-                    <a href="{{ route('command-center.buyers.pipeline', ['view' => 'kanban']) }}"
+                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state'), ['view' => 'kanban'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold {{ $view === 'kanban' ? 'text-white' : 'text-white/60' }}"
                        style="{{ $view === 'kanban' ? 'background: var(--brand-button);' : '' }}">Kanban</a>
-                    <a href="{{ route('command-center.buyers.pipeline', ['view' => 'list']) }}"
+                    <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->only('scope', 'state'), ['view' => 'list'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold {{ $view === 'list' ? 'text-white' : 'text-white/60' }}"
                        style="{{ $view === 'list' ? 'background: var(--brand-button);' : '' }}">List</a>
                 </div>

@@ -47,6 +47,33 @@ class PresentationSnapshotController extends Controller
             'generated_at'            => now(),
         ]);
 
+        // Capture buyer demand snapshot (Module 13) for historical comparison
+        if ($presentation->listing_id) {
+            try {
+                $agencyId = $presentation->agency_id ?? (auth()->user()->effectiveAgencyId() ?? 1);
+                $buyerDemand = app(\App\Services\PropertyMatchScoringService::class)
+                    ->getBuyerDemandForProperty($presentation->listing_id, $agencyId);
+
+                \Illuminate\Support\Facades\DB::table('property_presentation_snapshots')->insert([
+                    'property_id' => $presentation->listing_id,
+                    'presentation_id' => $presentation->id,
+                    'generated_at' => now(),
+                    'generated_by_user_id' => auth()->id(),
+                    'market_data_snapshot' => json_encode([
+                        'buyer_demand' => $buyerDemand,
+                        'captured_at' => now()->toIso8601String(),
+                    ]),
+                    'days_on_market_at_time' => $presentation->listing_id
+                        ? (int) now()->diffInDays(\App\Models\Property::withoutGlobalScopes()->find($presentation->listing_id)?->published_at ?? now())
+                        : null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            } catch (\Throwable $e) {
+                // Don't block snapshot save
+            }
+        }
+
         return redirect()->route('presentations.snapshots.show', [$presentation, $snapshot])
             ->with('success', 'Snapshot saved.');
     }

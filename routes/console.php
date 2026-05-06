@@ -107,4 +107,7 @@ Schedule::command('properties:generate-recommendations')->weeklyOn(1, '05:00')->
 
 // ── Buyer Matching Engine (M6) ──
 Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
+
+// ── Prospecting Intelligence (M13) ──
+Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();

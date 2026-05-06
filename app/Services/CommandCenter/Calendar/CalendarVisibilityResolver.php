@@ -47,10 +47,11 @@ class CalendarVisibilityResolver
             return true;
         }
 
-        // Invitation-based visibility: accepted/tentative attendees see the event
+        // Invitation-based visibility: pending/accepted/tentative attendees see the event
+        // (pending shown with distinct styling so user knows they haven't responded yet)
         $hasInvitation = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $event->id)
             ->where('invitee_user_id', $user->id)
-            ->whereIn('status', ['accepted', 'tentative'])
+            ->whereIn('status', ['pending', 'accepted', 'tentative'])
             ->exists();
         if ($hasInvitation) {
             return true;
