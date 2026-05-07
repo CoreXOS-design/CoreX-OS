@@ -27,6 +27,29 @@ class AgencySwitcherController extends Controller
             throw new AccessDeniedHttpException('You do not have access to that agency.');
         }
 
+        // Defence in depth: if the target agency requires external access
+        // authorization, the direct switch endpoint refuses — the consent
+        // flow (api/v1/agency-access/*) must be used instead.
+        // Members of the agency itself bypass this — only owner-role users
+        // crossing in from outside need consent. A live 24h grant for this
+        // requester+agency also bypasses (the grant persists across switches).
+        if ($agency->requiresExternalAccessAuthorization()
+            && $user->isOwnerRole()
+            && (int) ($user->agency_id ?? 0) !== (int) $agency->id) {
+            $hasLiveGrant = \App\Models\AgencyAccessRequest::query()
+                ->byRequester($user->id)
+                ->forAgency($agency->id)
+                ->where('status', \App\Models\AgencyAccessRequest::STATUS_APPROVED)
+                ->where('granted_session_expires_at', '>', now())
+                ->exists();
+            if (!$hasLiveGrant) {
+                return back()->with(
+                    'error',
+                    "{$agency->name} requires authorization for remote access. Use the agency switcher to request consent."
+                );
+            }
+        }
+
         session(['active_agency_id' => $agency->id]);
 
         return back()->with('success', "Switched to {$agency->name}.");

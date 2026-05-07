@@ -60,6 +60,9 @@ Schedule::command('targets:carry-forward')->monthlyOn(1, '00:05')->withoutOverla
 // contact has a recent deal. Daily at 03:00.
 Schedule::command('corex:matches:archive-stale')->dailyAt('03:00')->withoutOverlapping();
 
+// Agency Access Authorization — expire stale pending requests every minute.
+Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
+
 // Private Property activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinutes()->withoutOverlapping();
 

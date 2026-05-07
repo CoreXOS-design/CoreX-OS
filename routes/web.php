@@ -76,6 +76,18 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/branding',        [\App\Http\Controllers\Api\V1\BrandingController::class, 'show'])->name('branding.show');
 
+        // ── Agency Access Authorization (cross-agency consent flow) ──
+        // See .ai/specs/agency-access-authorization-spec.md
+        Route::prefix('agency-access')->name('agency-access.')->group(function () {
+            Route::get('/inspect/{agency}',        [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'inspect'])->name('inspect');
+            Route::post('/request',                [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'store'])->name('store');
+            Route::get('/inbox',                   [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'inbox'])->name('inbox');
+            Route::get('/{request}/status',        [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'status'])->name('status');
+            Route::post('/{request}/cancel',       [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'cancel'])->name('cancel');
+            Route::post('/{request}/authorize',    [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'authorize'])->name('authorize');
+            Route::post('/{request}/confirm-switch',[\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'confirmSwitch'])->name('confirm-switch');
+        });
+
         // ── Command Center: Task Notes (threaded) + Checklist ──
         Route::prefix('command-center/tasks/{task}')->name('command-center.tasks.')->group(function () {
             Route::get('/notes',           [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'index'])->name('notes.index');
@@ -239,7 +251,7 @@ Route::middleware('auth')->group(function () {
 // P24 Importer — owner-only. The `owner_only` middleware sits alongside
 // `permission:access_importer` so even if the permission is mis-granted
 // to an agency admin they still 403 here.
-Route::prefix('admin/importer')->middleware(['auth', 'permission:access_importer'])->name('admin.importer.')->group(function () {
+Route::prefix('admin/importer')->middleware(['auth', 'owner_only'])->name('admin.importer.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\ImporterController::class, 'index'])->name('index');
     Route::post('/agents/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadAgents'])->name('agents.upload');
     Route::get('/runs/{run}/preview', [\App\Http\Controllers\Admin\ImporterController::class, 'preview'])->name('preview');
@@ -530,8 +542,8 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/admin/tv-code/revoke-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'revokeCompany'])->name('admin.tv-code.revoke-company');
 
         // Agency switcher (super admin)
-        Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('permission:access_agencies')->name('agency.switch.clear');
-        Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('permission:access_agencies')->name('agency.switch');
+        Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('owner_only')->name('agency.switch.clear');
+        Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('owner_only')->name('agency.switch');
 
         // Branch switcher (Split Branches Phase 2) — gated by branches.switch permission
         Route::post('/branch/switch/clear', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'clear'])->name('branch.switch.clear');
@@ -1310,6 +1322,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/matches-wa-message', [CoreXSettingsController::class, 'updateMatchesWaMessage'])->middleware('permission:access_settings')->name('corex.settings.matches-wa-message');
     Route::post('/settings/matches-show-on-properties', [CoreXSettingsController::class, 'updateMatchesShowOnProperties'])->middleware('permission:access_settings')->name('corex.settings.matches-show-on-properties');
     Route::post('/settings/matches-allow-cross-agent', [CoreXSettingsController::class, 'updateMatchesAllowCrossAgent'])->middleware('permission:access_settings')->name('corex.settings.matches-allow-cross-agent');
+    Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');
     // Old compliance-officers endpoint — kept for backwards compat, redirects
     Route::post('/settings/compliance-officers', function () {
         return redirect('/corex/settings?tab=user');
@@ -1357,7 +1370,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:edit_permissions')->name('corex.role-manager.copy');
 
     // Agency Management — index/create/store/destroy/toggle-active are owner-only.
-    Route::middleware('permission:access_agencies')->prefix('settings/agencies')->name('agencies.')->group(function () {
+    Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');

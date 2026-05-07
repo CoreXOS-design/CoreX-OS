@@ -56,6 +56,9 @@
                 'items' => array_values(array_filter([
                     ['key'=>'agency',                'label'=>'Agency Settings',       'type'=>'section', 'keywords'=>'company branding logo signature'],
                     ['key'=>'company',               'label'=>'Company Settings',      'type'=>'link', 'href'=>route('admin.company-settings'), 'keywords'=>'trading name address logo branches assignments performance vat'],
+                    ($u && $u->hasPermission('agency.manage_access_authorization'))
+                        ? ['key'=>'remote-access', 'label'=>'Remote Access', 'type'=>'section', 'keywords'=>'system owner consent authorization cross-agency switch']
+                        : null,
                 ])),
             ],
             [
@@ -375,6 +378,57 @@
             @endif
 
         </div>
+
+        {{-- ============================================================
+             REMOTE ACCESS TAB — agency-side consent toggle
+             See .ai/specs/agency-access-authorization-spec.md
+             ============================================================ --}}
+        @if($u && $u->hasPermission('agency.manage_access_authorization') && isset($agency) && $agency)
+        <div x-show="activeSection === 'remote-access'" x-cloak class="p-6 space-y-5">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">Remote Access</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">
+                    Control whether system owners can switch into <strong>{{ $agency->name }}</strong> without asking.
+                </p>
+            </div>
+
+            <form method="POST" action="{{ route('corex.settings.remote-access') }}"
+                  x-data="{ on: {{ $agency->require_external_access_authorization ? 'true' : 'false' }} }"
+                  class="rounded-md p-5 space-y-4"
+                  style="background:var(--surface-2); border:1px solid var(--border);">
+                @csrf
+
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" name="require_external_access_authorization" value="1"
+                           x-model="on"
+                           class="mt-1 h-4 w-4 rounded">
+                    <span class="flex-1">
+                        <span class="block text-sm font-semibold" style="color:var(--text-primary);">
+                            Require system owner consent for remote access
+                        </span>
+                        <span class="block text-xs mt-1" style="color:var(--text-secondary);">
+                            <strong>OFF</strong> (default): a system owner can switch into this agency at any time, no questions asked.<br>
+                            <strong>ON</strong>: every cross-agency switch attempt by a system owner triggers an approval request. The system owner picks which admin(s) to ask; only those admins receive the popup. Access lasts 24h once approved.
+                        </span>
+                    </span>
+                </label>
+
+                <div class="flex items-center justify-between gap-3 pt-2"
+                     style="border-top:1px solid var(--border);">
+                    <div class="text-xs" style="color:var(--text-muted);">
+                        Currently:
+                        <span class="font-semibold" :class="on ? 'text-amber-500' : 'text-emerald-500'"
+                              x-text="on ? 'ON — consent required' : 'OFF — open access'"></span>
+                    </div>
+                    <button type="submit"
+                            class="px-4 py-2 rounded-md text-sm font-semibold text-white"
+                            style="background:var(--brand-button, #0ea5e9);">
+                        Save
+                    </button>
+                </div>
+            </form>
+        </div>
+        @endif
 
         {{-- ============================================================
              USER SETTINGS TAB

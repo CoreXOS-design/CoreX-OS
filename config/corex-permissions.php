@@ -168,12 +168,8 @@ return [
         ['key' => 'access_client_portal',    'label' => 'Access Client Portal',            'section' => 'client-portal',    'type' => 'access',  'module' => 'client_portal',    'sort_order' => 1],
         ['key' => 'manage_clients',          'label' => 'Manage Client Records',           'section' => 'client-portal',    'type' => 'access',  'module' => 'client_portal',    'sort_order' => 2],
 
-        // ── P24 Importer ──
-        ['key' => 'access_importer',         'label' => 'Access P24 Importer',             'section' => 'importer',         'type' => 'access',  'module' => 'importer',         'sort_order' => 1],
-        ['key' => 'importer.import_agents',   'label' => 'Import Agents (P24)',             'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 2],
-        ['key' => 'importer.import_listings', 'label' => 'Import Listings (P24)',           'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 3],
-        ['key' => 'confirm_properties',      'label' => 'Confirm Properties (Review)',     'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 4],
-        ['key' => 'send_agent_invites',      'label' => 'Send Agent Invites',              'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 5],
+        // ── P24 Importer ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
+        // Routes now gated by `owner_only` middleware. No permission keys needed.
 
         // ── Franchise Admin ──
         ['key' => 'access_franchise_admin',  'label' => 'Access Franchise Admin',          'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 1],
@@ -323,9 +319,13 @@ return [
         ['key' => 'deals_v2.manage_pipeline',    'label' => 'Manage Pipeline Templates',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 14],
         ['key' => 'deals_v2.override_dates',     'label' => 'Override Due Dates',          'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 15],
 
-        // ── Agencies ──
-        ['key' => 'access_agencies',             'label' => 'Access Agencies',             'section' => 'agencies',         'type' => 'access',  'module' => 'agencies',         'sort_order' => 1],
-        ['key' => 'manage_agencies',             'label' => 'Manage Agencies',             'section' => 'agencies',         'type' => 'access',  'module' => 'agencies',         'sort_order' => 2],
+        // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
+        // Routes now gated by `owner_only` middleware. No permission keys needed.
+
+        // ── Remote Access (cross-agency consent flow) ──
+        // See .ai/specs/agency-access-authorization-spec.md
+        ['key' => 'agency.manage_access_authorization', 'label' => 'Manage Remote Access Setting', 'section' => 'remote-access', 'type' => 'access', 'module' => 'remote_access', 'sort_order' => 1],
+        ['key' => 'agency.authorize_external_access',   'label' => 'Approve / Deny Remote Access', 'section' => 'remote-access', 'type' => 'action', 'module' => 'remote_access', 'sort_order' => 2],
 
         // ── Settings ──
         ['key' => 'access_settings',             'label' => 'Access Settings',             'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 1],
@@ -417,7 +417,7 @@ return [
         'super_admin' => '*', // Owner role — gets all permissions
 
         'admin' => [
-            'exclude' => ['access_agencies', 'manage_agencies', 'manage_agency_switching'],
+            'exclude' => ['manage_agency_switching'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',

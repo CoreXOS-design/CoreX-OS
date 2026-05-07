@@ -12,6 +12,17 @@
     $activeAgencyId = session('active_agency_id');
     $agencies = $isOwner ? \App\Models\Agency::orderBy('name')->get() : collect();
     $activeAgency = ($isOwner && $activeAgencyId) ? $agencies->find($activeAgencyId) : null;
+    // Live 24h grants for this owner — keyed by agency_id → ISO expires-at
+    $accessGrants = $isOwner
+        ? \App\Models\AgencyAccessRequest::query()
+            ->byRequester($user->id)
+            ->where('status', \App\Models\AgencyAccessRequest::STATUS_APPROVED)
+            ->where('granted_session_expires_at', '>', now())
+            ->get(['target_agency_id', 'granted_session_expires_at'])
+            ->groupBy('target_agency_id')
+            ->map(fn ($rows) => $rows->max('granted_session_expires_at')->toIso8601String())
+            ->all()
+        : [];
 
     // Current user's agency (for all users)
     $_userAgencyId = $user?->effectiveAgencyId();
@@ -157,33 +168,16 @@
     </div>
     @endif
 
-    {{-- Agency Switcher (owner role only) --}}
+    {{-- Agency Switcher (owner role only) — with consent flow.
+         See .ai/specs/agency-access-authorization-spec.md --}}
     @if($isOwner)
-    <div x-data="{ agencyOpen: false }" class="px-3 pb-2">
-        <button type="button" @click="agencyOpen = !agencyOpen"
-                class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
-                style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 flex-shrink-0">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-            </svg>
-            <span class="flex-1 text-left truncate">{{ $activeAgency ? $activeAgency->name : 'All Agencies' }}</span>
-            @if(!$activeAgency)
-            <span class="w-2 h-2 rounded-full flex-shrink-0 animate-pulse" style="background:var(--ds-amber);"></span>
-            @endif
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 flex-shrink-0 transition-transform duration-150" :class="agencyOpen && 'rotate-90'"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-        </button>
-        <div x-show="agencyOpen" x-cloak @click.outside="agencyOpen = false" x-transition
-             class="mt-1 rounded-md overflow-hidden shadow-lg"
-             style="background:var(--surface-2, #1a1e28); border:1px solid var(--border);">
-            @foreach($agencies as $ag)
-            <form method="POST" action="{{ route('agency.switch', $ag) }}">
-                @csrf
-                <button type="submit" class="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-[color:var(--surface)] {{ (int)$activeAgencyId === $ag->id ? 'font-semibold' : '' }}" style="color: @if((int)$activeAgencyId === $ag->id) var(--brand-icon, #0ea5e9) @else var(--text-secondary) @endif;">
-                    {{ $ag->name }}
-                </button>
-            </form>
-            @endforeach
-        </div>
+    @include('partials.agency-access-consent', ['agencies' => $agencies, 'activeAgencyId' => $activeAgencyId, 'activeAgency' => $activeAgency, 'accessGrants' => $accessGrants])
+    @endif
+
+    {{-- Remote Access Inbox (agency admins only) --}}
+    @if(auth()->check() && auth()->user()->role === 'admin')
+    <div class="px-3 pb-2">
+        @include('partials.agency-access-inbox')
     </div>
     @endif
 
@@ -1007,13 +1001,7 @@
             </svg>
             <span>Contact Governance</span>
         </a>
-<a href="{{ route('command-center.admin.duplicate-cleanup') }}" class="corex-nav-item {{ request()->routeIs('command-center.admin.duplicate-cleanup*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
-            </svg>
-            <span>Duplicate Cleanup</span>
-        </a>
-        <a href="{{ route('command-center.settings.market-intelligence') }}" class="corex-nav-item {{ request()->routeIs('command-center.settings.market-intelligence*') ? 'active' : '' }}">
+<a href="{{ route('command-center.settings.market-intelligence') }}" class="corex-nav-item {{ request()->routeIs('command-center.settings.market-intelligence*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
             </svg>
@@ -1112,6 +1100,14 @@
             <span>PP Agents</span>
         </a>
         @endif
+
+        {{-- Duplicate Cleanup --}}
+        <a href="{{ route('command-center.admin.duplicate-cleanup') }}" class="corex-nav-item {{ request()->routeIs('command-center.admin.duplicate-cleanup*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+            </svg>
+            <span>Duplicate Cleanup</span>
+        </a>
 
         {{-- API Catalog --}}
         <a href="{{ route('admin.api.catalog') }}" class="corex-nav-item {{ request()->routeIs('admin.api.catalog') ? 'active' : '' }}">

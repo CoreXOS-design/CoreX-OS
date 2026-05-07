@@ -4,12 +4,15 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class AgencyController extends Controller
 {
@@ -52,6 +55,7 @@ class AgencyController extends Controller
             'default_color'    => 'nullable|string|max:20',
             'button_color'     => 'nullable|string|max:20',
             'is_active'        => 'nullable|boolean',
+            'is_demo'          => 'nullable|boolean',
             'trading_name'     => 'nullable|string|max:255',
             'tagline'          => 'nullable|string|max:255',
             'address'          => 'nullable|string|max:500',
@@ -66,6 +70,13 @@ class AgencyController extends Controller
             'p24_agency_id'    => 'nullable|string|max:32',
             'p24_agency_label' => 'nullable|string|max:100',
             'logo'             => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+
+            // First Admin — required for live agencies, skipped for demo agencies.
+            // See .ai/specs/agency-admin-rule.md.
+            'admin_name'     => 'required_if:is_demo,0,false,,|nullable|string|max:191',
+            'admin_email'    => 'required_if:is_demo,0,false,,|nullable|email|max:191|unique:users,email',
+            'admin_password' => 'required_if:is_demo,0,false,,|nullable|string|min:8',
+            'admin_cell'     => 'nullable|string|max:50',
         ]);
 
         $data['slug']          = $data['slug'] ?? Str::slug($data['name']);
@@ -73,11 +84,37 @@ class AgencyController extends Controller
         $data['icon_color']    = $data['icon_color']    ?? '#0ea5e9';
         $data['default_color'] = $data['default_color'] ?? '#0b2a4a';
         $data['button_color']  = $data['button_color']  ?? '#0ea5e9';
-        $data['is_active']       = (bool) ($data['is_active'] ?? true);
+        $data['is_active']     = (bool) ($data['is_active'] ?? true);
+        $data['is_demo']       = (bool) ($data['is_demo'] ?? false);
 
-        unset($data['logo']);
+        $isDemo = $data['is_demo'];
+        $adminPayload = $isDemo ? null : [
+            'name'     => $data['admin_name'],
+            'email'    => $data['admin_email'],
+            'password' => $data['admin_password'],
+            'cell'     => $data['admin_cell'] ?? null,
+        ];
+        unset($data['logo'], $data['admin_name'], $data['admin_email'], $data['admin_password'], $data['admin_cell']);
 
-        $agency = Agency::create($data);
+        // Atomic: live agency + first Admin must succeed together. Demo agencies
+        // skip the admin requirement entirely. See spec R1.
+        $agency = DB::transaction(function () use ($data, $adminPayload) {
+            $agency = Agency::create($data);
+
+            if ($adminPayload) {
+                User::create([
+                    'name'      => $adminPayload['name'],
+                    'email'     => $adminPayload['email'],
+                    'password'  => Hash::make($adminPayload['password']),
+                    'cell'      => $adminPayload['cell'],
+                    'role'      => 'admin',
+                    'agency_id' => $agency->id,
+                    'is_active' => true,
+                ]);
+            }
+
+            return $agency;
+        });
 
         if ($request->hasFile('logo')) {
             $ext = $request->file('logo')->getClientOriginalExtension();
@@ -87,7 +124,18 @@ class AgencyController extends Controller
             $agency->update(['logo_path' => $path]);
         }
 
-        return redirect()->route('agencies.index')->with('success', "Agency \"{$data['name']}\" created.");
+        Log::info('Agency created', [
+            'agency_id'   => $agency->id,
+            'is_demo'     => $isDemo,
+            'admin_email' => $adminPayload['email'] ?? null,
+            'created_by'  => auth()->id(),
+        ]);
+
+        $msg = $isDemo
+            ? "Demo agency \"{$data['name']}\" created (no Admin required)."
+            : "Agency \"{$data['name']}\" created with Admin {$adminPayload['email']}.";
+
+        return redirect()->route('agencies.index')->with('success', $msg);
     }
 
     public function edit(Agency $agency)

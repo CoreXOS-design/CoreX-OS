@@ -42,7 +42,7 @@ class SettingsController extends Controller
             'agency', 'user', 'system', 'notifications',
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-matches', 'feature-dashboard',
-            'leave-visibility',
+            'leave-visibility', 'remote-access',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -535,5 +535,39 @@ class SettingsController extends Controller
 
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'dashboard'])
             ->with('success', 'Agency dashboard settings saved.');
+    }
+
+    /**
+     * Toggle the agency-level "Require system owner consent for remote access" flag.
+     * See .ai/specs/agency-access-authorization-spec.md.
+     */
+    public function updateRemoteAccess(Request $request)
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('agency.manage_access_authorization'), 403);
+
+        $data = $request->validate([
+            'require_external_access_authorization' => 'nullable|boolean',
+        ]);
+        $newValue = (bool) ($data['require_external_access_authorization'] ?? false);
+
+        $agencyId = $user->effectiveAgencyId();
+        $agency = Agency::findOrFail($agencyId);
+        $oldValue = (bool) $agency->require_external_access_authorization;
+
+        if ($oldValue !== $newValue) {
+            $agency->update(['require_external_access_authorization' => $newValue]);
+            \Illuminate\Support\Facades\Log::info('agency_access_auth_flag_toggled', [
+                'agency_id' => $agency->id,
+                'old'       => $oldValue,
+                'new'       => $newValue,
+                'by'        => $user->id,
+            ]);
+        }
+
+        return redirect()->route('corex.settings', ['s' => 'remote-access'])
+            ->with('success', $newValue
+                ? 'Remote access authorization is now ON. System owners must request consent to switch in.'
+                : 'Remote access authorization is now OFF. System owners can switch in directly.');
     }
 }

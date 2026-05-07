@@ -24,7 +24,8 @@
     <form method="POST"
           action="{{ $agency ? route('agencies.update', $agency) : route('agencies.store') }}"
           enctype="multipart/form-data"
-          class="space-y-5">
+          class="space-y-5"
+          x-data="{ isDemo: {{ old('is_demo') ? 'true' : 'false' }} }">
         @csrf
         @if($agency)
             @method('PUT')
@@ -326,6 +327,58 @@
                        style="file:background:var(--brand-primary, #0b2a4a);">
             </div>
         </div>
+
+        {{-- ── Demo Agency toggle (create flow only) ──
+             Demo agencies skip the First Admin requirement entirely. --}}
+        @if(!$agency)
+        <div class="rounded-2xl border border-slate-200 bg-white p-6">
+            <label class="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" name="is_demo" value="1" x-model="isDemo" class="mt-1 h-4 w-4 rounded">
+                <span>
+                    <span class="block text-sm font-semibold" style="color:var(--brand-default, #0b2a4a);">Demo agency</span>
+                    <span class="block text-xs text-slate-500 mt-0.5">For showcasing, training, or sales demos. No first Admin required — the agency is created empty.</span>
+                </span>
+            </label>
+        </div>
+        @endif
+
+        {{-- ── First Admin (create flow only, hidden for demo agencies) ──
+             Every live agency must have ≥1 Admin. On create, the System Owner
+             registers the first Admin user inline. See .ai/specs/agency-admin-rule.md. --}}
+        @if(!$agency)
+        <div x-show="!isDemo" x-cloak class="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
+            <div>
+                <h3 class="text-base font-bold" style="color:var(--brand-default, #0b2a4a);">First Admin <span class="text-red-500">*</span></h3>
+                <p class="text-xs text-slate-500 mt-0.5">Every agency must have at least one Admin. They are created together — this user becomes the agency's first Admin and gets full permissions.</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold mb-1" style="color:var(--brand-default, #0b2a4a);">Full name <span class="text-red-500">*</span></label>
+                    <input type="text" name="admin_name" value="{{ old('admin_name') }}"
+                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none"
+                           placeholder="e.g. Jane Smith" :required="!isDemo" :disabled="isDemo">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold mb-1" style="color:var(--brand-default, #0b2a4a);">Email <span class="text-red-500">*</span></label>
+                    <input type="email" name="admin_email" value="{{ old('admin_email') }}"
+                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none"
+                           placeholder="admin@agency.co.za" :required="!isDemo" :disabled="isDemo">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold mb-1" style="color:var(--brand-default, #0b2a4a);">Password <span class="text-red-500">*</span></label>
+                    <input type="password" name="admin_password"
+                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none"
+                           placeholder="min 8 characters" minlength="8" :required="!isDemo" :disabled="isDemo">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold mb-1" style="color:var(--brand-default, #0b2a4a);">Mobile</label>
+                    <input type="text" name="admin_cell" value="{{ old('admin_cell') }}"
+                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none"
+                           placeholder="optional">
+                </div>
+            </div>
+        </div>
+        @endif
 
         {{-- Actions --}}
         <div class="flex items-center gap-3">

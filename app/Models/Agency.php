@@ -37,6 +37,8 @@ class Agency extends Model
         'email_disclaimer',
         'popi_url',
         'is_active',
+        'is_demo',
+        'require_external_access_authorization',
         'dashboard_settings_mode',
         'split_branches_enabled',
         'p24_agency_id',
@@ -46,6 +48,8 @@ class Agency extends Model
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_demo' => 'boolean',
+        'require_external_access_authorization' => 'boolean',
         'split_branches_enabled' => 'boolean',
         'default_branch_id' => 'integer',
     ];
@@ -63,6 +67,44 @@ class Agency extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    /**
+     * Active Admin users for this agency.
+     * "Admin" = role string equal to 'admin' (per Role.name convention).
+     * See .ai/specs/agency-admin-rule.md.
+     */
+    public function admins(): HasMany
+    {
+        return $this->hasMany(User::class)
+            ->where('role', 'admin')
+            ->where('is_active', 1);
+    }
+
+    public function adminCount(): int
+    {
+        return $this->admins()->count();
+    }
+
+    /**
+     * True iff $user is the only active Admin for this agency.
+     */
+    public function accessRequests(): HasMany
+    {
+        return $this->hasMany(AgencyAccessRequest::class, 'target_agency_id');
+    }
+
+    public function requiresExternalAccessAuthorization(): bool
+    {
+        return (bool) $this->require_external_access_authorization;
+    }
+
+    public function hasSoleAdmin(User $user): bool
+    {
+        if ($user->role !== 'admin' || (int) $user->agency_id !== (int) $this->id) {
+            return false;
+        }
+        return $this->adminCount() <= 1;
     }
 
     public function rmcpVersions(): HasMany

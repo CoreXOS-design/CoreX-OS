@@ -128,6 +128,58 @@ class User extends Authenticatable
         'medical_aid_dependents_count' => 'integer',
     ];
 
+    /**
+     * Agency Admin Rule — every agency must keep ≥1 active Admin at all times.
+     * See .ai/specs/agency-admin-rule.md. Enforced structurally so any path
+     * (controller, console, queue, manual Tinker) cannot leave an agency
+     * adminless.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (self $user) {
+            if (!$user->getOriginal('agency_id') || $user->getOriginal('role') !== 'admin') {
+                return;
+            }
+            $demoting = $user->isDirty('role') && $user->role !== 'admin';
+            $deactivating = $user->isDirty('is_active') && !$user->is_active;
+            $movingAgency = $user->isDirty('agency_id');
+            if (!($demoting || $deactivating || $movingAgency)) {
+                return;
+            }
+            $count = static::query()
+                ->where('agency_id', $user->getOriginal('agency_id'))
+                ->where('role', 'admin')
+                ->where('is_active', 1)
+                ->where('id', '!=', $user->id)
+                ->count();
+            if ($count < 1) {
+                throw \App\Exceptions\LastAdminException::forAgency(
+                    (int) $user->getOriginal('agency_id'),
+                    $demoting ? 'demote' : ($deactivating ? 'deactivate' : 'move')
+                );
+            }
+        });
+
+        static::deleting(function (self $user) {
+            if ($user->role !== 'admin' || !$user->agency_id) {
+                return;
+            }
+            // Soft-delete: only block if this is the LAST active admin for the agency.
+            $count = static::query()
+                ->where('agency_id', $user->agency_id)
+                ->where('role', 'admin')
+                ->where('is_active', 1)
+                ->where('id', '!=', $user->id)
+                ->count();
+            if ($count < 1) {
+                throw \App\Exceptions\LastAdminException::forAgency(
+                    (int) $user->agency_id,
+                    'delete'
+                );
+            }
+        });
+    }
+
     // --- View-As support (session override) ---
 
     public function effectiveRole(): string
