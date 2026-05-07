@@ -78,6 +78,7 @@
                 'items' => [
                     ['key'=>'commission',            'label'=>'Commission & Revenue Share','type'=>'link', 'href'=>route('corex.settings.commission'), 'keywords'=>'splits caps fees tiers'],
                     ['key'=>'command-center',        'label'=>'Command Center Rules',  'type'=>'link', 'href'=>route('command-center.settings'), 'keywords'=>'expectations reminders'],
+                    ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                 ],
             ],
             [
@@ -2053,6 +2054,84 @@
 
             </div>{{-- /dashboard --}}
 
+        </div>
+
+        {{-- ============================================================
+             LEAVE VISIBILITY (Operations)
+             ============================================================ --}}
+        <div x-show="activeSection === 'leave-visibility'" x-cloak class="p-6 space-y-5">
+            @if(isset($leaveVisibilityRoles) && isset($leaveVisibilityGrid))
+                @if(session('success'))
+                    <div class="px-4 py-2.5 rounded-md text-sm" style="background:rgba(16,185,129,0.1); color:#10b981; border:1px solid rgba(16,185,129,0.2);">
+                        {{ session('success') }}
+                    </div>
+                @endif
+
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted); border-left:3px solid var(--brand-icon, #0ea5e9); padding-left:10px;">Leave Visibility Matrix</h3>
+                    <p class="text-xs mt-2" style="color:var(--text-secondary);">
+                        Controls which roles can see whose leave entries on the calendar. Access to the leave calendar feature itself is controlled by
+                        <a href="{{ route('corex.role-manager') }}" class="font-medium hover:underline" style="color: var(--brand-icon, #0ea5e9);">Role Manager</a>. The most restrictive rule wins. Own leave is always visible.
+                    </p>
+                </div>
+
+                <form method="POST" action="{{ route('command-center.settings.leave-visibility.update') }}"
+                      class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf @method('PUT')
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b" style="border-color:var(--border);">
+                                    <th class="text-left py-2 px-3 text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Viewer ↓ / Owner →</th>
+                                    @foreach($leaveVisibilityRoles as $ownerRole)
+                                        <th class="text-center py-2 px-3 text-[11px] font-semibold uppercase tracking-wider capitalize" style="color:var(--text-muted);">
+                                            {{ str_replace('_', ' ', $ownerRole) }}
+                                        </th>
+                                    @endforeach
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($leaveVisibilityRoles as $viewingRole)
+                                    <tr class="border-b" style="border-color:var(--border);">
+                                        <td class="py-2 px-3 text-sm font-medium capitalize" style="color:var(--text-primary);">
+                                            {{ str_replace('_', ' ', $viewingRole) }}
+                                        </td>
+                                        @foreach($leaveVisibilityRoles as $ownerRole)
+                                            <td class="py-2 px-3">
+                                                <div class="inline-flex flex-col items-start gap-1">
+                                                    <label class="flex items-center gap-1.5 text-[11px]" style="color:var(--text-muted);">
+                                                        <input type="checkbox" name="matrix[{{ $viewingRole }}][{{ $ownerRole }}][same_branch]" value="1"
+                                                               {{ ($leaveVisibilityGrid[$viewingRole][$ownerRole]['same_branch'] ?? false) ? 'checked' : '' }}>
+                                                        Branch
+                                                    </label>
+                                                    <label class="flex items-center gap-1.5 text-[11px]" style="color:var(--text-muted);">
+                                                        <input type="checkbox" name="matrix[{{ $viewingRole }}][{{ $ownerRole }}][cross_branch]" value="1"
+                                                               {{ ($leaveVisibilityGrid[$viewingRole][$ownerRole]['cross_branch'] ?? false) ? 'checked' : '' }}>
+                                                        All
+                                                    </label>
+                                                </div>
+                                            </td>
+                                        @endforeach
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <p class="text-[11px]" style="color:var(--text-muted);">
+                        <strong>Branch</strong> = same branch only. <strong>All</strong> = entire agency.
+                    </p>
+
+                    <div class="flex justify-end pt-2 border-t" style="border-color:var(--border);">
+                        <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button);">
+                            Save Matrix
+                        </button>
+                    </div>
+                </form>
+            @else
+                <p class="text-sm" style="color:var(--text-muted);">You don't have permission to configure leave visibility.</p>
+            @endif
         </div>
 
         {{-- ============================================================

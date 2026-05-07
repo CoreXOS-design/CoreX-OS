@@ -126,6 +126,7 @@
         </div>
     </div>
 
+
     {{-- ═══════ ADD EXPECTATION MODAL ═══════ --}}
     <div x-show="showAddExpectation" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.5);" @keydown.escape.window="showAddExpectation = false">
         <div class="w-full max-w-md rounded-lg shadow-xl" style="background:var(--surface);" @click.outside="showAddExpectation = false">

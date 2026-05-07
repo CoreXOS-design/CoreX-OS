@@ -42,6 +42,7 @@ class SettingsController extends Controller
             'agency', 'user', 'system', 'notifications',
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-matches', 'feature-dashboard',
+            'leave-visibility',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -127,6 +128,30 @@ class SettingsController extends Controller
             $data['notificationSnapshot'] = app(NotificationPreferenceService::class)->snapshot($user);
         } else {
             $data['notificationSnapshot'] = null;
+        }
+
+        // Operations: Leave Visibility matrix (admin/owner only)
+        if ($user && in_array($user->role, ['admin', 'owner', 'super_admin'])) {
+            $agencyId = $user->effectiveAgencyId();
+            $matrix = \App\Models\AgencyLeaveVisibilityMatrix::matrixForAgency($agencyId);
+            $roles = \App\Models\Role::allRoles()->pluck('name')
+                ->reject(fn($r) => $r === 'super_admin')->values()->toArray();
+            $aliases = ['branch_manager' => 'bm', 'bm' => 'branch_manager'];
+            $grid = [];
+            foreach ($roles as $vr) {
+                foreach ($roles as $or) {
+                    $vv = array_filter([$vr, $aliases[$vr] ?? null]);
+                    $ov = array_filter([$or, $aliases[$or] ?? null]);
+                    $sb = $matrix->first(fn($r) => in_array($r->viewing_role, $vv) && in_array($r->leave_owner_role, $ov) && $r->same_branch_only === true);
+                    $cb = $matrix->first(fn($r) => in_array($r->viewing_role, $vv) && in_array($r->leave_owner_role, $ov) && $r->same_branch_only === false);
+                    $grid[$vr][$or] = [
+                        'same_branch'  => $sb ? $sb->can_see : false,
+                        'cross_branch' => $cb ? $cb->can_see : false,
+                    ];
+                }
+            }
+            $data['leaveVisibilityRoles'] = $roles;
+            $data['leaveVisibilityGrid']  = $grid;
         }
 
         return view('corex.settings', $data);

@@ -224,18 +224,50 @@ class AgencyController extends Controller
                 ->all();
 
             if (!empty($userIdsToDelete)) {
-                $userRefTables = array_values(array_filter(
-                    $tables,
-                    fn ($t) => $t !== 'users' && Schema::hasColumn($t, 'user_id')
-                ));
-                foreach ($userRefTables as $table) {
+                // Discover every FK column that references users.id, regardless of name
+                // (user_id, assigned_by, created_by, manager_id, etc.). Falls back to a
+                // conventional column-name scan on non-MySQL drivers.
+                $userRefs = [];
+                if (in_array($driver, ['mysql', 'mariadb'], true)) {
+                    $rows = DB::select(
+                        "SELECT TABLE_NAME, COLUMN_NAME
+                           FROM information_schema.KEY_COLUMN_USAGE
+                          WHERE TABLE_SCHEMA = DATABASE()
+                            AND REFERENCED_TABLE_NAME = 'users'
+                            AND REFERENCED_COLUMN_NAME = 'id'
+                            AND TABLE_NAME <> 'users'"
+                    );
+                    foreach ($rows as $r) {
+                        $userRefs[] = ['table' => $r->TABLE_NAME, 'column' => $r->COLUMN_NAME];
+                    }
+                } else {
+                    $candidateCols = ['user_id', 'assigned_by', 'assigned_to', 'created_by', 'updated_by', 'owner_id', 'manager_id', 'agent_id'];
+                    foreach ($tables as $t) {
+                        if ($t === 'users') continue;
+                        foreach ($candidateCols as $col) {
+                            if (Schema::hasColumn($t, $col)) {
+                                $userRefs[] = ['table' => $t, 'column' => $col];
+                            }
+                        }
+                    }
+                }
+
+                foreach ($userRefs as $ref) {
+                    $table  = $ref['table'];
+                    $column = $ref['column'];
                     try {
-                        $deleted = DB::table($table)->whereIn('user_id', $userIdsToDelete)->delete();
-                        if ($deleted > 0) {
-                            $counts[$table] = ($counts[$table] ?? 0) + $deleted;
+                        // If the referencing table is tenant-scoped, hard-delete the rows.
+                        // Otherwise just null the FK so the user delete can proceed.
+                        if (Schema::hasColumn($table, 'agency_id')) {
+                            $deleted = DB::table($table)->whereIn($column, $userIdsToDelete)->delete();
+                            if ($deleted > 0) {
+                                $counts[$table] = ($counts[$table] ?? 0) + $deleted;
+                            }
+                        } else {
+                            DB::table($table)->whereIn($column, $userIdsToDelete)->update([$column => null]);
                         }
                     } catch (\Throwable $e) {
-                        Log::error("Agency hard-delete failed on user-ref {$table}", [
+                        Log::error("Agency hard-delete failed on user-ref {$table}.{$column}", [
                             'agency_id' => $agencyId,
                             'error'     => $e->getMessage(),
                         ]);

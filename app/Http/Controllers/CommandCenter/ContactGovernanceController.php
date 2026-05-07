@@ -69,56 +69,12 @@ class ContactGovernanceController extends Controller
     }
 
     /**
-     * Leave Visibility Matrix settings page.
-     */
-    public function leaveVisibility()
-    {
-        $agencyId = $this->resolveAgencyId();
-        $matrix = AgencyLeaveVisibilityMatrix::matrixForAgency($agencyId);
-
-        // Dynamic roles from Role Manager
-        $roles = \App\Models\Role::allRoles()->pluck('name')->toArray();
-
-        // Alias map for legacy data (matrix stores 'bm', roles table has 'branch_manager')
-        $roleAliases = ['branch_manager' => 'bm', 'bm' => 'branch_manager'];
-
-        $grid = [];
-        foreach ($roles as $viewingRole) {
-            foreach ($roles as $ownerRole) {
-                // Check both the actual role name and its alias in legacy data
-                $viewerVariants = array_filter([$viewingRole, $roleAliases[$viewingRole] ?? null]);
-                $ownerVariants = array_filter([$ownerRole, $roleAliases[$ownerRole] ?? null]);
-
-                $sameBranchRow = $matrix->first(fn($r) =>
-                    in_array($r->viewing_role, $viewerVariants) &&
-                    in_array($r->leave_owner_role, $ownerVariants) &&
-                    $r->same_branch_only === true
-                );
-                $crossBranchRow = $matrix->first(fn($r) =>
-                    in_array($r->viewing_role, $viewerVariants) &&
-                    in_array($r->leave_owner_role, $ownerVariants) &&
-                    $r->same_branch_only === false
-                );
-                $grid[$viewingRole][$ownerRole] = [
-                    'same_branch' => $sameBranchRow ? $sameBranchRow->can_see : false,
-                    'cross_branch' => $crossBranchRow ? $crossBranchRow->can_see : false,
-                ];
-            }
-        }
-
-        return view('command-center.settings.leave-visibility', [
-            'grid' => $grid,
-            'roles' => $roles,
-        ]);
-    }
-
-    /**
      * Save leave visibility matrix.
      */
     public function updateLeaveVisibility(Request $request)
     {
         $agencyId = $this->resolveAgencyId();
-        $roles = \App\Models\Role::allRoles()->pluck('name')->toArray();
+        $roles = \App\Models\Role::allRoles()->pluck('name')->reject(fn($r) => $r === 'super_admin')->values()->toArray();
 
         $matrixData = $request->input('matrix', []);
 
@@ -154,6 +110,7 @@ class ContactGovernanceController extends Controller
             }
         }
 
-        return back()->with('success', 'Leave visibility matrix saved.');
+        return redirect()->route('corex.settings', ['s' => 'leave-visibility'])
+            ->with('success', 'Leave visibility matrix saved.');
     }
 }

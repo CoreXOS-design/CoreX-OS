@@ -731,16 +731,6 @@
 
         {{-- Training (LMS) — moved to agent section above as "Training" --}}
 
-        {{-- Filing Register --}}
-        @permission('access_filing_register')
-        <a href="{{ route('filing-register.index') }}" class="corex-nav-item {{ request()->routeIs('filing-register.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
-            </svg>
-            <span>Filing Register</span>
-        </a>
-        @endpermission
-
         @endpermission {{-- /sidebar.section.agents --}}
 
         {{-- ═══════════════════════════════════════════
@@ -836,25 +826,6 @@
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Tools</div>
 
-        {{-- Calculators --}}
-        @if(\Illuminate\Support\Facades\Route::has('calculators.index'))
-        @permission('access_calculators')
-        <a href="{{ route('calculators.index') }}" class="corex-nav-item {{ request()->routeIs('calculators.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="4" y="2" width="16" height="20" rx="2"/>
-                <line x1="8" y1="6" x2="16" y2="6"/>
-                <line x1="8" y1="10" x2="10" y2="10"/>
-                <line x1="14" y1="10" x2="16" y2="10"/>
-                <line x1="8" y1="14" x2="10" y2="14"/>
-                <line x1="14" y1="14" x2="16" y2="14"/>
-                <line x1="8" y1="18" x2="10" y2="18"/>
-                <line x1="14" y1="18" x2="16" y2="18"/>
-            </svg>
-            <span>Calculators</span>
-        </a>
-        @endpermission
-        @endif
-
         {{-- Ellie AI --}}
         @permission('access_ellie')
         @if(\Illuminate\Support\Facades\Route::has('ellie.index'))
@@ -868,7 +839,7 @@
         @endpermission
 
         {{-- Trust Interest (slide-panel group) --}}
-        @if($user && $user->hasAnyPermission(['access_trust_interest', 'access_deposit_calculator', 'access_deposit_calc_history']))
+        @if($user && $user->hasAnyPermission(['access_trust_interest', 'access_deposit_calculator', 'access_deposit_calc_history', 'access_calculators']))
         <div>
             <button type="button" @click="push('trust-interest')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'trust-interest' ? 'active' : '' }}">
@@ -908,6 +879,12 @@
                 <a href="{{ route('deposit-interest-calculator.history') }}" class="corex-nav-subitem {{ request()->routeIs('deposit-interest-calculator.history') ? 'active' : '' }}">Calculation History</a>
                 @endif
                 @endpermission
+
+                @permission('access_calculators')
+                @if(\Illuminate\Support\Facades\Route::has('calculators.index'))
+                <a href="{{ route('calculators.index') }}" class="corex-nav-subitem {{ request()->routeIs('calculators.*') ? 'active' : '' }}">Calculators</a>
+                @endif
+                @endpermission
             </div>
         </div>
         @endif
@@ -938,6 +915,16 @@
             <span>Document Library</span>
         </a>
         @endif
+        @endpermission
+
+        {{-- Filing Register --}}
+        @permission('access_filing_register')
+        <a href="{{ route('filing-register.index') }}" class="corex-nav-item {{ request()->routeIs('filing-register.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+            </svg>
+            <span>Filing Register</span>
+        </a>
         @endpermission
 
         @endpermission {{-- /sidebar.section.tools --}}
@@ -1020,14 +1007,7 @@
             </svg>
             <span>Contact Governance</span>
         </a>
-        <a href="{{ route('command-center.settings.leave-visibility') }}" class="corex-nav-item {{ request()->routeIs('command-center.settings.leave-visibility*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-            </svg>
-            <span>Leave Visibility</span>
-        </a>
-        <a href="{{ route('command-center.admin.duplicate-cleanup') }}" class="corex-nav-item {{ request()->routeIs('command-center.admin.duplicate-cleanup*') ? 'active' : '' }}">
+<a href="{{ route('command-center.admin.duplicate-cleanup') }}" class="corex-nav-item {{ request()->routeIs('command-center.admin.duplicate-cleanup*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
             </svg>
