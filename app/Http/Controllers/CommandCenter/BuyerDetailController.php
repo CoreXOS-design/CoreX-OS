@@ -48,6 +48,9 @@ class BuyerDetailController extends Controller
             'deal_breakers' => 'nullable|array',
             'preferred_areas' => 'nullable|array',
             'preferred_property_types' => 'nullable|array',
+            'preapproval_amount' => 'nullable|numeric|min:0',
+            'preapproval_expires_at' => 'nullable|date',
+            'preapproval_institution' => 'nullable|string|max:100',
         ]);
 
         DB::table('buyer_preferences')->updateOrInsert(
@@ -61,6 +64,9 @@ class BuyerDetailController extends Controller
                 'deal_breakers' => json_encode($data['deal_breakers'] ?? []),
                 'preferred_areas' => json_encode($data['preferred_areas'] ?? []),
                 'preferred_property_types' => json_encode($data['preferred_property_types'] ?? []),
+                'preapproval_amount' => $data['preapproval_amount'] ?? null,
+                'preapproval_expires_at' => $data['preapproval_expires_at'] ?? null,
+                'preapproval_institution' => $data['preapproval_institution'] ?? null,
                 'updated_by_user_id' => auth()->id(),
                 'updated_at' => now(),
                 'created_at' => DB::raw('COALESCE(created_at, NOW())'),

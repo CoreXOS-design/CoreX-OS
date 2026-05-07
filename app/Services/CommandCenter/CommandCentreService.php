@@ -844,20 +844,31 @@ class CommandCentreService
     private function myDealSteps(int $userId, int $agencyId): array
     {
         try {
+            $user = \App\Models\User::withoutGlobalScopes()->find($userId);
+            $role = $user?->effectiveRole() ?? 'agent';
+            $isAdmin = in_array($role, ['admin', 'super_admin', 'owner'], true);
+
             $steps = DB::table('deal_step_instances as dsi')
                 ->join('deals_v2 as d', 'd.id', '=', 'dsi.deal_id')
-                ->where('d.agency_id', $agencyId)
+                ->leftJoin('branches as b', 'b.id', '=', 'd.branch_id')
+                ->where('b.agency_id', $agencyId)
                 ->where('d.status', 'active')
-                ->whereIn('dsi.status', ['todo', 'in_progress'])
-                ->where(function ($q) use ($userId) {
-                    $q->where('dsi.assigned_to_user_id', $userId)
-                      ->orWhereIn('d.id', function ($sub) use ($userId) {
-                          $sub->select('deal_id')->from('deal_v2_agents')->where('user_id', $userId);
-                      });
+                ->whereNull('d.deleted_at')
+                ->whereNull('dsi.deleted_at')
+                ->whereIn('dsi.status', ['active', 'not_started'])
+                ->whereNotNull('dsi.due_date')
+                ->when(!$isAdmin, function ($q) use ($userId) {
+                    $q->where(function ($q2) use ($userId) {
+                        $q2->where('d.listing_agent_id', $userId)
+                           ->orWhere('d.selling_agent_id', $userId)
+                           ->orWhereIn('d.id', function ($sub) use ($userId) {
+                               $sub->select('deal_id')->from('deal_v2_agents')->where('user_id', $userId);
+                           });
+                    });
                 })
                 ->orderBy('dsi.due_date')
                 ->limit(5)
-                ->get(['dsi.id', 'dsi.step_name', 'dsi.status', 'dsi.due_date', 'd.reference']);
+                ->get(['dsi.id', 'dsi.name as step_name', 'dsi.status', 'dsi.due_date', 'd.reference']);
         } catch (\Throwable $e) {
             $steps = collect();
         }
@@ -875,7 +886,7 @@ class CommandCentreService
                 'status' => str_replace('_', ' ', $s->status),
                 'due' => $s->due_date ? \Carbon\Carbon::parse($s->due_date)->format('d M') : '',
             ])->toArray(),
-            'view_all_url' => '/corex/deals',
+            'view_all_url' => '/deals-v2',
         ];
     }
 

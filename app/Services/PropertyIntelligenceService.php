@@ -41,27 +41,20 @@ class PropertyIntelligenceService
 
     /**
      * Portal performance metrics for a property (last N days).
+     *
+     * Note: portal_captures stores raw page HTML for presentation scraping,
+     * not per-property view/favourite/enquiry metrics. When portal analytics
+     * integration is built (P24 Stats API, PP Dashboard API), this method
+     * will query a dedicated property_portal_metrics table. Until then,
+     * returns zeros to prevent 500 errors on the Property Hub.
      */
     public function getPortalPerformance(int $propertyId, int $rangeDays = 30): array
     {
-        $since = now()->subDays($rangeDays);
-
-        $stats = DB::table('portal_captures')
-            ->where('property_id', $propertyId)
-            ->where('created_at', '>=', $since)
-            ->selectRaw("
-                COUNT(*) as total_captures,
-                SUM(CASE WHEN capture_type = 'view' THEN 1 ELSE 0 END) as views,
-                SUM(CASE WHEN capture_type = 'favourite' THEN 1 ELSE 0 END) as favourites,
-                SUM(CASE WHEN capture_type = 'enquiry' THEN 1 ELSE 0 END) as enquiries
-            ")
-            ->first();
-
         return [
-            'views' => (int) ($stats->views ?? 0),
-            'favourites' => (int) ($stats->favourites ?? 0),
-            'enquiries' => (int) ($stats->enquiries ?? 0),
-            'total' => (int) ($stats->total_captures ?? 0),
+            'views' => 0,
+            'favourites' => 0,
+            'enquiries' => 0,
+            'total' => 0,
             'range_days' => $rangeDays,
         ];
     }
