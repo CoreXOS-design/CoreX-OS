@@ -227,6 +227,47 @@
                     <input type="text" name="preferred_areas[]" value="{{ implode(', ', $prefAreas) }}" placeholder="e.g. Margate, Uvongo, Shelly Beach"
                            class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
+
+                {{-- Pre-approval Status --}}
+                <div class="pt-3 mt-2" style="border-top: 1px solid var(--border);">
+                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Pre-approval Status</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Pre-approved Amount (R)</label>
+                            <input type="number" name="preapproval_amount" value="{{ $statedPrefs->preapproval_amount ?? '' }}" placeholder="e.g. 2500000" step="1000"
+                                   class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Expires</label>
+                            <input type="date" name="preapproval_expires_at" value="{{ $statedPrefs->preapproval_expires_at ?? '' }}"
+                                   class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Institution</label>
+                            <select name="preapproval_institution" class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                <option value="">— Select —</option>
+                                @foreach(['Standard Bank', 'Nedbank', 'FNB', 'ABSA', 'Investec', 'Capitec', 'SA Home Loans', 'ooba', 'BetterBond', 'Other'] as $bank)
+                                    <option value="{{ $bank }}" {{ ($statedPrefs->preapproval_institution ?? '') === $bank ? 'selected' : '' }}>{{ $bank }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+                    @if(!empty($statedPrefs->preapproval_amount))
+                        @php
+                            $preExpiry = $statedPrefs->preapproval_expires_at ? \Carbon\Carbon::parse($statedPrefs->preapproval_expires_at) : null;
+                            $preExpired = $preExpiry && $preExpiry->isPast();
+                            $preExpiring = $preExpiry && !$preExpired && $preExpiry->diffInDays(now()) <= 30;
+                        @endphp
+                        <div class="mt-2 px-2 py-1.5 rounded text-xs inline-flex items-center gap-1.5"
+                             style="{{ $preExpired ? 'background:rgba(239,68,68,0.1);color:#ef4444;' : ($preExpiring ? 'background:rgba(245,158,11,0.1);color:#f59e0b;' : 'background:rgba(16,185,129,0.1);color:#10b981;') }}">
+                            <span class="w-1.5 h-1.5 rounded-full" style="{{ $preExpired ? 'background:#ef4444;' : ($preExpiring ? 'background:#f59e0b;' : 'background:#10b981;') }}"></span>
+                            Pre-approved R {{ number_format($statedPrefs->preapproval_amount) }}
+                            @if($statedPrefs->preapproval_institution) via {{ $statedPrefs->preapproval_institution }}@endif
+                            @if($preExpiry) · {{ $preExpired ? 'Expired ' . $preExpiry->format('d M Y') : 'Expires ' . $preExpiry->format('d M Y') }}@endif
+                        </div>
+                    @endif
+                </div>
+
                 <div class="flex justify-end">
                     <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded text-white" style="background: var(--brand-button);">Save Preferences</button>
                 </div>

@@ -47,32 +47,35 @@ class DealCalendarSource implements CalendarSourceContract
             ->whereNull('d.deleted_at')
             ->whereIn('d.status', self::ACTIVE_DEAL_STATUSES)
             ->leftJoin('branches as b', 'b.id', '=', 'd.branch_id')
+            ->leftJoin('properties as p', 'p.id', '=', 'd.property_id')
             ->select(
                 'dsi.id',
                 'dsi.due_date',
                 'dsi.deal_id',
                 'dsi.name as step_name',
+                'd.reference',
                 'd.branch_id',
                 'd.selling_agent_id',
+                'd.listing_agent_id',
                 'd.property_id',
                 'b.agency_id',
+                DB::raw("COALESCE(p.address, p.title, CONCAT('Property #', p.id)) as property_label"),
             )
             ->get()
             ->map(fn ($r) => [
                 'event_type'  => 'deal',
                 'category'    => 'deal_step_deadline',
-                'title'       => $r->step_name
-                    ? "{$r->step_name} due (deal #{$r->deal_id})"
-                    : "Pipeline step due (deal #{$r->deal_id})",
+                'title'       => ($r->step_name ?? 'Step') . ' Due — ' . ($r->reference ?? 'Deal') . ($r->property_label ? ' — ' . $r->property_label : ''),
                 'event_date'  => Carbon::parse($r->due_date)->startOfDay(),
                 'source_type' => \App\Models\DealV2\DealStepInstance::class,
                 'source_id'   => $r->id,
-                'user_id'     => $r->selling_agent_id,
+                'user_id'     => $r->selling_agent_id ?? $r->listing_agent_id,
                 'agency_id'   => $r->agency_id,
                 'branch_id'   => $r->branch_id,
                 'property_id' => $r->property_id,
                 'metadata'    => [
                     'deal_id'   => $r->deal_id,
+                    'deal_ref'  => $r->reference,
                     'step_name' => $r->step_name,
                 ],
             ]);
@@ -85,26 +88,34 @@ class DealCalendarSource implements CalendarSourceContract
             ->whereNotNull('d.expected_registration')
             ->whereIn('d.status', self::ACTIVE_DEAL_STATUSES)
             ->leftJoin('branches as b', 'b.id', '=', 'd.branch_id')
+            ->leftJoin('properties as p', 'p.id', '=', 'd.property_id')
             ->select(
                 'd.id',
+                'd.reference',
                 'd.expected_registration',
                 'd.branch_id',
                 'd.selling_agent_id',
+                'd.listing_agent_id',
                 'd.property_id',
                 'b.agency_id',
+                DB::raw("COALESCE(p.address, p.title, CONCAT('Property #', p.id)) as property_label"),
             )
             ->get()
             ->map(fn ($d) => [
                 'event_type'  => 'deal',
                 'category'    => 'deal_registration_target',
-                'title'       => "Target registration — deal #{$d->id}",
+                'title'       => 'Registration Expected — ' . ($d->reference ?? 'Deal') . ($d->property_label ? ' — ' . $d->property_label : ''),
                 'event_date'  => Carbon::parse($d->expected_registration)->startOfDay(),
                 'source_type' => \App\Models\DealV2\DealV2::class,
                 'source_id'   => $d->id,
-                'user_id'     => $d->selling_agent_id,
+                'user_id'     => $d->selling_agent_id ?? $d->listing_agent_id,
                 'agency_id'   => $d->agency_id,
                 'branch_id'   => $d->branch_id,
                 'property_id' => $d->property_id,
+                'metadata'    => [
+                    'deal_id'  => $d->id,
+                    'deal_ref' => $d->reference,
+                ],
             ]);
     }
 }
