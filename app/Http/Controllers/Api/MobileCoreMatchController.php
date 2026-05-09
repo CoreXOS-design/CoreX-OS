@@ -54,14 +54,8 @@ class MobileCoreMatchController extends Controller
         $this->authorizeMatch($request->user(), $match);
         $match->load(['contact.type', 'feedback']);
 
-        $allowCrossAgent     = (bool) \App\Models\PerformanceSetting::get('matches_allow_cross_agent', 0);
-        $requestedCrossAgent = $request->boolean('show_other_agents');
-        $showOtherAgents     = $allowCrossAgent && $requestedCrossAgent;
-
-        $overrides = ['include_hidden' => true];
-        if ($showOtherAgents) {
-            $overrides['agent_id'] = null;
-        }
+        $scope = (string) \App\Models\PerformanceSetting::get('matches_visibility_scope', \App\Services\Matching\MatchingService::SCOPE_AGENCY);
+        $overrides = ['include_hidden' => true] + \App\Services\Matching\MatchingService::scopeOverridesFor($match);
 
         $properties = $this->matching->propertiesForMatch($match, $overrides);
         $feedback   = $match->feedback->keyBy('property_id');
@@ -94,10 +88,7 @@ class MobileCoreMatchController extends Controller
                 'type'      => $match->contact->type?->name,
             ],
             'results' => $results,
-            'scope'   => [
-                'allow_cross_agent' => $allowCrossAgent,
-                'show_other_agents' => $showOtherAgents,
-            ],
+            'scope'   => ['visibility' => $scope],
         ]);
     }
 
@@ -220,7 +211,7 @@ class MobileCoreMatchController extends Controller
     public function settings(): JsonResponse
     {
         return response()->json([
-            'allow_cross_agent' => (bool) \App\Models\PerformanceSetting::get('matches_allow_cross_agent', 0),
+            'visibility_scope' => (string) \App\Models\PerformanceSetting::get('matches_visibility_scope', \App\Services\Matching\MatchingService::SCOPE_AGENCY),
         ]);
     }
 

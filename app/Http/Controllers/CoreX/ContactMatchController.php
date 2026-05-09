@@ -75,20 +75,13 @@ class ContactMatchController extends Controller
     {
         abort_if($match->contact_id !== $contact->id, 403);
 
-        $allowCrossAgent     = (bool) \App\Models\PerformanceSetting::get('matches_allow_cross_agent', 0);
-        $requestedCrossAgent = $request->boolean('show_other_agents');
-        $showOtherAgents     = $allowCrossAgent && $requestedCrossAgent;
-
-        $overrides = ['include_hidden' => true];
-        if ($showOtherAgents) {
-            $overrides['agent_id'] = null;
-        }
+        $overrides = ['include_hidden' => true] + MatchingService::scopeOverridesFor($match);
 
         $properties = $this->matching->propertiesForMatch($match, $overrides);
         $feedback   = $match->feedback()->get()->keyBy('property_id');
 
         return view('corex.contacts.match-results', compact(
-            'contact', 'match', 'properties', 'feedback', 'allowCrossAgent', 'showOtherAgents'
+            'contact', 'match', 'properties', 'feedback'
         ));
     }
 
