@@ -89,8 +89,17 @@ Route::prefix('v1/client-auth')->group(function () {
 });
 
 Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->group(function () {
-    Route::get('/me',      [ClientPortalController::class, 'me'])->name('client.me');
-    Route::get('/matches', [ClientPortalController::class, 'matches'])->name('client.matches');
+    Route::get('/me',                 [ClientPortalController::class, 'me'])->name('client.me');
+    Route::get('/match-options',      [ClientPortalController::class, 'matchOptions'])->name('client.match-options');
+
+    Route::get('/matches',                                  [ClientPortalController::class, 'matches'])->name('client.matches');
+    Route::post('/matches',                                 [ClientPortalController::class, 'matchCreate'])->name('client.matches.create');
+    Route::get('/matches/{match}',                          [ClientPortalController::class, 'matchShow'])->name('client.matches.show');
+    Route::put('/matches/{match}',                          [ClientPortalController::class, 'matchUpdate'])->name('client.matches.update');
+    Route::post('/matches/{match}/feedback/{property}',     [ClientPortalController::class, 'matchFeedback'])->name('client.matches.feedback');
+    Route::post('/matches/{match}/view/{property}',         [ClientPortalController::class, 'matchView'])->name('client.matches.view');
+
+    Route::get('/properties/{property}',  [ClientPortalController::class, 'propertyShow'])->name('client.properties.show');
 });
 
 Route::middleware('auth:sanctum')->group(function () {

@@ -15,27 +15,53 @@
         : collect();
 @endphp
 
-<div class="rounded-md p-5" style="background: var(--surface-2); border: 1px solid var(--border);"
+<div class="rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);"
      x-data="{
+        open: {{ $errors->any() || session('client_login_success') ? 'true' : 'false' }},
         showCreate: false,
         showReset: false,
         suggestedEmail: @js(old('client_login_email', $clientUser?->email ?? null)),
         suggestedPassword: ''
      }">
-    <div class="flex items-center justify-between mb-4">
-        <div>
-            <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Client App Access</h3>
-            <p class="text-sm mt-1" style="color:var(--text-secondary);">
-                Mobile sign-in for this contact. Lets the client view their Core Matches.
-            </p>
+
+    {{-- Collapsible header (always visible) --}}
+    <button type="button" @click="open = !open"
+            class="w-full flex items-center justify-between px-5 py-3 text-left hover:opacity-90 transition-opacity"
+            :aria-expanded="open">
+        <div class="flex items-center gap-3">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 transition-transform"
+                 :style="open ? 'transform: rotate(90deg); color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-muted);'"
+                 fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+            </svg>
+            <div>
+                <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Client App Access</h3>
+                <p class="text-xs mt-0.5" style="color:var(--text-muted);">
+                    @if($clientUser)
+                        {{ $clientUser->email }}
+                        @if($clientUser->password_must_change)
+                            <span class="ds-badge ds-badge-warning ml-1">Must Change</span>
+                        @elseif($clientUser->hasPassword())
+                            <span class="ds-badge ds-badge-success ml-1">Active</span>
+                        @else
+                            <span class="ds-badge ml-1">Pending OTP</span>
+                        @endif
+                    @else
+                        Not configured
+                    @endif
+                </p>
+            </div>
         </div>
         @if(!$clientUser && $canCreate)
-            <button type="button" class="corex-btn-primary text-sm"
-                    @click="showCreate = true; if(!suggestedEmail) { suggestedEmail = '{{ \App\Services\ClientAuthService::class }}'; }">
+            <span @click.stop="showCreate = true; open = true"
+                  class="corex-btn-primary text-xs px-3 py-1.5 cursor-pointer">
                 Create Client Login
-            </button>
+            </span>
         @endif
-    </div>
+    </button>
+
+    {{-- Collapsible body --}}
+    <div x-show="open" x-cloak class="px-5 pb-5 pt-1" x-transition>
 
     @if($clientUser)
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
@@ -131,8 +157,10 @@
             </div>
         </div>
     @else
-        <div class="text-sm" style="color:var(--text-muted);">No client app login configured for this contact.</div>
+        <div class="text-sm" style="color:var(--text-muted);">No client app login configured for this contact. Use the button above to create one.</div>
     @endif
+
+    </div>{{-- /collapsible body --}}
 
     {{-- Create Modal --}}
     <div x-show="showCreate" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.6);" @keydown.escape.window="showCreate = false">

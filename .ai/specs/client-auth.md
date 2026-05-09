@@ -116,7 +116,14 @@ Same intent as draft. Keyed by `email` (so OTPs can be issued before a ClientUse
 | POST | `/api/v1/client-auth/password/forgot` | `client-auth.password.forgot` | none | `{email}` — issues recovery OTP (real emails only) |
 | POST | `/api/v1/client-auth/logout` | `client-auth.logout` | `auth:sanctum` (`client`) | revokes current token |
 | GET  | `/api/v1/client/me` | `client.me` | `auth:sanctum` (`client`) | returns contact summary, current agency, lock state |
-| GET  | `/api/v1/client/matches` | `client.matches` | `auth:sanctum` (`client`) | client-facing Core Matches scoped to selected agency |
+| GET  | `/api/v1/client/match-options` | `client.match-options` | `auth:sanctum` (`client`) | Listing types, property types, suburb suggestions for the agency |
+| GET  | `/api/v1/client/matches` | `client.matches` | `auth:sanctum` (`client`) | List the client's matches in current agency, each with `feedback_summary` counts |
+| POST | `/api/v1/client/matches` | `client.matches.create` | `auth:sanctum` (`client`) | Client creates a new match for themselves |
+| GET  | `/api/v1/client/matches/{match}` | `client.matches.show` | `auth:sanctum` (`client`) | Match detail + result properties + per-property reaction state |
+| PUT  | `/api/v1/client/matches/{match}` | `client.matches.update` | `auth:sanctum` (`client`) | Client edits filters on their own match |
+| POST | `/api/v1/client/matches/{match}/feedback/{property}` | `client.matches.feedback` | `auth:sanctum` (`client`) | Body: `{reaction: interested\|not_interested\|saved, note?}` — same shape as the shared web link |
+| POST | `/api/v1/client/matches/{match}/view/{property}` | `client.matches.view` | `auth:sanctum` (`client`) | Increment per-property view counter on the match |
+| GET  | `/api/v1/client/properties/{property}` | `client.properties.show` | `auth:sanctum` (`client`) | Full property detail (mobile equivalent of the web Live Preview); only properties that appear in the client's match results are accessible |
 
 Rate limits: `lookup`/`login` — 10/min/IP. `otp/send` — 1/min, 5/hour per email+IP. `password/forgot` — 3/hour per email.
 
