@@ -39,6 +39,12 @@ class PublicAgencyPropertiesController extends Controller
         $agency = Agency::where('slug', $agencySlug)->firstOrFail();
         abort_unless($property->agency_id === $agency->id, 404);
 
+        // Public listing — must be compliance-ready
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        if (!$svc->isMarketable($property)) {
+            abort(404);
+        }
+
         $property->load('agent');
 
         return view('public.agency-properties.show', compact('agency', 'property'));

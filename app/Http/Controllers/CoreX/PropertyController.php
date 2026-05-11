@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Storage;
 
 class PropertyController extends Controller
 {
+    use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+
     public function index(Request $request)
     {
         /** @var User $user */
@@ -773,7 +775,9 @@ class PropertyController extends Controller
         $this->authorizeProperty($property);
 
         $action = $request->input('action', 'toggle');
+        // Gate: enforce marketing readiness when PUBLISHING (not when unpublishing)
         if ($action === 'publish' || $action === 'refresh' || ($action === 'toggle' && ! $property->published_at)) {
+            $this->enforceMarketingReadiness($property);
             $missing = [];
             if (! $property->agent)             $missing[] = 'Listing agent';
             elseif (empty($property->agent->phone)) $missing[] = 'Agent phone number';
@@ -888,6 +892,11 @@ class PropertyController extends Controller
 
     public function livePreview(Property $property, \Illuminate\Http\Request $request)
     {
+        // Public listing preview — gate by marketing readiness
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        if (!$svc->isMarketable($property)) {
+            abort(404);
+        }
         $property->load(['agent', 'branch', 'agency']);
 
         /** @var User|null $authUser */

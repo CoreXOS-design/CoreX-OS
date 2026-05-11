@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Storage;
 
 class PropertyMarketingController extends Controller
 {
+    use Concerns\EnforcesMarketingReadiness;
     public function __construct(
         private MarketingCopyService  $copyService,
         private MetaOAuthService      $oauthService,
@@ -76,6 +77,7 @@ class PropertyMarketingController extends Controller
     public function publish(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceMarketingReadiness($property);
 
         $validated = $request->validate([
             'platforms'  => 'required|array|min:1',

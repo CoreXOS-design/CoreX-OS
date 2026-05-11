@@ -14,6 +14,8 @@ use Illuminate\Http\Request;
 
 class SyndicationController extends Controller
 {
+    use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+
     private PrivatePropertySyndicationService $syndicationService;
     private PrivatePropertyListingMapper $mapper;
 
@@ -33,6 +35,11 @@ class SyndicationController extends Controller
         $this->authorizeProperty($property);
 
         $wasEnabled = (bool) $property->pp_syndication_enabled;
+
+        // Gate: only enforce when ENABLING syndication (disabling is always allowed)
+        if (!$wasEnabled) {
+            $this->enforceMarketingReadiness($property);
+        }
         $nowEnabled = !$wasEnabled;
 
         $updateData = ['pp_syndication_enabled' => $nowEnabled];
@@ -68,6 +75,7 @@ class SyndicationController extends Controller
     public function submit(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceMarketingReadiness($property);
 
         // Save exclusive days if provided
         if ($request->has('pp_exclusive_days')) {
@@ -175,6 +183,7 @@ class SyndicationController extends Controller
     public function reactivate(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceMarketingReadiness($property);
 
         $result = $this->syndicationService->reactivateListing($property);
 

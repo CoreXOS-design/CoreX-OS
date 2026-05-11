@@ -12,6 +12,8 @@ use Illuminate\Http\Request;
 
 class P24SyndicationController extends Controller
 {
+    use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+
     private Property24SyndicationService $syndicationService;
     private Property24ListingMapper $mapper;
 
@@ -24,8 +26,8 @@ class P24SyndicationController extends Controller
     public function toggle(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
-
         $nowEnabled = !((bool) $property->p24_syndication_enabled);
+        if ($nowEnabled) { $this->enforceMarketingReadiness($property); }
         $updateData = ['p24_syndication_enabled' => $nowEnabled];
 
         if ($nowEnabled && $property->p24_syndication_status === null) {
@@ -51,6 +53,7 @@ class P24SyndicationController extends Controller
     public function submit(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceMarketingReadiness($property);
 
         $missing = $this->mapper->checkReadiness($property);
         if (!empty($missing)) {
@@ -85,6 +88,7 @@ class P24SyndicationController extends Controller
     public function reactivate(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        $this->enforceMarketingReadiness($property);
         $result = $this->syndicationService->reactivateListing($property);
         return response()->json(['success' => $result['success'], 'message' => $result['message'], 'p24_syndication_status' => $property->fresh()->p24_syndication_status], $result['success'] ? 200 : 422);
     }
