@@ -29,4 +29,28 @@ class PropertySellerLink extends Model
     {
         return bin2hex(random_bytes(32)); // 64-char hex
     }
+
+    /**
+     * Ensure an active seller link exists for a (property, contact) pair.
+     * Returns the existing active link or creates a new one. Idempotent.
+     */
+    public static function ensureExists(int $propertyId, int $contactId, ?int $generatedByUserId = null): self
+    {
+        $existing = static::where('property_id', $propertyId)
+            ->where('contact_id', $contactId)
+            ->whereNull('revoked_at')
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        return static::create([
+            'property_id' => $propertyId,
+            'contact_id' => $contactId,
+            'token' => static::generateToken(),
+            'generated_by_user_id' => $generatedByUserId ?? auth()->id() ?? 1,
+            'generated_at' => now(),
+        ]);
+    }
 }

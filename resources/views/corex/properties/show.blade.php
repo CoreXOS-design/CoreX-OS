@@ -3249,58 +3249,52 @@
                     </div>
                 @endif
 
-                {{-- Section: Seller Live Links (agent management) --}}
+                {{-- Section: Seller Live Links (auto-created, no generate button) --}}
                 <div x-show="!sellerPreview">
                     @php
-                        $sellerLinks = DB::table('property_seller_links')->where('property_id', $property->id)->orderByDesc('generated_at')->get();
                         $sellers = $property->contacts()->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])->get();
+                        // Auto-create links for any sellers that don't have one yet
+                        foreach ($sellers as $seller) {
+                            \App\Models\PropertySellerLink::ensureExists($property->id, $seller->id);
+                        }
+                        $sellerLinks = \App\Models\PropertySellerLink::where('property_id', $property->id)
+                            ->whereNull('revoked_at')
+                            ->get();
                     @endphp
                     <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Seller Live Links</h3>
                     @if($sellerLinks->isNotEmpty())
-                        <div class="space-y-1 mb-2">
+                        <div class="space-y-1">
                             @foreach($sellerLinks as $sl)
                                 @php $slContact = App\Models\Contact::withoutGlobalScopes()->find($sl->contact_id); @endphp
                                 <div class="flex items-center justify-between px-3 py-2 rounded text-xs" style="background: var(--surface-2);">
-                                    <div>
-                                        <span style="color: var(--text-primary);">{{ $slContact?->full_name ?? 'Contact' }}</span>
-                                        <span class="ml-2 text-[10px]" style="color: var(--text-muted);">
-                                            {{ $sl->revoked_at ? 'Revoked' : 'Active' }}
-                                            · Viewed {{ $sl->access_count }}x
-                                            @if($sl->last_accessed_at) · Last: {{ \Carbon\Carbon::parse($sl->last_accessed_at)->diffForHumans() }} @endif
-                                        </span>
+                                    <div class="min-w-0 flex-1">
+                                        <span class="font-medium" style="color: var(--text-primary);">{{ $slContact?->full_name ?? 'Contact' }}</span>
+                                        <span class="text-[10px] ml-1" style="color: var(--text-muted);">Seller</span>
+                                        <div class="text-[10px] mt-0.5 truncate" style="color: var(--text-muted);">{{ url('/property/live/' . $sl->token) }}</div>
+                                        <div class="text-[10px]" style="color: var(--text-muted);">
+                                            Viewed {{ $sl->access_count }}x
+                                            @if($sl->last_accessed_at) · Last: {{ $sl->last_accessed_at->diffForHumans() }} @endif
+                                        </div>
                                     </div>
-                                    <div class="flex items-center gap-2">
-                                        @if(!$sl->revoked_at)
-                                            <button type="button" onclick="navigator.clipboard.writeText('{{ url('/property/live/' . $sl->token) }}'); this.textContent='Copied!';"
-                                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 10%, transparent);">Copy</button>
-                                            @php $sellerEmail = $slContact?->email; @endphp
-                                            @if($sellerEmail)
-                                                <a href="mailto:{{ $sellerEmail }}?subject={{ urlencode('Your live marketing dashboard for ' . ($property->title ?? 'your property')) }}&body={{ urlencode("Hi " . ($slContact->first_name ?? 'there') . ",\n\nYour live marketing dashboard is ready. Bookmark this link to see real-time updates on viewings, feedback, and marketing activity:\n\n" . url('/property/live/' . $sl->token) . "\n\nThis page updates automatically. Any questions, just reply to this email or call me.\n\nBest regards,\n" . (auth()->user()->name ?? 'Your Agent')) }}"
-                                                   class="text-[10px] font-medium px-2 py-0.5 rounded no-underline" style="color: var(--brand-icon);">Email</a>
-                                            @endif
-                                            <form method="POST" action="{{ route('corex.properties.seller-links.revoke', $sl->id) }}" class="inline">
-                                                @csrf
-                                                <button type="submit" class="text-[10px] font-medium px-2 py-0.5 rounded" style="color: var(--text-muted);">Revoke</button>
-                                            </form>
+                                    <div class="flex items-center gap-2 flex-shrink-0">
+                                        <button type="button" onclick="navigator.clipboard.writeText('{{ url('/property/live/' . $sl->token) }}'); this.textContent='Copied!';"
+                                                class="text-[10px] font-medium px-2 py-0.5 rounded" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 10%, transparent);">Copy</button>
+                                        @php $sellerEmail = $slContact?->email; @endphp
+                                        @if($sellerEmail)
+                                            <a href="mailto:{{ $sellerEmail }}?subject={{ urlencode('Your live marketing dashboard for ' . ($property->title ?? 'your property')) }}&body={{ urlencode("Hi " . ($slContact->first_name ?? 'there') . ",\n\nYour live marketing dashboard is ready. Bookmark this link to see real-time updates on viewings, feedback, and marketing activity:\n\n" . url('/property/live/' . $sl->token) . "\n\nThis page updates automatically. Any questions, just reply to this email or call me.\n\nBest regards,\n" . (auth()->user()->name ?? 'Your Agent')) }}"
+                                               class="text-[10px] font-medium px-2 py-0.5 rounded no-underline" style="color: var(--brand-icon);">Email</a>
                                         @endif
+                                        <form method="POST" action="{{ route('corex.properties.seller-links.revoke', $sl->id) }}" class="inline">
+                                            @csrf
+                                            <button type="submit" class="text-[10px] font-medium px-2 py-0.5 rounded" style="color: var(--text-muted);">Revoke</button>
+                                        </form>
                                     </div>
                                 </div>
                             @endforeach
                         </div>
+                    @else
+                        <p class="text-xs py-2" style="color: var(--text-muted);">No sellers linked to this property.</p>
                     @endif
-                    @foreach($sellers as $seller)
-                        @php $hasActive = $sellerLinks->where('contact_id', $seller->id)->whereNull('revoked_at')->isNotEmpty(); @endphp
-                        @if(!$hasActive)
-                            <form method="POST" action="{{ route('corex.properties.seller-links.generate') }}" class="inline">
-                                @csrf
-                                <input type="hidden" name="property_id" value="{{ $property->id }}">
-                                <input type="hidden" name="contact_id" value="{{ $seller->id }}">
-                                <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded mr-1 mb-1" style="background: #00d4aa; color: #0f172a;">
-                                    Generate Link for {{ $seller->first_name }}
-                                </button>
-                            </form>
-                        @endif
-                    @endforeach
                 </div>
 
                 {{-- Section D2: Presentations & Market Positioning --}}

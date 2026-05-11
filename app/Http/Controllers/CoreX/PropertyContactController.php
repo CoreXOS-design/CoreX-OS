@@ -66,9 +66,15 @@ class PropertyContactController extends Controller
             'role'       => 'nullable|string|max:50',
         ]);
 
+        $role = $data['role'] ?? null;
         $property->contacts()->syncWithoutDetaching([
-            $data['contact_id'] => ['role' => $data['role'] ?? null],
+            $data['contact_id'] => ['role' => $role],
         ]);
+
+        // Auto-create seller live link if seller role
+        if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
+            \App\Models\PropertySellerLink::ensureExists($property->id, (int) $data['contact_id']);
+        }
 
         return back()->with('success', 'Contact linked to property.')->with('tab', 'contacts');
     }
@@ -100,6 +106,9 @@ class PropertyContactController extends Controller
                 if ($mode === 'auto_link') {
                     $existing = $duplicates->first();
                     $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $role]]);
+                    if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
+                        \App\Models\PropertySellerLink::ensureExists($property->id, $existing->id);
+                    }
                     $match = $service->identifyMatch($data, $existing, $agencyId);
                     $service->logAttempt($agencyId, $user->id, $mode, $match['field'], $match['value'], $existing->id, $data, 'auto_linked');
                     return back()->with('info', 'Existing contact found and linked.')->with('tab', 'contacts');
@@ -123,6 +132,9 @@ class PropertyContactController extends Controller
 
         $contact = Contact::create($data);
         $property->contacts()->attach($contact->id, ['role' => $role]);
+        if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
+            \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
+        }
 
         return back()->with('success', 'Contact created and linked.')->with('tab', 'contacts');
     }

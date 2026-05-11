@@ -58,6 +58,11 @@ class ContactPropertyController extends Controller
             $data['property_id'] => ['role' => $role],
         ]);
 
+        // Auto-create seller live link if seller role
+        if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
+            \App\Models\PropertySellerLink::ensureExists((int) $data['property_id'], $contact->id);
+        }
+
         return back()->with('success', 'Property linked to contact.')->with('tab', 'properties');
     }
 
