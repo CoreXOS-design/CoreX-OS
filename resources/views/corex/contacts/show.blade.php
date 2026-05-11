@@ -147,12 +147,12 @@
             @foreach([
                 ['key'=>'info','label'=>'Info'],
                 ['key'=>'properties','label'=>'Properties <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->properties->count() .'</span>'],
+                ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
                 ['key'=>'notes','label'=>'Notes <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->contactNotes->count() .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
                 ['key'=>'matches','label'=>'Core Matches <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->matches->count() .'</span>'],
-                ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
             ] as $t)
             @if($t['key'] === 'matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !auth()->user()->hasPermission('access_core_matches')))
                 @continue
@@ -1273,77 +1273,100 @@
              ════════════════════════════════════════ --}}
         <div x-show="activeTab === 'viewings'" x-cloak class="p-6 space-y-6" id="tab-viewings">
 
-            @if(($buyerViewings ?? collect())->isNotEmpty())
+            {{-- Buyer perspective --}}
+            @if(($buyerUpcoming ?? collect())->isNotEmpty() || ($buyerPast ?? collect())->isNotEmpty())
+                {{-- Upcoming buyer viewings --}}
                 <div>
-                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Buyer — Properties Viewed</h3>
-                    <div class="space-y-3">
-                        @foreach($buyerViewings as $bv)
-                            <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div class="min-w-0 flex-1">
-                                        <a href="{{ route('corex.properties.show', $bv['property_id']) }}" target="_blank"
-                                           class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $bv['address'] }}</a>
-                                    </div>
-                                    <div class="text-right flex-shrink-0">
-                                        <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($bv['event_date'])->format('D, j M Y') }}</div>
-                                        <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $bv['agent_name'] }}</div>
-                                    </div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Upcoming Viewings ({{ ($buyerUpcoming ?? collect())->count() }})</h3>
+                    @forelse($buyerUpcoming ?? [] as $bv)
+                        <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <a href="{{ route('corex.properties.show', $bv['property_id']) }}" target="_blank"
+                                       class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $bv['address'] }}</a>
                                 </div>
-                                @if($bv['feedback'] ?? null)
-                                    <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
-                                        @if($bv['feedback']['outcome_label'] ?? null)
-                                            <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $bv['feedback']['outcome_label'] }}</span>
-                                        @endif
-                                        @if($bv['feedback']['seller_notes'] ?? null)
-                                            <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $bv['feedback']['seller_notes'] }}</p>
-                                        @endif
-                                        @if($bv['feedback']['internal_notes'] ?? null)
-                                            <p class="text-[11px] mt-1" style="color:var(--text-muted);"><span class="font-medium">Internal:</span> {{ $bv['feedback']['internal_notes'] }}</p>
-                                        @endif
-                                        <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($bv['feedback']['captured_at'])->diffForHumans() }}</div>
-                                    </div>
-                                @else
-                                    <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
-                                @endif
+                                <div class="text-right flex-shrink-0">
+                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($bv['event_date'])->format('D, j M Y') }}</div>
+                                    <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $bv['agent_name'] }}</div>
+                                    <span class="text-[9px] px-1.5 py-0.5 rounded mt-0.5 inline-block" style="background:rgba(59,130,246,.15); color:#2563eb;">Scheduled</span>
+                                </div>
                             </div>
-                        @endforeach
-                    </div>
+                        </div>
+                    @empty
+                        <p class="text-xs py-3" style="color:var(--text-muted);">None</p>
+                    @endforelse
+                </div>
+
+                {{-- Past buyer viewings --}}
+                <div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Past Viewings ({{ ($buyerPast ?? collect())->count() }})</h3>
+                    @forelse($buyerPast ?? [] as $bv)
+                        <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <a href="{{ route('corex.properties.show', $bv['property_id']) }}" target="_blank"
+                                       class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $bv['address'] }}</a>
+                                </div>
+                                <div class="text-right flex-shrink-0">
+                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($bv['event_date'])->format('D, j M Y') }}</div>
+                                    <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $bv['agent_name'] }}</div>
+                                </div>
+                            </div>
+                            @if($bv['feedback'] ?? null)
+                                <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                                    @if($bv['feedback']['outcome_label'] ?? null)
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $bv['feedback']['outcome_label'] }}</span>
+                                    @endif
+                                    @if($bv['feedback']['seller_notes'] ?? null)
+                                        <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $bv['feedback']['seller_notes'] }}</p>
+                                    @endif
+                                    @if($bv['feedback']['internal_notes'] ?? null)
+                                        <p class="text-[11px] mt-1" style="color:var(--text-muted);"><span class="font-medium">Internal:</span> {{ $bv['feedback']['internal_notes'] }}</p>
+                                    @endif
+                                    <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($bv['feedback']['captured_at'])->diffForHumans() }}</div>
+                                </div>
+                            @else
+                                <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                            @endif
+                        </div>
+                    @empty
+                        <p class="text-xs py-3" style="color:var(--text-muted);">None</p>
+                    @endforelse
                 </div>
             @endif
 
-            @if(($sellerViewings ?? collect())->isNotEmpty())
+            {{-- Seller perspective --}}
+            @if(($sellerUpcoming ?? collect())->isNotEmpty() || ($sellerPast ?? collect())->isNotEmpty())
                 <div>
                     <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Seller — Feedback on Your Listings</h3>
-                    <div class="space-y-3">
-                        @foreach($sellerViewings as $sv)
-                            <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div class="min-w-0 flex-1">
-                                        <a href="{{ route('corex.properties.show', $sv['property_id']) }}" target="_blank"
-                                           class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $sv['address'] }}</a>
-                                        <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">Viewed by: {{ $sv['buyer_label'] }}</div>
-                                    </div>
-                                    <div class="text-right flex-shrink-0">
-                                        <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($sv['event_date'])->format('D, j M Y') }}</div>
-                                        <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $sv['agent_name'] }}</div>
-                                    </div>
+                    @foreach($sellerPast ?? [] as $sv)
+                        <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <a href="{{ route('corex.properties.show', $sv['property_id']) }}" target="_blank"
+                                       class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $sv['address'] }}</a>
+                                    <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">Viewed by: {{ $sv['buyer_label'] }}</div>
                                 </div>
-                                @if($sv['feedback'] ?? null)
-                                    <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
-                                        @if($sv['feedback']['outcome_label'] ?? null)
-                                            <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $sv['feedback']['outcome_label'] }}</span>
-                                        @endif
-                                        @if($sv['feedback']['seller_notes'] ?? null)
-                                            <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $sv['feedback']['seller_notes'] }}</p>
-                                        @endif
-                                        <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($sv['feedback']['captured_at'])->diffForHumans() }}</div>
-                                    </div>
-                                @else
-                                    <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
-                                @endif
+                                <div class="text-right flex-shrink-0">
+                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($sv['event_date'])->format('D, j M Y') }}</div>
+                                    <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $sv['agent_name'] }}</div>
+                                </div>
                             </div>
-                        @endforeach
-                    </div>
+                            @if($sv['feedback'] ?? null)
+                                <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                                    @if($sv['feedback']['outcome_label'] ?? null)
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $sv['feedback']['outcome_label'] }}</span>
+                                    @endif
+                                    @if($sv['feedback']['seller_notes'] ?? null)
+                                        <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $sv['feedback']['seller_notes'] }}</p>
+                                    @endif
+                                    <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($sv['feedback']['captured_at'])->diffForHumans() }}</div>
+                                </div>
+                            @else
+                                <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                            @endif
+                        </div>
+                    @endforeach
                 </div>
             @endif
 
