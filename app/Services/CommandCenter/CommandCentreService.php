@@ -65,16 +65,8 @@ class CommandCentreService
         $card = $this->listingsNeedingAttention($userId);
         if ($card['count'] > 0) $cards[] = $card;
 
-        // A7 — E-Sign: Documents Needing My Approval (pending_agent_approval)
-        $card = $this->esignNeedingApproval($userId);
-        if ($card['count'] > 0) $cards[] = $card;
-
-        // A7b — E-Sign: Documents Awaiting Signatures (ready status — I sent them)
-        $card = $this->esignAwaitingSignatures($userId);
-        if ($card['count'] > 0) $cards[] = $card;
-
-        // A7c — E-Sign: Documents Awaiting Other Parties (signing/awaiting_seller etc.)
-        $card = $this->esignSentAwaitingOthers($userId);
+        // A7 — E-Sign Activity (unified: approval + awaiting signatures + awaiting others)
+        $card = $this->esignActivity($userId);
         if ($card['count'] > 0) $cards[] = $card;
 
         // A8 — FICA: CO Review Queue
@@ -97,12 +89,8 @@ class CommandCentreService
         $card = $this->myDealSteps($userId, $agencyId);
         if ($card['count'] > 0) $cards[] = $card;
 
-        // A12 — Prospecting Claims
-        $card = $this->myProspectingClaims($userId);
-        if ($card['count'] > 0) $cards[] = $card;
-
-        // A12b — Prospecting Targets with Buyer Matches
-        $card = $this->prospectingBuyerMatched($agencyId);
+        // A12 — Prospecting Activity (unified: claims + buyer-matched)
+        $card = $this->prospectingActivity($userId, $agencyId);
         if ($card['count'] > 0) $cards[] = $card;
 
         // A13 — Draft Presentations
@@ -1243,7 +1231,7 @@ class CommandCentreService
                 'message' => json_decode($n->data, true)['message'] ?? str_replace('_', ' ', class_basename($n->type)),
                 'when' => \Carbon\Carbon::parse($n->created_at)->diffForHumans(),
             ])->toArray(),
-            'view_all_url' => '/corex/',
+            'view_all_url' => '/corex/notifications',
         ];
     }
 
@@ -1289,6 +1277,89 @@ class CommandCentreService
                 'price' => $m->price ? 'R ' . number_format($m->price) : '',
             ])->toArray(),
             'view_all_url' => '/prospecting?matched_only=1',
+        ];
+    }
+
+    // ─── UNIFIED CARDS ──────────────────────────────────────
+
+    private function esignActivity(int $userId): array
+    {
+        // Sub-count 1: Needs my approval
+        try {
+            $needsApproval = DB::table('signature_templates')
+                ->where('created_by', $userId)
+                ->where('status', 'pending_agent_approval')
+                ->whereNull('deleted_at')
+                ->count();
+        } catch (\Throwable $e) { $needsApproval = 0; }
+
+        // Sub-count 2: Awaiting signatures (ready — sent to signers)
+        try {
+            $awaitingSignatures = DB::table('signature_templates')
+                ->where('created_by', $userId)
+                ->where('status', 'ready')
+                ->whereNull('deleted_at')
+                ->count();
+        } catch (\Throwable $e) { $awaitingSignatures = 0; }
+
+        // Sub-count 3: Awaiting other parties (signing in progress)
+        try {
+            $awaitingOthers = DB::table('signature_templates')
+                ->where('created_by', $userId)
+                ->whereIn('status', ['signing', 'awaiting_seller', 'awaiting_lessor', 'awaiting_lessee', 'awaiting_tenant', 'awaiting_landlord'])
+                ->whereNull('deleted_at')
+                ->count();
+        } catch (\Throwable $e) { $awaitingOthers = 0; }
+
+        $total = $needsApproval + $awaitingSignatures + $awaitingOthers;
+        $urgency = $needsApproval > 0 ? 'critical' : ($awaitingSignatures > 0 ? 'high' : 'medium');
+
+        return [
+            'card_id' => 'esign_activity',
+            'title' => 'E-Sign Activity',
+            'icon' => 'file-signature',
+            'urgency' => $urgency,
+            'count' => $total,
+            'items' => array_filter([
+                $needsApproval > 0 ? ['label' => 'Need approval', 'value' => $needsApproval, 'colour' => '#ef4444'] : null,
+                $awaitingSignatures > 0 ? ['label' => 'Awaiting signatures', 'value' => $awaitingSignatures, 'colour' => '#f59e0b'] : null,
+                $awaitingOthers > 0 ? ['label' => 'Awaiting others', 'value' => $awaitingOthers, 'colour' => '#64748b'] : null,
+            ]),
+            'view_all_url' => '/docuperfect/esign/my-documents',
+        ];
+    }
+
+    private function prospectingActivity(int $userId, int $agencyId): array
+    {
+        // Sub-count 1: My active claims
+        $claims = DB::table('prospecting_claims')
+            ->where('user_id', $userId)->where('is_active', 1)->whereNull('deleted_at')->count();
+
+        // Sub-count 2: Buyer-matched listings (agency-wide)
+        try {
+            $matched = DB::table('prospecting_buyer_matches as m')
+                ->join('prospecting_listings as pl', 'pl.id', '=', 'm.prospecting_listing_id')
+                ->where('pl.agency_id', $agencyId)
+                ->where('pl.is_active', 1)
+                ->whereNull('m.dismissed_at')
+                ->distinct('m.prospecting_listing_id')
+                ->count('m.prospecting_listing_id');
+        } catch (\Throwable $e) { $matched = 0; }
+
+        $total = $claims + ($matched > 0 ? 1 : 0); // Count as "has matched" not raw number
+        $urgency = $claims > 0 ? 'medium' : ($matched > 0 ? 'medium' : 'low');
+
+        return [
+            'card_id' => 'prospecting_activity',
+            'title' => 'Prospecting',
+            'icon' => 'eye',
+            'urgency' => $urgency,
+            'count' => $claims + $matched,
+            'items' => array_filter([
+                $claims > 0 ? ['label' => 'Active claims', 'value' => $claims, 'colour' => '#0ea5e9'] : null,
+                $matched > 0 ? ['label' => 'Buyer-matched listings', 'value' => $matched > 99 ? '99+' : $matched, 'colour' => '#10b981'] : null,
+            ]),
+            'view_all_url' => '/prospecting',
         ];
     }
 }
