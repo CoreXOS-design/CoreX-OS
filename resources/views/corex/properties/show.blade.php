@@ -791,6 +791,11 @@
     </div>{{-- /syndication bar --}}
     @endif
 
+    {{-- Compliance readiness panel --}}
+    @if(!$isNew)
+        @include('corex.properties.partials.readiness-panel', ['report' => $readinessReport, 'property' => $property])
+    @endif
+
     {{-- Tab bar (shared) --}}
         <div class="flex overflow-x-auto" style="border-bottom:1px solid var(--border);">
             @foreach([

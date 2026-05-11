@@ -276,9 +276,11 @@ class PropertyController extends Controller
             $driveFolders = $documentTypes;
         }
 
+        $readinessReport = app(\App\Services\Compliance\MarketingReadinessService::class)->statusFor($property);
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
-            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline'
+            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'readinessReport'
         ));
     }
 
@@ -849,6 +851,48 @@ class PropertyController extends Controller
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    public function goLive(Request $request, Property $property)
+    {
+        $user = $request->user();
+
+        // Permission: listing agent, branch_manager, admin, super_admin
+        $isListingAgent = (int) $property->agent_id === (int) $user->id;
+        $isPrivileged = in_array($user->role ?? $user->effectiveRole(), ['super_admin', 'admin', 'owner', 'branch_manager']);
+        if (!$isListingAgent && !$isPrivileged) {
+            abort(403, 'Only the listing agent or a manager can go live.');
+        }
+
+        // Already live — return success idempotently
+        if ($property->compliance_snapshot_at !== null) {
+            return response()->json([
+                'ok' => true,
+                'snapshot_at' => $property->compliance_snapshot_at->toIso8601String(),
+                'message' => 'Property is already live.',
+            ]);
+        }
+
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+
+        try {
+            $svc->snapshotCompliance($property, $user);
+        } catch (\App\Services\Compliance\MarketingBlockedException $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Property does not meet marketing readiness requirements.',
+                'blocked_by' => $e->getReport()->blockedBy,
+                'checklist' => $e->getReport()->checklist,
+            ], 422);
+        }
+
+        $property->refresh();
+
+        return response()->json([
+            'ok' => true,
+            'snapshot_at' => $property->compliance_snapshot_at->toIso8601String(),
+            'message' => 'Property is now live and ready for marketing.',
+        ]);
+    }
 
     private function processSpacesJson(array $data): array
     {
