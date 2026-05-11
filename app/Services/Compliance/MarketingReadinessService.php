@@ -28,27 +28,17 @@ class MarketingReadinessService
         $blockedBy = [];
         $nextActions = [];
 
-        // Gate 1: Marketing Permission signed
-        $checklist['marketing_permission'] = $this->checkMarketingPermission($property);
-        if (!$checklist['marketing_permission']['passed']) {
-            $blockedBy[] = $checklist['marketing_permission']['detail'];
+        // Gate 1: Authority to Market (mandate OR marketing permission — either suffices)
+        $checklist['authority_to_market'] = $this->checkAuthorityToMarket($property);
+        if (!$checklist['authority_to_market']['passed']) {
+            $blockedBy[] = $checklist['authority_to_market']['detail'];
             $nextActions[] = [
-                'label' => 'Upload or e-sign a Marketing Permission document',
-                'action_url' => route('corex.properties.show', $property->id) . '?tab=documents',
+                'label' => 'Send Marketing Pack',
+                'action_url' => route('corex.properties.show', $property->id) . '?tab=drive',
             ];
         }
 
-        // Gate 2: Mandate signed
-        $checklist['mandate'] = $this->checkMandate($property);
-        if (!$checklist['mandate']['passed']) {
-            $blockedBy[] = $checklist['mandate']['detail'];
-            $nextActions[] = [
-                'label' => 'Get mandate signed via e-sign',
-                'action_url' => route('corex.properties.show', $property->id) . '?tab=documents',
-            ];
-        }
-
-        // Gate 3: All sellers FICA approved
+        // Gate 2: All sellers FICA approved
         $checklist['fica_sellers'] = $this->checkSellersFica($property);
         if (!$checklist['fica_sellers']['passed']) {
             $blockedBy[] = $checklist['fica_sellers']['detail'];
@@ -163,50 +153,33 @@ class MarketingReadinessService
 
     // ── Gate checks ──
 
-    private function checkMarketingPermission(Property $property): array
+    private function checkAuthorityToMarket(Property $property): array
     {
-        // Look for a docuperfect document of type containing 'marketing_permission'
-        // linked to this property, with a completed signature template
-        $doc = DB::table('docuperfect_documents')
-            ->where('property_id', $property->id)
-            ->where('document_type', 'like', '%marketing%permission%')
-            ->whereNull('deleted_at')
-            ->whereExists(function ($q) {
-                $q->select(DB::raw(1))
-                  ->from('signature_templates')
-                  ->whereColumn('signature_templates.document_id', 'docuperfect_documents.id')
-                  ->where('signature_templates.status', 'completed')
-                  ->whereNull('signature_templates.deleted_at');
-            })
-            ->first();
+        $mandate = $this->findSignedMandate($property);
+        $marketingPerm = $this->findSignedMarketingPermission($property);
 
-        // Also check the general documents table (uploaded docs)
-        if (!$doc) {
-            $doc = DB::table('documents')
-                ->join('document_properties', 'documents.id', '=', 'document_properties.document_id')
-                ->join('document_types', 'documents.document_type_id', '=', 'document_types.id')
-                ->where('document_properties.property_id', $property->id)
-                ->where(function ($q) {
-                    $q->where('document_types.slug', 'like', '%marketing%')
-                      ->orWhere('document_types.label', 'like', '%marketing%permission%');
-                })
-                ->whereNull('documents.deleted_at')
-                ->first();
+        if ($mandate && $marketingPerm) {
+            return [
+                'passed' => true,
+                'detail' => 'Mandate signed (doc #' . $mandate->id . ') + Marketing Permission signed (doc #' . $marketingPerm->id . ')',
+            ];
+        }
+        if ($mandate) {
+            return [
+                'passed' => true,
+                'detail' => 'Mandate signed (doc #' . $mandate->id . ')',
+            ];
+        }
+        if ($marketingPerm) {
+            return [
+                'passed' => true,
+                'detail' => 'Marketing Permission signed (doc #' . $marketingPerm->id . ')',
+            ];
         }
 
         return [
-            'passed' => $doc !== null,
-            'detail' => $doc ? 'Marketing permission document signed' : 'No signed marketing permission document found',
-        ];
-    }
-
-    private function checkMandate(Property $property): array
-    {
-        $doc = $this->findSignedMandate($property);
-
-        return [
-            'passed' => $doc !== null,
-            'detail' => $doc ? 'Mandate signed (doc #' . $doc->id . ')' : 'No signed mandate found for this property',
+            'passed' => false,
+            'detail' => 'No signed authority document (mandate or marketing permission)',
         ];
     }
 
@@ -337,8 +310,7 @@ class MarketingReadinessService
         $snapshot = $property->compliance_snapshot_data ?? [];
 
         return $snapshot['checklist'] ?? [
-            'mandate' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
-            'marketing_permission' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
+            'authority_to_market' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
             'fica_sellers' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
             'photos' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
             'details_complete' => ['passed' => true, 'detail' => 'Verified at snapshot time'],
