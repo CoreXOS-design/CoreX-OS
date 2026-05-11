@@ -633,6 +633,44 @@ class CalendarController extends Controller
                 'performed_at'         => now(),
             ]);
 
+            // Fan-out: log feedback_captured to buyer activity timelines
+            $linkedPropertyIds = $calendarEvent->linkedProperties()->pluck('properties.id')->toArray();
+            foreach ($data['feedback'] as $row) {
+                $contactId = $row['contact_id'];
+                $contact = \App\Models\Contact::withoutGlobalScopes()->find($contactId);
+                if ($contact && $contact->is_buyer) {
+                    \App\Models\BuyerActivityLog::create([
+                        'contact_id' => $contactId,
+                        'agency_id' => $calendarEvent->agency_id ?? 1,
+                        'activity_type' => 'feedback_captured',
+                        'activity_date' => now(),
+                        'related_event_id' => $calendarEvent->id,
+                        'related_property_id' => $row['property_id'] ?? ($linkedPropertyIds[0] ?? null),
+                        'metadata' => [
+                            'event_title' => $calendarEvent->title,
+                            'outcome_id' => $row['outcome_id'] ?? null,
+                            'captured_by' => $user->name,
+                        ],
+                        'logged_by_user_id' => $user->id,
+                    ]);
+
+                    // Sync buyer_property_views for each linked property
+                    foreach ($linkedPropertyIds as $propId) {
+                        DB::table('buyer_property_views')->updateOrInsert(
+                            ['contact_id' => $contactId, 'property_id' => $propId],
+                            [
+                                'last_viewed_at' => $calendarEvent->event_date,
+                                'view_count' => DB::raw('COALESCE(view_count, 0) + 1'),
+                                'updated_at' => now(),
+                                'created_at' => DB::raw('COALESCE(created_at, NOW())'),
+                            ]
+                        );
+                    }
+
+                    $contact->updateQuietly(['last_activity_at' => now()]);
+                }
+            }
+
             // Close any open missed-feedback tasks for this event
             \App\Models\CommandCenter\CommandTask::query()
                 ->where('source_type', 'calendar:missed_feedback')
