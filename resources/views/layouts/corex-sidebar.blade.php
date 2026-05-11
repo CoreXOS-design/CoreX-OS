@@ -719,6 +719,24 @@
                 @if(auth()->user()->hasPermission('manage_agency_compliance') || auth()->user()->hasPermission('manage_branch_compliance'))
                 <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Documents</a>
                 @endif
+                @permission('compliance.whistleblow.view')
+                @php
+                    $wbPendingCount = cache()->remember('wb-pending-' . (auth()->user()->agency_id ?? 'all'), 60, function () {
+                        $q = \App\Models\Compliance\WhistleblowComplaint::where('status', 'pending_approval');
+                        $u = auth()->user();
+                        if (!$u->hasPermission('compliance.whistleblow.view_all_agency')) {
+                            $q->where('reported_by_user_id', $u->id);
+                        }
+                        return $q->count();
+                    });
+                @endphp
+                <a href="{{ route('compliance.whistleblow.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.whistleblow.*') ? 'active' : '' }}">
+                    Compliance Reporting
+                    @if($wbPendingCount > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber) 15%, transparent); color:var(--ds-amber);">{{ $wbPendingCount }}</span>
+                    @endif
+                </a>
+                @endpermission
             </div>
         </div>
         @endpermission

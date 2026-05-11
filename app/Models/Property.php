@@ -8,6 +8,7 @@ use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -124,6 +125,7 @@ class Property extends Model
         'p24_listing_last_synced_at',
         'compliance_snapshot_at',
         'compliance_snapshot_data',
+        'compliance_evidence_flags',
         'first_marketed_at',
     ];
 
@@ -182,6 +184,7 @@ class Property extends Model
         'p24_listing_last_synced_at'  => 'datetime',
         'compliance_snapshot_at'      => 'datetime',
         'compliance_snapshot_data'    => 'array',
+        'compliance_evidence_flags'   => 'array',
         'first_marketed_at'           => 'datetime',
     ];
 
@@ -417,6 +420,13 @@ class Property extends Model
             $this->gallery_images_json ?? [],
             $this->images_json         ?? [],
         );
+    }
+
+    // ── Whistleblower complaints ──
+
+    public function whistleblowComplaints(): HasMany
+    {
+        return $this->hasMany(\App\Models\Compliance\WhistleblowComplaint::class);
     }
 
     // ── Calendar event links (M2.2) ──

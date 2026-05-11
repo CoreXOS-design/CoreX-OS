@@ -75,7 +75,7 @@
                         </div>
                     </template>
                     {{-- Active Buyer Pipeline breakdown --}}
-                    <template x-if="['active_buyer_pipeline','esign_activity','prospecting_activity'].includes(card.card_id)">
+                    <template x-if="['active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing'].includes(card.card_id)">
                         <div class="flex-1 overflow-hidden space-y-1 text-[11px]">
                             <template x-for="item in card.items" :key="item.label">
                                 <div class="flex items-center justify-between">
@@ -97,7 +97,7 @@
                         </div>
                     </template>
                     {{-- Generic item list (all other cards) --}}
-                    <template x-if="!['pending_invitations','active_buyer_pipeline','esign_activity','prospecting_activity','agency_health'].includes(card.card_id)">
+                    <template x-if="!['pending_invitations','active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing','agency_health'].includes(card.card_id)">
                         <div class="flex-1 overflow-hidden space-y-0.5 text-[11px]">
                             <template x-for="(item, idx) in card.items.slice(0, 4)" :key="idx">
                                 <div class="truncate py-0.5" style="color:var(--text-secondary);" x-text="detailedItemText(card, item)"></div>
@@ -262,6 +262,7 @@ function commandCentre() {
             if (card.card_id === 'active_buyer_pipeline') return card.items.map(i => i.value + ' ' + i.label.split(' ')[0].toLowerCase()).join(', ');
             if (card.card_id === 'esign_activity') return card.items.map(i => i.value + ' ' + i.label.toLowerCase()).join(' | ');
             if (card.card_id === 'prospecting_activity') return card.items.map(i => i.value + ' ' + i.label.toLowerCase()).join(' | ');
+            if (card.card_id === 'listings_pending_marketing') return first.label + ': ' + (first.value || '');
             if (card.card_id === 'agency_health') return (first.agents ?? '') + ' agents, ' + (first.listings ?? '') + ' listings';
             if (card.card_id === 'branch_lost_value') return first.value_display || '';
             if (card.card_id === 'strategic_insights') return first.text ? first.text.slice(0, 50) + '...' : '';

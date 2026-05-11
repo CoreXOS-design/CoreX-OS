@@ -572,4 +572,41 @@ class SettingsController extends Controller
                 ? 'Remote access authorization is now ON. System owners must request consent to switch in.'
                 : 'Remote access authorization is now OFF. System owners can switch in directly.');
     }
+
+    /**
+     * Save whistleblower compliance reporting settings.
+     */
+    public function saveWhistleblowSettings(Request $request)
+    {
+        $request->validate([
+            'whistleblow_approver_user_ids'        => 'nullable|array',
+            'whistleblow_approver_user_ids.*'      => 'integer|exists:users,id',
+            'whistleblow_compliance_officer_email'  => 'nullable|email|max:255',
+            'whistleblow_ppra_recipient_email'      => 'nullable|email|max:255',
+        ]);
+
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->agency_id);
+        if (!$agency) {
+            return redirect()->back()->with('error', 'Agency not found.');
+        }
+
+        $approverIds = $request->input('whistleblow_approver_user_ids', []);
+
+        $agency->update([
+            'whistleblow_approver_user_ids'        => !empty($approverIds) ? array_map('intval', $approverIds) : null,
+            'whistleblow_compliance_officer_email'  => $request->input('whistleblow_compliance_officer_email'),
+            'whistleblow_ppra_recipient_email'      => $request->input('whistleblow_ppra_recipient_email'),
+        ]);
+
+        \Illuminate\Support\Facades\Log::info('Whistleblow settings updated', [
+            'user_id'   => auth()->id(),
+            'agency_id' => $agency->id,
+            'approvers' => $approverIds,
+            'co_email'  => $request->input('whistleblow_compliance_officer_email'),
+            'ppra_email' => $request->input('whistleblow_ppra_recipient_email'),
+        ]);
+
+        return redirect()->route('corex.settings', ['s' => 'whistleblow-settings'])
+            ->with('success', 'Compliance reporting settings saved.');
+    }
 }

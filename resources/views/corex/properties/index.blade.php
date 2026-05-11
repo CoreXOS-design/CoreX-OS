@@ -44,17 +44,29 @@
             'Published' => ['bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)',  'fg' => 'var(--brand-icon)'],
         ];
     @endphp
+    @php
+        $kpiTiles = [
+            ['label' => 'Total',     'value' => $stats['total'],  'filter' => ''],
+            ['label' => 'Active',    'value' => $stats['active'], 'filter' => 'active'],
+            ['label' => 'Draft',     'value' => $stats['draft'],  'filter' => 'draft'],
+            ['label' => 'Sold',      'value' => $stats['sold'],   'filter' => 'sold'],
+            ['label' => 'Published', 'value' => $stats['synced'], 'filter' => 'published'],
+        ];
+        $currentStatus = $status ?? '';
+        $baseUrl = request()->url();
+        $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
+    @endphp
     <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 xl:gap-4">
-        @foreach([
-            ['label' => 'Total',     'value' => $stats['total']],
-            ['label' => 'Active',    'value' => $stats['active']],
-            ['label' => 'Draft',     'value' => $stats['draft']],
-            ['label' => 'Sold',      'value' => $stats['sold']],
-            ['label' => 'Published', 'value' => $stats['synced']],
-        ] as $kpi)
-        @php $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)']; @endphp
-        <div class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300"
-             style="background:var(--surface); border:1px solid var(--border);">
+        @foreach($kpiTiles as $kpi)
+        @php
+            $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'];
+            $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
+            $tileUrl = $kpi['filter'] === ''
+                ? $baseUrl . '?' . http_build_query($preserveParams)
+                : $baseUrl . '?' . http_build_query(array_merge($preserveParams, ['status' => $kpi['filter']]));
+        @endphp
+        <a href="{{ $tileUrl }}" class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300 no-underline cursor-pointer hover:opacity-80"
+             style="background:var(--surface); border:{{ $isActive ? '2px' : '1px' }} solid {{ $isActive ? $c['fg'] : 'var(--border)' }};">
             <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:{{ $c['bg'] }};color:{{ $c['fg'] }};">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     {!! $kpiIcons[$kpi['label']] ?? '' !!}
@@ -64,7 +76,7 @@
                 <div class="text-[1.625rem] font-semibold leading-none" style="color:var(--text-primary);">{{ number_format((int) $kpi['value']) }}</div>
                 <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
             </div>
-        </div>
+        </a>
         @endforeach
     </div>
 
@@ -586,16 +598,37 @@
     <div x-show="view === 'list'" x-cloak class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm ds-table">
+            @php
+                $sortParams = collect(request()->query())->except('sort', 'dir', 'page')->toArray();
+                $sortCols = [
+                    ['key' => 'title',            'label' => 'Property',  'align' => 'text-left',   'hide' => ''],
+                    ['key' => 'suburb',            'label' => 'Location',  'align' => 'text-left',   'hide' => ''],
+                    ['key' => 'property_type',     'label' => 'Type',      'align' => 'text-left',   'hide' => 'hidden sm:table-cell'],
+                    ['key' => 'price',             'label' => 'Price',     'align' => 'text-right',  'hide' => ''],
+                    ['key' => 'beds',              'label' => 'Bed',       'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
+                    ['key' => 'baths',             'label' => 'Bath',      'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
+                    ['key' => null,                'label' => 'Agent',     'align' => 'text-left',   'hide' => 'hidden lg:table-cell'],
+                    ['key' => 'marketing_status',  'label' => 'Marketing', 'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
+                    ['key' => 'status',            'label' => 'Status',    'align' => 'text-center', 'hide' => ''],
+                ];
+            @endphp
             <thead>
                 <tr style="background: var(--surface-2);">
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Property</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Location</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden sm:table-cell" style="color:var(--text-muted);">Type</th>
-                    <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Price</th>
-                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">Bed</th>
-                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">Bath</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden lg:table-cell" style="color:var(--text-muted);">Agent</th>
-                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Status</th>
+                    @foreach($sortCols as $col)
+                        <th class="{{ $col['align'] }} px-4 py-2.5 text-xs font-semibold uppercase tracking-wider {{ $col['hide'] }}" style="color:var(--text-muted);">
+                            @if($col['key'])
+                                @php
+                                    $isCurrentSort = ($currentSort ?? '') === $col['key'];
+                                    $nextDir = $isCurrentSort && ($currentDir ?? 'desc') === 'asc' ? 'desc' : 'asc';
+                                    $arrow = $isCurrentSort ? (($currentDir ?? 'desc') === 'asc' ? '&#9650;' : '&#9660;') : '';
+                                @endphp
+                                <a href="{{ request()->url() }}?{{ http_build_query(array_merge($sortParams, ['sort' => $col['key'], 'dir' => $nextDir])) }}"
+                                   class="no-underline hover:opacity-70 transition" style="color:{{ $isCurrentSort ? 'var(--brand-icon)' : 'var(--text-muted)' }};">{{ $col['label'] }}{!! $arrow !!}</a>
+                            @else
+                                {{ $col['label'] }}
+                            @endif
+                        </th>
+                    @endforeach
                     <th class="px-4 py-2.5 text-xs font-semibold text-right" style="color:var(--text-muted);"></th>
                 </tr>
             </thead>
@@ -632,6 +665,22 @@
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->baths ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">{{ $property->agent?->name ?? '—' }}</td>
+                    <td class="px-4 py-2.5 text-center hidden md:table-cell">
+                        @php
+                            $ms = $property->marketing_status ?? 'n/a';
+                            $msStyle = match($ms) {
+                                'live' => 'background:#10b981; color:#fff;',
+                                'ready' => 'background:rgba(0,212,170,.15); color:#047857;',
+                                'blocked' => 'background:rgba(245,158,11,.15); color:#b45309;',
+                                default => '',
+                            };
+                        @endphp
+                        @if($ms !== 'n/a')
+                            <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="{{ $msStyle }}" title="{{ $property->marketing_status_detail ?? '' }}">{{ ucfirst($ms) }}</span>
+                        @else
+                            <span class="text-[10px]" style="color:var(--text-muted);">—</span>
+                        @endif
+                    </td>
                     <td class="px-4 py-2.5 text-center">
                         <span class="ds-badge {{ $sc['variant'] }}">{{ $sc['label'] }}</span>
                     </td>

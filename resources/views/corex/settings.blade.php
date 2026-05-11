@@ -78,11 +78,12 @@
             ],
             [
                 'label' => 'Operations',
-                'items' => [
+                'items' => array_values(array_filter([
                     ['key'=>'commission',            'label'=>'Commission & Revenue Share','type'=>'link', 'href'=>route('corex.settings.commission'), 'keywords'=>'splits caps fees tiers'],
                     ['key'=>'command-center',        'label'=>'Command Center Rules',  'type'=>'link', 'href'=>route('command-center.settings'), 'keywords'=>'expectations reminders'],
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
-                ],
+                    $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
+                ])),
             ],
             [
                 'label' => 'System',
@@ -2293,6 +2294,99 @@
             </div>
 
         </div>
+
+        {{-- ============================================================
+             WHISTLEBLOWER COMPLIANCE REPORTING SETTINGS
+             ============================================================ --}}
+        @if(auth()->user()?->hasPermission('compliance.whistleblow.configure'))
+        <div x-show="activeSection === 'whistleblow-settings'" x-cloak class="p-6 space-y-6">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">Whistleblower Compliance Reporting</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Configure who can approve PPRA complaints and where complaints are sent.</p>
+            </div>
+
+            <form method="POST" action="{{ route('corex.settings.whistleblow.save') }}" class="space-y-6">
+                @csrf
+
+                {{-- Demo mode status (read-only) --}}
+                <div class="rounded-md p-4" style="border:1px solid var(--border); background:var(--surface-2);">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Email Routing Mode</h3>
+                    @if(!config('compliance.whistleblow.ppra_live_send', false))
+                    <span class="ds-badge ds-badge-warning">DEMO MODE ACTIVE</span>
+                    <p class="text-xs mt-2" style="color:var(--text-secondary);">
+                        Complaints are currently in demo mode. Emails route to
+                        <strong>{{ config('compliance.whistleblow.demo_recipient', 'johan@hfcoastal.co.za') }}</strong>
+                        with a [DEMO] subject prefix. Real PPRA emails will not be sent until the system administrator switches to live mode.
+                    </p>
+                    @else
+                    <span class="ds-badge ds-badge-success">LIVE MODE</span>
+                    <p class="text-xs mt-2" style="color:var(--text-secondary);">
+                        Complaints are being sent to the live PPRA recipient address. All submissions are final.
+                    </p>
+                    @endif
+                </div>
+
+                {{-- Approvers --}}
+                <div>
+                    <label class="text-sm font-semibold" style="color:var(--text-primary);">Approval Authority</label>
+                    <p class="text-xs mb-3" style="color:var(--text-muted);">These users can approve and send PPRA complaints. If none selected, all users with role Admin or Branch Manager can approve by default.</p>
+                    @php
+                        $agencyUsers = \App\Models\User::where('agency_id', auth()->user()->agency_id ?? 0)->where('is_active', true)->whereNull('deleted_at')->orderBy('name')->get();
+                        $currentApprovers = $agency->whistleblow_approver_user_ids ?? [];
+                    @endphp
+                    <div class="space-y-1.5 max-h-48 overflow-y-auto rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                        @foreach($agencyUsers as $au)
+                        <label class="flex items-center gap-2 cursor-pointer text-sm" style="color:var(--text-primary);">
+                            <input type="checkbox" name="whistleblow_approver_user_ids[]" value="{{ $au->id }}"
+                                   {{ in_array($au->id, $currentApprovers) ? 'checked' : '' }}>
+                            {{ $au->name }}
+                            <span class="text-xs" style="color:var(--text-muted);">({{ $au->role ?? 'agent' }})</span>
+                        </label>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- Compliance officer email --}}
+                <div>
+                    <label class="text-sm font-semibold" style="color:var(--text-primary);">Compliance Officer (CC on all submissions)</label>
+                    <p class="text-xs mb-2" style="color:var(--text-muted);">This email address is copied on every complaint sent to PPRA, providing your agency with an internal audit record.</p>
+                    <input type="email" name="whistleblow_compliance_officer_email"
+                           value="{{ $agency->whistleblow_compliance_officer_email ?? '' }}"
+                           class="w-full rounded-md text-sm px-3 py-2"
+                           style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="compliance@youragency.co.za">
+                </div>
+
+                {{-- PPRA recipient email --}}
+                <div>
+                    <label class="text-sm font-semibold" style="color:var(--text-primary);">PPRA Complaints Address</label>
+                    <p class="text-xs mb-2" style="color:var(--text-muted);">The official PPRA address that receives complaints. Change only if PPRA has notified you of a different submission address.</p>
+                    <input type="email" name="whistleblow_ppra_recipient_email"
+                           value="{{ $agency->whistleblow_ppra_recipient_email ?? '' }}"
+                           class="w-full rounded-md text-sm px-3 py-2"
+                           style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="complaints@theppra.org.za">
+                </div>
+
+                <button type="submit" class="px-5 py-2.5 rounded-md text-sm font-semibold text-white" style="background:var(--brand-default);">
+                    Save Settings
+                </button>
+            </form>
+
+            {{-- Lawyer review pack --}}
+            <div class="mt-6 rounded-md p-4" style="border:1px solid var(--border); background:var(--surface-2);">
+                <h3 class="text-sm font-semibold mb-1" style="color:var(--text-primary);">Legal Review</h3>
+                <p class="text-xs mb-3" style="color:var(--text-secondary);">
+                    Generate a review pack containing the three tier complaint PDF templates and cover email body for your lawyer to review before live submissions begin.
+                </p>
+                <a href="{{ route('compliance.whistleblow.lawyer-pack') }}" target="_blank"
+                   class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold no-underline" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                    Download Lawyer Review Pack
+                </a>
+            </div>
+        </div>
+        @endif
 
         </div>{{-- /right pane --}}
     </div>{{-- /hub flex --}}

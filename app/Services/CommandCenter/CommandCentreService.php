@@ -93,6 +93,10 @@ class CommandCentreService
         $card = $this->prospectingActivity($userId, $agencyId);
         if ($card['count'] > 0) $cards[] = $card;
 
+        // A12c — Listings Pending Marketing
+        $card = $this->listingsPendingMarketing($user);
+        if ($card['count'] > 0) $cards[] = $card;
+
         // A13 — Draft Presentations
         $card = $this->draftPresentations($userId);
         if ($card['count'] > 0) $cards[] = $card;
@@ -1360,6 +1364,67 @@ class CommandCentreService
                 $matched > 0 ? ['label' => 'Buyer-matched listings', 'value' => $matched > 99 ? '99+' : $matched, 'colour' => '#10b981'] : null,
             ]),
             'view_all_url' => '/prospecting',
+        ];
+    }
+
+    private function listingsPendingMarketing(\App\Models\User $user): array
+    {
+        $query = \App\Models\Property::withoutGlobalScopes()
+            ->where('agency_id', $user->effectiveAgencyId() ?? 1)
+            ->whereNull('compliance_snapshot_at')
+            ->whereNotIn('status', ['sold', 'withdrawn', 'draft'])
+            ->whereNull('deleted_at');
+
+        // Scope by role
+        $role = $user->role ?? $user->effectiveRole();
+        if ($role === 'agent') {
+            $query->where('agent_id', $user->id);
+        } elseif ($role === 'branch_manager' && $user->branch_id) {
+            $query->where('branch_id', $user->branch_id);
+        }
+        // admin/super_admin/owner see all agency
+
+        $properties = $query->limit(50)->get();
+        if ($properties->isEmpty()) {
+            return ['card_id' => 'listings_pending_marketing', 'title' => 'Listings Pending Marketing', 'count' => 0, 'items' => []];
+        }
+
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        $missingCounts = ['authority_to_market' => 0, 'fica_sellers' => 0, 'photos' => 0, 'details_complete' => 0];
+        $subItems = [];
+
+        foreach ($properties as $p) {
+            $report = $svc->statusFor($p);
+            foreach ($report->checklist as $gate => $check) {
+                if (!$check['passed'] && isset($missingCounts[$gate])) {
+                    $missingCounts[$gate]++;
+                }
+            }
+            if (count($subItems) < 5) {
+                $subItems[] = [
+                    'label' => \Illuminate\Support\Str::limit($p->title ?? $p->address ?? "Property #{$p->id}", 30),
+                    'value' => $report->ready ? 'Ready' : implode(', ', array_map(fn ($b) => \Illuminate\Support\Str::limit($b, 20), $report->blockedBy)),
+                    'colour' => $report->ready ? '#10b981' : '#f59e0b',
+                    'url' => '/corex/properties/' . $p->id,
+                ];
+            }
+        }
+
+        $summaryParts = array_filter([
+            $missingCounts['authority_to_market'] > 0 ? $missingCounts['authority_to_market'] . ' missing authority' : null,
+            $missingCounts['fica_sellers'] > 0 ? $missingCounts['fica_sellers'] . ' missing FICA' : null,
+            $missingCounts['photos'] > 0 ? $missingCounts['photos'] . ' missing photos' : null,
+            $missingCounts['details_complete'] > 0 ? $missingCounts['details_complete'] . ' incomplete details' : null,
+        ]);
+
+        return [
+            'card_id' => 'listings_pending_marketing',
+            'title' => 'Listings Pending Marketing',
+            'icon' => 'shield-check',
+            'urgency' => 'medium',
+            'count' => $properties->count(),
+            'items' => $subItems,
+            'view_all_url' => '/corex/properties?filter=marketing_pending',
         ];
     }
 }

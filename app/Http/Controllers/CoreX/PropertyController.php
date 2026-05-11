@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Storage;
 
 class PropertyController extends Controller
 {
+    use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+
     public function index(Request $request)
     {
         /** @var User $user */
@@ -44,12 +46,13 @@ class PropertyController extends Controller
 
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        // Agent filter (admin/BM only) — defaults to self on every fresh load.
-        // The user only sees other agents (or "All agents") when they explicitly
-        // switch via the picker (which sets ?agent_id= in the URL).
+        // Agent filter (admin/BM only) — defaults to self on fresh load UNLESS
+        // a compliance filter is active (card click-through shows full scope).
         if ($canPickAgent) {
             if ($request->has('agent_id')) {
                 $filterAgentId = $request->query('agent_id', '');
+            } elseif ($request->query('filter') === 'marketing_pending') {
+                $filterAgentId = '';
             } else {
                 $filterAgentId = (string) $user->id;
             }
@@ -73,7 +76,11 @@ class PropertyController extends Controller
             }
         }
 
-        if ($status !== '')        $query->where('status', $status);
+        if ($status === 'published') {
+            $query->whereNotNull('published_at');
+        } elseif ($status !== '') {
+            $query->where('status', $status);
+        }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
         if ($propertyType !== '')  $query->where('property_type', $propertyType);
         if ($category !== '')      $query->where('category', $category);
@@ -84,21 +91,60 @@ class PropertyController extends Controller
         if ($bedsMin !== ''  && is_numeric($bedsMin))  $query->where('beds', '>=', (int) $bedsMin);
         if ($bathsMin !== '' && is_numeric($bathsMin)) $query->where('baths', '>=', (int) $bathsMin);
 
+        // Marketing status filter
+        $marketingFilter = $request->query('filter', '');
+        if ($marketingFilter === 'marketing_pending') {
+            $query->whereNull('compliance_snapshot_at')->whereNotIn('status', ['sold', 'withdrawn', 'draft']);
+        }
+
         if ($search !== '') {
             $query->searchAddress($search);
         }
 
-        // Sorting
+        // Sorting — whitelisted columns only
+        $dir = strtolower($request->query('dir', 'desc')) === 'asc' ? 'asc' : 'desc';
+        $sortableColumns = [
+            'title' => 'title', 'suburb' => 'suburb', 'property_type' => 'property_type',
+            'price' => 'price', 'beds' => 'beds', 'baths' => 'baths',
+            'status' => 'status', 'created_at' => 'created_at',
+        ];
+        // Legacy sort param support
         switch ($sort) {
-            case 'oldest':     $query->orderBy('created_at', 'asc'); break;
-            case 'price_asc':  $query->orderBy('price', 'asc'); break;
-            case 'price_desc': $query->orderBy('price', 'desc'); break;
-            case 'title':      $query->orderBy('title', 'asc'); break;
-            case 'newest':
-            default:           $query->orderByDesc('created_at');
+            case 'oldest':     $sort = 'created_at'; $dir = 'asc'; break;
+            case 'price_asc':  $sort = 'price'; $dir = 'asc'; break;
+            case 'price_desc': $sort = 'price'; $dir = 'desc'; break;
+            case 'newest':     $sort = 'created_at'; $dir = 'desc'; break;
+        }
+        if (isset($sortableColumns[$sort])) {
+            $query->orderBy($sortableColumns[$sort], $dir);
+        } else {
+            $query->orderByDesc('created_at');
+            $sort = 'created_at';
+            $dir = 'desc';
         }
 
         $properties = $query->get();
+
+        // Compute marketing status per property (batch-friendly for Phase 1)
+        $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        foreach ($properties as $p) {
+            if ($p->compliance_snapshot_at !== null) {
+                $p->marketing_status = 'live';
+                $p->marketing_status_detail = 'Live since ' . $p->compliance_snapshot_at->format('j M Y');
+            } elseif (in_array($p->status, ['sold', 'withdrawn', 'draft'])) {
+                $p->marketing_status = 'n/a';
+                $p->marketing_status_detail = '';
+            } else {
+                $report = $readinessSvc->statusFor($p);
+                $p->marketing_status = $report->ready ? 'ready' : 'blocked';
+                $p->marketing_status_detail = $report->ready ? 'All gates passed' : implode(', ', array_map(fn ($b) => \Illuminate\Support\Str::limit($b, 30), $report->blockedBy));
+            }
+        }
+
+        // Sort by marketing_status (derived — PHP sort)
+        if ($sort === 'marketing_status') {
+            $properties = $properties->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc')->values();
+        }
 
         // Stats for the header KPIs
         $stats = [
@@ -133,10 +179,13 @@ class PropertyController extends Controller
 
         $scope = $viewScope;
 
+        $currentSort = $sort;
+        $currentDir = $dir;
+
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
-            'filterOptions', 'filters'
+            'filterOptions', 'filters', 'currentSort', 'currentDir'
         ));
     }
 
@@ -191,40 +240,40 @@ class PropertyController extends Controller
             if (empty($property->suburb))  $hfcMissingFields[] = ['field' => 'suburb',  'label' => 'Suburb'];
         }
 
-        // Overview tab: activity timeline
-        $activityTimeline = collect();
-        // P24 syndication events
-        $activityTimeline = $activityTimeline->merge(
-            \App\Models\P24SyndicationLog::where('property_id', $property->id)
-                ->select(['id', 'property_id', 'action', 'status_code', 'created_at'])
-                ->latest('created_at')->take(10)->get()
-                ->map(fn($l) => [
-                    'type' => 'p24',
-                    'icon' => 'globe',
-                    'label' => 'P24: ' . ucfirst(str_replace('_', ' ', $l->action)),
-                    'detail' => $l->status_code ? "HTTP {$l->status_code}" : '',
-                    'date' => $l->created_at,
-                    'color' => '#3b82f6',
-                ])
-        );
-        // Notes
-        $activityTimeline = $activityTimeline->merge(
-            $property->notes->take(5)->map(fn($n) => [
-                'type' => 'note',
-                'icon' => 'note',
-                'label' => 'Note by ' . ($n->user->name ?? 'Unknown'),
-                'detail' => \Illuminate\Support\Str::limit($n->body ?? $n->content ?? '', 60),
-                'date' => $n->created_at,
-                'color' => '#f59e0b',
-            ])
-        );
-        // Property created/updated/published
-        if ($property->published_at) {
-            $activityTimeline->push(['type' => 'system', 'icon' => 'check', 'label' => 'Published to website', 'detail' => '', 'date' => $property->published_at, 'color' => '#22c55e']);
+        // Overview tab: activity timeline from unified audit log
+        $categoryColors = [
+            'property' => '#94a3b8', 'compliance' => '#10b981', 'syndication' => '#3b82f6',
+            'document' => '#8b5cf6', 'marketing' => '#ec4899', 'media' => '#f59e0b',
+            'contact_link' => '#06b6d4', 'system' => '#64748b',
+        ];
+        $auditEntries = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get();
+        $activityTimeline = $auditEntries->map(fn ($a) => [
+            'type' => $a->event_category,
+            'icon' => match($a->event_category) {
+                'compliance' => 'shield', 'syndication' => 'globe', 'document' => 'file',
+                'marketing' => 'share', 'media' => 'camera', default => 'activity',
+            },
+            'label' => $a->human_summary ?? ucfirst(str_replace('_', ' ', $a->event_type)),
+            'detail' => $a->user ? ('by ' . $a->user->name) : '',
+            'date' => $a->created_at,
+            'color' => $categoryColors[$a->event_category] ?? '#94a3b8',
+        ]);
+        // If no audit log entries yet, show basic created/published from property
+        if ($activityTimeline->isEmpty()) {
+            if ($property->published_at) {
+                $activityTimeline->push(['type' => 'system', 'icon' => 'check', 'label' => 'Published to website', 'detail' => '', 'date' => $property->published_at, 'color' => '#22c55e']);
+            }
+            $activityTimeline->push(['type' => 'system', 'icon' => 'plus', 'label' => 'Property created', 'detail' => '', 'date' => $property->created_at, 'color' => '#94a3b8']);
         }
-        $activityTimeline->push(['type' => 'system', 'icon' => 'plus', 'label' => 'Property created', 'detail' => '', 'date' => $property->created_at, 'color' => '#94a3b8']);
-        // Sort by date desc, take 10
-        $activityTimeline = $activityTimeline->sortByDesc('date')->take(10)->values();
+        // Full history for History tab
+        $fullAuditLog = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+            ->with('user')
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
 
         // Drive tab: all documents linked to this property
         try {
@@ -245,11 +294,35 @@ class PropertyController extends Controller
             $driveFolders = $documentTypes;
         }
 
+        // CSV export for History tab
+        if (request('export') === 'csv' && request('tab') === 'history') {
+            $rows = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+                ->with('user')->orderByDesc('created_at')->get();
+            $csv = "Timestamp,User,Category,Event Type,Summary,Metadata\n";
+            foreach ($rows as $r) {
+                $csv .= '"' . $r->created_at->toIso8601String() . '","' . addslashes($r->user?->name ?? 'System') . '","' . $r->event_category . '","' . $r->event_type . '","' . addslashes($r->human_summary ?? '') . '","' . addslashes(json_encode($r->metadata ?? [])) . "\"\n";
+            }
+            return response($csv, 200, [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="property-' . $property->id . '-audit-log.csv"',
+            ]);
+        }
+
         $readinessReport = app(\App\Services\Compliance\MarketingReadinessService::class)->statusFor($property);
+
+        // Whistleblower compliance flags linked to this property
+        $propertyComplianceComplaints = $property->exists
+            ? \App\Models\Compliance\WhistleblowComplaint::withoutGlobalScopes()
+                ->where('property_id', $property->id)
+                ->whereIn('status', ['sent', 'acknowledged_by_ppra', 'approved'])
+                ->with('reporter')
+                ->orderByDesc('created_at')
+                ->get()
+            : collect();
 
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
-            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'readinessReport'
+            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'propertyComplianceComplaints'
         ));
     }
 
@@ -726,7 +799,9 @@ class PropertyController extends Controller
         $this->authorizeProperty($property);
 
         $action = $request->input('action', 'toggle');
+        // Gate: enforce marketing readiness when PUBLISHING (not when unpublishing)
         if ($action === 'publish' || $action === 'refresh' || ($action === 'toggle' && ! $property->published_at)) {
+            $this->enforceMarketingReadiness($property);
             $missing = [];
             if (! $property->agent)             $missing[] = 'Listing agent';
             elseif (empty($property->agent->phone)) $missing[] = 'Agent phone number';
@@ -841,6 +916,11 @@ class PropertyController extends Controller
 
     public function livePreview(Property $property, \Illuminate\Http\Request $request)
     {
+        // Public listing preview — gate by marketing readiness
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        if (!$svc->isMarketable($property)) {
+            abort(404);
+        }
         $property->load(['agent', 'branch', 'agency']);
 
         /** @var User|null $authUser */

@@ -44,6 +44,9 @@ class Agency extends Model
         'p24_agency_id',
         'p24_agency_label',
         'default_branch_id',
+        'whistleblow_approver_user_ids',
+        'whistleblow_compliance_officer_email',
+        'whistleblow_ppra_recipient_email',
     ];
 
     protected $casts = [
@@ -52,6 +55,7 @@ class Agency extends Model
         'require_external_access_authorization' => 'boolean',
         'split_branches_enabled' => 'boolean',
         'default_branch_id' => 'integer',
+        'whistleblow_approver_user_ids' => 'array',
     ];
 
     public function branches(): HasMany
