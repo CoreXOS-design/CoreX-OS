@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\BuyerActivityLog;
 use App\Models\BuyerPropertyView;
+use App\Models\CommandCenter\CalendarEvent;
 use App\Models\Contact;
 use App\Models\Property;
 use Illuminate\Support\Collection;
@@ -30,18 +31,93 @@ class BuyerIntelligenceService
 
     public function getPropertiesViewed(int $contactId): Collection
     {
-        return BuyerPropertyView::where('contact_id', $contactId)
-            ->with('property')
-            ->orderByDesc('last_viewed_at')
+        // Primary source: calendar event links — find all viewing events where
+        // this contact attended as buyer/attendee, then resolve the properties shown.
+        $eventIds = DB::table('calendar_event_links')
+            ->where('linkable_type', 'App\\Models\\Contact')
+            ->where('linkable_id', $contactId)
+            ->whereIn('role', ['buyer_contact', 'attendee'])
+            ->pluck('calendar_event_id');
+
+        if ($eventIds->isEmpty()) {
+            return collect();
+        }
+
+        // Get properties linked to those events
+        $propLinks = DB::table('calendar_event_links')
+            ->whereIn('calendar_event_id', $eventIds)
+            ->where('role', 'subject_property')
+            ->where('linkable_type', 'App\\Models\\Property')
+            ->get(['calendar_event_id', 'linkable_id']);
+
+        if ($propLinks->isEmpty()) {
+            return collect();
+        }
+
+        // Load events and properties
+        $events = CalendarEvent::withoutGlobalScopes()
+            ->whereIn('id', $eventIds)
             ->get()
-            ->map(fn($v) => [
-                'property_id' => $v->property_id,
-                'address' => $v->property?->title ?? "Property #{$v->property_id}",
-                'suburb' => $v->property?->suburb,
-                'price' => $v->property?->price,
-                'view_count' => $v->view_count,
-                'last_viewed_at' => $v->last_viewed_at,
+            ->keyBy('id');
+
+        $propertyIds = $propLinks->pluck('linkable_id')->unique();
+        $properties = Property::withoutGlobalScopes()
+            ->whereIn('id', $propertyIds)
+            ->get()
+            ->keyBy('id');
+
+        // Load feedback for these (event, contact) tuples
+        $feedback = DB::table('calendar_event_feedback')
+            ->where('contact_id', $contactId)
+            ->whereIn('calendar_event_id', $eventIds)
+            ->get()
+            ->groupBy('calendar_event_id');
+
+        // Get agent names
+        $agentIds = $events->pluck('user_id')->unique()->filter();
+        $agents = \App\Models\User::withoutGlobalScopes()
+            ->whereIn('id', $agentIds)
+            ->pluck('name', 'id');
+
+        // Outcome labels
+        $outcomeLabels = DB::table('agency_feedback_options')
+            ->where('category', 'outcome')
+            ->pluck('label', 'id');
+
+        // Build one row per (property × viewing event)
+        $rows = collect();
+        foreach ($propLinks as $pl) {
+            $event = $events->get($pl->calendar_event_id);
+            $prop = $properties->get($pl->linkable_id);
+            if (!$event || !$prop) continue;
+
+            // Find feedback for this specific event — match by property_id if set, else take first
+            $eventFeedback = $feedback->get($pl->calendar_event_id, collect());
+            $fb = $eventFeedback->firstWhere('property_id', $pl->linkable_id)
+                ?? $eventFeedback->first();
+
+            $rows->push([
+                'property_id' => $prop->id,
+                'address' => method_exists($prop, 'buildDisplayAddress') ? $prop->buildDisplayAddress() : ($prop->title ?? "Property #{$prop->id}"),
+                'suburb' => $prop->suburb,
+                'price' => $prop->price,
+                'event_id' => $event->id,
+                'event_date' => $event->event_date,
+                'event_title' => $event->title,
+                'agent_name' => $agents->get($event->user_id, 'Unknown'),
+                'view_count' => 1,
+                'last_viewed_at' => $event->event_date,
+                'feedback' => $fb ? [
+                    'outcome_label' => $outcomeLabels->get($fb->outcome_option_id, null),
+                    'seller_notes' => $fb->seller_visible_notes,
+                    'internal_notes' => $fb->internal_notes,
+                    'next_action' => $fb->next_action_notes,
+                    'captured_at' => $fb->captured_at,
+                ] : null,
             ]);
+        }
+
+        return $rows->sortByDesc('last_viewed_at')->values();
     }
 
     public function getPreferencePatterns(int $contactId): array

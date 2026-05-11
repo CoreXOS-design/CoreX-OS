@@ -139,19 +139,41 @@
     </div>
 
     {{-- Properties Viewed Tab --}}
-    <div x-show="activeTab === 'properties'" x-cloak class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+    <div x-show="activeTab === 'properties'" x-cloak class="space-y-3">
         @forelse($propertiesViewed as $pv)
-            <a href="{{ route('corex.properties.show', $pv['property_id']) }}" target="_blank"
-               class="rounded-md p-4 no-underline hover:opacity-80 transition" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">{{ $pv['address'] }}</div>
-                <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">{{ $pv['suburb'] }} · R {{ number_format($pv['price'] ?? 0) }}</div>
-                <div class="flex items-center justify-between mt-2 text-[10px]" style="color: var(--text-muted);">
-                    <span>{{ $pv['view_count'] }} viewing(s)</span>
-                    <span>Last: {{ $pv['last_viewed_at'] ? \Carbon\Carbon::parse($pv['last_viewed_at'])->diffForHumans() : '—' }}</span>
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                        <a href="{{ route('corex.properties.show', $pv['property_id']) }}" target="_blank"
+                           class="text-sm font-semibold truncate block no-underline hover:underline" style="color: var(--text-primary);">{{ $pv['address'] }}</a>
+                        <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">{{ $pv['suburb'] }} · R {{ number_format($pv['price'] ?? 0) }}</div>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                        <div class="text-[10px]" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($pv['event_date'])->format('D, j M Y') }}</div>
+                        <div class="text-[10px]" style="color: var(--text-muted);">Agent: {{ $pv['agent_name'] ?? '—' }}</div>
+                    </div>
                 </div>
-            </a>
+                @if($pv['feedback'] ?? null)
+                    <div class="mt-2 rounded px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        @if($pv['feedback']['outcome_label'] ?? null)
+                            <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $pv['feedback']['outcome_label'] }}</span>
+                        @endif
+                        @if($pv['feedback']['seller_notes'] ?? null)
+                            <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $pv['feedback']['seller_notes'] }}</p>
+                        @endif
+                        @if($pv['feedback']['internal_notes'] ?? null)
+                            <p class="text-[11px] mt-1" style="color: var(--text-muted);"><span class="font-medium">Internal:</span> {{ $pv['feedback']['internal_notes'] }}</p>
+                        @endif
+                        <div class="text-[10px] mt-1" style="color: var(--text-muted);">Captured {{ \Carbon\Carbon::parse($pv['feedback']['captured_at'])->diffForHumans() }}</div>
+                    </div>
+                @else
+                    <div class="mt-2">
+                        <span class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                    </div>
+                @endif
+            </div>
         @empty
-            <p class="col-span-full text-sm py-8 text-center" style="color: var(--text-muted);">No properties viewed yet.</p>
+            <p class="text-sm py-8 text-center" style="color: var(--text-muted);">No properties viewed yet.</p>
         @endforelse
     </div>
 
