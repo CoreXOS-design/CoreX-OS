@@ -38,7 +38,7 @@ class SellerLinkController extends Controller
         $intel = app(PropertyIntelligenceService::class);
 
         // Anonymise buyer names (stable hash per property)
-        $feedbackRollup = $intel->getFeedbackRollup($property->id);
+        $feedbackRollup = $intel->getFeedbackRollup($property->id, excludeInternalOnly: true);
         $compliance = $intel->getComplianceStatus($property->id);
         $presentations = $intel->getPresentations($property->id, sellerView: true);
         $marketPosition = $intel->getLatestMarketPosition($property->id);

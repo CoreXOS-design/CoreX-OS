@@ -16,16 +16,19 @@ class CalendarEventFeedback extends Model
     protected $table = 'calendar_event_feedback';
 
     protected $fillable = [
-        'calendar_event_id', 'contact_id',
+        'calendar_event_id', 'contact_id', 'property_id',
+        'feedback_kind', 'visibility',
         'outcome_option_id', 'concern_option_ids',
         'seller_visible_notes', 'internal_notes', 'next_action_notes',
+        'kind_specific_data',
         'captured_by_user_id', 'captured_at',
         'agency_id', 'branch_id',
     ];
 
     protected $casts = [
-        'concern_option_ids' => 'array',
-        'captured_at'        => 'datetime',
+        'concern_option_ids'  => 'array',
+        'kind_specific_data'  => 'array',
+        'captured_at'         => 'datetime',
     ];
 
     public function event(): BelongsTo

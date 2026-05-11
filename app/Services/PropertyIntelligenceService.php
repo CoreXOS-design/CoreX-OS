@@ -89,7 +89,10 @@ class PropertyIntelligenceService
      * Aggregated feedback metrics for a property.
      * Joins through calendar_event_links since feedback.property_id may be NULL.
      */
-    public function getFeedbackRollup(int $propertyId): array
+    /**
+     * @param bool $excludeInternalOnly When true, filters out internal_only feedback (for seller-facing surfaces)
+     */
+    public function getFeedbackRollup(int $propertyId, bool $excludeInternalOnly = false): array
     {
         // Find all events linked to this property
         $eventIds = DB::table('calendar_event_links')
@@ -102,7 +105,9 @@ class PropertyIntelligenceService
         $feedback = CalendarEventFeedback::where(function ($q) use ($propertyId, $eventIds) {
             $q->where('property_id', $propertyId)
               ->orWhereIn('calendar_event_id', $eventIds);
-        })->whereNotNull('captured_at')->get();
+        })->whereNotNull('captured_at')
+          ->when($excludeInternalOnly, fn ($q) => $q->where('visibility', '!=', 'internal_only'))
+          ->get();
 
         $viewingCount = $feedback->unique('calendar_event_id')->count();
         $allConcerns = $feedback->pluck('concern_option_ids')->flatten()->filter()->countBy();
@@ -119,7 +124,7 @@ class PropertyIntelligenceService
     /**
      * Detailed viewing + feedback rows for a property (recent first, limit 20).
      */
-    public function getRecentViewings(int $propertyId, int $limit = 20): \Illuminate\Support\Collection
+    public function getRecentViewings(int $propertyId, int $limit = 20, bool $excludeInternalOnly = false): \Illuminate\Support\Collection
     {
         $eventIds = DB::table('calendar_event_links')
             ->where('linkable_type', 'App\\Models\\Property')
@@ -135,10 +140,12 @@ class PropertyIntelligenceService
             ->limit($limit)
             ->get();
 
-        $feedback = DB::table('calendar_event_feedback')
-            ->whereIn('calendar_event_id', $eventIds)
-            ->get()
-            ->groupBy('calendar_event_id');
+        $feedbackQuery = DB::table('calendar_event_feedback')
+            ->whereIn('calendar_event_id', $eventIds);
+        if ($excludeInternalOnly) {
+            $feedbackQuery->where('visibility', '!=', 'internal_only');
+        }
+        $feedback = $feedbackQuery->get()->groupBy('calendar_event_id');
 
         $agents = \App\Models\User::withoutGlobalScopes()
             ->whereIn('id', $events->pluck('user_id')->unique()->filter())

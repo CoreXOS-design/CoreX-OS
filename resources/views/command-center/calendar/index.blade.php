@@ -1053,67 +1053,189 @@
 
             {{-- Body --}}
             <div class="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-                <template x-for="contact in feedbackData.contacts" :key="contact.id">
-                    <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-                        <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="contact.label"></h3>
 
-                        {{-- Outcome --}}
-                        <div class="mb-3">
-                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
-                            <select x-model="feedbackForm[contact.id].outcome_id"
-                                    class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                <option value="">Select…</option>
-                                <template x-for="o in feedbackData.outcomes" :key="o.id">
-                                    <option :value="o.id" x-text="o.label"></option>
-                                </template>
-                            </select>
-                        </div>
+                {{-- ═══ LISTING PRESENTATION feedback (per_property mode) ═══ --}}
+                <template x-if="feedbackData.feedback_mode === 'per_property'">
+                    <div class="space-y-6">
+                        <template x-for="item in feedbackData.items" :key="item.property_id">
+                            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">
+                                    Listing Presentation — <span x-text="item.label"></span>
+                                </h3>
+                                <div class="text-[10px] mb-3 px-2 py-1 rounded inline-block" style="background:rgba(245,158,11,0.1); color:#f59e0b;">Internal only — sellers will not see this</div>
 
-                        {{-- Concerns --}}
-                        <div class="mb-3">
-                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
-                            <div class="flex flex-wrap gap-2">
-                                <template x-for="c in feedbackData.concerns" :key="c.id">
-                                    <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer"
-                                           style="color: var(--text-primary);">
-                                        <input type="checkbox" :value="c.id"
-                                               x-model="feedbackForm[contact.id].concern_ids"
-                                               class="rounded">
-                                        <span x-text="c.label"></span>
-                                    </label>
+                                {{-- Outcome --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+                                    <select x-model="lpForm[item.property_id].outcome"
+                                            class="w-full rounded-md px-3 py-2 text-sm"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="">Select…</option>
+                                        <template x-for="o in feedbackData.lp_outcomes" :key="o">
+                                            <option :value="o" x-text="o"></option>
+                                        </template>
+                                    </select>
+                                </div>
+
+                                {{-- Mandate type (shown only when outcome = Mandate signed) --}}
+                                <template x-if="lpForm[item.property_id].outcome === 'Mandate signed'">
+                                    <div class="mb-3">
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
+                                        <select x-model="lpForm[item.property_id].mandate_type"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <template x-for="mt in feedbackData.lp_mandate_types" :key="mt">
+                                                <option :value="mt" x-text="mt"></option>
+                                            </template>
+                                        </select>
+                                    </div>
                                 </template>
+
+                                {{-- Asking price + Seller expectation --}}
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Asking price</label>
+                                        <input type="number" x-model="lpForm[item.property_id].asking_price"
+                                               class="w-full rounded-md px-3 py-2 text-sm"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                               placeholder="R">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller expectation</label>
+                                        <input type="number" x-model="lpForm[item.property_id].seller_expectation"
+                                               class="w-full rounded-md px-3 py-2 text-sm"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                               placeholder="R">
+                                    </div>
+                                </div>
+
+                                {{-- Mandate period --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate period</label>
+                                    <input type="text" x-model="lpForm[item.property_id].mandate_period"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                           placeholder="e.g. 3 months">
+                                </div>
+
+                                {{-- Concerns --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="c in feedbackData.lp_concerns" :key="c.id">
+                                            <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer"
+                                                   style="color: var(--text-primary);">
+                                                <input type="checkbox" :value="c.id"
+                                                       x-model="lpForm[item.property_id].concerns" class="rounded">
+                                                <span x-text="c.label"></span>
+                                            </label>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                {{-- Internal notes --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
+                                    <textarea x-model="lpForm[item.property_id].internal_notes" rows="2"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="Agent-only debrief notes…"></textarea>
+                                </div>
+
+                                {{-- Next action + date --}}
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
+                                        <input type="text" x-model="lpForm[item.property_id].next_action"
+                                               class="w-full rounded-md px-3 py-2 text-sm"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                               placeholder="Follow-up…">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action date</label>
+                                        <input type="date" x-model="lpForm[item.property_id].next_action_date"
+                                               class="w-full rounded-md px-3 py-2 text-sm"
+                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </div>
+                                </div>
+
+                                {{-- Training worthy --}}
+                                <label class="inline-flex items-center gap-2 text-xs cursor-pointer" style="color: var(--text-primary);">
+                                    <input type="checkbox" x-model="lpForm[item.property_id].training_worthy" class="rounded">
+                                    Flag as training-worthy (for manager review)
+                                </label>
                             </div>
-                        </div>
-
-                        {{-- Seller-visible notes --}}
-                        <div class="mb-3">
-                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller-visible notes</label>
-                            <textarea x-model="feedbackForm[contact.id].seller_visible_notes" rows="2"
-                                      class="w-full rounded-md px-3 py-2 text-sm"
-                                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                      placeholder="Shown to seller on live link…"></textarea>
-                        </div>
-
-                        {{-- Internal notes --}}
-                        <div class="mb-3">
-                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
-                            <textarea x-model="feedbackForm[contact.id].internal_notes" rows="2"
-                                      class="w-full rounded-md px-3 py-2 text-sm"
-                                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                      placeholder="Agent-only notes…"></textarea>
-                        </div>
-
-                        {{-- Next action --}}
-                        <div>
-                            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
-                            <input type="text" x-model="feedbackForm[contact.id].next_action_notes"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                   placeholder="Follow-up action…">
-                        </div>
+                        </template>
                     </div>
                 </template>
+
+                {{-- ═══ VIEWING feedback (per_contact mode — existing) ═══ --}}
+                <template x-if="feedbackData.feedback_mode !== 'per_property'">
+                    <div class="space-y-6">
+                        <template x-for="contact in feedbackData.contacts" :key="contact.id">
+                            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="contact.label"></h3>
+
+                                {{-- Outcome --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+                                    <select x-model="feedbackForm[contact.id].outcome_id"
+                                            class="w-full rounded-md px-3 py-2 text-sm"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <option value="">Select…</option>
+                                        <template x-for="o in feedbackData.outcomes" :key="o.id">
+                                            <option :value="o.id" x-text="o.label"></option>
+                                        </template>
+                                    </select>
+                                </div>
+
+                                {{-- Concerns --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="c in feedbackData.concerns" :key="c.id">
+                                            <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer"
+                                                   style="color: var(--text-primary);">
+                                                <input type="checkbox" :value="c.id"
+                                                       x-model="feedbackForm[contact.id].concern_ids"
+                                                       class="rounded">
+                                                <span x-text="c.label"></span>
+                                            </label>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                {{-- Seller-visible notes --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller-visible notes</label>
+                                    <textarea x-model="feedbackForm[contact.id].seller_visible_notes" rows="2"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="Shown to seller on live link…"></textarea>
+                                </div>
+
+                                {{-- Internal notes --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
+                                    <textarea x-model="feedbackForm[contact.id].internal_notes" rows="2"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="Agent-only notes…"></textarea>
+                                </div>
+
+                                {{-- Next action --}}
+                                <div>
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
+                                    <input type="text" x-model="feedbackForm[contact.id].next_action_notes"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                           placeholder="Follow-up action…">
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
             </div>
 
             {{-- Footer (step-aware for multi-property) --}}
@@ -1763,8 +1885,9 @@ function calendarPage() {
         rescheduleDragEventId: null,
         rescheduleDragFromDate: null,
         feedbackOpen: false,
-        feedbackData: { event: null, contacts: [], outcomes: [], concerns: [], properties: [], is_multi_property: false },
+        feedbackData: { event: null, contacts: [], outcomes: [], concerns: [], properties: [], is_multi_property: false, feedback_mode: 'per_contact', items: [] },
         feedbackForm: {},
+        lpForm: {},
         feedbackSaving: false,
         feedbackPropertyStep: 0,
         // Reason picker modal (dismiss + require_reason complete)
@@ -2350,15 +2473,38 @@ function calendarPage() {
             this.feedbackData = data;
             this.feedbackPropertyStep = 0;
             this.feedbackForm = {};
-            data.contacts.forEach(c => {
-                this.feedbackForm[c.id] = {
-                    outcome_id: c.outcome_id ? String(c.outcome_id) : '',
-                    concern_ids: (c.concerns || []).map(String),
-                    seller_visible_notes: c.seller_notes || '',
-                    internal_notes: c.internal_notes || '',
-                    next_action_notes: c.next_action || '',
-                };
-            });
+            this.lpForm = {};
+
+            if (data.feedback_mode === 'per_property') {
+                // LP mode: init form per property
+                (data.items || []).forEach(item => {
+                    const kd = item.kind_data || {};
+                    this.lpForm[item.property_id] = {
+                        outcome: kd.outcome || '',
+                        mandate_type: kd.mandate_type || 'N/A',
+                        asking_price: kd.asking_price || '',
+                        seller_expectation: kd.seller_expectation || '',
+                        mandate_period: kd.mandate_period || '',
+                        concerns: (kd.concerns || []).map(String),
+                        internal_notes: item.internal_notes || '',
+                        next_action: item.next_action || '',
+                        next_action_date: kd.next_action_date || '',
+                        training_worthy: kd.training_worthy || false,
+                    };
+                });
+            } else {
+                // Per-contact mode: init form per contact
+                (data.contacts || []).forEach(c => {
+                    this.feedbackForm[c.id] = {
+                        outcome_id: c.outcome_id ? String(c.outcome_id) : '',
+                        concern_ids: (c.concerns || []).map(String),
+                        seller_visible_notes: c.seller_notes || '',
+                        internal_notes: c.internal_notes || '',
+                        next_action_notes: c.next_action || '',
+                    };
+                });
+            }
+
             this.panelOpen = false;
             this.feedbackOpen = true;
         },
@@ -2370,6 +2516,27 @@ function calendarPage() {
         },
 
         buildFeedbackPayload() {
+            if (this.feedbackData.feedback_mode === 'per_property') {
+                return {
+                    feedback_kind: 'listing_presentation',
+                    feedback: Object.entries(this.lpForm).map(([pid, f]) => ({
+                        property_id: parseInt(pid),
+                        kind_specific_data: {
+                            outcome: f.outcome || null,
+                            mandate_type: f.mandate_type || null,
+                            asking_price: f.asking_price ? parseFloat(f.asking_price) : null,
+                            seller_expectation: f.seller_expectation ? parseFloat(f.seller_expectation) : null,
+                            mandate_period: f.mandate_period || null,
+                            concerns: (f.concerns || []).map(Number),
+                            next_action_date: f.next_action_date || null,
+                            training_worthy: f.training_worthy || false,
+                        },
+                        internal_notes: f.internal_notes || null,
+                        next_action_notes: f.next_action || null,
+                    })),
+                };
+            }
+
             const propertyId = this.getCurrentFeedbackPropertyId();
             return {
                 feedback: Object.entries(this.feedbackForm).map(([cid, f]) => ({

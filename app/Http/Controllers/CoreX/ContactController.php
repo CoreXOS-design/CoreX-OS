@@ -187,8 +187,14 @@ class ContactController extends Controller
                     ->whereIn('id', $sellerEventIds)->get()->keyBy('id');
                 $sProps = \App\Models\Property::withoutGlobalScopes()
                     ->whereIn('id', $ownedPropertyIds)->get()->keyBy('id');
-                $sFeedback = \DB::table('calendar_event_feedback')
-                    ->whereIn('calendar_event_id', $sellerEventIds)->get()->groupBy('calendar_event_id');
+                // Filter internal_only feedback: only BM/admin/super_admin can see
+                $viewerCanSeeInternal = in_array($request->user()->role ?? 'agent', ['super_admin', 'admin', 'owner', 'branch_manager']);
+                $sFeedbackQuery = \DB::table('calendar_event_feedback')
+                    ->whereIn('calendar_event_id', $sellerEventIds);
+                if (!$viewerCanSeeInternal) {
+                    $sFeedbackQuery->where('visibility', '!=', 'internal_only');
+                }
+                $sFeedback = $sFeedbackQuery->get()->groupBy('calendar_event_id');
                 $sAgents = \App\Models\User::withoutGlobalScopes()
                     ->whereIn('id', $sEvents->pluck('user_id')->unique()->filter())->pluck('name', 'id');
                 $sOutcomes = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
