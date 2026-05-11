@@ -16,17 +16,21 @@ class ConflictDetectionService
     public function checkUserConflicts(int $userId, string $startsAt, string $endsAt, ?int $excludeEventId = null): array
     {
         // Get event classes that are informational (actor_role = 'neither') — these never conflict.
-        $informationalClasses = CalendarEventClassSetting::where('actor_role', 'neither')
+        // Must bypass AgencyScope because class settings are stored with agency_id=NULL (global defaults).
+        $informationalClasses = CalendarEventClassSetting::withoutGlobalScopes()
+            ->where('actor_role', 'neither')
             ->pluck('event_class')->toArray();
 
         $query = CalendarEvent::withoutGlobalScopes()
             ->where(function ($q) use ($userId) {
+                // Organizer's own events
                 $q->where('user_id', $userId)
+                  // Events the user is invited to (accepted, tentative, OR pending)
                   ->orWhereIn('id', function ($sub) use ($userId) {
                       $sub->select('event_id')
                           ->from('calendar_event_invitations')
                           ->where('invitee_user_id', $userId)
-                          ->whereIn('status', ['accepted', 'tentative']);
+                          ->whereIn('status', ['accepted', 'tentative', 'pending']);
                   });
             })
             ->whereNull('deleted_at')
