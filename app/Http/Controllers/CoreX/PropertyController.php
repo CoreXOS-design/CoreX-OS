@@ -240,40 +240,40 @@ class PropertyController extends Controller
             if (empty($property->suburb))  $hfcMissingFields[] = ['field' => 'suburb',  'label' => 'Suburb'];
         }
 
-        // Overview tab: activity timeline
-        $activityTimeline = collect();
-        // P24 syndication events
-        $activityTimeline = $activityTimeline->merge(
-            \App\Models\P24SyndicationLog::where('property_id', $property->id)
-                ->select(['id', 'property_id', 'action', 'status_code', 'created_at'])
-                ->latest('created_at')->take(10)->get()
-                ->map(fn($l) => [
-                    'type' => 'p24',
-                    'icon' => 'globe',
-                    'label' => 'P24: ' . ucfirst(str_replace('_', ' ', $l->action)),
-                    'detail' => $l->status_code ? "HTTP {$l->status_code}" : '',
-                    'date' => $l->created_at,
-                    'color' => '#3b82f6',
-                ])
-        );
-        // Notes
-        $activityTimeline = $activityTimeline->merge(
-            $property->notes->take(5)->map(fn($n) => [
-                'type' => 'note',
-                'icon' => 'note',
-                'label' => 'Note by ' . ($n->user->name ?? 'Unknown'),
-                'detail' => \Illuminate\Support\Str::limit($n->body ?? $n->content ?? '', 60),
-                'date' => $n->created_at,
-                'color' => '#f59e0b',
-            ])
-        );
-        // Property created/updated/published
-        if ($property->published_at) {
-            $activityTimeline->push(['type' => 'system', 'icon' => 'check', 'label' => 'Published to website', 'detail' => '', 'date' => $property->published_at, 'color' => '#22c55e']);
+        // Overview tab: activity timeline from unified audit log
+        $categoryColors = [
+            'property' => '#94a3b8', 'compliance' => '#10b981', 'syndication' => '#3b82f6',
+            'document' => '#8b5cf6', 'marketing' => '#ec4899', 'media' => '#f59e0b',
+            'contact_link' => '#06b6d4', 'system' => '#64748b',
+        ];
+        $auditEntries = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get();
+        $activityTimeline = $auditEntries->map(fn ($a) => [
+            'type' => $a->event_category,
+            'icon' => match($a->event_category) {
+                'compliance' => 'shield', 'syndication' => 'globe', 'document' => 'file',
+                'marketing' => 'share', 'media' => 'camera', default => 'activity',
+            },
+            'label' => $a->human_summary ?? ucfirst(str_replace('_', ' ', $a->event_type)),
+            'detail' => $a->user ? ('by ' . $a->user->name) : '',
+            'date' => $a->created_at,
+            'color' => $categoryColors[$a->event_category] ?? '#94a3b8',
+        ]);
+        // If no audit log entries yet, show basic created/published from property
+        if ($activityTimeline->isEmpty()) {
+            if ($property->published_at) {
+                $activityTimeline->push(['type' => 'system', 'icon' => 'check', 'label' => 'Published to website', 'detail' => '', 'date' => $property->published_at, 'color' => '#22c55e']);
+            }
+            $activityTimeline->push(['type' => 'system', 'icon' => 'plus', 'label' => 'Property created', 'detail' => '', 'date' => $property->created_at, 'color' => '#94a3b8']);
         }
-        $activityTimeline->push(['type' => 'system', 'icon' => 'plus', 'label' => 'Property created', 'detail' => '', 'date' => $property->created_at, 'color' => '#94a3b8']);
-        // Sort by date desc, take 10
-        $activityTimeline = $activityTimeline->sortByDesc('date')->take(10)->values();
+        // Full history for History tab
+        $fullAuditLog = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+            ->with('user')
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
 
         // Drive tab: all documents linked to this property
         try {
@@ -294,11 +294,25 @@ class PropertyController extends Controller
             $driveFolders = $documentTypes;
         }
 
+        // CSV export for History tab
+        if (request('export') === 'csv' && request('tab') === 'history') {
+            $rows = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+                ->with('user')->orderByDesc('created_at')->get();
+            $csv = "Timestamp,User,Category,Event Type,Summary,Metadata\n";
+            foreach ($rows as $r) {
+                $csv .= '"' . $r->created_at->toIso8601String() . '","' . addslashes($r->user?->name ?? 'System') . '","' . $r->event_category . '","' . $r->event_type . '","' . addslashes($r->human_summary ?? '') . '","' . addslashes(json_encode($r->metadata ?? [])) . "\"\n";
+            }
+            return response($csv, 200, [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="property-' . $property->id . '-audit-log.csv"',
+            ]);
+        }
+
         $readinessReport = app(\App\Services\Compliance\MarketingReadinessService::class)->statusFor($property);
 
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
-            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'readinessReport'
+            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport'
         ));
     }
 

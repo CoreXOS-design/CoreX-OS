@@ -913,6 +913,7 @@
                 ['key'=>'gallery',   'label'=>'Gallery'],
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
+                ['key'=>'history',   'label'=>'History'],
                 ['key'=>'drive',        'label'=>'Drive'],
                 ['key'=>'intelligence', 'label'=>'Intelligence'],
                 ['key'=>'core-matches', 'label'=>'Core Matches'],
@@ -3256,6 +3257,54 @@
                 @endforelse
             </div>
         @endif {{-- /!$isNew notes --}}
+        </div>
+
+        {{-- ── HISTORY TAB ──────────────────────────────────────────────────── --}}
+        <div x-show="activeTab === 'history'" x-cloak class="p-6 space-y-4">
+            @if(!$isNew && isset($fullAuditLog))
+                @php
+                    $catColors = [
+                        'property' => '#94a3b8', 'compliance' => '#10b981', 'syndication' => '#3b82f6',
+                        'document' => '#8b5cf6', 'marketing' => '#ec4899', 'media' => '#f59e0b',
+                        'contact_link' => '#06b6d4', 'system' => '#64748b',
+                    ];
+                @endphp
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Property Audit Trail</h3>
+                    <a href="{{ route('corex.properties.show', $property->id) }}?tab=history&export=csv"
+                       class="text-[10px] font-medium px-2 py-1 rounded no-underline"
+                       style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);">Export CSV</a>
+                </div>
+                @forelse($fullAuditLog as $entry)
+                    <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
+                        <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};"></div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start justify-between gap-2">
+                                <div>
+                                    <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $entry->human_summary ?? ucfirst(str_replace('_', ' ', $entry->event_type)) }}</span>
+                                    <span class="text-[10px] ml-1 px-1.5 py-0.5 rounded" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }}20; color:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};">{{ ucfirst($entry->event_category) }}</span>
+                                </div>
+                                <div class="text-[10px] flex-shrink-0" style="color:var(--text-muted);">{{ $entry->created_at->format('j M Y, H:i') }}</div>
+                            </div>
+                            <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">
+                                @if($entry->user) {{ $entry->user->name }} @else System @endif
+                            </div>
+                            @if($entry->old_values || $entry->new_values || $entry->metadata)
+                                <button type="button" @click="showDetail = !showDetail" class="text-[10px] mt-1 underline" style="color:var(--text-muted);" x-text="showDetail ? 'Hide details' : 'Show details'"></button>
+                                <div x-show="showDetail" x-cloak class="mt-1 text-[10px] rounded p-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
+                                    @if($entry->old_values)<div><span class="font-medium">Before:</span> {{ json_encode($entry->old_values) }}</div>@endif
+                                    @if($entry->new_values)<div><span class="font-medium">After:</span> {{ json_encode($entry->new_values) }}</div>@endif
+                                    @if($entry->metadata)<div><span class="font-medium">Details:</span> {{ json_encode($entry->metadata) }}</div>@endif
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                @empty
+                    <div class="py-8 text-center">
+                        <p class="text-sm" style="color:var(--text-muted);">No audit history recorded yet.</p>
+                    </div>
+                @endforelse
+            @endif
         </div>
 
         {{-- ── DRIVE TAB ────────────────────────────────────────────────────── --}}

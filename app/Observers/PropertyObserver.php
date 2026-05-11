@@ -62,8 +62,25 @@ class PropertyObserver
      * every agency. This observer closes the write side; the read side
      * is `User::scopeAgencyMembers()`.
      */
+    /** Static registry for pre-save originals (keyed by property ID) */
+    private static array $auditOriginals = [];
+
     public function saving(Property $property): void
     {
+        // Capture originals in static registry for audit diffing in saved()
+        if ($property->exists && !$property->wasRecentlyCreated) {
+            $auditFields = ['price', 'status', 'agent_id', 'compliance_snapshot_at', 'published_at', 'mandate_type'];
+            $captured = [];
+            foreach ($auditFields as $f) {
+                if ($property->isDirty($f)) {
+                    $captured[$f] = $property->getOriginal($f);
+                }
+            }
+            if (!empty($captured)) {
+                self::$auditOriginals[$property->id] = $captured;
+            }
+        }
+
         if (!$property->agent_id) {
             return;
         }
@@ -90,6 +107,16 @@ class PropertyObserver
         } catch (\Throwable $e) {
             Log::warning("Command Center auto-event failed on property create #{$property->id}: {$e->getMessage()}");
         }
+
+        // Audit: property created
+        try {
+            app(\App\Services\Audit\PropertyAuditService::class)->log(
+                $property, 'property', 'property_created',
+                humanSummary: 'Property created: ' . ($property->title ?? 'Untitled'),
+            );
+        } catch (\Throwable $e) {
+            Log::warning("Audit log failed on property create #{$property->id}: {$e->getMessage()}");
+        }
     }
 
     /**
@@ -105,6 +132,43 @@ class PropertyObserver
             }
         } catch (\Throwable $e) {
             Log::warning("Command Center activity update failed for property #{$property->id}: {$e->getMessage()}");
+        }
+
+        // Audit: track meaningful field changes
+        if (!$property->wasRecentlyCreated) {
+            try {
+                $auditSvc = app(\App\Services\Audit\PropertyAuditService::class);
+                $changes = $property->getChanges();
+
+                $pre = self::$auditOriginals[$property->id] ?? [];
+                unset(self::$auditOriginals[$property->id]);
+
+                if (isset($changes['price']) && array_key_exists('price', $pre)) {
+                    $auditSvc->logPriceChange($property, $pre['price'], $changes['price']);
+                }
+                if (isset($changes['status']) && array_key_exists('status', $pre)) {
+                    $auditSvc->logStatusChange($property, $pre['status'], $changes['status']);
+                }
+                if (isset($changes['agent_id']) && array_key_exists('agent_id', $pre)) {
+                    $newAgent = User::find($changes['agent_id']);
+                    $auditSvc->log($property, 'property', 'agent_assigned',
+                        oldValues: ['agent_id' => $pre['agent_id']],
+                        newValues: ['agent_id' => $changes['agent_id']],
+                        humanSummary: 'Listing agent changed to ' . ($newAgent->name ?? "Agent #{$changes['agent_id']}"),
+                    );
+                }
+                if (isset($changes['compliance_snapshot_at']) && $changes['compliance_snapshot_at'] !== null && ($pre['compliance_snapshot_at'] ?? null) === null) {
+                    $auditSvc->logComplianceSnapshot($property, snapshotData: $property->compliance_snapshot_data);
+                }
+                if (isset($changes['published_at']) && $changes['published_at'] !== null && ($pre['published_at'] ?? null) === null) {
+                    $auditSvc->log($property, 'syndication', 'website_published', humanSummary: 'Published to HFC website');
+                }
+                if (isset($changes['published_at']) && $changes['published_at'] === null && ($pre['published_at'] ?? null) !== null) {
+                    $auditSvc->log($property, 'syndication', 'website_unpublished', humanSummary: 'Unpublished from HFC website');
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Audit log failed on property save #{$property->id}: {$e->getMessage()}");
+            }
         }
         if ($property->isPublished()) {
             SyncPropertyToWebsite::dispatchSync($property, 'upsert');
@@ -187,6 +251,15 @@ class PropertyObserver
      */
     public function deleted(Property $property): void
     {
+        try {
+            app(\App\Services\Audit\PropertyAuditService::class)->log(
+                $property, 'property', 'property_archived',
+                humanSummary: 'Property archived: ' . ($property->title ?? 'Untitled'),
+            );
+        } catch (\Throwable $e) {
+            Log::warning("Audit log failed on property delete #{$property->id}: {$e->getMessage()}");
+        }
+
         if ($property->isPublished()) {
             SyncPropertyToWebsite::dispatchSync($property, 'delete');
         }
