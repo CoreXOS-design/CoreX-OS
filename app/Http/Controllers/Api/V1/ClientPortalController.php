@@ -11,6 +11,7 @@ use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\Scopes\ContactScope;
 use App\Services\ClientAuthService;
+use App\Services\Matching\ClientMatchResolver;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,6 +27,7 @@ class ClientPortalController extends Controller
     public function __construct(
         private readonly ClientAuthService $service,
         private readonly MatchingService $matching,
+        private readonly ClientMatchResolver $resolver,
     ) {}
 
     /**
@@ -96,7 +98,9 @@ class ClientPortalController extends Controller
 
         $properties = collect();
         try {
-            $properties = $this->matching->propertiesForMatch($match);
+            // Strict client-only filter. Mirrors mobile filters exactly — no
+            // agency-wide scope override, no NULL leniency on filtered cols.
+            $properties = $this->resolver->resolve($match);
         } catch (\Throwable $e) {
             report($e);
         }
@@ -250,7 +254,7 @@ class ClientPortalController extends Controller
         $authorized = false;
         foreach ($matches as $m) {
             try {
-                $ids = $this->matching->propertiesForMatch($m)->pluck('id')->all();
+                $ids = $this->resolver->resolve($m)->pluck('id')->all();
                 if (in_array($property, $ids, true)) {
                     $authorized = true;
                     break;
