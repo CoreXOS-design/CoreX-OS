@@ -87,19 +87,25 @@ class PropertyIntelligenceService
 
     /**
      * Aggregated feedback metrics for a property.
+     * Joins through calendar_event_links since feedback.property_id may be NULL.
      */
     public function getFeedbackRollup(int $propertyId): array
     {
-        $feedback = CalendarEventFeedback::where('property_id', $propertyId)
-            ->whereNotNull('captured_at')
-            ->get();
+        // Find all events linked to this property
+        $eventIds = DB::table('calendar_event_links')
+            ->where('linkable_type', 'App\\Models\\Property')
+            ->where('linkable_id', $propertyId)
+            ->where('role', 'subject_property')
+            ->pluck('calendar_event_id');
+
+        // Get feedback for those events (or directly linked to this property)
+        $feedback = CalendarEventFeedback::where(function ($q) use ($propertyId, $eventIds) {
+            $q->where('property_id', $propertyId)
+              ->orWhereIn('calendar_event_id', $eventIds);
+        })->whereNotNull('captured_at')->get();
 
         $viewingCount = $feedback->unique('calendar_event_id')->count();
-
-        // Aggregate concerns
         $allConcerns = $feedback->pluck('concern_option_ids')->flatten()->filter()->countBy();
-
-        // Aggregate outcomes
         $outcomes = $feedback->pluck('outcome_option_id')->filter()->countBy();
 
         return [
@@ -108,6 +114,75 @@ class PropertyIntelligenceService
             'top_concerns' => $allConcerns->sortDesc()->take(5)->toArray(),
             'outcome_distribution' => $outcomes->toArray(),
         ];
+    }
+
+    /**
+     * Detailed viewing + feedback rows for a property (recent first, limit 20).
+     */
+    public function getRecentViewings(int $propertyId, int $limit = 20): \Illuminate\Support\Collection
+    {
+        $eventIds = DB::table('calendar_event_links')
+            ->where('linkable_type', 'App\\Models\\Property')
+            ->where('linkable_id', $propertyId)
+            ->where('role', 'subject_property')
+            ->pluck('calendar_event_id');
+
+        if ($eventIds->isEmpty()) return collect();
+
+        $events = CalendarEvent::withoutGlobalScopes()
+            ->whereIn('id', $eventIds)
+            ->orderByDesc('event_date')
+            ->limit($limit)
+            ->get();
+
+        $feedback = DB::table('calendar_event_feedback')
+            ->whereIn('calendar_event_id', $eventIds)
+            ->get()
+            ->groupBy('calendar_event_id');
+
+        $agents = \App\Models\User::withoutGlobalScopes()
+            ->whereIn('id', $events->pluck('user_id')->unique()->filter())
+            ->pluck('name', 'id');
+
+        $outcomeLabels = DB::table('agency_feedback_options')
+            ->where('category', 'outcome')
+            ->pluck('label', 'id');
+
+        // Resolve buyer contacts for each event
+        $buyerLinks = DB::table('calendar_event_links')
+            ->whereIn('calendar_event_id', $eventIds)
+            ->where('linkable_type', 'App\\Models\\Contact')
+            ->whereIn('role', ['buyer_contact', 'attendee'])
+            ->get()
+            ->groupBy('calendar_event_id');
+
+        $contactIds = $buyerLinks->flatten()->pluck('linkable_id')->unique();
+        $contacts = \App\Models\Contact::withoutGlobalScopes()
+            ->whereIn('id', $contactIds)
+            ->get(['id', 'first_name', 'last_name'])
+            ->keyBy('id');
+
+        return $events->map(function ($ev) use ($feedback, $agents, $outcomeLabels, $buyerLinks, $contacts) {
+            $fbs = $feedback->get($ev->id, collect());
+            $buyers = ($buyerLinks->get($ev->id, collect()))->map(function ($bl) use ($contacts) {
+                $c = $contacts->get($bl->linkable_id);
+                return $c ? ['id' => $c->id, 'name' => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''))] : null;
+            })->filter()->values();
+
+            return [
+                'event_id' => $ev->id,
+                'event_date' => $ev->event_date,
+                'title' => $ev->title,
+                'agent_name' => $agents->get($ev->user_id, 'Unknown'),
+                'buyers' => $buyers,
+                'feedback' => $fbs->map(fn($fb) => [
+                    'outcome_label' => $outcomeLabels->get($fb->outcome_option_id),
+                    'seller_notes' => $fb->seller_visible_notes,
+                    'internal_notes' => $fb->internal_notes,
+                    'captured_at' => $fb->captured_at,
+                ])->values(),
+            ];
+        });
     }
 
     /**

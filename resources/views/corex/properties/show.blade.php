@@ -3197,6 +3197,58 @@
                     </div>
                 </div>
 
+                {{-- Section: Recent Viewings & Feedback Detail --}}
+                @php
+                    $recentViewings = $intel->getRecentViewings($property->id);
+                @endphp
+                @if($recentViewings->isNotEmpty())
+                    <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Recent Viewings & Feedback</h3>
+                        <div class="space-y-3">
+                            @foreach($recentViewings as $rv)
+                                <div class="rounded px-3 py-2.5" style="background: var(--surface); border: 1px solid var(--border);">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-xs font-medium" style="color: var(--text-primary);">{{ $rv['title'] }}</div>
+                                            <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">
+                                                Agent: {{ $rv['agent_name'] }}
+                                                @if($rv['buyers']->isNotEmpty())
+                                                    · Buyer{{ $rv['buyers']->count() > 1 ? 's' : '' }}:
+                                                    @foreach($rv['buyers'] as $b)
+                                                        @if(auth()->user()->hasPermission('access_contacts'))
+                                                            <a href="{{ route('corex.contacts.show', $b['id']) }}" class="no-underline hover:underline" style="color:var(--brand-icon);">{{ $b['name'] }}</a>{{ !$loop->last ? ', ' : '' }}
+                                                        @else
+                                                            {{ $b['name'] }}{{ !$loop->last ? ', ' : '' }}
+                                                        @endif
+                                                    @endforeach
+                                                @endif
+                                            </div>
+                                        </div>
+                                        <div class="text-[10px] flex-shrink-0" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($rv['event_date'])->format('j M Y') }}</div>
+                                    </div>
+                                    @if($rv['feedback']->isNotEmpty())
+                                        @foreach($rv['feedback'] as $fb)
+                                            <div class="mt-2 rounded px-2 py-1.5" style="background: var(--surface-2);">
+                                                @if($fb['outcome_label'] ?? null)
+                                                    <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $fb['outcome_label'] }}</span>
+                                                @endif
+                                                @if($fb['seller_notes'] ?? null)
+                                                    <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fb['seller_notes'] }}</p>
+                                                @endif
+                                                @if($fb['internal_notes'] ?? null)
+                                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);"><span class="font-medium">Internal:</span> {{ $fb['internal_notes'] }}</p>
+                                                @endif
+                                            </div>
+                                        @endforeach
+                                    @else
+                                        <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
                 {{-- Section: Seller Live Links (agent management) --}}
                 <div x-show="!sellerPreview">
                     @php
