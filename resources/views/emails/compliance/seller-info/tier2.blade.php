@@ -47,9 +47,7 @@
 
 <div class="body">
 
-@if(!empty($agentMessage))
-<div class="agent-msg">{{ $agentMessage }}</div>
-@endif
+<p>Dear {{ $sellerName ?? 'Valued Seller' }},</p>
 
 {{-- ═══════════ BLOCK C — How to check an agent is legitimate ═══════════ --}}
 <h2>How to Check an Agent Is Legitimate</h2>

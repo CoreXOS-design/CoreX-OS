@@ -47,9 +47,7 @@
 
 <div class="body">
 
-@if(!empty($agentMessage))
-<div class="agent-msg">{{ $agentMessage }}</div>
-@endif
+<p>Dear {{ $sellerName ?? 'Valued Seller' }},</p>
 
 {{-- ═══════════ BLOCK A — Why mandate + FICA + MDF protect the seller ═══════════ --}}
 <h2>Three Documents That Protect You</h2>

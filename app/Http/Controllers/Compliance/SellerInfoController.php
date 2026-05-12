@@ -16,24 +16,14 @@ class SellerInfoController extends Controller
 {
     public function index()
     {
-        $user = Auth::user();
-        $properties = \App\Models\Property::withoutGlobalScopes()
-            ->where('agency_id', $user->effectiveAgencyId() ?? $user->agency_id)
-            ->whereNotNull('address')
-            ->orderBy('address')
-            ->select('id', 'address', 'suburb', 'title')
-            ->limit(200)
-            ->get();
-
-        return view('compliance.seller-info.index', compact('properties'));
+        return view('compliance.seller-info.index');
     }
 
     public function preview(Request $request)
     {
         $request->validate([
-            'tier'          => 'required|in:tier_1,tier_2,tier_3',
-            'seller_name'   => 'nullable|string|max:255',
-            'agent_message' => 'nullable|string|max:500',
+            'tier'        => 'required|in:tier_1,tier_2,tier_3',
+            'seller_name' => 'nullable|string|max:255',
         ]);
 
         $user = Auth::user();
@@ -41,8 +31,8 @@ class SellerInfoController extends Controller
 
         $html = view('emails.compliance.seller-info.' . str_replace('tier_', 'tier', $request->tier), [
             'agency'       => $agency,
-            'agentMessage' => $request->agent_message ?? '',
-            'sellerName'   => $request->seller_name ?? 'Seller',
+            'agentMessage' => '',
+            'sellerName'   => $request->seller_name ?: 'Seller',
         ])->render();
 
         return response()->json(['html' => $html]);
@@ -51,96 +41,101 @@ class SellerInfoController extends Controller
     public function send(Request $request)
     {
         $request->validate([
-            'tier'          => 'required|in:tier_1,tier_2,tier_3',
-            'seller_email'  => 'required|email|max:255',
-            'seller_name'   => 'nullable|string|max:255',
-            'agent_message' => 'nullable|string|max:500',
-            'property_id'   => 'nullable|integer|exists:properties,id',
-            'contact_id'    => 'nullable|integer|exists:contacts,id',
+            'tier'                  => 'required|in:tier_1,tier_2,tier_3',
+            'recipients'            => 'required|array|min:1|max:10',
+            'recipients.*.name'     => 'nullable|string|max:255',
+            'recipients.*.email'    => 'required|email|max:255',
+            'property_id'           => 'nullable|integer|exists:properties,id',
         ]);
 
         $user = Auth::user();
         $agency = Agency::withoutGlobalScopes()->find($user->effectiveAgencyId() ?? $user->agency_id);
-        $sellerName = $request->seller_name ?: 'Valued Seller';
 
-        $mailable = new SellerInfoMail($agency, $request->tier, $sellerName, $request->agent_message ?? '');
+        $sentCount = 0;
+        $failCount = 0;
 
-        // Pre-render for log
-        $renderedHtml = $mailable->render();
-        $renderedText = strip_tags(str_replace(['<br>', '<br/>', '</p>', '</div>'], "\n", $renderedHtml));
-        $agencyShort = $agency->trading_name ?? $agency->name;
-        $emailSubject = "[{$agencyShort}] " . match($request->tier) {
-            'tier_1' => 'Why Proper Paperwork Protects YOU',
-            'tier_2' => 'Why an FFC Matters When Choosing an Agent',
-            'tier_3' => "Important: Verifying Your Agent's Credentials",
-        };
+        foreach ($request->recipients as $recipient) {
+            $sellerName = $recipient['name'] ?: 'Valued Seller';
+            $sellerEmail = $recipient['email'];
 
-        try {
-            Mail::to($request->seller_email)->send($mailable);
+            $mailable = new SellerInfoMail($agency, $request->tier, $sellerName, '');
 
-            WhistleblowEmailLog::create([
-                'complaint_id'    => null,
-                'sent_at'         => now(),
-                'email_type'      => 'seller_info_email',
-                'subject'         => $emailSubject,
-                'recipients_to'   => [$request->seller_email],
-                'recipients_cc'   => [],
-                'rendered_html'   => $renderedHtml,
-                'rendered_text'   => $renderedText,
-                'sent_by_user_id' => $user->id,
-                'status'          => 'sent',
-            ]);
+            $renderedHtml = $mailable->render();
+            $renderedText = strip_tags(str_replace(['<br>', '<br/>', '</p>', '</div>'], "\n", $renderedHtml));
+            $agencyShort = $agency->trading_name ?? $agency->name;
+            $emailSubject = "[{$agencyShort}] " . match ($request->tier) {
+                'tier_1' => 'Why Proper Paperwork Protects YOU',
+                'tier_2' => 'Why an FFC Matters When Choosing an Agent',
+                'tier_3' => "Important: Verifying Your Agent's Credentials",
+            };
 
-            return redirect()->route('compliance.seller-info.index')
-                ->with('success', "Seller information email sent to {$request->seller_email}.");
-        } catch (\Throwable $e) {
-            WhistleblowEmailLog::create([
-                'complaint_id'    => null,
-                'sent_at'         => now(),
-                'email_type'      => 'seller_info_email',
-                'subject'         => $emailSubject,
-                'recipients_to'   => [$request->seller_email],
-                'recipients_cc'   => [],
-                'rendered_html'   => $renderedHtml ?? '',
-                'rendered_text'   => $renderedText ?? '',
-                'sent_by_user_id' => $user->id,
-                'status'          => 'failed',
-                'error_message'   => $e->getMessage(),
-            ]);
+            try {
+                Mail::to($sellerEmail)->send($mailable);
 
-            return redirect()->route('compliance.seller-info.index')
-                ->with('error', 'Failed to send email: ' . $e->getMessage());
+                WhistleblowEmailLog::create([
+                    'complaint_id'    => null,
+                    'sent_at'         => now(),
+                    'email_type'      => 'seller_info_email',
+                    'subject'         => $emailSubject,
+                    'recipients_to'   => [$sellerEmail],
+                    'recipients_cc'   => [],
+                    'rendered_html'   => $renderedHtml,
+                    'rendered_text'   => $renderedText,
+                    'sent_by_user_id' => $user->id,
+                    'status'          => 'sent',
+                ]);
+                $sentCount++;
+            } catch (\Throwable $e) {
+                WhistleblowEmailLog::create([
+                    'complaint_id'    => null,
+                    'sent_at'         => now(),
+                    'email_type'      => 'seller_info_email',
+                    'subject'         => $emailSubject,
+                    'recipients_to'   => [$sellerEmail],
+                    'recipients_cc'   => [],
+                    'rendered_html'   => $renderedHtml ?? '',
+                    'rendered_text'   => $renderedText ?? '',
+                    'sent_by_user_id' => $user->id,
+                    'status'          => 'failed',
+                    'error_message'   => $e->getMessage(),
+                ]);
+                $failCount++;
+            }
         }
+
+        $msg = "Sent {$sentCount} email(s).";
+        if ($failCount > 0) {
+            $msg .= " {$failCount} failed.";
+        }
+
+        return redirect()->route('compliance.seller-info.index')
+            ->with($failCount > 0 ? 'error' : 'success', $msg);
     }
 
     public function generateWhatsappLink(Request $request)
     {
         $request->validate([
-            'tier'          => 'required|in:tier_1,tier_2,tier_3',
-            'seller_name'   => 'nullable|string|max:255',
-            'seller_email'  => 'nullable|email|max:255',
-            'agent_message' => 'nullable|string|max:500',
-            'property_id'   => 'nullable|integer|exists:properties,id',
-            'contact_id'    => 'nullable|integer|exists:contacts,id',
+            'tier'         => 'required|in:tier_1,tier_2,tier_3',
+            'seller_name'  => 'nullable|string|max:255',
+            'seller_email' => 'nullable|email|max:255',
+            'property_id'  => 'nullable|integer|exists:properties,id',
         ]);
 
         $user = Auth::user();
         $agency = Agency::withoutGlobalScopes()->find($user->effectiveAgencyId() ?? $user->agency_id);
 
         $link = SellerInfoShareLink::create([
-            'tier'             => $request->tier,
-            'seller_name'      => $request->seller_name,
-            'seller_email'     => $request->seller_email,
-            'agent_message'    => $request->agent_message,
-            'property_id'      => $request->property_id,
-            'contact_id'       => $request->contact_id,
-            'sent_by_user_id'  => $user->id,
-            'agency_id'        => $agency->id,
-            'token'            => Str::random(32),
-            'expires_at'       => now()->addDays(90),
+            'tier'            => $request->tier,
+            'seller_name'     => $request->seller_name,
+            'seller_email'    => $request->seller_email,
+            'agent_message'   => null,
+            'property_id'     => $request->property_id,
+            'sent_by_user_id' => $user->id,
+            'agency_id'       => $agency->id,
+            'token'           => Str::random(32),
+            'expires_at'      => now()->addDays(90),
         ]);
 
-        // Log as WhatsApp link generation
         WhistleblowEmailLog::create([
             'complaint_id'    => null,
             'sent_at'         => now(),
@@ -154,8 +149,6 @@ class SellerInfoController extends Controller
             'status'          => 'sent',
         ]);
 
-        $url = url('/info/' . $link->token);
-
-        return response()->json(['url' => $url, 'token' => $link->token]);
+        return response()->json(['url' => url('/info/' . $link->token), 'token' => $link->token]);
     }
 }

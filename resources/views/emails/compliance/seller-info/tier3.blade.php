@@ -48,9 +48,7 @@
 
 <div class="body">
 
-@if(!empty($agentMessage))
-<div class="agent-msg">{{ $agentMessage }}</div>
-@endif
+<p>Dear {{ $sellerName ?? 'Valued Seller' }},</p>
 
 <div class="warning-banner">
     NOTE: This information is being shared because a property practitioner associated with your property could not be verified on the PPRA register. Operating as a property practitioner without a valid Fidelity Fund Certificate is a criminal offence under Section 49 of the Property Practitioners Act.
