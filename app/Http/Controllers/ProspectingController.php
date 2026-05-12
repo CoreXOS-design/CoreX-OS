@@ -68,6 +68,15 @@ class ProspectingController extends Controller
             });
         }
 
+        // Stock match filter
+        if ($request->filled('stock_filter')) {
+            if ($request->stock_filter === 'in_stock') {
+                $query->whereNotNull('matched_property_id');
+            } elseif ($request->stock_filter === 'not_in_stock') {
+                $query->whereNull('matched_property_id');
+            }
+        }
+
         // Claim filters
         if ($request->filled('claim_filter')) {
             if ($request->claim_filter === 'my_claims') {
@@ -206,6 +215,10 @@ class ProspectingController extends Controller
                                     ->where('price_changed_at', '>=', $weekAgo)->count(),
             'cross_listed'     => $crossListed,
             'buyer_matched'    => $matchedListingCount,
+            'in_stock'         => ProspectingListing::where('agency_id', $agencyId)
+                                    ->where('is_active', true)
+                                    ->whereNotNull('matched_property_id')
+                                    ->count(),
         ];
 
         // Filter dropdown options

@@ -35,6 +35,8 @@ class ProspectingListing extends Model
         'price_changed_at',
         'is_active',
         'first_seen_email_date',
+        'matched_property_id',
+        'matched_at',
     ];
 
     protected $casts = [
@@ -44,11 +46,17 @@ class ProspectingListing extends Model
         'last_seen_at'     => 'datetime',
         'price_changed_at'      => 'datetime',
         'first_seen_email_date' => 'datetime',
+        'matched_at'            => 'datetime',
     ];
 
     public function agency()
     {
         return $this->belongsTo(Agency::class);
+    }
+
+    public function matchedProperty()
+    {
+        return $this->belongsTo(Property::class, 'matched_property_id');
     }
 
     public function capturedBy()

@@ -39,9 +39,13 @@
             <div class="text-xs font-medium mb-1" style="color: var(--text-muted);">Buyer Matched</div>
             <div class="text-[1.625rem] font-semibold" style="color: #10b981;">{{ number_format($stats['buyer_matched'] ?? 0) }}</div>
         </div>
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-xs font-medium mb-1" style="color: var(--text-muted);">In Our Stock</div>
+            <div class="text-[1.625rem] font-semibold" style="color: var(--brand-default);">{{ number_format($stats['in_stock'] ?? 0) }}</div>
+        </div>
     </div>
 
-    {{-- Buyer Match Toggle --}}
+    {{-- Match Toggles --}}
     <div class="flex items-center gap-3">
         <a href="{{ route('prospecting.index', array_merge(request()->except('matched_only'), ['matched_only' => '1'])) }}"
            class="text-xs px-3 py-1.5 rounded-md no-underline {{ request('matched_only') === '1' ? 'font-bold' : '' }}"
@@ -55,6 +59,20 @@
            class="text-xs px-3 py-1.5 rounded-md no-underline" style="background:var(--surface);color:var(--text-muted);border:1px solid var(--border);">
             Sort by Buyer Demand
         </a>
+        <span class="text-xs" style="color:var(--border);">|</span>
+        <a href="{{ route('prospecting.index', array_merge(request()->except('stock_filter'), ['stock_filter' => 'in_stock'])) }}"
+           class="text-xs px-3 py-1.5 rounded-md no-underline {{ request('stock_filter') === 'in_stock' ? 'font-bold' : '' }}"
+           style="{{ request('stock_filter') === 'in_stock' ? 'background:var(--brand-default);color:#fff;' : 'background:var(--surface);color:var(--text-muted);border:1px solid var(--border);' }}">
+            In Stock
+        </a>
+        <a href="{{ route('prospecting.index', array_merge(request()->except('stock_filter'), ['stock_filter' => 'not_in_stock'])) }}"
+           class="text-xs px-3 py-1.5 rounded-md no-underline {{ request('stock_filter') === 'not_in_stock' ? 'font-bold' : '' }}"
+           style="{{ request('stock_filter') === 'not_in_stock' ? 'background:var(--brand-default);color:#fff;' : 'background:var(--surface);color:var(--text-muted);border:1px solid var(--border);' }}">
+            Not In Stock
+        </a>
+        @if(request('stock_filter'))
+        <a href="{{ route('prospecting.index', request()->except('stock_filter')) }}" class="text-xs no-underline" style="color:var(--text-muted);">Clear</a>
+        @endif
     </div>
 
     {{-- Filter bar --}}
@@ -230,10 +248,18 @@
 
                         {{-- Address --}}
                         <td class="px-4 py-3">
-                            <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener"
-                               class="text-sm font-medium hover:underline" style="color: var(--brand-icon);">
-                                {{ Str::limit($listing->address, 40) }}
-                            </a>
+                            <div class="flex items-center gap-2">
+                                <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener"
+                                   class="text-sm font-medium hover:underline" style="color: var(--brand-icon);">
+                                    {{ Str::limit($listing->address, 40) }}
+                                </a>
+                                @if($listing->matched_property_id)
+                                <a href="{{ route('corex.properties.show', $listing->matched_property_id) }}"
+                                   class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded no-underline" style="background:var(--brand-default); color:#fff;">
+                                    IN STOCK
+                                </a>
+                                @endif
+                            </div>
                         </td>
 
                         {{-- Suburb --}}

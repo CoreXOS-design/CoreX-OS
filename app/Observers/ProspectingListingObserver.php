@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Models\ProspectingListing;
 use App\Services\PropertyMatchScoringService;
+use App\Services\Prospecting\ProspectingStockMatchService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -17,6 +18,7 @@ class ProspectingListingObserver
     public function created(ProspectingListing $listing): void
     {
         $this->recomputeAndNotify($listing);
+        $this->matchStock($listing);
     }
 
     /**
@@ -29,6 +31,10 @@ class ProspectingListingObserver
 
         if (!empty(array_intersect(array_keys($dirty), $matchFields))) {
             $this->recomputeAndNotify($listing);
+        }
+
+        if (isset($dirty['normalized_address']) || isset($dirty['suburb'])) {
+            $this->matchStock($listing);
         }
     }
 
@@ -96,6 +102,18 @@ class ProspectingListingObserver
             DB::table('prospecting_buyer_matches')
                 ->whereIn('id', $matches->pluck('match_id')->toArray())
                 ->update(['agent_notified_at' => $now]);
+        }
+    }
+
+    private function matchStock(ProspectingListing $listing): void
+    {
+        try {
+            app(ProspectingStockMatchService::class)->matchProspect($listing);
+        } catch (\Throwable $e) {
+            Log::warning('Prospecting stock match failed', [
+                'listing_id' => $listing->id,
+                'error'      => $e->getMessage(),
+            ]);
         }
     }
 }

@@ -21,7 +21,7 @@ class WhistleblowController extends Controller
     {
         $user = Auth::user();
         $query = WhistleblowComplaint::query()
-            ->with(['reporter', 'approvedBy']);
+            ->with(['reporter', 'approvedBy', 'subjects']);
 
         // Scope: approvers see all agency complaints, agents see only their own
         $canViewAll = $user->hasPermission('compliance.whistleblow.view_all_agency');
@@ -47,65 +47,121 @@ class WhistleblowController extends Controller
     }
 
     /**
-     * Store — from property page modal. Creates draft + attaches evidence + submits.
+     * Standalone filing form page.
+     */
+    public function create(Request $request)
+    {
+        $user = Auth::user();
+
+        // Pre-fill from property if linked
+        $property = null;
+        if ($request->filled('property_id')) {
+            $property = \App\Models\Property::withoutGlobalScopes()->find($request->property_id);
+        }
+
+        // Agency properties for picker
+        $properties = \App\Models\Property::withoutGlobalScopes()
+            ->where('agency_id', $user->effectiveAgencyId() ?? $user->agency_id)
+            ->whereNotNull('address')
+            ->orderBy('address')
+            ->select('id', 'address', 'suburb', 'title')
+            ->limit(200)
+            ->get();
+
+        $idempotencyToken = (string) \Illuminate\Support\Str::uuid();
+
+        return view('compliance.whistleblow.create', compact('property', 'properties', 'idempotencyToken'));
+    }
+
+    /**
+     * Store — from standalone form OR property page modal.
      */
     public function store(Request $request)
     {
         $request->validate([
-            'tier'                 => 'required|in:tier_1,tier_2,tier_3',
-            'subject_agency_name'  => 'required|string|max:255',
-            'property_address'     => 'required|string|max:255',
-            'property_portal_url'  => 'nullable|url|max:500',
-            'portal_source'        => 'nullable|in:p24,pp,other',
-            'agent_notes'          => 'nullable|string|max:5000',
-            'seller_consents_to_named_complaint' => 'nullable|boolean',
-            'screenshot'           => 'nullable|file|image|max:5120',
-            'property_id'         => 'nullable|integer|exists:properties,id',
+            'tier'                          => 'required|in:tier_1,tier_2,tier_3',
+            'property_address'              => 'required_without:property_id|nullable|string|max:255',
+            'property_id'                   => 'nullable|integer|exists:properties,id',
+            'seller_statement'              => 'nullable|string|max:5000',
+            'agent_notes'                   => 'nullable|string|max:5000',
+            'subjects'                      => 'required|array|min:1|max:10',
+            'subjects.*.agency_name'        => 'required|string|max:255',
+            'subjects.*.practitioner_name'  => 'nullable|string|max:255',
+            'subjects.*.portal_url'         => 'required|url|max:500',
+            'subjects.*.portal_source'      => 'required|in:p24,pp,other',
+            'screenshot'                    => 'nullable|file|image|max:5120',
+            'evidence_files'                => 'nullable|array|max:5',
+            'evidence_files.*'              => 'file|max:10240',
         ]);
 
         $user = Auth::user();
 
-        // Build complaint data
-        $data = [
-            'agency_id'            => $user->effectiveAgencyId(),
-            'branch_id'            => $user->branch_id,
-            'tier'                 => $request->tier,
-            'subject_agency_name'  => $request->subject_agency_name,
-            'property_address'     => $request->property_address,
-            'property_portal_url'  => $request->property_portal_url,
-            'portal_source'        => $request->portal_source,
-            'agent_notes'          => $request->agent_notes,
-            'property_id'          => $request->property_id,
-            'seller_consents_to_named_complaint' => (bool) $request->seller_consents_to_named_complaint,
-        ];
-
-        // Tier 1 needs seller_statement from agent_notes
-        if ($request->tier === 'tier_1') {
-            $data['seller_statement'] = $request->agent_notes;
+        // Idempotency: check token
+        $token = $request->input('_idempotency_token');
+        if ($token && session('wb_last_token') === $token) {
+            $lastId = session('wb_last_complaint_id');
+            if ($lastId) {
+                $ref = 'HFC-WB-' . $lastId;
+                if ($request->expectsJson()) {
+                    return response()->json(['ok' => true, 'complaint_id' => $lastId, 'reference' => $ref]);
+                }
+                return redirect()->route('compliance.whistleblow.index')->with('success', "Report already submitted. Reference: {$ref}");
+            }
         }
 
-        $complaint = $this->service->createDraft($data, $user);
-
-        // Handle screenshot upload
-        if ($request->hasFile('screenshot')) {
-            $file = $request->file('screenshot');
-            $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
-            $fullPath = storage_path('app/' . $path);
-
-            $this->service->attachEvidence(
-                $complaint,
-                'screenshot',
-                $fullPath,
-                $file->getClientOriginalName(),
-                $file->getMimeType(),
-                $file->getSize(),
-                'Screenshot uploaded with report',
-                $user
-            );
+        // Derive property_address from property if linked
+        $propertyAddress = $request->property_address;
+        if ($request->property_id) {
+            $prop = \App\Models\Property::withoutGlobalScopes()->find($request->property_id);
+            if ($prop) {
+                $propertyAddress = $prop->address ?? $prop->title ?? $propertyAddress;
+            }
         }
 
-        // Auto-submit (skip draft — agent's report modal goes straight to pending)
-        $complaint = $this->service->submit($complaint, $user);
+        $complaint = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $user, $propertyAddress) {
+            // Build complaint data
+            $data = [
+                'agency_id'        => $user->effectiveAgencyId(),
+                'branch_id'        => $user->branch_id,
+                'tier'             => $request->tier,
+                'property_address' => $propertyAddress,
+                'property_id'      => $request->property_id,
+                'agent_notes'      => $request->agent_notes,
+                'subjects'         => $request->subjects,
+            ];
+
+            if ($request->tier === 'tier_1') {
+                $data['seller_statement'] = $request->seller_statement ?: $request->agent_notes;
+            }
+
+            $complaint = $this->service->createDraft($data, $user);
+
+            // Handle screenshot upload (modal shortcut)
+            if ($request->hasFile('screenshot')) {
+                $file = $request->file('screenshot');
+                $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
+                $this->service->attachEvidence($complaint, 'screenshot', storage_path('app/' . $path),
+                    $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Screenshot uploaded with report', $user);
+            }
+
+            // Handle multiple evidence files (standalone form)
+            if ($request->hasFile('evidence_files')) {
+                foreach ($request->file('evidence_files') as $file) {
+                    $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
+                    $isImage = str_starts_with($file->getMimeType(), 'image/');
+                    $this->service->attachEvidence($complaint, $isImage ? 'screenshot' : 'document_upload',
+                        storage_path('app/' . $path), $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Evidence file uploaded with report', $user);
+                }
+            }
+
+            $complaint = $this->service->submit($complaint, $user);
+            return $complaint;
+        });
+
+        // Store idempotency token
+        if ($token) {
+            session(['wb_last_token' => $token, 'wb_last_complaint_id' => $complaint->id]);
+        }
 
         $reference = 'HFC-WB-' . $complaint->id;
 
@@ -125,13 +181,14 @@ class WhistleblowController extends Controller
      */
     public function show(WhistleblowComplaint $complaint)
     {
-        $complaint->load(['reporter', 'approvedBy', 'rejectedBy', 'evidence', 'sellerContact']);
+        $complaint->load(['reporter', 'approvedBy', 'rejectedBy', 'evidence', 'sellerContact', 'subjects', 'emailLogs.sentBy']);
         $auditLog = $complaint->auditLog()->with('user')->orderBy('created_at')->get();
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find($complaint->agency_id);
 
         $user = Auth::user();
         $isApprover = $this->canApprove($complaint, $user);
 
-        return view('compliance.whistleblow.show', compact('complaint', 'auditLog', 'isApprover'));
+        return view('compliance.whistleblow.show', compact('complaint', 'auditLog', 'isApprover', 'agency'));
     }
 
     /**

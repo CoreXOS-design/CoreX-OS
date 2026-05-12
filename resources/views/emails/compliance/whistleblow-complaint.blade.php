@@ -34,7 +34,8 @@
 
         <p>
             Please find attached a formal complaint submission from {{ $agency->trading_name ?? $agency->name }}
-            regarding a {{ $tierLabel }} matter concerning {{ $complaint->subject_agency_name }}.
+            regarding a {{ $tierLabel }} matter concerning {{ $complaint->subjects_summary ?? 'the subject agencies' }}
+            marketing {{ $complaint->property_address }}.
         </p>
 
         <div class="ref-box">

@@ -6,11 +6,16 @@ use App\Models\Agency;
 use App\Models\Compliance\WhistleblowAuditLog;
 use App\Models\Compliance\WhistleblowComplaint;
 use App\Models\Compliance\WhistleblowComplaintEvidence;
+use App\Models\Compliance\WhistleblowComplaintSubject;
+use App\Models\Compliance\WhistleblowEmailLog;
 use App\Models\Property;
 use App\Models\User;
+use App\Mail\Compliance\SellerInfoMail;
 use App\Mail\Compliance\WhistleblowComplaintMail;
+use App\Models\Compliance\SellerInfoShareLink;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 class WhistleblowComplaintService
 {
@@ -19,12 +24,30 @@ class WhistleblowComplaintService
      */
     public function createDraft(array $data, User $reporter): WhistleblowComplaint
     {
+        $subjects = $data['subjects'] ?? [];
+        unset($data['subjects']);
+
         $complaint = WhistleblowComplaint::withoutGlobalScopes()->create(array_merge($data, [
             'reported_by_user_id' => $reporter->id,
             'status' => 'draft',
         ]));
 
-        $this->writeAudit($complaint, 'created', $reporter);
+        // Create subject rows
+        foreach ($subjects as $i => $subject) {
+            WhistleblowComplaintSubject::create([
+                'complaint_id'      => $complaint->id,
+                'agency_name'       => $subject['agency_name'],
+                'practitioner_name' => $subject['practitioner_name'] ?? null,
+                'portal_url'        => $subject['portal_url'],
+                'portal_source'     => $subject['portal_source'] ?? 'other',
+                'portal_listing_ref' => $subject['portal_listing_ref'] ?? null,
+                'display_order'     => $i,
+            ]);
+        }
+
+        $this->writeAudit($complaint, 'created', $reporter, [
+            'subject_count' => count($subjects),
+        ]);
 
         return $complaint;
     }
@@ -71,13 +94,8 @@ class WhistleblowComplaintService
             throw new \InvalidArgumentException("Complaint #{$complaint->id} is in status '{$complaint->status}', cannot submit.");
         }
 
-        // Validate required fields per tier
+        // Validate required fields + tier-specific evidence requirements
         $this->validateTierRequirements($complaint);
-
-        // Must have at least one evidence row
-        if ($complaint->evidence()->count() === 0) {
-            throw new \InvalidArgumentException('At least one evidence attachment is required before submission.');
-        }
 
         $complaint->update(['status' => 'pending_approval']);
         $this->writeAudit($complaint, 'submitted', $submittedBy);
@@ -126,6 +144,16 @@ class WhistleblowComplaintService
         // Auto-send email to PPRA (or demo recipient)
         $complaint->refresh();
         $this->sendToPpra($complaint);
+
+        // Auto-send seller info to property sellers (non-blocking)
+        try {
+            $this->sendSellerInfoFromComplaint($complaint);
+        } catch (\Throwable $e) {
+            Log::warning('Seller info auto-send failed', [
+                'complaint_id' => $complaint->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
 
         return $complaint->fresh();
     }
@@ -228,8 +256,9 @@ class WhistleblowComplaintService
             );
         }
 
-        $complaint->loadMissing('approvedBy');
+        $complaint->loadMissing(['approvedBy', 'subjects']);
         $isDemoMode = !config('compliance.whistleblow.ppra_live_send', false);
+        $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
 
         try {
             if (!$complaint->complaint_pdf_path || !file_exists($complaint->complaint_pdf_path)) {
@@ -237,13 +266,23 @@ class WhistleblowComplaintService
                     "PDF not found at '{$complaint->complaint_pdf_path}' for complaint #{$complaint->id}."
                 );
             }
+
             $mailable = new WhistleblowComplaintMail($complaint);
 
-            // Determine the actual recipient used (for audit)
-            $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
-            $recipientTo = $isDemoMode
-                ? config('compliance.whistleblow.demo_recipient', 'johan@hfcoastal.co.za')
-                : ($agency->whistleblow_ppra_recipient_email ?? 'complaints@theppra.org.za');
+            // Pre-render HTML + text for email log
+            $renderedHtml = $mailable->render();
+            $renderedText = strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>'], "\n", $renderedHtml));
+
+            // Determine actual recipients for logging
+            if ($isDemoMode) {
+                $recipientTo = [config('compliance.whistleblow.demo_recipient', 'johan@hfcoastal.co.za')];
+            } else {
+                $tierRecipients = $agency->whistleblow_tier_recipients ?? [];
+                $recipientTo = $tierRecipients[$complaint->tier] ?? ['complaints@theppra.org.za'];
+                if (empty($recipientTo)) {
+                    $recipientTo = ['complaints@theppra.org.za'];
+                }
+            }
 
             $recipientCc = [];
             if ($agency->whistleblow_compliance_officer_email) {
@@ -253,7 +292,40 @@ class WhistleblowComplaintService
                 $recipientCc[] = $complaint->approvedBy->email;
             }
 
+            // Build subject line for log
+            $agencyShort = $agency->trading_name ?? $agency->name;
+            $tierNumber = str_replace('tier_', '', $complaint->tier);
+            $emailSubject = "[{$agencyShort}] PPRA Complaint — Tier {$tierNumber} — {$complaint->subjects_summary}";
+            if ($isDemoMode) {
+                $emailSubject = '[DEMO] ' . $emailSubject;
+            }
+
+            // Attachment info for log
+            $attachmentInfo = [];
+            if ($complaint->complaint_pdf_path && file_exists($complaint->complaint_pdf_path)) {
+                $attachmentInfo[] = [
+                    'filename' => 'HFC-WB-' . $complaint->id . '.pdf',
+                    'path' => $complaint->complaint_pdf_path,
+                    'size' => filesize($complaint->complaint_pdf_path),
+                ];
+            }
+
             Mail::send($mailable);
+
+            // Write email log row — success
+            WhistleblowEmailLog::create([
+                'complaint_id'    => $complaint->id,
+                'sent_at'         => now(),
+                'email_type'      => 'ppra_submission',
+                'subject'         => $emailSubject,
+                'recipients_to'   => $recipientTo,
+                'recipients_cc'   => $recipientCc,
+                'rendered_html'   => $renderedHtml,
+                'rendered_text'   => $renderedText,
+                'attachments'     => $attachmentInfo,
+                'sent_by_user_id' => $complaint->approved_by_user_id,
+                'status'          => 'sent',
+            ]);
 
             $complaint->update([
                 'status'          => 'sent',
@@ -272,6 +344,21 @@ class WhistleblowComplaintService
                 'demo_mode'    => $isDemoMode,
             ]);
         } catch (\Throwable $e) {
+            // Write email log row — failure
+            WhistleblowEmailLog::create([
+                'complaint_id'    => $complaint->id,
+                'sent_at'         => now(),
+                'email_type'      => 'ppra_submission',
+                'subject'         => $emailSubject ?? 'Failed to generate subject',
+                'recipients_to'   => $recipientTo ?? [],
+                'recipients_cc'   => $recipientCc ?? [],
+                'rendered_html'   => $renderedHtml ?? '',
+                'rendered_text'   => $renderedText ?? '',
+                'sent_by_user_id' => $complaint->approved_by_user_id,
+                'status'          => 'failed',
+                'error_message'   => $e->getMessage(),
+            ]);
+
             $this->writeAudit($complaint, 'email_send_failed', null, [
                 'error'     => $e->getMessage(),
                 'demo_mode' => $isDemoMode,
@@ -284,6 +371,111 @@ class WhistleblowComplaintService
 
             throw $e;
         }
+    }
+
+    /**
+     * Auto-send seller info emails to property sellers on complaint approval.
+     * Returns summary of what was sent.
+     */
+    public function sendSellerInfoFromComplaint(WhistleblowComplaint $complaint): array
+    {
+        if (!$complaint->property_id) {
+            return ['sent_count' => 0, 'whatsapp_link' => null];
+        }
+
+        $property = Property::withoutGlobalScopes()->find($complaint->property_id);
+        if (!$property) {
+            return ['sent_count' => 0, 'whatsapp_link' => null];
+        }
+
+        $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
+        $sellerRoles = ['owner', 'lessor', 'landlord', 'seller'];
+        $sellers = $property->contacts()
+            ->wherePivotIn('role', $sellerRoles)
+            ->get();
+
+        $sentCount = 0;
+
+        foreach ($sellers as $contact) {
+            $email = $contact->email;
+            if (!$email) {
+                continue;
+            }
+
+            $sellerName = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'Valued Seller';
+
+            try {
+                $mailable = new SellerInfoMail($agency, $complaint->tier, $sellerName, '');
+                $renderedHtml = $mailable->render();
+
+                Mail::to($email)->send($mailable);
+
+                WhistleblowEmailLog::create([
+                    'complaint_id'    => $complaint->id,
+                    'sent_at'         => now(),
+                    'email_type'      => 'seller_info_email',
+                    'subject'         => $mailable->envelope()->subject,
+                    'recipients_to'   => [$email],
+                    'recipients_cc'   => [],
+                    'rendered_html'   => $renderedHtml,
+                    'rendered_text'   => strip_tags(str_replace(['<br>', '</p>', '</div>'], "\n", $renderedHtml)),
+                    'sent_by_user_id' => $complaint->approved_by_user_id,
+                    'status'          => 'sent',
+                ]);
+                $sentCount++;
+            } catch (\Throwable $e) {
+                WhistleblowEmailLog::create([
+                    'complaint_id'    => $complaint->id,
+                    'sent_at'         => now(),
+                    'email_type'      => 'seller_info_email',
+                    'subject'         => 'Seller info — failed',
+                    'recipients_to'   => [$email],
+                    'recipients_cc'   => [],
+                    'rendered_html'   => '',
+                    'rendered_text'   => '',
+                    'sent_by_user_id' => $complaint->approved_by_user_id,
+                    'status'          => 'failed',
+                    'error_message'   => $e->getMessage(),
+                ]);
+                Log::warning('Seller info email failed', ['contact' => $contact->id, 'error' => $e->getMessage()]);
+            }
+        }
+
+        // Generate WhatsApp shareable link
+        $link = SellerInfoShareLink::create([
+            'tier'            => $complaint->tier,
+            'seller_name'     => null,
+            'seller_email'    => null,
+            'agent_message'   => null,
+            'property_id'     => $complaint->property_id,
+            'sent_by_user_id' => $complaint->approved_by_user_id ?? $complaint->reported_by_user_id,
+            'agency_id'       => $complaint->agency_id,
+            'token'           => Str::random(32),
+            'expires_at'      => now()->addDays(90),
+        ]);
+
+        $whatsappUrl = url('/info/' . $link->token);
+
+        WhistleblowEmailLog::create([
+            'complaint_id'    => $complaint->id,
+            'sent_at'         => now(),
+            'email_type'      => 'seller_info_whatsapp_link',
+            'subject'         => 'WhatsApp shareable link generated',
+            'recipients_to'   => ['WhatsApp link generated'],
+            'recipients_cc'   => [],
+            'rendered_html'   => '',
+            'rendered_text'   => $whatsappUrl,
+            'sent_by_user_id' => $complaint->approved_by_user_id,
+            'status'          => 'sent',
+        ]);
+
+        Log::info('Seller info auto-sent from complaint', [
+            'complaint_id'  => $complaint->id,
+            'emails_sent'   => $sentCount,
+            'whatsapp_link' => $whatsappUrl,
+        ]);
+
+        return ['sent_count' => $sentCount, 'whatsapp_link' => $whatsappUrl];
     }
 
     /**
@@ -325,7 +517,7 @@ class WhistleblowComplaintService
      */
     protected function generatePdf(WhistleblowComplaint $complaint): string
     {
-        $complaint->loadMissing(['evidence', 'auditLog', 'reporter', 'sellerContact']);
+        $complaint->loadMissing(['evidence', 'auditLog', 'reporter', 'sellerContact', 'subjects']);
         $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
 
         // Pick template by tier
@@ -343,6 +535,7 @@ class WhistleblowComplaintService
             'complaint' => $complaint,
             'agency'    => $agency,
             'reporter'  => $complaint->reporter,
+            'subjects'  => $complaint->subjects,
             'evidence'  => $complaint->evidence,
             'auditLog'  => $complaint->auditLog()->orderBy('created_at')->get(),
         ])->render();
@@ -456,17 +649,28 @@ class WhistleblowComplaintService
         $missing = [];
 
         // Common to all tiers
-        if (empty($complaint->subject_agency_name)) {
-            $missing[] = 'subject_agency_name';
+        if ($complaint->subjects()->count() === 0) {
+            $missing[] = 'at least one subject (agency/practitioner)';
         }
         if (empty($complaint->property_address)) {
             $missing[] = 'property_address';
         }
 
-        // Tier-specific
+        // Tier-specific evidence requirements per spec §5
+        $evidenceCount = $complaint->evidence()->count();
+
         if ($complaint->tier === 'tier_1') {
-            if (empty($complaint->seller_statement)) {
-                $missing[] = 'seller_statement (required for Tier 1)';
+            // Tier 1: seller statement IS the primary evidence — file attachments optional
+            if (empty($complaint->seller_statement) || mb_strlen(trim($complaint->seller_statement)) < 20) {
+                $missing[] = 'seller_statement (required for Tier 1, minimum 20 characters)';
+            }
+        } elseif ($complaint->tier === 'tier_2') {
+            if ($evidenceCount === 0) {
+                $missing[] = 'screenshot evidence (required for Tier 2)';
+            }
+        } elseif ($complaint->tier === 'tier_3') {
+            if ($evidenceCount === 0) {
+                $missing[] = 'screenshot evidence (required for Tier 3)';
             }
         }
 
@@ -621,11 +825,18 @@ class WhistleblowComplaintService
             $complaint->setRelation('sellerContact', null);
             $complaint->setRelation('evidence', $fakeEvidence);
 
+            // Fake subjects for the review pack
+            $fakeSubjects = collect([
+                (object) ['agency_name' => $data['subject_agency_name'] ?? '[SAMPLE] Agency', 'practitioner_name' => $data['subject_practitioner_name'] ?? null, 'portal_url' => $data['property_portal_url'] ?? 'https://example.com', 'portal_source' => $data['portal_source'] ?? 'p24'],
+            ]);
+            $complaint->setRelation('subjects', $fakeSubjects);
+
             $viewName = $templateMap[$tier];
             $html = view($viewName, [
                 'complaint' => $complaint,
                 'agency'    => $agency,
                 'reporter'  => $requestedBy,
+                'subjects'  => $fakeSubjects,
                 'evidence'  => $fakeEvidence,
                 'auditLog'  => $fakeAuditLog,
             ])->render();

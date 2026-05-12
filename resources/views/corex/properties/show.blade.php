@@ -342,6 +342,38 @@
             </div>
             @endif
 
+            {{-- Also Marketed By (prospecting matches) --}}
+            @if(!$isNew)
+            @php
+                $prospectMatches = \App\Models\ProspectingListing::where('matched_property_id', $property->id)->whereNull('deleted_at')->orderByDesc('last_seen_at')->get();
+            @endphp
+            @if($prospectMatches->count() > 0)
+            <div class="rounded-md p-3 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
+                <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Also Marketed By ({{ $prospectMatches->count() }})</p>
+                @foreach($prospectMatches as $pm)
+                <div class="rounded p-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $pm->agency_name ?: 'Unknown agency' }}</span>
+                        <span class="ds-badge ds-badge-muted" style="font-size:0.6rem;">{{ strtoupper($pm->portal_source) }}</span>
+                        @if($pm->is_active)
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                        @endif
+                    </div>
+                    @if($pm->agent_name)
+                    <div class="text-[0.6875rem] mt-0.5" style="color:var(--text-secondary);">{{ $pm->agent_name }}</div>
+                    @endif
+                    <div class="text-[0.6875rem] mt-0.5" style="color:var(--text-muted);">
+                        R {{ number_format($pm->price) }} &middot; {{ $pm->last_seen_at?->format('d M Y') }}
+                    </div>
+                    @if($pm->portal_url)
+                    <a href="{{ $pm->portal_url }}" target="_blank" class="text-[0.6875rem] no-underline mt-0.5 inline-block" style="color:var(--brand-default);">View listing &rarr;</a>
+                    @endif
+                </div>
+                @endforeach
+            </div>
+            @endif
+            @endif
+
         </aside>
 
         {{-- RIGHT: tabs --}}
@@ -5296,7 +5328,6 @@ function p24Syndication(config) {
             @csrf
             <input type="hidden" name="property_id" value="{{ $property->id }}">
             <input type="hidden" name="property_address" value="{{ $property->address ?? $property->title }}">
-            <input type="hidden" name="portal_source" value="other">
 
             <div class="p-5 border-b" style="border-color:var(--border);">
                 <h3 class="text-base font-bold" style="color:var(--text-primary);">Report Non-Compliant Listing</h3>
@@ -5311,46 +5342,37 @@ function p24Syndication(config) {
                     <div class="rounded-md p-3 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-red) 10%, transparent); color:var(--ds-red);" x-text="errorMsg"></div>
                 </template>
 
-                {{-- Tier selection --}}
+                {{-- Tier --}}
                 <fieldset>
                     <legend class="text-xs font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Complaint Type</legend>
                     <div class="space-y-2">
-                        <label class="flex items-start gap-2 cursor-pointer">
-                            <input type="radio" name="tier" value="tier_1" x-model="tier" class="mt-0.5">
-                            <span><span class="text-sm font-semibold" style="color:var(--text-primary);">Paperwork breach</span><br><span class="text-xs" style="color:var(--text-muted);">Seller confirmed no mandate / FICA signed</span></span>
-                        </label>
-                        <label class="flex items-start gap-2 cursor-pointer">
-                            <input type="radio" name="tier" value="tier_2" x-model="tier" class="mt-0.5">
-                            <span><span class="text-sm font-semibold" style="color:var(--text-primary);">No FFC displayed</span><br><span class="text-xs" style="color:var(--text-muted);">Advert missing valid FFC number</span></span>
-                        </label>
-                        <label class="flex items-start gap-2 cursor-pointer">
-                            <input type="radio" name="tier" value="tier_3" x-model="tier" class="mt-0.5">
-                            <span><span class="text-sm font-semibold" style="color:var(--text-primary);">Unregistered practitioner</span><br><span class="text-xs" style="color:var(--text-muted);">Not found on PPRA register</span></span>
-                        </label>
+                        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="tier" value="tier_1" x-model="tier" class="mt-0.5"><span><span class="text-sm font-semibold" style="color:var(--text-primary);">Paperwork breach</span><br><span class="text-xs" style="color:var(--text-muted);">Seller confirmed no mandate / FICA</span></span></label>
+                        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="tier" value="tier_2" x-model="tier" class="mt-0.5"><span><span class="text-sm font-semibold" style="color:var(--text-primary);">No FFC displayed</span></span></label>
+                        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="tier" value="tier_3" x-model="tier" class="mt-0.5"><span><span class="text-sm font-semibold" style="color:var(--text-primary);">Unregistered practitioner</span></span></label>
                     </div>
                 </fieldset>
 
                 <div>
-                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Subject Agency / Practitioner *</label>
-                    <input type="text" name="subject_agency_name" required class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="Agency or practitioner name">
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Subject Agency *</label>
+                    <input type="text" name="subjects[0][agency_name]" required class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="Agency or practitioner name">
                 </div>
-
                 <div>
-                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Portal URL</label>
-                    <input type="url" name="property_portal_url" class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="https://...">
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Practitioner name</label>
+                    <input type="text" name="subjects[0][practitioner_name]" class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="If known">
                 </div>
-
                 <div>
-                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Notes</label>
-                    <textarea name="agent_notes" rows="3" class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="What did the seller say, what did you observe..."></textarea>
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Portal URL *</label>
+                    <input type="url" name="subjects[0][portal_url]" required class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="https://...">
                 </div>
+                <input type="hidden" name="subjects[0][portal_source]" value="other">
 
-                {{-- Tier 1 only: seller consent --}}
                 <div x-show="tier === 'tier_1'" x-cloak>
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" name="seller_consents_to_named_complaint" value="1">
-                        <span class="text-sm" style="color:var(--text-primary);">Seller consents to being named in the complaint</span>
-                    </label>
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Seller statement / Notes *</label>
+                    <textarea name="seller_statement" rows="3" class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="What did the seller say..."></textarea>
+                </div>
+                <div x-show="tier !== 'tier_1'">
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Notes</label>
+                    <textarea name="agent_notes" rows="3" class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="What did you observe..."></textarea>
                 </div>
 
                 <div>

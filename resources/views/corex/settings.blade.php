@@ -2357,15 +2357,19 @@
                            placeholder="compliance@youragency.co.za">
                 </div>
 
-                {{-- PPRA recipient email --}}
+                {{-- Per-tier PPRA recipients --}}
+                @php $tierRecipients = $agency->whistleblow_tier_recipients ?? []; @endphp
                 <div>
-                    <label class="text-sm font-semibold" style="color:var(--text-primary);">PPRA Complaints Address</label>
-                    <p class="text-xs mb-2" style="color:var(--text-muted);">The official PPRA address that receives complaints. Change only if PPRA has notified you of a different submission address.</p>
-                    <input type="email" name="whistleblow_ppra_recipient_email"
-                           value="{{ $agency->whistleblow_ppra_recipient_email ?? '' }}"
-                           class="w-full rounded-md text-sm px-3 py-2"
-                           style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);"
-                           placeholder="complaints@theppra.org.za">
+                    <label class="text-sm font-semibold" style="color:var(--text-primary);">PPRA Recipients Per Tier</label>
+                    <p class="text-xs mb-3" style="color:var(--text-muted);">One email per line. Recipients receive the complaint as primary To. Compliance officer + approver are CC'd separately.</p>
+                    <div class="space-y-3">
+                        @foreach(['tier_1' => 'Tier 1 (paperwork breach)', 'tier_2' => 'Tier 2 (no FFC displayed)', 'tier_3' => 'Tier 3 (unregistered)'] as $tKey => $tLabel)
+                        <div>
+                            <label class="text-xs font-medium mb-1 block" style="color:var(--text-secondary);">{{ $tLabel }}</label>
+                            <textarea name="tier_recipients[{{ $tKey }}]" rows="2" class="w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="complaints@theppra.org.za">{{ implode("\n", $tierRecipients[$tKey] ?? []) }}</textarea>
+                        </div>
+                        @endforeach
+                    </div>
                 </div>
 
                 <button type="submit" class="px-5 py-2.5 rounded-md text-sm font-semibold text-white" style="background:var(--brand-default);">

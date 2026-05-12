@@ -46,7 +46,7 @@ class Agency extends Model
         'default_branch_id',
         'whistleblow_approver_user_ids',
         'whistleblow_compliance_officer_email',
-        'whistleblow_ppra_recipient_email',
+        'whistleblow_tier_recipients',
     ];
 
     protected $casts = [
@@ -56,6 +56,7 @@ class Agency extends Model
         'split_branches_enabled' => 'boolean',
         'default_branch_id' => 'integer',
         'whistleblow_approver_user_ids' => 'array',
+        'whistleblow_tier_recipients' => 'array',
     ];
 
     public function branches(): HasMany

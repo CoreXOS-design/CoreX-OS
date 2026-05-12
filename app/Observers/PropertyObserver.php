@@ -193,6 +193,16 @@ class PropertyObserver
             }
         }
 
+        // Prospecting stock match — find prospects that match this property
+        $stockMatchFields = ['address', 'suburb', 'street_name', 'street_number'];
+        if ($property->wasRecentlyCreated || array_intersect(array_keys($property->getChanges()), $stockMatchFields)) {
+            try {
+                app(\App\Services\Prospecting\ProspectingStockMatchService::class)->matchAllForProperty($property);
+            } catch (\Throwable $e) {
+                Log::warning("Prospecting stock match failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // P24 syndication auto-sync
         if (!$property->p24_syndication_enabled || !$property->p24_ref) {
             return;

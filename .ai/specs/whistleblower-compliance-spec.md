@@ -79,6 +79,10 @@ Tier 3 (optional): Unregistered practitioner
 
 ## 4. Data Model
 
+### Design Note — Multi-Subject Complaints (updated 12 May 2026)
+
+A single complaint represents ONE property being marketed without proper paperwork by ONE OR MORE non-compliant agencies. Subject details (agency name, practitioner name, portal URL) live in the `whistleblow_complaint_subjects` table, not on the complaint itself. PPRA receives one PDF listing all subjects. FFC number capture removed (PPRA looks up internally). Seller consent checkbox removed (HFC reports what HFC was told; PPRA investigates independently).
+
 ### 4.1 New table: `whistleblow_complaints`
 
 ```php
@@ -88,26 +92,15 @@ Schema::create('whistleblow_complaints', function (Blueprint $table) {
     $table->foreignId('branch_id')->nullable()->constrained();
     $table->foreignId('reported_by_user_id')->constrained('users');
 
-    // Subject of complaint
     $table->enum('tier', ['tier_1', 'tier_2', 'tier_3']);
-    $table->string('subject_agency_name');
-    $table->string('subject_practitioner_name')->nullable();
-    $table->string('subject_ffc_number')->nullable();
-    $table->string('subject_practitioner_email')->nullable();
-    $table->string('subject_practitioner_phone')->nullable();
 
     // Property reference
     $table->foreignId('property_id')->nullable()->constrained();
     $table->string('property_address');
-    $table->string('property_portal_url')->nullable();
-    $table->enum('portal_source', ['p24', 'pp', 'other'])->nullable();
-    $table->string('portal_listing_ref')->nullable();
 
     // Seller info (Tier 1 only)
     $table->foreignId('seller_contact_id')->nullable()->constrained('contacts');
     $table->text('seller_statement')->nullable();
-    $table->boolean('seller_consents_to_named_complaint')
-          ->default(false);
 
     // Internal notes
     $table->text('agent_notes')->nullable();
@@ -165,6 +158,24 @@ Schema::create('whistleblow_complaint_evidence', function (Blueprint $table) {
     $table->integer('size_bytes')->nullable();
     $table->text('description')->nullable();
     $table->foreignId('uploaded_by_user_id')->constrained('users');
+    $table->timestamps();
+});
+```
+
+### 4.2b New table: `whistleblow_complaint_subjects`
+
+```php
+Schema::create('whistleblow_complaint_subjects', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('complaint_id')
+          ->constrained('whistleblow_complaints')
+          ->cascadeOnDelete();
+    $table->string('agency_name');
+    $table->string('practitioner_name')->nullable();
+    $table->string('portal_url');
+    $table->enum('portal_source', ['p24', 'pp', 'other']);
+    $table->string('portal_listing_ref')->nullable();
+    $table->integer('display_order')->default(0);
     $table->timestamps();
 });
 ```

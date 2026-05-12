@@ -39,22 +39,26 @@ class WhistleblowComplaintMail extends Mailable
     {
         $complaint = $this->complaint;
         $agency    = $this->agency;
+        $complaint->loadMissing('subjects');
 
-        // Subject line — demo prefix when not live
         $agencyShort = $agency->trading_name ?? $agency->name;
         $tierNumber  = str_replace('tier_', '', $complaint->tier);
-        $subject     = "[{$agencyShort}] PPRA Complaint — Tier {$tierNumber} — {$complaint->subject_agency_name}";
+        $subjectsSummary = $complaint->subjects_summary ?? 'Unknown';
+        $subject = "[{$agencyShort}] PPRA Complaint — Tier {$tierNumber} — {$subjectsSummary}";
 
         if ($this->isDemoMode) {
             $subject = '[DEMO] ' . $subject;
         }
 
-        // To address — demo vs live
+        // To: tier-aware routing
         if ($this->isDemoMode) {
-            $to = config('compliance.whistleblow.demo_recipient', 'johan@hfcoastal.co.za');
+            $toList = [config('compliance.whistleblow.demo_recipient', 'johan@hfcoastal.co.za')];
         } else {
-            $to = $agency->whistleblow_ppra_recipient_email
-                ?? 'complaints@theppra.org.za';
+            $tierRecipients = $agency->whistleblow_tier_recipients ?? [];
+            $toList = $tierRecipients[$complaint->tier] ?? [];
+            if (empty($toList)) {
+                $toList = ['complaints@theppra.org.za'];
+            }
         }
 
         // CC — compliance officer + approver
@@ -66,12 +70,9 @@ class WhistleblowComplaintMail extends Mailable
             $cc[] = $complaint->approvedBy->email;
         }
 
-        // From — compliance officer email or system default
-        $fromAddress = $agency->whistleblow_compliance_officer_email
-            ?? config('mail.from.address');
+        $fromAddress = $agency->whistleblow_compliance_officer_email ?? config('mail.from.address');
         $fromName = $agencyShort;
 
-        // Reply-To — the approver
         $replyTo = [];
         if ($complaint->approvedBy) {
             $replyTo[] = new Address($complaint->approvedBy->email, $complaint->approvedBy->name);
@@ -79,7 +80,7 @@ class WhistleblowComplaintMail extends Mailable
 
         return new Envelope(
             from: new Address($fromAddress, $fromName),
-            to: [$to],
+            to: $toList,
             cc: $cc,
             replyTo: $replyTo,
             subject: $subject,

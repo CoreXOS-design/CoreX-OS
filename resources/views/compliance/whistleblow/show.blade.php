@@ -37,31 +37,25 @@
         </div>
     </div>
 
-    {{-- Subject --}}
+    {{-- Property --}}
     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
-        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Subject of Complaint</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div>
-                <span style="color:var(--text-muted);">Agency:</span>
-                <span class="font-semibold" style="color:var(--text-primary);">{{ $complaint->subject_agency_name }}</span>
-            </div>
-            @if($complaint->subject_practitioner_name)
-            <div>
-                <span style="color:var(--text-muted);">Practitioner:</span>
-                <span style="color:var(--text-primary);">{{ $complaint->subject_practitioner_name }}</span>
-            </div>
+        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Property</h3>
+        <p class="text-sm" style="color:var(--text-primary);">{{ $complaint->property_address }}</p>
+    </div>
+
+    {{-- Subjects --}}
+    <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Subjects of Complaint ({{ $complaint->subjects->count() }})</h3>
+        @foreach($complaint->subjects as $subj)
+        <div class="py-2 {{ !$loop->last ? 'border-b' : '' }}" style="border-color:var(--border);">
+            <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $subj->agency_name }}</div>
+            @if($subj->practitioner_name)
+            <div class="text-xs" style="color:var(--text-secondary);">Practitioner: {{ $subj->practitioner_name }}</div>
             @endif
-            <div>
-                <span style="color:var(--text-muted);">Property:</span>
-                <span style="color:var(--text-primary);">{{ $complaint->property_address }}</span>
-            </div>
-            @if($complaint->property_portal_url)
-            <div>
-                <span style="color:var(--text-muted);">Portal URL:</span>
-                <a href="{{ $complaint->property_portal_url }}" target="_blank" class="font-medium" style="color:var(--brand-default);">{{ Str::limit($complaint->property_portal_url, 50) }}</a>
-            </div>
-            @endif
+            <a href="{{ $subj->portal_url }}" target="_blank" class="text-xs no-underline" style="color:var(--brand-default);">{{ Str::limit($subj->portal_url, 60) }}</a>
+            <span class="text-xs ml-2" style="color:var(--text-muted);">{{ strtoupper($subj->portal_source) }}</span>
         </div>
+        @endforeach
     </div>
 
     {{-- Reporter --}}
@@ -128,6 +122,102 @@
     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Generated PDF</h3>
         <p class="text-sm" style="color:var(--text-primary);">HFC-WB-{{ $complaint->id }}.pdf ({{ number_format(filesize($complaint->complaint_pdf_path) / 1024, 1) }} KB)</p>
+    </div>
+    @endif
+
+    {{-- Email History --}}
+    @php $emailLogs = $complaint->emailLogs()->orderByDesc('sent_at')->get(); @endphp
+    <div class="rounded-md" style="background:var(--surface); border:1px solid var(--border);" x-data="{ viewingEmailId: null }">
+        <div class="p-5">
+            <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Email History ({{ $emailLogs->count() }})</h3>
+            @forelse($emailLogs as $elog)
+            <div class="py-3 {{ !$loop->last ? 'border-b' : '' }}" style="border-color:var(--border);">
+                <div class="flex items-center gap-2 flex-wrap">
+                    @if($elog->status === 'sent')
+                    <span class="text-xs font-bold" style="color:var(--ds-green);">Sent</span>
+                    @else
+                    <span class="text-xs font-bold" style="color:var(--ds-red);">Failed</span>
+                    @endif
+                    <span class="text-xs" style="color:var(--text-muted);">{{ $elog->sent_at->format('d M Y, H:i') }}</span>
+                    <button type="button" @click="viewingEmailId = viewingEmailId === {{ $elog->id }} ? null : {{ $elog->id }}" class="ml-auto text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-default); background:color-mix(in srgb, var(--brand-default) 8%, transparent);">
+                        {{ $elog->status === 'sent' ? 'View email' : 'View error' }}
+                    </button>
+                </div>
+                <div class="text-xs mt-1" style="color:var(--text-secondary);">
+                    To: {{ implode(', ', $elog->recipients_to ?? []) }}
+                    @if(!empty($elog->recipients_cc))
+                    &middot; CC: {{ implode(', ', $elog->recipients_cc) }}
+                    @endif
+                </div>
+                <div class="text-xs" style="color:var(--text-muted);">{{ Str::limit($elog->subject, 80) }}</div>
+                @if($elog->status === 'failed' && $elog->error_message)
+                <div class="text-xs mt-1 rounded p-2" style="color:var(--ds-red); background:color-mix(in srgb, var(--ds-red) 6%, transparent);">{{ $elog->error_message }}</div>
+                @endif
+
+                {{-- Inline email viewer --}}
+                <div x-show="viewingEmailId === {{ $elog->id }}" x-cloak class="mt-3 rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                    <div class="p-3 text-xs space-y-1" style="background:var(--surface-2);">
+                        <div><strong>From:</strong> {{ $agency->whistleblow_compliance_officer_email ?? $agency->email }}</div>
+                        <div><strong>To:</strong> {{ implode(', ', $elog->recipients_to ?? []) }}</div>
+                        @if(!empty($elog->recipients_cc))<div><strong>CC:</strong> {{ implode(', ', $elog->recipients_cc) }}</div>@endif
+                        <div><strong>Subject:</strong> {{ $elog->subject }}</div>
+                        <div><strong>Sent:</strong> {{ $elog->sent_at->format('d M Y H:i:s') }} by {{ $elog->sentBy?->name ?? 'System' }}</div>
+                        @if(!empty($elog->attachments))
+                        <div><strong>Attachments:</strong>
+                            @foreach($elog->attachments as $att)
+                            {{ $att['filename'] ?? 'attachment' }} ({{ isset($att['size']) ? number_format($att['size'] / 1024, 1) . ' KB' : '' }}){{ !$loop->last ? ', ' : '' }}
+                            @endforeach
+                        </div>
+                        @endif
+                    </div>
+                    <iframe srcdoc="{{ e($elog->rendered_html) }}" sandbox class="w-full" style="height:400px; border:none; background:#fff;"></iframe>
+                </div>
+            </div>
+            @empty
+            <p class="text-xs" style="color:var(--text-muted);">No emails sent yet. Email will be sent when this complaint is approved.</p>
+            @endforelse
+        </div>
+    </div>
+
+    {{-- Seller Info Communications --}}
+    @php
+        $sellerEmails = $complaint->emailLogs()->where('email_type', 'seller_info_email')->orderByDesc('sent_at')->get();
+        $whatsappLog = $complaint->emailLogs()->where('email_type', 'seller_info_whatsapp_link')->first();
+        $whatsappLink = $whatsappLog ? \App\Models\Compliance\SellerInfoShareLink::where('property_id', $complaint->property_id)->where('agency_id', $complaint->agency_id)->orderByDesc('created_at')->first() : null;
+    @endphp
+    @if($sellerEmails->count() > 0 || $whatsappLink)
+    <div class="rounded-md p-5 space-y-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ linkCopied: false }">
+        <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Seller Info Communications</h3>
+
+        @if($sellerEmails->count() > 0)
+        <div class="space-y-1">
+            @foreach($sellerEmails as $se)
+            <div class="flex items-center gap-2 text-xs py-1">
+                @if($se->status === 'sent')
+                <span style="color:var(--ds-green);">Sent</span>
+                @else
+                <span style="color:var(--ds-red);">Failed</span>
+                @endif
+                <span style="color:var(--text-primary);">{{ implode(', ', $se->recipients_to ?? []) }}</span>
+                <span class="ml-auto" style="color:var(--text-muted);">{{ $se->sent_at->format('d M H:i') }}</span>
+            </div>
+            @endforeach
+        </div>
+        @endif
+
+        @if($whatsappLink)
+        <div class="rounded p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+            <div class="text-xs font-medium mb-1" style="color:var(--text-muted);">WhatsApp shareable link</div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <code class="text-xs flex-1 truncate" style="color:var(--text-primary);">{{ url('/info/' . $whatsappLink->token) }}</code>
+                <button type="button" @click="navigator.clipboard.writeText('{{ url('/info/' . $whatsappLink->token) }}'); linkCopied = true; setTimeout(() => linkCopied = false, 2000)"
+                        class="text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-default); background:color-mix(in srgb, var(--brand-default) 8%, transparent);">
+                    <span x-text="linkCopied ? 'Copied!' : 'Copy link'"></span>
+                </button>
+                <span class="text-xs" style="color:var(--text-muted);">{{ $whatsappLink->accessed_count }} view{{ $whatsappLink->accessed_count !== 1 ? 's' : '' }}</span>
+            </div>
+        </div>
+        @endif
     </div>
     @endif
 
