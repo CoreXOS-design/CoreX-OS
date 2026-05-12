@@ -557,6 +557,57 @@
             </div>
         </div>
         @endif
+
+        {{-- ═══════════════════════════════════════════
+             AGENT QR CODE — spec: .ai/specs/agent-qr-onboarding.md
+             ═══════════════════════════════════════════ --}}
+        @php $qrUrl = $user->qrCodeUrl(); @endphp
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">Your Client QR Code</h3>
+            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">
+                Hand this to prospects. When they scan it in the CoreX app, they sign up directly as your client.
+            </p>
+            <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
+                <div id="agent-qr-canvas"
+                     data-url="{{ $qrUrl }}"
+                     style="background:#fff; padding:12px; border-radius:6px; border:1px solid var(--border); width:200px; height:200px; display:flex; align-items:center; justify-content:center;">
+                    <span style="font-size:0.75rem; color:#666;">Generating…</span>
+                </div>
+                <div style="flex:1; min-width:240px;">
+                    <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">URL</div>
+                    <div style="font-family:monospace; font-size:0.75rem; color:var(--text-primary); word-break:break-all; margin-bottom:12px;">{{ $qrUrl }}</div>
+                    <button type="button" id="agent-qr-download"
+                            style="font-size:0.8125rem; padding:8px 14px; border-radius:6px; background:var(--brand-button); color:#fff; border:none; cursor:pointer; font-weight:600;">
+                        Download PNG
+                    </button>
+                </div>
+            </div>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+        <script>
+        (function() {
+            var box = document.getElementById('agent-qr-canvas');
+            if (!box || !window.QRCode) return;
+            var url = box.dataset.url;
+            box.innerHTML = '';
+            var canvas = document.createElement('canvas');
+            box.appendChild(canvas);
+            QRCode.toCanvas(canvas, url, { width: 200, margin: 1, errorCorrectionLevel: 'M' }, function(err){
+                if (err) box.textContent = 'QR error';
+            });
+            var dl = document.getElementById('agent-qr-download');
+            if (dl) dl.addEventListener('click', function() {
+                var tmp = document.createElement('canvas');
+                QRCode.toCanvas(tmp, url, { width: 1024, margin: 2, errorCorrectionLevel: 'H' }, function(err){
+                    if (err) return;
+                    var a = document.createElement('a');
+                    a.href = tmp.toDataURL('image/png');
+                    a.download = 'corex-agent-qr.png';
+                    a.click();
+                });
+            });
+        })();
+        </script>
     </div>
 
     {{-- ═══════════════════════════════════════════

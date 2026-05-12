@@ -75,6 +75,12 @@ Route::prefix('v1/client-auth')->group(function () {
     Route::post('/login',           [ClientAuthController::class, 'login'])->name('client-auth.login');
     Route::post('/password/forgot', [ClientAuthController::class, 'forgotPassword'])->name('client-auth.password.forgot');
 
+    // Agent QR onboarding — spec: .ai/specs/agent-qr-onboarding.md
+    Route::get('/agent-qr/{slug}',           [\App\Http\Controllers\Api\V1\AgentQrController::class, 'show'])
+        ->name('client-auth.agent-qr.show');
+    Route::post('/agent-qr/{slug}/register', [\App\Http\Controllers\Api\V1\AgentQrController::class, 'register'])
+        ->name('client-auth.agent-qr.register');
+
     // Activation token OR client sanctum token (both checked in controller)
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/password/set', [ClientAuthController::class, 'setPassword'])->name('client-auth.password.set');

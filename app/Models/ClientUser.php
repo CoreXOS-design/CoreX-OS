@@ -32,6 +32,7 @@ class ClientUser extends Authenticatable
         'preferred_agency_id',
         'locked_to_agency_id',
         'current_agency_id',
+        'created_by_agency_id',
         'last_ip',
     ];
 
@@ -66,6 +67,11 @@ class ClientUser extends Authenticatable
     public function currentAgency(): BelongsTo
     {
         return $this->belongsTo(Agency::class, 'current_agency_id');
+    }
+
+    public function createdByAgency(): BelongsTo
+    {
+        return $this->belongsTo(Agency::class, 'created_by_agency_id');
     }
 
     public function accessLogs(): HasMany

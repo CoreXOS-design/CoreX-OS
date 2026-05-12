@@ -3,17 +3,24 @@
 namespace App\Observers;
 
 use App\Models\Branch;
+use App\Models\ClientUser;
 use App\Models\Contact;
 use Illuminate\Support\Facades\Auth;
 
 class ContactObserver
 {
     /**
-     * When a contact is being created, ensure branch_id is populated.
-     * Derives from creator's branch_id; falls back to agency's first branch.
+     * When a contact is being created:
+     *  - ensure branch_id is populated (creator's branch → agency default → lowest branch)
+     *  - auto-link to an existing ClientUser if one exists for this email
+     *    (Spec: .ai/specs/client-auth.md — a client already signed up in
+     *    another agency keeps a single global identity; new contact rows
+     *    join that identity automatically.)
      */
     public function creating(Contact $contact): void
     {
+        $this->autoLinkClientUser($contact);
+
         if (!empty($contact->branch_id)) {
             return;
         }
@@ -51,6 +58,23 @@ class ContactObserver
                     $contact->branch_id = $defaultBranch;
                 }
             }
+        }
+    }
+
+    private function autoLinkClientUser(Contact $contact): void
+    {
+        if (!empty($contact->client_user_id) || empty($contact->email)) {
+            return;
+        }
+
+        $email = strtolower(trim($contact->email));
+        if ($email === '') {
+            return;
+        }
+
+        $existing = ClientUser::where('email', $email)->first();
+        if ($existing) {
+            $contact->client_user_id = $existing->id;
         }
     }
 }

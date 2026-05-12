@@ -49,6 +49,7 @@ The mobile app login screen splits into two paths:
 | `preferred_agency_id` | FK agencies, nullable | Favourite (does not lock) |
 | `locked_to_agency_id` | FK agencies, nullable | When set, picker is skipped — login returns this agency directly |
 | `current_agency_id` | FK agencies, nullable | Currently selected agency for this session |
+| `created_by_agency_id` | FK agencies, nullable | **Origin agency** — the one that first created the client login (via agent UI or OTP self-signup). Only this agency may reset password, force logout, or remove access. Other agencies see read-only "Managed by …" status. Backfilled for legacy rows from the earliest linked contact's agency. Added 2026-05-12. |
 | `last_ip` | string | |
 | timestamps + `deleted_at` | | Soft deletes |
 
@@ -302,6 +303,28 @@ The agent may also paste a fully custom email if the client wants something spec
 12. `php artisan view:clear && route:clear && cache:clear`, `php -l` clean on all changed PHP, `scripts/dev-check.ps1` passes with 0 new failures.
 13. New migrations roll back cleanly.
 14. Soft-delete preserved on all new tables; "Remove client access" does NOT hard-delete logs.
+
+## Cross-agency contact linking (added 2026-05-12)
+
+Two related rules govern how a single `ClientUser` (one real person, keyed by email) interacts with Contact rows in multiple agencies:
+
+### Rule 1 — Auto-link on Contact creation
+When a `Contact` is being created with a non-empty `email`, `ContactObserver::creating()` checks whether a `ClientUser` already exists for that email. If yes, the new Contact's `client_user_id` is set automatically. The client therefore immediately sees the new agency in their app's agency picker on next session refresh — no action required from staff. Staff in the new agency see the contact as already having a client login (the "Create Client Login" button is hidden and "Managed by {origin agency}" is shown instead).
+
+### Rule 2 — Origin-agency lock on login management
+The agency that **first created** the client login owns the lifecycle of that login. Only that agency may:
+- Reset the password
+- Force logout all devices
+- Remove client app access
+
+Other agencies see the panel in read-only mode with a "Managed by {Origin Agency Name}" notice. This is enforced both in the blade view (`client-app-access.blade.php`) and server-side in `ClientLoginController::ensureOriginAgency()` (returns 403 on mismatch).
+
+The origin is recorded in `client_users.created_by_agency_id`:
+- Set to `contact->agency_id` in `ClientLoginController::create()` when an agent creates the login.
+- Set to the earliest linked contact's `agency_id` in `ClientAuthService::findOrCreateClientUser()` when the client self-signs up via OTP.
+- Backfilled by migration `2026_05_12_170000_add_created_by_agency_id_to_client_users.php` for existing rows.
+
+Legacy rows with NULL origin are treated as unrestricted (any agency may manage) until the next sign-in or agent action backfills the origin.
 
 ## Out of scope (v2)
 

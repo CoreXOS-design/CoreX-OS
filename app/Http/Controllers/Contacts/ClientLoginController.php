@@ -44,6 +44,7 @@ class ClientLoginController extends Controller
             'password' => $data['password'] ? Hash::make($data['password']) : null,
             'password_must_change' => !empty($data['password']),
             'password_set_at' => $data['password'] ? now() : null,
+            'created_by_agency_id' => $contact->agency_id,
         ]);
 
         $contact->forceFill(['client_user_id' => $clientUser->id])->save();
@@ -76,6 +77,7 @@ class ClientLoginController extends Controller
 
         /** @var ClientUser $cu */
         $cu = ClientUser::findOrFail($contact->client_user_id);
+        $this->ensureOriginAgency($cu, $contact);
         $cu->forceFill([
             'password' => Hash::make($data['password']),
             'password_must_change' => true,
@@ -102,6 +104,7 @@ class ClientLoginController extends Controller
 
         /** @var ClientUser $cu */
         $cu = ClientUser::findOrFail($contact->client_user_id);
+        $this->ensureOriginAgency($cu, $contact);
         $count = $cu->tokens()->count();
         $cu->tokens()->delete();
 
@@ -123,6 +126,10 @@ class ClientLoginController extends Controller
 
         /** @var ClientUser $cu */
         $cu = ClientUser::find($contact->client_user_id);
+
+        if ($cu) {
+            $this->ensureOriginAgency($cu, $contact);
+        }
 
         $contact->forceFill(['client_user_id' => null])->save();
 
@@ -151,6 +158,22 @@ class ClientLoginController extends Controller
     {
         if (!auth()->user()?->hasPermission($permission)) {
             abort(403);
+        }
+    }
+
+    /**
+     * Only the agency that created the client login may manage it
+     * (reset password, force logout, remove access). See spec:
+     * .ai/specs/client-auth.md — origin-agency rule.
+     */
+    private function ensureOriginAgency(ClientUser $cu, Contact $contact): void
+    {
+        $origin = $cu->created_by_agency_id;
+        if ($origin === null) {
+            return; // legacy row — allow (will be backfilled).
+        }
+        if ((int) $origin !== (int) $contact->agency_id) {
+            abort(403, 'This client login is managed by another agency.');
         }
     }
 }

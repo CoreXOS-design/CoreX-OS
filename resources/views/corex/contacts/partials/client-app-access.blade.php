@@ -6,6 +6,16 @@
     $canForce   = auth()->user()->hasPermission('client_app.force_logout');
     $canRemove  = auth()->user()->hasPermission('client_app.remove_access');
     $canViewLogs= auth()->user()->hasPermission('client_app.view_logs');
+
+    // Origin-agency gating — only the agency that created this client login
+    // can manage it (reset password, force logout, remove access). Other
+    // agencies see read-only status with a "Managed by …" notice.
+    // Spec: .ai/specs/client-auth.md
+    $originAgencyId = $clientUser?->created_by_agency_id;
+    $isOriginAgency = !$clientUser || $originAgencyId === null || (int) $originAgencyId === (int) $contact->agency_id;
+    $originAgencyName = (!$isOriginAgency && $originAgencyId)
+        ? optional(\App\Models\Agency::withoutGlobalScopes()->find($originAgencyId))->name
+        : null;
     $logs = $canViewLogs && $clientUser
         ? \App\Models\ClientAccessLog::where('client_user_id', $clientUser->id)
             ->where(function($q) use ($contact) {
@@ -58,6 +68,9 @@
                 Create Client Login
             </span>
         @endif
+        @if($clientUser && !$isOriginAgency)
+            <span class="ds-badge text-xs">Managed by {{ $originAgencyName ?: 'another agency' }}</span>
+        @endif
     </button>
 
     {{-- Collapsible body --}}
@@ -95,6 +108,7 @@
             </div>
         </div>
 
+        @if($isOriginAgency)
         <div class="flex flex-wrap gap-2 mb-4">
             @if($canReset)
                 <button type="button" class="corex-btn-secondary text-sm" @click="showReset = true">Reset Password</button>
@@ -120,6 +134,12 @@
                 </form>
             @endif
         </div>
+        @else
+        <div class="rounded-md p-3 mb-4 text-sm" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
+            This client's login is managed by <strong>{{ $originAgencyName ?: 'another agency' }}</strong>.
+            Password resets, force logout, and access removal can only be performed there.
+        </div>
+        @endif
 
         @if($canViewLogs && $logs->count())
             <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
