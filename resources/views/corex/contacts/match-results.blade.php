@@ -183,7 +183,32 @@
     </div>
     @else
     <div class="space-y-3">
-        @foreach($properties as $property)
+        @php
+            // Belt-and-braces: hard-filter results to the match's listing_type.
+            // The controller already uses ClientMatchResolver which filters strictly,
+            // but if anything ever leaks through (legacy code path, cache, etc.)
+            // a sale match must never display rentals, and vice versa.
+            // Spec: .ai/specs/client-auth.md
+            $matchListingType = $match->listing_type;
+            $rentalStatuses   = ['to_rent','torent','for_rent','forrent','rented'];
+            $saleStatuses     = ['for_sale','forsale','sold'];
+
+            $filteredProperties = collect($properties)->filter(function ($p) use ($matchListingType, $rentalStatuses, $saleStatuses) {
+                if (!$matchListingType) return true;
+                $pLt = strtolower((string) ($p->listing_type ?? ''));
+                $pSt = strtolower((string) ($p->status ?? ''));
+                if ($matchListingType === 'sale') {
+                    if ($pLt === 'rental') return false;
+                    if (in_array($pSt, $rentalStatuses, true)) return false;
+                }
+                if ($matchListingType === 'rental') {
+                    if ($pLt === 'sale') return false;
+                    if (in_array($pSt, $saleStatuses, true)) return false;
+                }
+                return true;
+            });
+        @endphp
+        @foreach($filteredProperties as $property)
         @php
             $isHidden = $match->isPropertyHidden($property->id);
             $views = $match->propertyViewCount($property->id);
