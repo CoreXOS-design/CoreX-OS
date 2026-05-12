@@ -569,7 +569,9 @@
             $qrParam  = urlencode($qrUrl);
             // Pure <img> rendering via goqr.me — no JS, no CDN script,
             // no CSP issues. Slug is intentionally public.
-            $qrImgSrc = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=4&ecc=M&data={$qrParam}";
+            // Match the downloaded PNG and the mobile app: ECC=H, margin=8.
+            // Same data + same ECC + same margin → identical visual pattern.
+            $qrImgSrc = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=8&ecc=H&data={$qrParam}";
             $qrPngSrc = "https://api.qrserver.com/v1/create-qr-code/?size=1024x1024&margin=8&ecc=H&format=png&data={$qrParam}";
         @endphp
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
