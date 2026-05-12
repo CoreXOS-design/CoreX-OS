@@ -1,0 +1,1987 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="csrf-token" content="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t">
+
+        <title>Laravel</title>
+
+        <!-- Fonts -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+        <!-- Theme init: apply dark class before paint to prevent flash -->
+        <script>
+            (function(){
+                var dbTheme = 'light';
+                var stored = localStorage.getItem('corex-theme');
+                var theme = stored || dbTheme;
+                if(theme === 'dark'){
+                    document.documentElement.classList.add('dark');
+                }
+                localStorage.setItem('corex-theme', theme);
+            })();
+        </script>
+
+        <!-- x-cloak: inline so it works before Vite CSS loads -->
+        <style>[x-cloak] { display: none !important; }</style>
+        <!-- html2canvas-pro: modern CSS color function support (color(), oklch(), color-mix()) -->
+        <script src="https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/dist/html2canvas-pro.min.js" defer></script>
+        <!-- Scripts & Styles (Alpine.js bundled via Vite — no external CDN) -->
+        <script type="module" src="http://[::1]:5173/@vite/client"></script><link rel="stylesheet" href="http://[::1]:5173/resources/css/app.css" /><link rel="stylesheet" href="http://[::1]:5173/resources/css/corex.css" /><script type="module" src="http://[::1]:5173/resources/js/app.js"></script>        <link rel="stylesheet" href="/css/paye-fix.css">
+
+        
+        
+                        <!-- DEBUG: agencyId=NULL agencyName=HFC Coastal sidebar=#00b4d8 icon=#00b4d8 default=#0b2a4a button=#00b4d8 -->
+                <style id="agency-brand">
+            :root,
+            :root[data-theme="dark"],
+            :root[data-theme="light"],
+            html,
+            html.dark {
+                --brand-sidebar: #00b4d8 !important;
+                --brand-icon:    #00b4d8 !important;
+                --brand-default: #0b2a4a !important;
+                --brand-button:  #00b4d8 !important;
+            }
+        </style>
+                    </head>
+    <body class="font-sans antialiased">
+        
+        <div x-data="{ sidebarOpen: false, sidebarCollapsed: false }" class="flex h-screen overflow-hidden" style="background:var(--bg)">
+
+            
+            <div x-show="sidebarOpen" x-transition:enter="transition-opacity ease-linear duration-200"
+                 x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition-opacity ease-linear duration-200"
+                 x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 @click="sidebarOpen = false"
+                 class="fixed inset-0 bg-black/50 z-40 lg:hidden" x-cloak></div>
+
+            
+            <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+                   :class="sidebarCollapsed ? 'lg:w-16' : 'lg:w-60'"
+                   class="fixed inset-y-0 left-0 z-50 transform transition-all duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0">
+                <div class="corex-sidebar">
+    
+    <div class="corex-sidebar-logo" style="display:flex; align-items:center; justify-content:space-between;">
+        <span>CoreX <span>Os</span></span>
+                <div id="help-widget-slot" style="flex-shrink:0;"></div>
+            </div>
+    
+    
+        <div x-data="{ agencyOpen: false }" class="px-3 pb-2">
+        <button type="button" @click="agencyOpen = !agencyOpen"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors"
+                style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5 flex-shrink-0">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+            </svg>
+            <span class="flex-1 text-left truncate">All Agencies</span>
+                        <span class="w-2 h-2 rounded-full flex-shrink-0 animate-pulse" style="background:var(--ds-amber);"></span>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3 flex-shrink-0 transition-transform duration-150" :class="agencyOpen && 'rotate-90'"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+        </button>
+        <div x-show="agencyOpen" x-cloak @click.outside="agencyOpen = false" x-transition
+             class="mt-1 rounded-md overflow-hidden shadow-lg"
+             style="background:var(--surface-2, #1a1e28); border:1px solid var(--border);">
+                        <form method="POST" action="http://127.0.0.1:8000/agency/switch/1">
+                <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                <button type="submit" class="w-full text-left px-3 py-2 text-xs transition-colors hover:bg-[color:var(--surface)] " style="color:  var(--text-secondary) ;">
+                    HFC Coastal
+                </button>
+            </form>
+                    </div>
+    </div>
+    
+    
+    
+    
+    <nav class="flex-1 py-2 overflow-y-auto min-h-0"
+         x-data="{ openGroup: '', toggle(g) { this.openGroup = this.openGroup === g ? null : g } }"
+         x-init="$el.scrollTop = sessionStorage.getItem('sidebarScroll') || 0"
+         @scroll.debounce.100ms="sessionStorage.setItem('sidebarScroll', $el.scrollTop)">
+
+        
+                <div>
+            <button type="button" @click="toggle('command-center')"
+                    class="corex-nav-item corex-nav-group-toggle ">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
+                </svg>
+                <span>Dashboard</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="(openGroup === 'command-center') && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'command-center'"  x-cloak                  x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+
+                <a href="http://127.0.0.1:8000/corex" class="corex-nav-subitem ">Today</a>
+                <a href="http://127.0.0.1:8000/corex/command-center/calendar" class="corex-nav-subitem ">Calendar</a>
+                                <a href="http://127.0.0.1:8000/corex/command-center/calendar/invitations" class="corex-nav-subitem ">
+                    Invitations                 </a>
+                                    <a href="http://127.0.0.1:8000/corex/command-center/settings/event-classes" class="corex-nav-subitem ">Event Classes</a>
+                                <a href="http://127.0.0.1:8000/corex/command-center/tasks" class="corex-nav-subitem ">Tasks</a>
+                <a href="http://127.0.0.1:8000/corex/command-center/reporting/agent" class="corex-nav-subitem ">My Performance</a>
+                                <a href="http://127.0.0.1:8000/corex/command-center/reporting/branch" class="corex-nav-subitem ">Branch Report</a>
+                                                <a href="http://127.0.0.1:8000/corex/command-center/reporting/agency" class="corex-nav-subitem ">Agency Report</a>
+                                <a href="http://127.0.0.1:8000/corex/command-center/buyers/pipeline" class="corex-nav-subitem ">Buyer Pipeline</a>
+                                <a href="http://127.0.0.1:8000/corex/command-center/lost-deals" class="corex-nav-subitem ">Lost Deals</a>
+                                                    <a href="http://127.0.0.1:8000/corex/dashboard/oversight" class="corex-nav-subitem ">Oversight</a>
+                                <a href="http://127.0.0.1:8000/corex/command-center/performance" class="corex-nav-subitem ">Performance</a>
+                <a href="http://127.0.0.1:8000/corex/command-center/user-settings" class="corex-nav-subitem ">User Settings</a>
+            </div>
+        </div>
+        
+        
+                        <a href="http://127.0.0.1:8000/corex/my-portal"
+           class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            <span>My Portal</span>
+                        <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0"></span>
+                    </a>
+        
+        
+                <a href="http://127.0.0.1:8000/corex/my-portal/agency-documents"
+           class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            <span>Agency Documents</span>
+        </a>
+        
+        
+        <a href="http://127.0.0.1:8000/corex/my-earnings"
+           class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 9m18 0V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v3" />
+            </svg>
+            <span>My Earnings</span>
+        </a>
+
+        
+        <a href="http://127.0.0.1:8000/corex/revenue-share/calculator"
+           class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+            </svg>
+            <span>Revenue Share</span>
+        </a>
+
+        
+                <a href="http://127.0.0.1:8000/corex/training"
+           class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
+            </svg>
+            <span>Training</span>
+                    </a>
+
+        
+                <div>
+            <button type="button" @click="toggle('agency-tracker')"
+                    class="corex-nav-item corex-nav-group-toggle ">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 0 0 .75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 0 0-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0 1 12 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 0 1-.673-.38m0 0A2.18 2.18 0 0 1 3 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 0 1 3.413-.387m7.5 0V5.25A2.25 2.25 0 0 0 13.5 3h-3a2.25 2.25 0 0 0-2.25 2.25v.894m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+                <span>Agency Tracker</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'agency-tracker' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'agency-tracker'"  x-cloak                  x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+
+                
+                                <a href="http://127.0.0.1:8000/worksheet" class="corex-nav-subitem ">Worksheet</a>
+                
+                                <a href="http://127.0.0.1:8000/agent/listings" class="corex-nav-subitem ">My Listing Stock</a>
+                
+                                <a href="http://127.0.0.1:8000/rentals" class="corex-nav-subitem ">Rentals</a>
+                
+                
+                                <div class="corex-nav-sublabel">My Performance</div>
+                                <a href="http://127.0.0.1:8000/agent/daily/summary" class="corex-nav-subitem ">Daily Activity Summary</a>
+                <a href="http://127.0.0.1:8000/agent/daily" class="corex-nav-subitem ">My Daily Activity</a>
+                                                <a href="http://127.0.0.1:8000/agent/deals" class="corex-nav-subitem ">My Deals</a>
+                                
+                
+                                <div class="corex-nav-sublabel">Branch</div>
+                                <a href="http://127.0.0.1:8000/bm/performance" class="corex-nav-subitem ">Branch Performance</a>
+                                                <a href="http://127.0.0.1:8000/bm/daily/summary" class="corex-nav-subitem ">Daily Activity Summary</a>
+                                                <a href="http://127.0.0.1:8000/bm/listings" class="corex-nav-subitem ">Branch Listing Stock</a>
+                                                <a href="http://127.0.0.1:8000/bm/my-dashboard" class="corex-nav-subitem ">My Agent Dashboard</a>
+                                                <a href="http://127.0.0.1:8000/admin/deals" class="corex-nav-subitem ">Deal Register</a>
+                
+                <div class="corex-nav-sublabel">Setup</div>
+                                <a href="http://127.0.0.1:8000/bm/worksheet-market" class="corex-nav-subitem ">Worksheet Market</a>
+                                                <a href="http://127.0.0.1:8000/admin/targets" class="corex-nav-subitem ">Daily Activity Targets</a>
+                <a href="http://127.0.0.1:8000/admin/targets/activity-definitions" class="corex-nav-subitem ">Activity Definitions</a>
+                                                <a href="http://127.0.0.1:8000/bm/tv-messages" class="corex-nav-subitem ">TV Messages</a>
+                                                                                
+                
+                                <div class="corex-nav-sublabel">Admin</div>
+                                <a href="http://127.0.0.1:8000/admin/performance" class="corex-nav-subitem ">Performance</a>
+                                                                <a href="http://127.0.0.1:8000/admin/listings/stock" class="corex-nav-subitem ">Company Listing Stock</a>
+                                                                <a href="http://127.0.0.1:8000/admin/deals" class="corex-nav-subitem ">Deal Register</a>
+                                                <a href="http://127.0.0.1:8000/admin/listings/agents" class="corex-nav-subitem ">Listing Stock</a>
+                                                <a href="http://127.0.0.1:8000/admin/listings/import" class="corex-nav-subitem ">Import Listings</a>
+                                                <a href="http://127.0.0.1:8000/admin/daily/summary" class="corex-nav-subitem ">Daily Activity Summary</a>
+                                                <a href="http://127.0.0.1:8000/admin/targets" class="corex-nav-subitem ">Targets</a>
+                <a href="http://127.0.0.1:8000/admin/targets/activity-definitions" class="corex-nav-subitem ">Activity Definitions</a>
+                                                <a href="http://127.0.0.1:8000/admin/worksheet-market" class="corex-nav-subitem ">Worksheet Market</a>
+                                                <a href="http://127.0.0.1:8000/admin/tv-messages" class="corex-nav-subitem ">TV Messages</a>
+                                
+                
+                                <div class="corex-nav-sublabel">Commission</div>
+                <a href="http://127.0.0.1:8000/corex/commission/principal" class="corex-nav-subitem ">Commission Overview</a>
+                <a href="http://127.0.0.1:8000/corex/commission" class="corex-nav-subitem ">Commission Management</a>
+                
+                
+                                <div class="corex-nav-sublabel">Tools</div>
+                <a href="http://127.0.0.1:8000/tools/commission" class="corex-nav-subitem ">Commission Calculator</a>
+                <a href="http://127.0.0.1:8000/tools/cma" class="corex-nav-subitem ">CMA Certificate Generator</a>
+                <a href="http://127.0.0.1:8000/tools/commission?section=history" class="corex-nav-subitem ">History & Logs</a>
+                            </div>
+        </div>
+        
+        
+                        <a href="http://127.0.0.1:8000/prospecting"
+           class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            <span>Prospecting</span>
+        </a>
+                
+        
+                        <div>
+            <button type="button" @click="toggle('documents')"
+                    class="corex-nav-item corex-nav-group-toggle ">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m0 0a2.625 2.625 0 1 1 5.25 0" />
+                </svg>
+                <span>Documents</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'documents' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'documents'"  x-cloak                  x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+                                <a href="http://127.0.0.1:8000/docuperfect/create" class="corex-nav-subitem ">Create Document</a>
+                <a href="http://127.0.0.1:8000/docuperfect/esign/create" class="corex-nav-subitem ">E-Sign Document</a>
+                <a href="http://127.0.0.1:8000/docuperfect/esign/my-documents" class="corex-nav-subitem ">My E-Sign Documents</a>
+                                <a href="http://127.0.0.1:8000/docuperfect/esign/my-documents?filter=authorisation" class="corex-nav-subitem ">Authorise Documents</a>
+                                                                <a href="http://127.0.0.1:8000/docuperfect" class="corex-nav-subitem ">My Documents</a>
+                                                <a href="http://127.0.0.1:8000/docuperfect/packs" class="corex-nav-subitem ">Packs</a>
+                <a href="http://127.0.0.1:8000/docuperfect/web-packs" class="corex-nav-subitem ">Web Packs</a>
+                                                <a href="http://127.0.0.1:8000/docuperfect/clauses" class="corex-nav-subitem ">Clause Library</a>
+                                                <a href="http://127.0.0.1:8000/docuperfect/templates" class="corex-nav-subitem ">Template Management</a>
+                <a href="http://127.0.0.1:8000/docuperfect/field-groups" class="corex-nav-subitem ">Field Groups</a>
+                <a href="http://127.0.0.1:8000/docuperfect/import" class="corex-nav-subitem ">Import Document</a>
+                            </div>
+        </div>
+                
+        
+                <div>
+            <button type="button" @click="toggle('rentals')"
+                    class="corex-nav-item corex-nav-group-toggle ">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 21v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21m0 0h4.5V3.545M12.75 21h7.5V10.75M2.25 21h1.5m18 0h-18M2.25 9l4.5-1.636M18.75 3l-1.5.545m0 6.205 3 1m1.5.5-1.5-.5M6.75 7.364V3h-3v18m3-13.636 10.5-3.819" />
+                </svg>
+                <span>Rentals</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'rentals' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'rentals'"  x-cloak                  x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+                                <a href="http://127.0.0.1:8000/rental" class="corex-nav-subitem ">Dashboard</a>
+                                                <a href="http://127.0.0.1:8000/rental/signatures" class="corex-nav-subitem ">Electronic Signatures</a>
+                                                <a href="http://127.0.0.1:8000/rental/active-leases" class="corex-nav-subitem ">Active Leases</a>
+                <a href="http://127.0.0.1:8000/rental/expired-leases" class="corex-nav-subitem ">Expired Leases</a>
+                            </div>
+        </div>
+        
+        
+
+        
+                <div>
+            <button type="button" @click="toggle('compliance')"
+                    class="corex-nav-item corex-nav-group-toggle ">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+                </svg>
+                <span>Compliance</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'compliance' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'compliance'"  x-cloak                  x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+                <a href="http://127.0.0.1:8000/corex/compliance/fica" class="corex-nav-subitem ">FICA</a>
+                                <a href="http://127.0.0.1:8000/corex/compliance/rmcp-manager" class="corex-nav-subitem ">RMCP</a>
+                                                <a href="http://127.0.0.1:8000/corex/compliance/rmcp-dashboard" class="corex-nav-subitem ">RMCP Dashboard</a>
+                                                <a href="http://127.0.0.1:8000/corex/compliance/screening-dashboard" class="corex-nav-subitem ">Staff Screening</a>
+                                                                <a href="http://127.0.0.1:8000/corex/compliance/agents" class="corex-nav-subitem ">
+                    Agent Compliance
+                                        <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 inline-block"></span>
+                                    </a>
+                                                                <a href="http://127.0.0.1:8000/corex/compliance/verification-queue" class="corex-nav-subitem ">
+                    Verification Queue
+                                    </a>
+                                                <a href="http://127.0.0.1:8000/corex/compliance/document-types" class="corex-nav-subitem ">Document Types</a>
+                                                <a href="http://127.0.0.1:8000/corex/compliance/agency-settings" class="corex-nav-subitem ">Agency Documents</a>
+                            </div>
+        </div>
+        
+        
+
+        
+                        <a href="http://127.0.0.1:8000/docuperfect/sales" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v7.5M12 12.75h3m-3 0h-3m-2.25 0H5.625c-.621 0-1.125-.504-1.125-1.125V4.125c0-.621.504-1.125 1.125-1.125h5.25a2.25 2.25 0 0 1 2.25 2.25v1.5m-6 9V21m0-6.75h9" />
+            </svg>
+            <span>Sales Documents</span>
+        </a>
+                
+        
+                <a href="http://127.0.0.1:8000/filing-register" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+            </svg>
+            <span>Filing Register</span>
+        </a>
+        
+        
+                        <a href="http://127.0.0.1:8000/presentations" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 4h16v10H4z"/>
+                <path d="M8 20h8"/>
+                <path d="M12 14v6"/>
+            </svg>
+            <span>Presentations</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/commercial-evaluations" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <path d="M9 22V12h6v10"/>
+            </svg>
+            <span>Commercial Evaluations</span>
+        </a>
+                
+        
+                <div>
+            <button type="button" @click="toggle('evaluation')"
+                    class="corex-nav-item corex-nav-group-toggle ">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
+                </svg>
+                <span>Evaluation</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'evaluation' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'evaluation'"  x-cloak                  x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+                <a href="http://127.0.0.1:8000/evaluation#tab=property" class="corex-nav-subitem ">Property Report</a>
+                <a href="http://127.0.0.1:8000/evaluation#tab=suburb" class="corex-nav-subitem">Suburb Report</a>
+                <a href="http://127.0.0.1:8000/evaluation#tab=town" class="corex-nav-subitem">Town Report</a>
+                <a href="http://127.0.0.1:8000/evaluation#tab=street" class="corex-nav-subitem">Street Report</a>
+                <a href="http://127.0.0.1:8000/evaluation#tab=transfer" class="corex-nav-subitem">Transfer Report</a>
+                <a href="http://127.0.0.1:8000/evaluation#tab=prospecting" class="corex-nav-subitem">Prospecting</a>
+            </div>
+        </div>
+        
+        
+                        <a href="http://127.0.0.1:8000/corex/properties" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+            </svg>
+            <span>Properties</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/corex/contacts" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            <span>Contacts</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/corex/core-matches" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
+            </svg>
+            <span>Core Matches</span>
+        </a>
+                
+
+        
+        <div class="corex-nav-divider"></div>
+        <div class="corex-nav-section-label">Tools</div>
+
+        
+                        <a href="http://127.0.0.1:8000/calculators" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="20" rx="2"/>
+                <line x1="8" y1="6" x2="16" y2="6"/>
+                <line x1="8" y1="10" x2="10" y2="10"/>
+                <line x1="14" y1="10" x2="16" y2="10"/>
+                <line x1="8" y1="14" x2="10" y2="14"/>
+                <line x1="14" y1="14" x2="16" y2="14"/>
+                <line x1="8" y1="18" x2="10" y2="18"/>
+                <line x1="14" y1="18" x2="16" y2="18"/>
+            </svg>
+            <span>Calculators</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/ellie" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
+            </svg>
+            <span>Ellie AI</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/admin/pp/agents" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <span>PP Agents</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/admin/p24" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+            </svg>
+            <span>P24 Alerts</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/admin/deposit-trust-interest" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 17a5 5 0 0 0 10 0c0-2.76-2.24-5-5-5s-5 2.24-5 5Z"/>
+                <path d="M7 17v-2"/>
+                <path d="M12 17a5 5 0 0 0 10 0c0-2.76-2.24-5-5-5s-5 2.24-5 5Z"/>
+                <path d="M17 17v-2"/>
+                <path d="M7 7h10"/>
+                <path d="M12 3v4"/>
+            </svg>
+            <span>Trust Interest Register</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/deposit-interest-calculator" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+            <span>Deposit Interest Calc</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/deposit-interest-calculator/history" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+            </svg>
+            <span>Calculation History</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/tools/pdf-splitter" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <path d="M14 2v6h6"/>
+                <path d="M8 13h8"/>
+                <path d="M8 17h8"/>
+                <path d="M8 9h2"/>
+            </svg>
+            <span>PDF Splitter</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/documents/library" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+            </svg>
+            <span>Document Library</span>
+        </a>
+                
+        
+                <div class="corex-nav-divider"></div>
+        <div class="corex-nav-section-label">Platform Admin</div>
+
+        
+        <a href="http://127.0.0.1:8000/corex/settings/agencies" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+            </svg>
+            <span>Agency Management</span>
+        </a>
+
+        
+        <a href="http://127.0.0.1:8000/corex/admin/company-settings" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
+            </svg>
+            <span>Company Settings</span>
+        </a>
+
+        
+        <a href="http://127.0.0.1:8000/admin/importer" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+            </svg>
+            <span>P24 Importer</span>
+        </a>
+        <a href="http://127.0.0.1:8000/admin/importer/review" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <span>Property Review</span>
+        </a>
+        
+        
+                <div class="corex-nav-divider"></div>
+        <div class="corex-nav-section-label">Admin</div>
+
+        
+                <a href="http://127.0.0.1:8000/admin/knowledge" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+            </svg>
+            <span>Knowledge Base</span>
+        </a>
+        
+        
+                <a href="http://127.0.0.1:8000/corex/role-manager" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+            </svg>
+            <span>Role Manager</span>
+        </a>
+        
+        
+                <a href="http://127.0.0.1:8000/corex/training/manage" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+            </svg>
+            <span>Training Mgmt</span>
+        </a>
+        
+        
+                        <a href="http://127.0.0.1:8000/corex/onboarding" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" />
+            </svg>
+            <span>Onboarding</span>
+                    </a>
+        
+        
+                <a href="http://127.0.0.1:8000/admin/finance/definitions" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5ZM8.25 6h7.5v2.25h-7.5V6ZM12 2.25c-1.892 0-3.758.11-5.593.322C5.307 2.7 4.5 3.65 4.5 4.757V19.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V4.757c0-1.108-.806-2.057-1.907-2.185A48.507 48.507 0 0 0 12 2.25Z" />
+            </svg>
+            <span>Finance Engine</span>
+        </a>
+        
+        
+                <a href="http://127.0.0.1:8000/corex/command-center/settings/contact-governance" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+            </svg>
+            <span>Contact Governance</span>
+        </a>
+        <a href="http://127.0.0.1:8000/corex/command-center/settings/leave-visibility" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            <span>Leave Visibility</span>
+        </a>
+        <a href="http://127.0.0.1:8000/corex/command-center/admin/duplicate-cleanup" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+            </svg>
+            <span>Duplicate Cleanup</span>
+        </a>
+        <a href="http://127.0.0.1:8000/corex/command-center/settings/market-intelligence" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+            </svg>
+            <span>Market Intelligence</span>
+        </a>
+                <a href="http://127.0.0.1:8000/corex/command-center/feedback-reports" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
+            <span>Feedback Reports</span>
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420;color:#ef4444;">1</span>        </a>
+        
+        
+                <div>
+            <button type="button" @click="toggle('payroll')"
+                    class="corex-nav-item corex-nav-group-toggle ">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
+                </svg>
+                <span>Payroll</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'payroll' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'payroll'"  x-cloak                  x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+
+                                <a href="http://127.0.0.1:8000/corex/payroll/employees" class="corex-nav-subitem ">Employees</a>
+                <a href="http://127.0.0.1:8000/corex/payroll/earning-types" class="corex-nav-subitem ">Earning Types</a>
+                <a href="http://127.0.0.1:8000/corex/payroll/deduction-types" class="corex-nav-subitem ">Deduction Types</a>
+                
+                                <a href="http://127.0.0.1:8000/corex/payroll/runs" class="corex-nav-subitem ">Runs</a>
+                            </div>
+        </div>
+        
+        
+                <div>
+            <button type="button" @click="toggle('leave')"
+                    class="corex-nav-item corex-nav-group-toggle ">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" />
+                </svg>
+                <span>Leave Management</span>
+                <svg class="corex-chevron transition-transform duration-200" :class="openGroup === 'leave' && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div x-show="openGroup === 'leave'"  x-cloak                  x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                 x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+                 class="corex-nav-children">
+
+                                <a href="http://127.0.0.1:8000/corex/payroll/leave/dashboard" class="corex-nav-subitem ">Dashboard</a>
+                
+                                <a href="http://127.0.0.1:8000/corex/payroll/leave/applications" class="corex-nav-subitem ">Applications</a>
+                
+                                <a href="http://127.0.0.1:8000/corex/payroll/leave/balances" class="corex-nav-subitem ">Balances</a>
+                
+                                <a href="http://127.0.0.1:8000/corex/payroll/leave/types" class="corex-nav-subitem ">Leave Types</a>
+                
+                                <a href="http://127.0.0.1:8000/corex/payroll/leave/reports/register" class="corex-nav-subitem ">Reports</a>
+                
+                                <a href="http://127.0.0.1:8000/corex/payroll/leave/public-holidays" class="corex-nav-subitem ">Public Holidays</a>
+                            </div>
+        </div>
+        
+        
+                <a href="http://127.0.0.1:8000/corex/staff-take-on" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" />
+            </svg>
+            <span>Staff Take-On</span>
+        </a>
+        
+        
+                        <a href="http://127.0.0.1:8000/admin/fault-reports" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.866.966 1.866 2.013 0 3.728-2.35 6.75-5.25 6.75S6.75 18.728 6.75 15c0-1.046.83-1.867 1.866-2.013A24.204 24.204 0 0 1 12 12.75Zm0 0c2.883 0 5.647.508 8.207 1.44a23.91 23.91 0 0 1-1.152-6.135c-.117-1.427-.245-2.88-.465-4.305-.074-.477-.513-.826-.998-.826H6.408c-.485 0-.924.35-.998.826-.22 1.424-.348 2.878-.465 4.305A23.91 23.91 0 0 1 3.793 14.19 24.467 24.467 0 0 1 12 12.75ZM2.695 18.678a25.411 25.411 0 0 1 .122-2.428c.24-.84.598-1.628 1.058-2.347M21.305 18.678a25.12 25.12 0 0 0-.122-2.428 7.667 7.667 0 0 0-1.058-2.347" />
+            </svg>
+            <span>Fault Reports</span>
+                        <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold" style="background:color-mix(in srgb, var(--ds-crimson) 15%, transparent); color:var(--ds-crimson);">49</span>
+                    </a>
+        
+        
+                        <a href="http://127.0.0.1:8000/deals-v2" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            <span>Deal Register V2</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/deals-v2/create" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            <span>New Deal</span>
+        </a>
+                
+        
+                        <a href="http://127.0.0.1:8000/deals-v2/pipeline-setup" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
+            </svg>
+            <span>Pipeline Setup</span>
+        </a>
+                
+        
+                <a href="http://127.0.0.1:8000/corex/settings" class="corex-nav-item ">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            <span>Settings</span>
+        </a>
+                    </nav>
+
+    
+        <div class="corex-user-section" x-data="{ userMenu: false, switchPanel: false }">
+        
+        
+        <div class="corex-user-profile">
+            <div class="corex-user-avatar">JR</div>
+            <div class="flex-1 min-w-0">
+                <div class="corex-user-name">Johan Reichel</div>
+                <div class="corex-user-role">System Owner</div>
+            </div>
+            
+            <button type="button" class="corex-theme-toggle" id="corexThemeToggle" title="Toggle light/dark theme" onclick="(function(){var d=document.documentElement,dark=d.classList.toggle('dark');var t=dark?'dark':'light';localStorage.setItem('corex-theme',t);fetch('http://127.0.0.1:8000/profile/theme',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content,'Accept':'application/json'},body:JSON.stringify({theme:t})});})()">
+                <svg class="corex-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:1rem;height:1rem">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+                </svg>
+                <svg class="corex-icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:1rem;height:1rem">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                </svg>
+            </button>
+            <button type="button" @click="userMenu = !userMenu" class="corex-user-menu-btn" title="User menu">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1rem;height:1rem"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" /></svg>
+            </button>
+        </div>
+
+        
+        <div x-show="userMenu" x-cloak @click.outside="userMenu = false" x-transition class="corex-user-dropdown">
+            <a href="http://127.0.0.1:8000/corex/my-portal#profile" class="corex-user-dropdown-item">Profile</a>
+                        <button type="button" @click="switchPanel = !switchPanel; userMenu = false" class="corex-user-dropdown-item w-full text-left">Switch User</button>
+                        <form method="POST" action="http://127.0.0.1:8000/logout">
+                <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                <button type="submit" class="corex-user-dropdown-item w-full text-left">Log Out</button>
+            </form>
+        </div>
+
+        
+                <div x-show="switchPanel" x-cloak @click.outside="switchPanel = false" x-transition class="corex-switch-panel">
+            <div class="text-[0.6875rem] uppercase tracking-wider font-semibold px-2 py-1" style="color:var(--text-muted);">Switch User</div>
+            <div class="corex-switch-list">
+                                                        <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/44">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Angelique Venter</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">angelique@hfcoastal.co.za · office_admin</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/36">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Barbara Jackson</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">barbara@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/37">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Cherise Wybenga</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">cherise@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/33">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Cindy Pietersen</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">cindy@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/35">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Dru De Bruyn</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">dru@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/39">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Elise McFarlane</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">elise@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/23">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Elize Reichel</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">elize@hfcoastal.co.za · admin</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/42">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Elize Reichel Ballito</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">elizeballito@hfcoastal.co.za · branch_manager</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/41">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Elize Southbroom</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">elizesouthbroom@hfcoastal.co.za · branch_manager</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/25">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Falan Du Bois</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">falan@hfcoastal.co.za · branch_manager</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/31">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Gerda Baard</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">gerda@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/40">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Jenny Reichel</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">jenny@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/28">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Katlego Moeng</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">katlego@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/34">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Kym Pollard</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">kym@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/29">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Maggie Venter</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">maggie@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/27">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Nthabiseng Moeng</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">nthabiseng@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/24">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Retha Kelly</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">retha@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/38">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Rochelle Combrink</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">rochelle@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/45">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Ronel Botha</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">admin@hfcoastal.co.za · admin</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/26">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Shawn Du Bois</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">shawn@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                                            <form method="POST" action="http://127.0.0.1:8000/admin/impersonate/32">
+                        <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off">                        <button type="submit" class="corex-switch-item">
+                            <div class="text-xs" style="color:var(--text-primary);">Sibonga Manyoni</div>
+                            <div class="text-[0.6875rem]" style="color:var(--text-muted);">sibonga@hfcoastal.co.za · agent</div>
+                        </button>
+                    </form>
+                                                </div>
+        </div>
+            </div>
+    </div>
+
+            </aside>
+
+            
+            <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+                
+                <div class="corex-mobile-bar flex items-center lg:hidden px-4 py-2">
+                    <button @click="sidebarOpen = true" type="button" style="color:var(--text-secondary)">
+                        <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                        </svg>
+                    </button>
+                    <span class="ml-3 text-sm font-bold" style="color:var(--text-primary)">CoreX <span style="color:var(--accent)">Os</span></span>
+                </div>
+
+                
+                <main id="appScroll" class="flex-1 overflow-y-auto p-4 lg:p-6" style="background:var(--bg)">
+                                            <div class="w-full space-y-5" x-data="{ view: localStorage.getItem('prop_view') || 'grid' }" x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
+
+    
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Properties</h1>
+                <p class="text-sm text-white/60">Manage listings and publish to website.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="http://127.0.0.1:8000/corex/properties/create"
+                   class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                   style="background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.18);"
+                   title="Classic single-page form">
+                    Classic form
+                </a>
+                <a href="http://127.0.0.1:8000/corex/properties/wizard" class="corex-btn-primary inline-flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    New Property
+                </a>
+            </div>
+        </div>
+    </div>
+
+    
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 xl:gap-4">
+                        <div class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300"
+             style="background:var(--surface); border:1px solid var(--border);">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent);color:var(--brand-icon);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>
+                </svg>
+            </span>
+            <div class="min-w-0">
+                <div class="text-[1.625rem] font-semibold leading-none" style="color:var(--text-primary);">1</div>
+                <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color:var(--text-muted);">Total</div>
+            </div>
+        </div>
+                        <div class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300"
+             style="background:var(--surface); border:1px solid var(--border);">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:color-mix(in srgb, var(--ds-green) 12%, transparent);color:var(--ds-green);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>
+                </svg>
+            </span>
+            <div class="min-w-0">
+                <div class="text-[1.625rem] font-semibold leading-none" style="color:var(--text-primary);">0</div>
+                <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color:var(--text-muted);">Active</div>
+            </div>
+        </div>
+                        <div class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300"
+             style="background:var(--surface); border:1px solid var(--border);">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent);color:var(--ds-amber);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
+                </svg>
+            </span>
+            <div class="min-w-0">
+                <div class="text-[1.625rem] font-semibold leading-none" style="color:var(--text-primary);">0</div>
+                <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color:var(--text-muted);">Draft</div>
+            </div>
+        </div>
+                        <div class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300"
+             style="background:var(--surface); border:1px solid var(--border);">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:color-mix(in srgb, var(--ds-navy) 12%, transparent);color:var(--ds-navy);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </span>
+            <div class="min-w-0">
+                <div class="text-[1.625rem] font-semibold leading-none" style="color:var(--text-primary);">0</div>
+                <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color:var(--text-muted);">Sold</div>
+            </div>
+        </div>
+                        <div class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300"
+             style="background:var(--surface); border:1px solid var(--border);">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent);color:var(--brand-icon);">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918"/>
+                </svg>
+            </span>
+            <div class="min-w-0">
+                <div class="text-[1.625rem] font-semibold leading-none" style="color:var(--text-primary);">0</div>
+                <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color:var(--text-muted);">Published</div>
+            </div>
+        </div>
+            </div>
+
+    
+    
+    
+        <div x-data="{
+            agentPicker: false,
+            agentSearch: '',
+            advancedOpen: false,
+            agents: [{&quot;id&quot;:44,&quot;name&quot;:&quot;Angelique Venter&quot;,&quot;email&quot;:&quot;angelique@hfcoastal.co.za&quot;},{&quot;id&quot;:36,&quot;name&quot;:&quot;Barbara Jackson&quot;,&quot;email&quot;:&quot;barbara@hfcoastal.co.za&quot;},{&quot;id&quot;:37,&quot;name&quot;:&quot;Cherise Wybenga&quot;,&quot;email&quot;:&quot;cherise@hfcoastal.co.za&quot;},{&quot;id&quot;:33,&quot;name&quot;:&quot;Cindy Pietersen&quot;,&quot;email&quot;:&quot;cindy@hfcoastal.co.za&quot;},{&quot;id&quot;:35,&quot;name&quot;:&quot;Dru De Bruyn&quot;,&quot;email&quot;:&quot;dru@hfcoastal.co.za&quot;},{&quot;id&quot;:39,&quot;name&quot;:&quot;Elise McFarlane&quot;,&quot;email&quot;:&quot;elise@hfcoastal.co.za&quot;},{&quot;id&quot;:23,&quot;name&quot;:&quot;Elize Reichel&quot;,&quot;email&quot;:&quot;elize@hfcoastal.co.za&quot;},{&quot;id&quot;:42,&quot;name&quot;:&quot;Elize Reichel Ballito&quot;,&quot;email&quot;:&quot;elizeballito@hfcoastal.co.za&quot;},{&quot;id&quot;:41,&quot;name&quot;:&quot;Elize Southbroom&quot;,&quot;email&quot;:&quot;elizesouthbroom@hfcoastal.co.za&quot;},{&quot;id&quot;:25,&quot;name&quot;:&quot;Falan Du Bois&quot;,&quot;email&quot;:&quot;falan@hfcoastal.co.za&quot;},{&quot;id&quot;:31,&quot;name&quot;:&quot;Gerda Baard&quot;,&quot;email&quot;:&quot;gerda@hfcoastal.co.za&quot;},{&quot;id&quot;:40,&quot;name&quot;:&quot;Jenny Reichel&quot;,&quot;email&quot;:&quot;jenny@hfcoastal.co.za&quot;},{&quot;id&quot;:28,&quot;name&quot;:&quot;Katlego Moeng&quot;,&quot;email&quot;:&quot;katlego@hfcoastal.co.za&quot;},{&quot;id&quot;:34,&quot;name&quot;:&quot;Kym Pollard&quot;,&quot;email&quot;:&quot;kym@hfcoastal.co.za&quot;},{&quot;id&quot;:29,&quot;name&quot;:&quot;Maggie Venter&quot;,&quot;email&quot;:&quot;maggie@hfcoastal.co.za&quot;},{&quot;id&quot;:27,&quot;name&quot;:&quot;Nthabiseng Moeng&quot;,&quot;email&quot;:&quot;nthabiseng@hfcoastal.co.za&quot;},{&quot;id&quot;:24,&quot;name&quot;:&quot;Retha Kelly&quot;,&quot;email&quot;:&quot;retha@hfcoastal.co.za&quot;},{&quot;id&quot;:38,&quot;name&quot;:&quot;Rochelle Combrink&quot;,&quot;email&quot;:&quot;rochelle@hfcoastal.co.za&quot;},{&quot;id&quot;:45,&quot;name&quot;:&quot;Ronel Botha&quot;,&quot;email&quot;:&quot;admin@hfcoastal.co.za&quot;},{&quot;id&quot;:26,&quot;name&quot;:&quot;Shawn Du Bois&quot;,&quot;email&quot;:&quot;shawn@hfcoastal.co.za&quot;},{&quot;id&quot;:32,&quot;name&quot;:&quot;Sibonga Manyoni&quot;,&quot;email&quot;:&quot;sibonga@hfcoastal.co.za&quot;}],
+            get filtered() {
+                if (!this.agentSearch) return this.agents;
+                const q = this.agentSearch.toLowerCase();
+                return this.agents.filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q));
+            }
+         }"
+         class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
+
+        <form method="GET" action="http://127.0.0.1:8000/corex/properties" class="flex flex-wrap items-center gap-3">
+
+            
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value=""
+                       placeholder="Search title, suburb, or P24 ref..."
+                       onchange="this.form.submit()"
+                       class="list-header-filter w-full"
+                       style="padding-left:2.25rem;">
+            </div>
+
+            
+            
+            
+            <select name="status" onchange="this.form.submit()" class="list-header-filter">
+                <option value="" selected>All Statuses</option>
+                <option value="active" >Active</option>
+                <option value="draft" >Draft</option>
+                <option value="sold" >Sold</option>
+                <option value="withdrawn" >Withdrawn</option>
+            </select>
+
+            
+            <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
+                <option value="" selected>Sale &amp; Rental</option>
+                <option value="sale"   >For Sale</option>
+                <option value="rental" >For Rental</option>
+            </select>
+
+            
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter">
+                <option value="newest"     selected>Newest first</option>
+                <option value="oldest"     >Oldest first</option>
+                <option value="price_desc" >Price: high → low</option>
+                <option value="price_asc"  >Price: low → high</option>
+                <option value="title"      >Title (A–Z)</option>
+            </select>
+
+            
+            <button type="button" @click="advancedOpen = !advancedOpen"
+                    class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
+                    :style="advancedOpen ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 4.5h18M6 12h12m-9 7.5h6"/>
+                </svg>
+                <span>More filters</span>
+                            </button>
+
+            
+            
+                        <input type="hidden" name="agent_id" value="22">
+            <div class="ml-auto flex items-center gap-1">
+                <button type="button" @click="agentPicker = true"
+                        class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
+                        style="">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <circle cx="9" cy="7" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 21v-1a6 6 0 016-6h0M16 19l2 2 4-4"/>
+                    </svg>
+                    All Agents
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+
+                            </div>
+
+            
+            <div x-show="agentPicker" x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                 style="background:rgba(0,0,0,0.5);"
+                 @click.self="agentPicker = false"
+                 @keydown.escape.window="agentPicker = false"
+                 x-transition.opacity>
+                <div class="w-full max-w-md rounded-md overflow-hidden"
+                     style="background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+
+                    <div class="flex items-center justify-between px-4 py-3" style="border-bottom:1px solid var(--border);">
+                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Select Agent</h3>
+                        <button type="button" @click="agentPicker = false"
+                                class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300"
+                                style="color:var(--text-muted);"
+                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="p-3" style="border-bottom:1px solid var(--border);">
+                        <div class="relative">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
+                            </svg>
+                            <input type="text" x-model="agentSearch" placeholder="Search agents..."
+                                   class="w-full pl-8 pr-3 py-1.5 text-xs rounded-md outline-none transition-all duration-300"
+                                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
+                        </div>
+                    </div>
+
+                    <div style="max-height:55vh;overflow-y:auto;">
+                        <a href="http://127.0.0.1:8000/corex/properties?status=&amp;search=&amp;agent_id="
+                           class="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300"
+                           style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
+                           onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold" style="background:var(--surface-2);color:var(--text-secondary);">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1h5M12 12a4 4 0 100-8 4 4 0 000 8z"/></svg>
+                            </span>
+                            All agents
+                        </a>
+
+                        <template x-for="agent in filtered" :key="agent.id">
+                            <a :href="`http://127.0.0.1:8000/corex/properties?agent_id=${agent.id}&status=&search=`"
+                               class="flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300"
+                               :style="(22 === agent.id ? 'background:var(--surface-2);' : '')"
+                               onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
+                                      style="background:var(--brand-default,#0b2a4a);color:#fff;"
+                                      x-text="agent.name.charAt(0).toUpperCase()">
+                                </span>
+                                <div class="min-w-0">
+                                    <div class="font-semibold truncate" style="color:var(--text-primary);" x-text="agent.name"></div>
+                                    <div class="truncate" style="color:var(--text-muted);" x-text="agent.email"></div>
+                                </div>
+                                <template x-if="22 === agent.id">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                </template>
+                            </a>
+                        </template>
+
+                        <div x-show="filtered.length === 0" class="px-4 py-4 text-xs text-center" style="color:var(--text-muted);">
+                            No agents found
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            
+            <div class="flex items-center gap-0.5 rounded-md" style="height:2.25rem;padding:0.125rem;background:var(--surface-2);border:1px solid var(--border);">
+                <button type="button" @click="view = 'grid'"
+                        class="h-full px-2 rounded transition-all duration-300 inline-flex items-center justify-center"
+                        :style="view === 'grid' ? 'background:var(--brand-default,#0b2a4a);color:#fff;' : 'color:var(--text-muted);'"
+                        title="Grid view">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+                    </svg>
+                </button>
+                <button type="button" @click="view = 'list'"
+                        class="h-full px-2 rounded transition-all duration-300 inline-flex items-center justify-center"
+                        :style="view === 'list' ? 'background:var(--brand-default,#0b2a4a);color:#fff;' : 'color:var(--text-muted);'"
+                        title="List view">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                </button>
+            </div>
+
+            
+            <div x-show="advancedOpen" x-cloak x-transition class="w-full mt-3 pt-3" style="border-top:1px dashed var(--border);">
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Property Type</label>
+                        <select name="property_type" onchange="this.form.submit()" class="list-header-filter w-full">
+                            <option value="">Any type</option>
+                                                            <option value="Apartment" >Apartment</option>
+                                                            <option value="Cluster" >Cluster</option>
+                                                            <option value="Cottage" >Cottage</option>
+                                                            <option value="Development" >Development</option>
+                                                            <option value="Dual Living" >Dual Living</option>
+                                                            <option value="Duet" >Duet</option>
+                                                            <option value="Duplex" >Duplex</option>
+                                                            <option value="Garage" >Garage</option>
+                                                            <option value="House" >House</option>
+                                                            <option value="Penthouse" >Penthouse</option>
+                                                            <option value="Plot" >Plot</option>
+                                                            <option value="Room" >Room</option>
+                                                            <option value="Small Holding" >Small Holding</option>
+                                                            <option value="Studio Apartment" >Studio Apartment</option>
+                                                            <option value="Townhouse" >Townhouse</option>
+                                                            <option value="Vacant Land" >Vacant Land</option>
+                                                            <option value="Villa" >Villa</option>
+                                                    </select>
+                    </div>
+
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Category</label>
+                        <select name="category" onchange="this.form.submit()" class="list-header-filter w-full">
+                            <option value="">Any category</option>
+                                                            <option value="Residential" >Residential</option>
+                                                            <option value="Commercial" >Commercial</option>
+                                                            <option value="Industrial" >Industrial</option>
+                                                            <option value="Retirement" >Retirement</option>
+                                                            <option value="Holiday" >Holiday</option>
+                                                            <option value="Project" >Project</option>
+                                                    </select>
+                    </div>
+
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Mandate</label>
+                        <select name="mandate_type" onchange="this.form.submit()" class="list-header-filter w-full">
+                            <option value="">Any mandate</option>
+                                                            <option value="Open" >Open</option>
+                                                            <option value="Joint" >Joint</option>
+                                                            <option value="Sole" >Sole</option>
+                                                            <option value="Dual" >Dual</option>
+                                                    </select>
+                    </div>
+
+                    
+                                        <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Branch</label>
+                        <select name="branch_id" onchange="this.form.submit()" class="list-header-filter w-full">
+                            <option value="">All branches</option>
+                                                            <option value="2" >Ballito</option>
+                                                            <option value="1" >Shelly Beach</option>
+                                                            <option value="3" >Southbroom</option>
+                                                    </select>
+                    </div>
+                    
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min Beds</label>
+                        <select name="beds_min" onchange="this.form.submit()" class="list-header-filter w-full">
+                            <option value="">Any</option>
+                                                            <option value="1" >1+</option>
+                                                            <option value="2" >2+</option>
+                                                            <option value="3" >3+</option>
+                                                            <option value="4" >4+</option>
+                                                            <option value="5" >5+</option>
+                                                            <option value="6" >6+</option>
+                                                    </select>
+                    </div>
+
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min Baths</label>
+                        <select name="baths_min" onchange="this.form.submit()" class="list-header-filter w-full">
+                            <option value="">Any</option>
+                                                            <option value="1" >1+</option>
+                                                            <option value="2" >2+</option>
+                                                            <option value="3" >3+</option>
+                                                            <option value="4" >4+</option>
+                                                            <option value="5" >5+</option>
+                                                            <option value="6" >6+</option>
+                                                    </select>
+                    </div>
+
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Price Min (R)</label>
+                        <input type="number" name="price_min" min="0" step="50000"
+                               value="" placeholder="0"
+                               onchange="this.form.submit()"
+                               class="list-header-filter w-full">
+                    </div>
+
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Price Max (R)</label>
+                        <input type="number" name="price_max" min="0" step="50000"
+                               value="" placeholder="No max"
+                               onchange="this.form.submit()"
+                               class="list-header-filter w-full">
+                    </div>
+                </div>
+
+            </div>
+        </form>
+
+        
+                
+    </div>
+
+    
+    
+    
+    <div x-show="view === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        <div class="rounded-md overflow-hidden flex flex-col transition-all duration-300"
+             style="background:var(--surface); border:1px solid var(--border);"
+             onmouseover="this.style.borderColor='var(--brand-icon,#0ea5e9)';this.style.boxShadow='0 4px 16px rgba(0,0,0,0.06)'"
+             onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
+
+            
+            <a href="http://127.0.0.1:8000/corex/properties/21" class="relative block h-44 flex-shrink-0 overflow-hidden" style="background:var(--brand-default,#0b2a4a);">
+                                    <div class="absolute inset-0 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12" style="color:rgba(255,255,255,0.12);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 9.75L12 3l9 6.75V21H3V9.75z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 21V12h6v9"/>
+                        </svg>
+                    </div>
+                
+                
+                <div class="absolute inset-x-0 bottom-0 h-20" style="background:linear-gradient(to top,rgba(0,0,0,0.45),transparent);pointer-events:none;"></div>
+
+                
+                <span class="absolute bottom-2.5 left-3 text-base font-bold text-white" style="text-shadow:0 1px 3px rgba(0,0,0,0.4);">R 10 500</span>
+
+                
+                
+                
+                <span class="ds-badge ds-badge-default absolute top-2.5 right-2.5">To_let</span>
+
+                
+                            </a>
+
+            
+            <div class="px-3.5 py-3 flex flex-col flex-1">
+
+                
+                <a href="http://127.0.0.1:8000/corex/properties/21" class="text-sm font-semibold leading-snug line-clamp-1 transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
+                    Big House to Let
+                </a>
+
+                
+                <div class="flex items-center gap-1.5 mt-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
+                    </svg>
+                    <span class="text-xs truncate" style="color:var(--text-secondary);">
+                        10 Jan Bom Street, Uvongo, Margate
+                    </span>
+                </div>
+
+                
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs" style="color:var(--text-secondary);">
+                    <span class="capitalize">House</span>
+                    <span style="color:var(--border);">|</span>
+                                        <span>0.0 Bath</span>                                                        </div>
+
+                
+                <div class="flex-1"></div>
+
+                
+                <div class="flex items-center justify-between mt-2.5 pt-2.5" style="border-top:1px solid var(--border);">
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="inline-flex items-center justify-center w-5 h-5 rounded-md text-[9px] font-bold flex-shrink-0" style="background:var(--brand-default,#0b2a4a);color:#fff;">J</span>
+                        <span class="text-xs truncate" style="color:var(--text-muted);" title="Johan Reichel">Johan Reichel</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <a href="http://127.0.0.1:8000/corex/properties/21"
+                           class="corex-btn-outline text-[10px] px-2 py-1">View</a>
+                        <a href="http://127.0.0.1:8000/corex/properties/21/ad"
+                           target="_blank"
+                           class="corex-btn-outline text-[10px] px-2 py-1"
+                           title="Create Ad">Ad</a>
+                        <form method="POST" action="http://127.0.0.1:8000/corex/properties/21"
+                              onsubmit="return confirm('Delete \'Big House to Let\'?')">
+                            <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off"> <input type="hidden" name="_method" value="DELETE">                            <button type="submit"
+                                    class="text-[10px] font-medium px-2 py-1 rounded-md transition-all duration-300"
+                                    style="color:var(--text-muted);"
+                                    onmouseover="this.style.color='var(--ds-crimson)';this.style.background='color-mix(in srgb, var(--ds-crimson) 8%, transparent)'"
+                                    onmouseout="this.style.color='var(--text-muted)';this.style.background=''">
+                                Delete
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+            </div>
+
+    
+    <div x-show="view === 'list'" x-cloak class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm ds-table">
+            <thead>
+                <tr style="background: var(--surface-2);">
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Property</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Location</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden sm:table-cell" style="color:var(--text-muted);">Type</th>
+                    <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Price</th>
+                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">Bed</th>
+                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">Bath</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden lg:table-cell" style="color:var(--text-muted);">Agent</th>
+                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">Marketing</th>
+                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Status</th>
+                    <th class="px-4 py-2.5 text-xs font-semibold text-right" style="color:var(--text-muted);"></th>
+                </tr>
+            </thead>
+            <tbody>
+                                                <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
+                    onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                    <td class="px-4 py-2.5">
+                        <a href="http://127.0.0.1:8000/corex/properties/21" class="font-semibold text-sm transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
+                            Big House to Let
+                        </a>
+                                            </td>
+                    <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">
+                        10 Jan Bom Street, Uvongo, Margate
+                    </td>
+                    <td class="px-4 py-2.5 text-xs capitalize hidden sm:table-cell" style="color:var(--text-secondary);">
+                        House
+                    </td>
+                    <td class="px-4 py-2.5 text-sm font-semibold text-right" style="color:var(--brand-default,#0b2a4a);">
+                        R 10 500
+                    </td>
+                    <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">0</td>
+                    <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">0.0</td>
+                    <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">Johan Reichel</td>
+                    <td class="px-4 py-2.5 text-center hidden md:table-cell">
+                                                                            <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,.15); color:#b45309;" title="No signed authority document (..., FICA not approved for: Johanne..., Only 0 photos (minimum 4 requi..., Missing: town, erf size">Blocked</span>
+                                            </td>
+                    <td class="px-4 py-2.5 text-center">
+                        <span class="ds-badge ds-badge-default">To_let</span>
+                    </td>
+                    <td class="px-4 py-2.5 text-right">
+                        <div class="flex items-center justify-end gap-1">
+                            <a href="http://127.0.0.1:8000/corex/properties/21" class="corex-btn-outline text-[10px] px-2 py-1">View</a>
+                            <a href="http://127.0.0.1:8000/corex/properties/21/ad" target="_blank" class="corex-btn-outline text-[10px] px-2 py-1">Ad</a>
+                            <form method="POST" action="http://127.0.0.1:8000/corex/properties/21"
+                                  onsubmit="return confirm('Delete \'Big House to Let\'?')">
+                                <input type="hidden" name="_token" value="aSfY39QhQbDhO7L6Pdsz2e5n3HlZU3rOHBQ8Uz2t" autocomplete="off"> <input type="hidden" name="_method" value="DELETE">                                <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded-md transition-all duration-300" style="color:var(--text-muted);"
+                                        onmouseover="this.style.color='var(--ds-crimson)';this.style.background='color-mix(in srgb, var(--ds-crimson) 8%, transparent)'"
+                                        onmouseout="this.style.color='var(--text-muted)';this.style.background=''">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                            </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="text-xs text-right mt-2" style="color:var(--text-muted);">
+        1 property shown
+    </p>
+    
+</div>
+                                    </main>
+            </div>
+        </div>
+
+        
+        <div id="toast-container"
+     class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"
+     x-data="toastSystem()"
+     @toast.window="addToast($event.detail.message, $event.detail.type || 'success', $event.detail.duration || 4000)">
+
+    <template x-for="toast in toasts" :key="toast.id">
+        <div class="pointer-events-auto transform transition-all duration-300 ease-out"
+             x-show="toast.visible"
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 translate-x-8"
+             x-transition:enter-end="opacity-100 translate-x-0"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100 translate-x-0"
+             x-transition:leave-end="opacity-0 translate-x-8">
+
+            <div class="flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg min-w-[300px] max-w-[450px]"
+                 :class="{
+                     'bg-green-600 text-white': toast.type === 'success',
+                     'bg-red-600 text-white': toast.type === 'error',
+                     'bg-blue-600 text-white': toast.type === 'info',
+                     'bg-yellow-500 text-white': toast.type === 'warning',
+                 }">
+
+                
+                <div class="flex-shrink-0">
+                    <template x-if="toast.type === 'success'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </template>
+                    <template x-if="toast.type === 'error'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </template>
+                    <template x-if="toast.type === 'info'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </template>
+                    <template x-if="toast.type === 'warning'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.072 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                        </svg>
+                    </template>
+                </div>
+
+                
+                <p class="text-sm font-medium flex-1" x-text="toast.message"></p>
+
+                
+                <button @click="removeToast(toast.id)" class="flex-shrink-0 opacity-70 hover:opacity-100">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </template>
+</div>
+
+<script>
+function toastSystem() {
+    return {
+        toasts: [],
+        nextId: 0,
+
+        addToast(message, type = 'success', duration = 4000) {
+            const id = this.nextId++;
+            this.toasts.push({ id, message, type, visible: true });
+
+            if (duration > 0) {
+                setTimeout(() => this.removeToast(id), duration);
+            }
+        },
+
+        removeToast(id) {
+            const toast = this.toasts.find(t => t.id === id);
+            if (toast) {
+                toast.visible = false;
+                setTimeout(() => {
+                    this.toasts = this.toasts.filter(t => t.id !== id);
+                }, 300);
+            }
+        }
+    };
+}
+
+// Global function callable from anywhere
+window.showToast = function(message, type, duration) {
+    type = type || 'success';
+    duration = duration || 4000;
+    window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: message, type: type, duration: duration }
+    }));
+};
+
+// Pick up Laravel flash session messages on page load
+document.addEventListener('DOMContentLoaded', function() {
+                    });
+</script>
+
+        
+                    <div x-data="helpWidget()" @keydown.escape.window="open = false" id="help-widget-root">
+
+    
+    <template x-teleport="#help-widget-slot">
+        <button type="button" @click="toggle()" :aria-expanded="open" aria-label="Help & Feedback"
+                class="relative flex items-center justify-center w-9 h-9 rounded-lg transition-colors"
+                :style="open ? 'background:var(--brand-button);color:#fff;' : 'background:transparent;color:var(--text-muted);'"
+                style="border:0;cursor:pointer;">
+            
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+            </svg>
+        </button>
+    </template>
+
+    
+    <template x-teleport="body">
+        <div x-show="open" x-cloak class="fixed inset-0 z-[9998]" @click.self="open = false">
+            
+            <div x-show="open"
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 -translate-x-2"
+                 x-transition:enter-end="opacity-100 translate-x-0"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100 translate-x-0"
+                 x-transition:leave-end="opacity-0 -translate-x-2"
+                 @click.stop
+                 class="help-panel fixed flex flex-col shadow-2xl rounded-lg overflow-hidden"
+                 style="top:8px; left:16px; width:420px; max-width:calc(100vw - 24px); height:640px; max-height:calc(100vh - 24px); background:var(--surface); border:1px solid var(--border); z-index:9999;">
+
+                
+                <div class="flex items-center justify-between px-1 flex-shrink-0" style="background:var(--surface-2); border-bottom:1px solid var(--border); height:44px;">
+                    <div class="flex items-center h-full" role="tablist">
+                        <button type="button" role="tab" :aria-selected="tab === 'ellie'" @click="tab = 'ellie'"
+                                class="h-full px-4 text-xs font-semibold transition-colors relative"
+                                :style="tab === 'ellie' ? 'color:var(--text-primary);' : 'color:var(--text-muted);'">
+                            <span class="flex items-center gap-1.5">
+                                <img src="/images/ellie-32-circle.png" alt="" class="w-4 h-4 rounded-full">
+                                Ellie
+                            </span>
+                            <span x-show="tab === 'ellie'" class="absolute bottom-0 left-2 right-2 h-0.5 rounded-t" style="background:var(--brand-button);"></span>
+                        </button>
+                        <button type="button" role="tab" :aria-selected="tab === 'feedback'" @click="tab = 'feedback'; captureFeedbackContext()"
+                                class="h-full px-4 text-xs font-semibold transition-colors relative"
+                                :style="tab === 'feedback' ? 'color:var(--text-primary);' : 'color:var(--text-muted);'">
+                            <span class="flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
+                                Feedback
+                            </span>
+                            <span x-show="tab === 'feedback'" class="absolute bottom-0 left-2 right-2 h-0.5 rounded-t" style="background:var(--brand-button);"></span>
+                        </button>
+                    </div>
+                    <button type="button" @click="open = false" aria-label="Close" class="px-3 text-lg leading-none transition-colors" style="color:var(--text-muted); background:transparent; border:0; cursor:pointer;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">&times;</button>
+                </div>
+
+                
+                <div x-show="tab === 'ellie'" class="flex flex-col flex-1 min-h-0">
+                    
+                    <div x-ref="ellieMessages" class="flex-1 overflow-y-auto p-3 space-y-2" style="background:var(--bg);">
+                        
+                        <template x-if="ellieMessages.length === 0">
+                            <div class="flex items-start gap-2 py-2">
+                                <img src="/images/ellie-32-circle.png" alt="" class="w-6 h-6 rounded-full flex-shrink-0 mt-0.5">
+                                <div class="text-xs leading-relaxed" style="color:var(--text-secondary);">
+                                    Hi, I'm Ellie — your CoreX companion. I know SA real estate law, your data, and how CoreX works. Ask me anything about this page or your work.
+                                </div>
+                            </div>
+                        </template>
+                        
+                        <template x-for="(msg, idx) in ellieMessages" :key="idx">
+                            <div class="flex" :class="msg.who === 'me' ? 'justify-end' : 'justify-start'">
+                                <div class="max-w-[85%] px-3 py-2 rounded-lg text-[13px] leading-relaxed whitespace-pre-wrap"
+                                     :style="msg.who === 'me'
+                                         ? 'background:var(--brand-button);color:#fff;'
+                                         : 'background:var(--surface);border:1px solid var(--border);color:var(--text-primary);'"
+                                     x-text="msg.text"></div>
+                            </div>
+                        </template>
+                        
+                        <div x-show="ellieTyping" x-cloak class="flex items-center gap-2 py-1">
+                            <img src="/images/ellie-32-circle.png" alt="" class="w-5 h-5 rounded-full">
+                            <span class="text-xs animate-pulse" style="color:var(--text-muted);">Ellie is typing...</span>
+                        </div>
+                        
+                        <template x-if="ellieError">
+                            <div class="text-xs p-2 rounded" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);">
+                                <span x-text="ellieError"></span>
+                                <button type="button" @click="tab = 'feedback'; captureFeedbackContext()" class="underline ml-1" style="color:var(--brand-button);">Send feedback instead</button>
+                            </div>
+                        </template>
+                    </div>
+                    
+                    <div class="flex gap-2 p-3 flex-shrink-0" style="border-top:1px solid var(--border); background:var(--surface);">
+                        <input type="text" x-model="ellieInput" @keydown.enter.prevent="sendEllie()" placeholder="Message Ellie..." autocomplete="off"
+                               class="flex-1 rounded-md px-3 py-2 text-sm outline-none transition-colors"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <button type="button" @click="sendEllie()" :disabled="!ellieInput.trim() || ellieBusy" class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity disabled:opacity-40" style="background:var(--brand-button);color:#fff;">Send</button>
+                    </div>
+                    
+                    <div class="px-3 py-1.5 text-[10px] flex-shrink-0" style="color:var(--text-muted);border-top:1px solid var(--border);background:var(--surface);">
+                        Ellie knows CoreX, SA real estate law, and your data. Ask anything.
+                    </div>
+                </div>
+
+                
+                <div x-show="tab === 'feedback'" class="flex flex-col flex-1 min-h-0">
+                    
+                    <template x-if="feedbackSent">
+                        <div class="flex-1 flex flex-col items-center justify-center p-6 text-center" style="background:var(--bg);">
+                            <svg class="w-12 h-12 mb-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:#00d4aa;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                            <div class="text-sm font-semibold mb-1" style="color:var(--text-primary);">Feedback received — thank you.</div>
+                            <div class="text-xs mb-4" style="color:var(--text-muted);">Your team has been notified.</div>
+                            <button type="button" @click="resetFeedback()" class="text-xs underline" style="color:var(--brand-button);">Send another</button>
+                        </div>
+                    </template>
+
+                    
+                    <template x-if="!feedbackSent">
+                        <div class="flex-1 overflow-y-auto p-3 space-y-3" style="background:var(--bg);">
+                            
+                            <div class="text-[10px] space-y-0.5 p-2 rounded" style="background:var(--surface-2); color:var(--text-muted);">
+                                <div>Page: <span x-text="fbCtx.pageTitle" style="color:var(--text-secondary);"></span></div>
+                                <div>URL: <span x-text="fbCtx.pageUrl" style="color:var(--text-secondary);"></span></div>
+                                <div>Time: <span x-text="fbCtx.capturedAt" style="color:var(--text-secondary);"></span></div>
+                            </div>
+                            
+                            <div class="flex gap-1.5 flex-wrap">
+                                <template x-for="t in ['bug','enhancement','question','compliment','other']" :key="t">
+                                    <label class="text-[11px] cursor-pointer px-2 py-1 rounded transition-colors"
+                                           :style="fbForm.type === t ? 'background:var(--brand-button);color:#fff;font-weight:600;' : 'background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);'">
+                                        <input type="radio" :value="t" x-model="fbForm.type" class="sr-only">
+                                        <span x-text="t.charAt(0).toUpperCase() + t.slice(1)"></span>
+                                    </label>
+                                </template>
+                            </div>
+                            
+                            <div x-show="fbForm.type === 'bug'" class="flex gap-1.5">
+                                <template x-for="s in ['critical','major','minor']" :key="s">
+                                    <label class="text-[10px] cursor-pointer px-2 py-0.5 rounded"
+                                           :style="fbForm.severity === s ? 'background:#ef4444;color:#fff;' : 'background:var(--surface-2);color:var(--text-muted);'">
+                                        <input type="radio" :value="s" x-model="fbForm.severity" class="sr-only">
+                                        <span x-text="s.charAt(0).toUpperCase() + s.slice(1)"></span>
+                                    </label>
+                                </template>
+                            </div>
+                            
+                            <input type="text" x-model="fbForm.title" placeholder="Title (required)" maxlength="200"
+                                   class="w-full rounded-md px-3 py-2 text-sm outline-none"
+                                   style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);">
+                            
+                            <textarea x-model="fbForm.description" placeholder="Describe in detail (required)" rows="3"
+                                      class="w-full rounded-md px-3 py-2 text-sm outline-none resize-none"
+                                      style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);"></textarea>
+                            
+                            <div class="flex items-center gap-2">
+                                <button type="button" @click="captureScreenshot()" :disabled="fbCapturing" class="text-[11px] px-2 py-1 rounded flex items-center gap-1 transition-colors" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);">
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
+                                    <span x-show="!fbCapturing && !fbScreenshot">Capture Screenshot</span>
+                                    <span x-show="fbCapturing" x-cloak x-text="fbCaptureStatus || 'Capturing...'"></span>
+                                    <span x-show="fbScreenshot && !fbCapturing" x-cloak>Recapture</span>
+                                </button>
+                                <template x-if="fbScreenshot">
+                                    <div class="flex items-center gap-1">
+                                        <span class="text-[10px]" style="color:#22c55e;">Attached</span>
+                                        <button type="button" @click="fbScreenshot = null" class="text-[10px]" style="color:#ef4444;">&times;</button>
+                                    </div>
+                                </template>
+                            </div>
+                            <template x-if="fbScreenshot">
+                                <div class="rounded overflow-hidden" style="border:1px solid var(--border); max-height:100px;">
+                                    <img :src="fbScreenshot" class="w-full object-cover object-top" style="max-height:100px;">
+                                </div>
+                            </template>
+                            
+                            <details class="text-[11px]" style="color:var(--text-muted);">
+                                <summary class="cursor-pointer">More fields (optional)</summary>
+                                <div class="mt-2 space-y-2">
+                                    <textarea x-model="fbForm.steps_to_reproduce" placeholder="Steps to reproduce: 1. ..." rows="2" class="w-full rounded-md px-2 py-1.5 text-xs outline-none resize-none" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);"></textarea>
+                                    <textarea x-model="fbForm.expected_behaviour" placeholder="Expected behaviour" rows="2" class="w-full rounded-md px-2 py-1.5 text-xs outline-none resize-none" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);"></textarea>
+                                    <textarea x-model="fbForm.actual_behaviour" placeholder="Actual behaviour" rows="2" class="w-full rounded-md px-2 py-1.5 text-xs outline-none resize-none" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);"></textarea>
+                                </div>
+                            </details>
+                            
+                            <div class="flex justify-end pt-1">
+                                <button type="button" @click="submitFeedback()" :disabled="fbSubmitting || !fbForm.title || !fbForm.description"
+                                        class="text-xs font-semibold px-4 py-2 rounded-md transition-opacity disabled:opacity-40"
+                                        style="background:var(--brand-button);color:#fff;">
+                                    <span x-show="!fbSubmitting">Send Feedback</span>
+                                    <span x-show="fbSubmitting" x-cloak>Sending...</span>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <div class="px-3 py-1.5 text-[10px] flex-shrink-0" style="color:var(--text-muted);border-top:1px solid var(--border);background:var(--surface);">
+                        Sends to your CoreX admin team
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+</div>
+
+<script>
+function helpWidget() {
+    const CONVO_KEY = 'ELLIE_CONVO_ID';
+    const TAB_KEY = 'help_widget_tab';
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    return {
+        open: false,
+        tab: localStorage.getItem(TAB_KEY) || 'ellie',
+
+        // Ellie state
+        ellieMessages: [],
+        ellieInput: '',
+        ellieBusy: false,
+        ellieTyping: false,
+        ellieError: null,
+
+        // Feedback state
+        fbForm: { type: 'bug', severity: 'major', title: '', description: '', steps_to_reproduce: '', expected_behaviour: '', actual_behaviour: '' },
+        fbCtx: { pageUrl: '', pageTitle: '', capturedAt: '' },
+        fbScreenshot: null,
+        fbCapturing: false,
+        fbCaptureStatus: '',
+        fbSubmitting: false,
+        feedbackSent: false,
+        _feedbackTimer: null,
+
+        init() {
+            this.$watch('tab', (val) => localStorage.setItem(TAB_KEY, val));
+        },
+
+        toggle() {
+            this.open = !this.open;
+            if (this.open) {
+                this.captureFeedbackContext();
+                this.$nextTick(() => {
+                    if (this.tab === 'ellie') {
+                        const inp = this.$root.querySelector('input[placeholder="Message Ellie..."]');
+                        if (inp) inp.focus();
+                    }
+                    this.scrollEllie();
+                });
+            }
+        },
+
+        // ─── Ellie ────────────────────────────────────────────────
+        async sendEllie() {
+            const msg = (this.ellieInput || '').trim();
+            if (!msg || this.ellieBusy) return;
+
+            this.ellieMessages.push({ who: 'me', text: msg });
+            this.ellieInput = '';
+            this.ellieBusy = true;
+            this.ellieTyping = true;
+            this.ellieError = null;
+            this.scrollEllie();
+
+            try {
+                let convoId = localStorage.getItem(CONVO_KEY);
+
+                const doPost = async (cid) => {
+                    const fd = new FormData();
+                    fd.append('_token', csrf);
+                    fd.append('message', msg);
+                    fd.append('page_url', window.location.href);
+                    fd.append('page_title', document.title);
+                    if (cid) fd.append('conversation_id', String(parseInt(cid, 10)));
+                    const r = await fetch('/ellie/send', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json', ...(csrf ? { 'X-CSRF-TOKEN': csrf } : {}) },
+                        body: fd
+                    });
+                    const raw = await r.text();
+                    let data = null;
+                    try { data = JSON.parse(raw); } catch(e) {}
+                    return { r, raw, data };
+                };
+
+                let out = await doPost(convoId);
+
+                if (!out.r.ok && out.r.status === 404 && (out.raw || '').includes('AiConversation')) {
+                    localStorage.removeItem(CONVO_KEY);
+                    out = await doPost(null);
+                }
+
+                if (!out.r.ok) {
+                    const errMsg = out.data?.message || out.data?.error || (out.raw || '').slice(0, 200);
+                    throw new Error('HTTP ' + out.r.status + (errMsg ? ': ' + errMsg : ''));
+                }
+
+                const data = out.data || {};
+                if (data.conversation_id) localStorage.setItem(CONVO_KEY, String(data.conversation_id));
+
+                this.ellieTyping = false;
+                this.ellieMessages.push({ who: 'ellie', text: data.reply || 'Sorry, I got no reply.' });
+            } catch (err) {
+                this.ellieTyping = false;
+                this.ellieError = 'Ellie is unavailable right now. (' + (err?.message || 'unknown') + ')';
+                this.ellieMessages.push({ who: 'ellie', text: 'Sorry — I hit an error. Try again or send feedback.' });
+            } finally {
+                this.ellieBusy = false;
+                this.scrollEllie();
+            }
+        },
+
+        scrollEllie() {
+            this.$nextTick(() => {
+                const el = this.$refs.ellieMessages;
+                if (el) el.scrollTop = el.scrollHeight;
+            });
+        },
+
+        // ─── Feedback ─────────────────────────────────────────────
+        captureFeedbackContext() {
+            this.fbCtx = {
+                pageUrl: window.location.href,
+                pageTitle: document.title,
+                capturedAt: new Date().toLocaleString('en-ZA'),
+            };
+        },
+
+        async captureScreenshot() {
+            if (typeof html2canvas === 'undefined') {
+                alert('Screenshot library not loaded yet. Please wait a moment and try again.');
+                return;
+            }
+            this.fbCapturing = true;
+            this.fbCaptureStatus = 'Capturing...';
+            const slowTimer = setTimeout(() => { this.fbCaptureStatus = 'Still capturing (complex page)...'; }, 3000);
+            try {
+                const canvas = await html2canvas(document.body, {
+                    scale: 1,
+                    useCORS: true,
+                    allowTaint: true,
+                    foreignObjectRendering: false,
+                    logging: false,
+                    removeContainer: true,
+                    backgroundColor: '#0f172a',
+                    ignoreElements: (el) => {
+                        if (!el || !el.tagName) return false;
+                        if (el.id === 'help-widget-root') return true;
+                        const tag = el.tagName.toLowerCase();
+                        if (tag === 'template') return true;
+                        try { if (el.closest?.('.z-\\[9998\\],.z-\\[9999\\]')) return true; } catch(e) {}
+                        const z = el.style?.zIndex;
+                        if (z && parseInt(z) >= 9998) return true;
+                        return false;
+                    },
+                });
+                this.fbScreenshot = canvas.toDataURL('image/png');
+            } catch (e) {
+                console.error('Screenshot capture failed:', e);
+                const msg = e?.message || String(e);
+                alert('Screenshot capture failed: ' + msg.slice(0, 200) + '.\n\nYou can still submit feedback without a screenshot.');
+            }
+            clearTimeout(slowTimer);
+            this.fbCaptureStatus = '';
+            this.fbCapturing = false;
+        },
+
+        async submitFeedback() {
+            this.fbSubmitting = true;
+            try {
+                const ua = navigator.userAgent;
+                const payload = {
+                    ...this.fbForm,
+                    page_url: this.fbCtx.pageUrl,
+                    page_title: this.fbCtx.pageTitle,
+                    browser: ua.slice(0, 100),
+                    os: navigator.platform,
+                    viewport_width: window.innerWidth,
+                    viewport_height: window.innerHeight,
+                };
+                if (this.fbScreenshot) payload.screenshot_base64 = this.fbScreenshot;
+
+                const r = await fetch('/corex/command-center/feedback', {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf },
+                    body: JSON.stringify(payload),
+                });
+
+                if (r.ok) {
+                    this.feedbackSent = true;
+                    this.fbScreenshot = null;
+                    // Show toast
+                    if (window.dispatchEvent) {
+                        window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'Feedback received — thank you!', type: 'success' } }));
+                    }
+                    // Auto-reset after 5s
+                    this._feedbackTimer = setTimeout(() => this.resetFeedback(), 5000);
+                } else {
+                    alert('Failed to submit. Please try again.');
+                }
+            } catch (e) {
+                alert('Network error.');
+            }
+            this.fbSubmitting = false;
+        },
+
+        resetFeedback() {
+            if (this._feedbackTimer) clearTimeout(this._feedbackTimer);
+            this._feedbackTimer = null;
+            this.feedbackSent = false;
+            this.fbForm = { type: 'bug', severity: 'major', title: '', description: '', steps_to_reproduce: '', expected_behaviour: '', actual_behaviour: '' };
+            this.fbScreenshot = null;
+        },
+    };
+}
+</script>
+
+        
+            </body>
+</html>
+
