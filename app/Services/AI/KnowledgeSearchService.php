@@ -4,6 +4,8 @@ namespace App\Services\AI;
 
 use App\Models\KnowledgeChunk;
 use App\Models\KnowledgeDocument;
+use App\Models\Training\TrainingDoc;
+use App\Models\Training\TrainingDocChunk;
 
 class KnowledgeSearchService
 {
@@ -38,7 +40,12 @@ class KnowledgeSearchService
                 ->with('document')
                 ->get();
 
-            if ($chunks->isEmpty()) {
+            // Also load training doc chunks (always included — canonical user-facing answers)
+            $trainingChunks = TrainingDocChunk::where('has_embedding', true)
+                ->with('doc')
+                ->get();
+
+            if ($chunks->isEmpty() && $trainingChunks->isEmpty()) {
                 return ['context' => '', 'sources' => []];
             }
 
@@ -53,13 +60,14 @@ class KnowledgeSearchService
             $totalMeaningfulWords = max(count($queryWords), 1);
 
             // Score each chunk: hybrid = (cosine * 0.7) + (structural * 0.3)
-            $scored = $chunks->map(function ($chunk) use ($queryEmbedding, $queryNumbers, $queryWords, $totalMeaningfulWords) {
+            $scoreChunk = function ($chunk, bool $isTraining) use ($queryEmbedding, $queryNumbers, $queryWords, $totalMeaningfulWords) {
                 $cosine = $this->embeddingService->cosineSimilarity(
                     $queryEmbedding,
                     $chunk->embedding
                 );
 
-                $title = mb_strtolower($chunk->section_title ?? '');
+                // For KB chunks use section_title, for training chunks use heading_path
+                $title = mb_strtolower($chunk->section_title ?? $chunk->heading_path ?? '');
 
                 // Numbered reference matching
                 $numberScore = 0.0;
@@ -88,8 +96,16 @@ class KnowledgeSearchService
                 $structural = max($numberScore, $keywordScore);
                 $hybrid = ($cosine * 0.7) + ($structural * 0.3);
 
-                return ['chunk' => $chunk, 'score' => $hybrid];
-            });
+                // Boost training docs by 1.2x — canonical user-facing answers
+                if ($isTraining) {
+                    $hybrid *= 1.2;
+                }
+
+                return ['chunk' => $chunk, 'score' => $hybrid, 'is_training' => $isTraining];
+            };
+
+            $scored = $chunks->map(fn ($c) => $scoreChunk($c, false))
+                ->merge($trainingChunks->map(fn ($c) => $scoreChunk($c, true)));
 
             // Sort by hybrid score descending, take top N, filter by minimum threshold
             $topChunks = $scored->sortByDesc('score')->take($limit)->filter(fn ($item) => $item['score'] >= 0.3);
@@ -103,25 +119,50 @@ class KnowledgeSearchService
 
             foreach ($topChunks as $item) {
                 $chunk = $item['chunk'];
-                $doc = $chunk->document;
-                $header = "--- From: {$doc->title}";
-                if ($chunk->section_title) {
-                    $header .= " ({$chunk->section_title})";
-                }
-                if ($chunk->page_number) {
-                    $header .= " [Page {$chunk->page_number}]";
-                }
-                $header .= " ---";
+                $isTraining = $item['is_training'] ?? false;
 
-                $contextParts[] = $header . "\n" . $chunk->content;
+                if ($isTraining) {
+                    $doc = $chunk->doc;
+                    $header = "--- From training guide: {$doc->title}";
+                    if ($chunk->heading_path) {
+                        $header .= " ({$chunk->heading_path})";
+                    }
+                    $anchor = $chunk->section_anchor ? "#{$chunk->section_anchor}" : '';
+                    $header .= " → /corex/training-help/{$doc->slug}{$anchor}";
+                    $header .= " ---";
 
-                $sources[] = [
-                    'document_id' => $doc->id,
-                    'title' => $doc->title,
-                    'section' => $chunk->section_title,
-                    'page' => $chunk->page_number,
-                    'category' => $doc->category->name ?? null,
-                ];
+                    $contextParts[] = $header . "\n" . $chunk->content;
+
+                    $sources[] = [
+                        'document_id'  => $doc->id,
+                        'title'        => $doc->title,
+                        'section'      => $chunk->heading_path,
+                        'page'         => null,
+                        'category'     => 'Training',
+                        'url'          => "/corex/training-help/{$doc->slug}{$anchor}",
+                        'is_training'  => true,
+                    ];
+                } else {
+                    $doc = $chunk->document;
+                    $header = "--- From: {$doc->title}";
+                    if ($chunk->section_title) {
+                        $header .= " ({$chunk->section_title})";
+                    }
+                    if ($chunk->page_number) {
+                        $header .= " [Page {$chunk->page_number}]";
+                    }
+                    $header .= " ---";
+
+                    $contextParts[] = $header . "\n" . $chunk->content;
+
+                    $sources[] = [
+                        'document_id' => $doc->id,
+                        'title'       => $doc->title,
+                        'section'     => $chunk->section_title,
+                        'page'        => $chunk->page_number,
+                        'category'    => $doc->category->name ?? null,
+                    ];
+                }
             }
 
             return [
@@ -141,6 +182,11 @@ class KnowledgeSearchService
     {
         // Always search when KB documents with embeddings are available
         if (KnowledgeDocument::where('status', 'ready')->where('is_ellie_enabled', true)->exists()) {
+            return true;
+        }
+
+        // Also search when training docs have been ingested
+        if (TrainingDocChunk::where('has_embedding', true)->exists()) {
             return true;
         }
 

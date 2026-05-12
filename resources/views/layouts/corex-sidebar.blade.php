@@ -842,6 +842,34 @@
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Tools</div>
 
+        {{-- Training Help --}}
+        @php
+            $trainingUnreadCount = 0;
+            if ($user) {
+                $trainingRole = $user->effectiveRole();
+                $trainingRequired = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->pluck('id');
+                if ($trainingRequired->isNotEmpty()) {
+                    $trainingReadDocIds = \App\Models\Training\TrainingDocRead::where('user_id', $user->id)
+                        ->whereIn('doc_id', $trainingRequired)
+                        ->whereNotNull('completed_at')
+                        ->whereNull('is_outdated_since')
+                        ->pluck('doc_id');
+                    $trainingUnreadCount = $trainingRequired->diff($trainingReadDocIds)->count();
+                }
+            }
+        @endphp
+        @if(\Illuminate\Support\Facades\Route::has('training-help.index'))
+        <a href="{{ route('training-help.index') }}" class="corex-nav-item {{ request()->routeIs('training-help.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+            </svg>
+            <span>Training</span>
+            @if($trainingUnreadCount > 0)
+            <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $trainingUnreadCount }}</span>
+            @endif
+        </a>
+        @endif
+
         {{-- Ellie AI --}}
         @permission('access_ellie')
         @if(\Illuminate\Support\Facades\Route::has('ellie.index'))

@@ -184,6 +184,38 @@
                 @endforeach
             </div>
             @endif
+
+            {{-- Training Progress tile --}}
+            @php
+                $trainingRole = auth()->user()->effectiveRole();
+                $trainingReqDocs = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->ordered()->get();
+                $trainingReads = \App\Models\Training\TrainingDocRead::where('user_id', auth()->id())
+                    ->whereIn('doc_id', $trainingReqDocs->pluck('id'))
+                    ->get()->keyBy('doc_id');
+                $trainingDone = $trainingReqDocs->filter(fn($d) => ($trainingReads->get($d->id)?->completed_at) && !($trainingReads->get($d->id)?->is_outdated_since))->count();
+                $trainingTotal = $trainingReqDocs->count();
+                $trainingPct = $trainingTotal > 0 ? (int) round(($trainingDone / $trainingTotal) * 100) : 100;
+                $trainingNext = $trainingReqDocs->first(fn($d) => !($trainingReads->get($d->id)?->completed_at) || ($trainingReads->get($d->id)?->is_outdated_since));
+            @endphp
+            @if($trainingTotal > 0)
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+                <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Training Progress</h3>
+                <div class="text-xs mb-2" style="color:var(--text-muted);">Required for your role: {{ $trainingTotal }} {{ Str::plural('guide', $trainingTotal) }}</div>
+                <div class="text-lg font-bold mb-2" style="color:var(--text-primary);">{{ $trainingDone }} of {{ $trainingTotal }} completed</div>
+                <div class="w-full h-2 rounded-full overflow-hidden mb-3" style="background:var(--surface-2);">
+                    <div class="h-full rounded-full transition-all" style="width:{{ $trainingPct }}%; background:{{ $trainingPct >= 100 ? 'var(--ds-emerald, #10b981)' : 'var(--brand-icon, #0ea5e9)' }};"></div>
+                </div>
+                @if($trainingNext)
+                <div class="text-xs mb-2" style="color:var(--text-muted);">Next: <strong style="color:var(--text-primary);">{{ $trainingNext->title }}</strong></div>
+                <a href="{{ route('training-help.show', $trainingNext->slug) }}" class="inline-flex items-center gap-1 text-xs font-medium" style="color:var(--brand-icon);">
+                    Continue Reading
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
+                </a>
+                @else
+                <div class="text-xs font-medium" style="color:var(--ds-emerald, #10b981);">All required training complete</div>
+                @endif
+            </div>
+            @endif
         </div>
     </div>
 
