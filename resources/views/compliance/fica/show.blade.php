@@ -396,15 +396,50 @@
             @endif
 
             @if($submission->status === 'rejected')
-                <div class="bg-white border border-slate-200 p-5">
-                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-red-500">Rejected</h3>
-                    <dl class="space-y-2 text-sm">
-                        <div><dt class="text-slate-400 text-xs">Rejected By</dt><dd class="text-slate-900">{{ $submission->verifiedBy->name ?? 'â€”' }}</dd></div>
-                        <div><dt class="text-slate-400 text-xs">Date</dt><dd class="text-slate-900">{{ $submission->verified_at?->format('d M Y H:i') }}</dd></div>
+                <div class=”bg-white border border-slate-200 p-5” x-data=”{ reopenOpen: false }”>
+                    <h3 class=”text-sm font-bold text-slate-900 mb-3 pb-2 border-b border-red-500”>Rejected</h3>
+                    <dl class=”space-y-2 text-sm”>
+                        <div><dt class=”text-slate-400 text-xs”>Rejected By</dt><dd class=”text-slate-900”>{{ $submission->verifiedBy->name ?? '—' }}</dd></div>
+                        <div><dt class=”text-slate-400 text-xs”>Date</dt><dd class=”text-slate-900”>{{ $submission->verified_at?->format('d M Y H:i') }}</dd></div>
                         @if($submission->reviewer_notes)
-                        <div><dt class="text-slate-400 text-xs">Reason</dt><dd class="text-slate-900">{{ $submission->reviewer_notes }}</dd></div>
+                        <div><dt class=”text-slate-400 text-xs”>Reason</dt><dd class=”text-slate-900”>{{ $submission->reviewer_notes }}</dd></div>
                         @endif
                     </dl>
+
+                    {{-- CO/Admin: Reopen button --}}
+                    @if(auth()->user()->isComplianceOfficer() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('compliance.fica.approve') || in_array(auth()->user()->role, ['admin', 'super_admin']))
+                    <div class=”mt-4 pt-3 border-t border-slate-200”>
+                        <button type=”button” @click=”reopenOpen = true” class=”px-4 py-2 text-sm font-semibold rounded-md” style=”background:var(--ds-amber); color:#fff;”>
+                            Reopen for Corrections
+                        </button>
+                    </div>
+
+                    {{-- Reopen modal --}}
+                    <template x-teleport=”body”>
+                    <div x-show=”reopenOpen” x-cloak class=”fixed inset-0 z-[100] flex items-center justify-center p-4” x-transition.opacity>
+                        <div class=”absolute inset-0” style=”background:rgba(0,0,0,0.55);” @click=”reopenOpen = false”></div>
+                        <div class=”relative rounded-md shadow-2xl p-5” style=”width:480px; max-width:95vw; background:var(--surface); border:1px solid var(--border);”>
+                            <h3 class=”text-base font-bold mb-2” style=”color:var(--text-primary);”>Reopen FICA for Corrections</h3>
+                            <p class=”text-xs mb-4” style=”color:var(--text-secondary);”>The agent will see your correction notes and be able to upload new documents. The original rejection is preserved in the audit trail.</p>
+                            <form method=”POST” action=”{{ route('compliance.fica.reopen', $submission) }}”>
+                                @csrf
+                                <textarea name=”reopen_notes” required rows=”4” minlength=”10” maxlength=”2000”
+                                          class=”w-full rounded-md text-sm px-3 py-2 mb-3” style=”background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);”
+                                          placeholder=”What needs to be corrected (min 10 characters)...”></textarea>
+                                <div class=”flex justify-end gap-3”>
+                                    <button type=”button” @click=”reopenOpen = false” class=”px-4 py-2 text-sm” style=”color:var(--text-secondary);”>Cancel</button>
+                                    <button type=”submit” class=”px-4 py-2 rounded-md text-sm font-semibold text-white” style=”background:var(--ds-amber);”>Reopen Submission</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    </template>
+                    @else
+                    {{-- Agent: helpful note --}}
+                    <div class=”mt-4 pt-3 border-t border-slate-200”>
+                        <p class=”text-xs text-slate-500”>Need to fix this? Please contact your compliance officer to reopen this submission for corrections.</p>
+                    </div>
+                    @endif
                 </div>
             @endif
         </div>
