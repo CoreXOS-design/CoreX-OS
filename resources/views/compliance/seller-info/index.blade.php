@@ -21,9 +21,9 @@
             this.propertySearch = p.address;
             this.propertyResults = [];
             // Auto-load seller contacts
-            const resp = await fetch('/corex/deals-v2/search/property-contacts/' + p.id, { headers:{'Accept':'application/json'} });
+            const resp = await fetch('{{ url("deals-v2/search/property-contacts") }}/' + p.id, { headers:{'Accept':'application/json'} });
             const contacts = await resp.json();
-            const sellerRoles = ['owner', 'lessor', 'seller', 'co_seller'];
+            const sellerRoles = ['owner', 'lessor', 'seller', 'co_seller', 'landlord'];
             const sellers = contacts.filter(c => sellerRoles.includes(c.role));
             sellers.forEach(s => {
                 if (!this.recipients.find(r => r.contact_id === s.id)) {
