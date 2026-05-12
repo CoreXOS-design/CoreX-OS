@@ -1010,14 +1010,36 @@ class CommandCentreService
             $items->push(['id' => $c->id, 'title' => $c->title, 'reason' => $daysLeft <= 0 ? 'EXPIRED' : "Expires in {$daysLeft}d", 'critical' => $daysLeft <= 0]);
         }
 
+        // Training docs — required but unread, or outdated since last read
+        try {
+            $user = \App\Models\User::find($userId);
+            if ($user) {
+                $role = $user->effectiveRole();
+                $reqDocs = \App\Models\Training\TrainingDoc::required()->forRole($role)->get();
+                $reads = \App\Models\Training\TrainingDocRead::where('user_id', $userId)
+                    ->whereIn('doc_id', $reqDocs->pluck('id'))
+                    ->get()->keyBy('doc_id');
+                foreach ($reqDocs as $doc) {
+                    $read = $reads->get($doc->id);
+                    if (!$read || !$read->completed_at) {
+                        $items->push(['id' => 'doc-' . $doc->id, 'title' => 'Doc: ' . $doc->title, 'reason' => 'Not started', 'critical' => false, 'url' => '/corex/training-help/' . $doc->slug]);
+                    } elseif ($read->is_outdated_since) {
+                        $items->push(['id' => 'doc-' . $doc->id, 'title' => 'Doc: ' . $doc->title, 'reason' => 'Updated since you read it', 'critical' => false, 'url' => '/corex/training-help/' . $doc->slug]);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Training doc tables may not exist yet
+        }
+
         return [
             'card_id' => 'my_training',
             'title' => 'Training & Qualifications',
             'icon' => 'lightbulb',
             'urgency' => $items->contains('critical', true) ? 'critical' : ($items->count() > 0 ? 'medium' : 'low'),
             'count' => $items->count(),
-            'items' => $items->take(5)->values()->toArray(),
-            'view_all_url' => '/corex/training',
+            'items' => $items->take(8)->values()->toArray(),
+            'view_all_url' => '/corex/training-help',
         ];
     }
 

@@ -1154,6 +1154,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/training/lesson/{lesson}/complete', [\App\Http\Controllers\Training\TrainingController::class, 'completeLesson'])->name('training.complete-lesson');
     Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
 
+    // ── Training Help (in-app training docs) ──
+    Route::prefix('training-help')->name('training-help.')->group(function () {
+        Route::get('/',                              [\App\Http\Controllers\Training\TrainingHelpController::class, 'index'])->name('index');
+        Route::get('/search',                        [\App\Http\Controllers\Training\TrainingHelpController::class, 'search'])->name('search');
+        Route::get('/api/progress',                  [\App\Http\Controllers\Training\TrainingHelpController::class, 'progress'])->name('progress');
+        Route::get('/{slug}',                        [\App\Http\Controllers\Training\TrainingHelpController::class, 'show'])->name('show');
+        Route::get('/{slug}/pdf',                    [\App\Http\Controllers\Training\TrainingHelpController::class, 'pdf'])->name('pdf');
+        Route::post('/{slug}/read',                  [\App\Http\Controllers\Training\TrainingHelpController::class, 'markRead'])->name('read');
+        Route::post('/{slug}/rereviewed',            [\App\Http\Controllers\Training\TrainingHelpController::class, 'markRereviewed'])->name('rereviewed');
+        Route::post('/{slug}/bookmark',              [\App\Http\Controllers\Training\TrainingHelpController::class, 'addBookmark'])->name('bookmark');
+        Route::delete('/bookmarks/{id}',             [\App\Http\Controllers\Training\TrainingHelpController::class, 'removeBookmark'])->name('bookmark.remove');
+    });
+
     // ── Agent Onboarding ──
     Route::prefix('onboarding')->group(function () {
         Route::get('/', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'index'])->name('onboarding.index');
