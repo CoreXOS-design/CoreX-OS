@@ -24,19 +24,10 @@ class WhistleblowComplaint extends Model
         'branch_id',
         'reported_by_user_id',
         'tier',
-        'subject_agency_name',
-        'subject_practitioner_name',
-        'subject_ffc_number',
-        'subject_practitioner_email',
-        'subject_practitioner_phone',
         'property_id',
         'property_address',
-        'property_portal_url',
-        'portal_source',
-        'portal_listing_ref',
         'seller_contact_id',
         'seller_statement',
-        'seller_consents_to_named_complaint',
         'agent_notes',
         'status',
         'approved_by_user_id',
@@ -52,7 +43,6 @@ class WhistleblowComplaint extends Model
     ];
 
     protected $casts = [
-        'seller_consents_to_named_complaint' => 'boolean',
         'approved_at'          => 'datetime',
         'rejected_at'          => 'datetime',
         'sent_to_ppra_at'      => 'datetime',
@@ -91,6 +81,11 @@ class WhistleblowComplaint extends Model
         return $this->belongsTo(User::class, 'rejected_by_user_id');
     }
 
+    public function subjects(): HasMany
+    {
+        return $this->hasMany(WhistleblowComplaintSubject::class, 'complaint_id')->orderBy('display_order');
+    }
+
     public function evidence(): HasMany
     {
         return $this->hasMany(WhistleblowComplaintEvidence::class, 'complaint_id');
@@ -99,5 +94,18 @@ class WhistleblowComplaint extends Model
     public function auditLog(): HasMany
     {
         return $this->hasMany(WhistleblowAuditLog::class, 'complaint_id');
+    }
+
+    // ── Accessors ──
+
+    public function getSubjectsSummaryAttribute(): string
+    {
+        $subjects = $this->subjects;
+        if ($subjects->isEmpty()) {
+            return '—';
+        }
+        $first = $subjects->first()->agency_name;
+        $remaining = $subjects->count() - 1;
+        return $remaining > 0 ? "{$first} + {$remaining} more" : $first;
     }
 }

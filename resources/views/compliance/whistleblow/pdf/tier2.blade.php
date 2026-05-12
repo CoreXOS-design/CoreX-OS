@@ -93,33 +93,28 @@
     </div>
 </div>
 
-{{-- ═══════════ SECTION 1: SUBJECT OF COMPLAINT ═══════════ --}}
+{{-- ═══════════ SECTION 1: SUBJECTS OF COMPLAINT ═══════════ --}}
 <div class="section">
-    <h3 class="section-title">1. Subject of Complaint</h3>
-    <div class="field-grid">
-        <span class="field-label">Subject Agency</span>
-        <span class="field-value">{{ $complaint->subject_agency_name }}</span>
+    <h3 class="section-title">1. Subjects of Complaint</h3>
+    <p style="margin-bottom:8pt; font-size:10pt; color:#475569;">{{ $subjects->count() }} agency/practitioner subject{{ $subjects->count() > 1 ? 's' : '' }} identified:</p>
 
-        @if($complaint->subject_practitioner_name)
-        <span class="field-label">Subject Practitioner</span>
-        <span class="field-value">{{ $complaint->subject_practitioner_name }}</span>
-        @endif
-
-        @if($complaint->subject_ffc_number)
-        <span class="field-label">FFC Number</span>
-        <span class="field-value">{{ $complaint->subject_ffc_number }}</span>
-        @endif
-
-        @if($complaint->subject_practitioner_email)
-        <span class="field-label">Email</span>
-        <span class="field-value">{{ $complaint->subject_practitioner_email }}</span>
-        @endif
-
-        @if($complaint->subject_practitioner_phone)
-        <span class="field-label">Phone</span>
-        <span class="field-value">{{ $complaint->subject_practitioner_phone }}</span>
-        @endif
+    @foreach($subjects as $si => $subj)
+    <div style="margin-bottom:10pt; padding:8pt 12pt; border:1px solid #e2e8f0; border-radius:3px;">
+        <p style="font-size:9pt; font-weight:700; color:#0d9488; margin-bottom:4pt;">Subject {{ $si + 1 }}</p>
+        <div class="field-grid">
+            <span class="field-label">Agency</span>
+            <span class="field-value">{{ $subj->agency_name }}</span>
+            @if($subj->practitioner_name)
+            <span class="field-label">Practitioner</span>
+            <span class="field-value">{{ $subj->practitioner_name }}</span>
+            @endif
+            <span class="field-label">Portal URL</span>
+            <span class="field-value"><a href="{{ $subj->portal_url }}">{{ $subj->portal_url }}</a></span>
+            <span class="field-label">Portal</span>
+            <span class="field-value">{{ strtoupper($subj->portal_source) }}</span>
+        </div>
     </div>
+    @endforeach
 </div>
 
 {{-- ═══════════ SECTION 2: PROPERTY DETAILS ═══════════ --}}
@@ -128,21 +123,6 @@
     <div class="field-grid">
         <span class="field-label">Property Address</span>
         <span class="field-value">{{ $complaint->property_address }}</span>
-
-        @if($complaint->property_portal_url)
-        <span class="field-label">Portal URL</span>
-        <span class="field-value"><a href="{{ $complaint->property_portal_url }}">{{ $complaint->property_portal_url }}</a></span>
-        @endif
-
-        @if($complaint->portal_source)
-        <span class="field-label">Portal Source</span>
-        <span class="field-value">{{ strtoupper($complaint->portal_source) }}</span>
-        @endif
-
-        @if($complaint->portal_listing_ref)
-        <span class="field-label">Listing Reference</span>
-        <span class="field-value">{{ $complaint->portal_listing_ref }}</span>
-        @endif
     </div>
 </div>
 

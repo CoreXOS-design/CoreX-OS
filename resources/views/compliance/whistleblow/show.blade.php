@@ -37,31 +37,25 @@
         </div>
     </div>
 
-    {{-- Subject --}}
+    {{-- Property --}}
     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
-        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Subject of Complaint</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div>
-                <span style="color:var(--text-muted);">Agency:</span>
-                <span class="font-semibold" style="color:var(--text-primary);">{{ $complaint->subject_agency_name }}</span>
-            </div>
-            @if($complaint->subject_practitioner_name)
-            <div>
-                <span style="color:var(--text-muted);">Practitioner:</span>
-                <span style="color:var(--text-primary);">{{ $complaint->subject_practitioner_name }}</span>
-            </div>
+        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Property</h3>
+        <p class="text-sm" style="color:var(--text-primary);">{{ $complaint->property_address }}</p>
+    </div>
+
+    {{-- Subjects --}}
+    <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+        <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Subjects of Complaint ({{ $complaint->subjects->count() }})</h3>
+        @foreach($complaint->subjects as $subj)
+        <div class="py-2 {{ !$loop->last ? 'border-b' : '' }}" style="border-color:var(--border);">
+            <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $subj->agency_name }}</div>
+            @if($subj->practitioner_name)
+            <div class="text-xs" style="color:var(--text-secondary);">Practitioner: {{ $subj->practitioner_name }}</div>
             @endif
-            <div>
-                <span style="color:var(--text-muted);">Property:</span>
-                <span style="color:var(--text-primary);">{{ $complaint->property_address }}</span>
-            </div>
-            @if($complaint->property_portal_url)
-            <div>
-                <span style="color:var(--text-muted);">Portal URL:</span>
-                <a href="{{ $complaint->property_portal_url }}" target="_blank" class="font-medium" style="color:var(--brand-default);">{{ Str::limit($complaint->property_portal_url, 50) }}</a>
-            </div>
-            @endif
+            <a href="{{ $subj->portal_url }}" target="_blank" class="text-xs no-underline" style="color:var(--brand-default);">{{ Str::limit($subj->portal_url, 60) }}</a>
+            <span class="text-xs ml-2" style="color:var(--text-muted);">{{ strtoupper($subj->portal_source) }}</span>
         </div>
+        @endforeach
     </div>
 
     {{-- Reporter --}}

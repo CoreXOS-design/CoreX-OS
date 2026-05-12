@@ -6,6 +6,7 @@ use App\Models\Agency;
 use App\Models\Compliance\WhistleblowAuditLog;
 use App\Models\Compliance\WhistleblowComplaint;
 use App\Models\Compliance\WhistleblowComplaintEvidence;
+use App\Models\Compliance\WhistleblowComplaintSubject;
 use App\Models\Property;
 use App\Models\User;
 use App\Mail\Compliance\WhistleblowComplaintMail;
@@ -19,12 +20,30 @@ class WhistleblowComplaintService
      */
     public function createDraft(array $data, User $reporter): WhistleblowComplaint
     {
+        $subjects = $data['subjects'] ?? [];
+        unset($data['subjects']);
+
         $complaint = WhistleblowComplaint::withoutGlobalScopes()->create(array_merge($data, [
             'reported_by_user_id' => $reporter->id,
             'status' => 'draft',
         ]));
 
-        $this->writeAudit($complaint, 'created', $reporter);
+        // Create subject rows
+        foreach ($subjects as $i => $subject) {
+            WhistleblowComplaintSubject::create([
+                'complaint_id'      => $complaint->id,
+                'agency_name'       => $subject['agency_name'],
+                'practitioner_name' => $subject['practitioner_name'] ?? null,
+                'portal_url'        => $subject['portal_url'],
+                'portal_source'     => $subject['portal_source'] ?? 'other',
+                'portal_listing_ref' => $subject['portal_listing_ref'] ?? null,
+                'display_order'     => $i,
+            ]);
+        }
+
+        $this->writeAudit($complaint, 'created', $reporter, [
+            'subject_count' => count($subjects),
+        ]);
 
         return $complaint;
     }
@@ -320,7 +339,7 @@ class WhistleblowComplaintService
      */
     protected function generatePdf(WhistleblowComplaint $complaint): string
     {
-        $complaint->loadMissing(['evidence', 'auditLog', 'reporter', 'sellerContact']);
+        $complaint->loadMissing(['evidence', 'auditLog', 'reporter', 'sellerContact', 'subjects']);
         $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
 
         // Pick template by tier
@@ -338,6 +357,7 @@ class WhistleblowComplaintService
             'complaint' => $complaint,
             'agency'    => $agency,
             'reporter'  => $complaint->reporter,
+            'subjects'  => $complaint->subjects,
             'evidence'  => $complaint->evidence,
             'auditLog'  => $complaint->auditLog()->orderBy('created_at')->get(),
         ])->render();
@@ -451,8 +471,8 @@ class WhistleblowComplaintService
         $missing = [];
 
         // Common to all tiers
-        if (empty($complaint->subject_agency_name)) {
-            $missing[] = 'subject_agency_name';
+        if ($complaint->subjects()->count() === 0) {
+            $missing[] = 'at least one subject (agency/practitioner)';
         }
         if (empty($complaint->property_address)) {
             $missing[] = 'property_address';
@@ -467,14 +487,12 @@ class WhistleblowComplaintService
                 $missing[] = 'seller_statement (required for Tier 1, minimum 20 characters)';
             }
         } elseif ($complaint->tier === 'tier_2') {
-            // Tier 2: at least one screenshot evidence file required
             if ($evidenceCount === 0) {
-                $missing[] = 'screenshot evidence (required for Tier 2 — attach a screenshot of the advert)';
+                $missing[] = 'screenshot evidence (required for Tier 2)';
             }
         } elseif ($complaint->tier === 'tier_3') {
-            // Tier 3: at least one screenshot evidence file required
             if ($evidenceCount === 0) {
-                $missing[] = 'screenshot evidence (required for Tier 3 — attach advert screenshot and PPRA register search)';
+                $missing[] = 'screenshot evidence (required for Tier 3)';
             }
         }
 
@@ -629,11 +647,18 @@ class WhistleblowComplaintService
             $complaint->setRelation('sellerContact', null);
             $complaint->setRelation('evidence', $fakeEvidence);
 
+            // Fake subjects for the review pack
+            $fakeSubjects = collect([
+                (object) ['agency_name' => $data['subject_agency_name'] ?? '[SAMPLE] Agency', 'practitioner_name' => $data['subject_practitioner_name'] ?? null, 'portal_url' => $data['property_portal_url'] ?? 'https://example.com', 'portal_source' => $data['portal_source'] ?? 'p24'],
+            ]);
+            $complaint->setRelation('subjects', $fakeSubjects);
+
             $viewName = $templateMap[$tier];
             $html = view($viewName, [
                 'complaint' => $complaint,
                 'agency'    => $agency,
                 'reporter'  => $requestedBy,
+                'subjects'  => $fakeSubjects,
                 'evidence'  => $fakeEvidence,
                 'auditLog'  => $fakeAuditLog,
             ])->render();

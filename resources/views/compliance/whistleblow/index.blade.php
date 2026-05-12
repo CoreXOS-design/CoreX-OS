@@ -65,7 +65,7 @@
                 <tr class="border-t" style="border-color:var(--border);">
                     <td class="px-4 py-2.5 font-mono text-xs font-bold" style="color:var(--text-primary);">HFC-WB-{{ $c->id }}</td>
                     <td class="px-4 py-2.5"><span class="ds-badge {{ $tierBadges[$c->tier] ?? '' }}">{{ str_replace('tier_', 'T', $c->tier) }}</span></td>
-                    <td class="px-4 py-2.5" style="color:var(--text-primary);">{{ Str::limit($c->subject_agency_name, 25) }}</td>
+                    <td class="px-4 py-2.5" style="color:var(--text-primary);">{{ Str::limit($c->subjects_summary, 30) }}</td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">{{ Str::limit($c->property_address, 30) }}</td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">{{ $c->reporter?->name ?? '—' }}</td>
                     <td class="px-4 py-2.5"><span class="ds-badge {{ $statusBadges[$c->status] ?? '' }}">{{ str_replace('_', ' ', $c->status) }}</span></td>
