@@ -637,6 +637,10 @@
                     @endif
                 </a>
                 @endpermission
+                @permission('compliance.whistleblow.view')
+                <a href="{{ route('compliance.seller-info.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.seller-info.*') ? 'active' : '' }}">Seller Information Pack</a>
+                <a href="{{ route('compliance.communications.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.communications.*') ? 'active' : '' }}">Communications Log</a>
+                @endpermission
             </div>
         </div>
         @endpermission

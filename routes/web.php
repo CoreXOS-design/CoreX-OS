@@ -1153,6 +1153,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{complaint}/request-changes', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'requestChanges'])->name('request-changes')->middleware('permission:compliance.whistleblow.approve');
     });
 
+    // ── Seller Information Pack ──
+    Route::middleware(['permission:compliance.whistleblow.view', 'agency.required'])->prefix('compliance/seller-info')->name('compliance.seller-info.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'index'])->name('index');
+        Route::post('/preview', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'preview'])->name('preview');
+        Route::post('/send', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'send'])->name('send');
+        Route::post('/whatsapp-link', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'generateWhatsappLink'])->name('whatsapp-link');
+    });
+
+    // ── Compliance Communications Log ──
+    Route::middleware(['permission:compliance.whistleblow.view', 'agency.required'])->prefix('compliance/communications')->name('compliance.communications.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\CommunicationsLogController::class, 'index'])->name('index');
+    });
+
     // ── Document Verification Queue ──
     Route::middleware(['permission:verify_user_documents', 'agency.required'])->prefix('compliance/verification-queue')->name('compliance.verification.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\DocumentVerificationController::class, 'index'])->name('index');
@@ -2235,6 +2248,9 @@ Route::middleware(['auth', 'permission:access_prospecting'])->prefix('prospectin
     Route::post('/{listing}/release', [\App\Http\Controllers\ProspectingController::class, 'release'])->name('release');
     Route::get('/{listing}', [\App\Http\Controllers\ProspectingController::class, 'show'])->name('show');
 });
+
+// ===== SELLER INFO PUBLIC PAGE (no auth, token-based) =====
+Route::get('/info/{token}', [\App\Http\Controllers\Compliance\SellerInfoPublicController::class, 'show'])->name('seller-info.public');
 
 // ===== FICA PUBLIC FORM (no auth, token-based) =====
 Route::prefix('fica')->group(function () {
