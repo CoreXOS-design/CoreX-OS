@@ -31,6 +31,7 @@ database/database.sqlite
 database/*.sqlite
 database/*.sqlite.*
 storage/backups/*.sqlite*
+storage/backups/wishlist-migration/
 check.php
 check_dedup.php
 docuperfect.db
