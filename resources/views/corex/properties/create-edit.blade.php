@@ -1,5 +1,10 @@
 @extends('layouts.corex')
 
+@push('head')
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+@endpush
+
 @section('corex-content')
 <div class="max-w-3xl mx-auto space-y-5">
 
@@ -10,6 +15,20 @@
             {{ $property ? "Editing: {$property->title}" : 'Add a new listing to Nexus.' }}
         </div>
     </div>
+
+    @if($property && $property->p24_suburb_mismatch)
+        <div class="rounded-xl border px-4 py-3 text-sm" style="background:#fffbeb;border-color:#fcd34d;color:#92400e;">
+            <div class="flex items-start gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.732 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+                <div>
+                    <div class="font-semibold">Property24 doesn't recognise this suburb</div>
+                    <div class="text-xs mt-0.5">The current suburb "<span class="font-medium">{{ $property->suburb }}</span>" isn't in Property24's list. Pick a Property24-recognised suburb below to enable publishing to P24. You can't save edits until this is fixed.</div>
+                </div>
+            </div>
+        </div>
+    @endif
 
     @if($errors->any())
         <div class="rounded-xl border px-4 py-3 text-sm" style="background:#fef2f2;border-color:#fecaca;color:#991b1b;">
@@ -98,19 +117,116 @@
                 </select>
             </div>
 
-            {{-- City + Suburb --}}
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {{-- ── Province / City / Suburb (Property24-backed cascading select) ── --}}
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4"
+                 x-data="p24LocationPicker({
+                     initialProvinceId: {{ (int) old('p24_province_id', $property?->p24_province_id ?? 0) }},
+                     initialCityId:     {{ (int) old('p24_city_id',     $property?->p24_city_id ?? 0) }},
+                     initialSuburbId:   {{ (int) old('p24_suburb_id',   $property?->p24_suburb_id ?? 0) }},
+                     initialProvinceName: @js(old('province', $property?->province ?? '')),
+                     initialCityName:     @js(old('city',     $property?->city ?? '')),
+                     initialSuburbName:   @js(old('suburb',   $property?->suburb ?? '')),
+                 })">
+
+                <input type="hidden" name="p24_province_id" :value="provinceId">
+                <input type="hidden" name="p24_city_id"     :value="cityId">
+                <input type="hidden" name="p24_suburb_id"   :value="suburbId">
+                {{-- Denormalised free-text mirrors (kept for back-compat with existing
+                     search/display code). Server overwrites with canonical P24 names. --}}
+                <input type="hidden" name="province" :value="provinceName">
+                <input type="hidden" name="city"     :value="cityName">
+                <input type="hidden" name="suburb"   :value="suburbName" required>
+
                 <div>
-                    <label class="block text-sm font-semibold mb-1 text-slate-700">City</label>
-                    <input type="text" name="city" value="{{ old('city', $property?->city) }}"
-                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                           placeholder="e.g. Margate">
+                    <label class="block text-sm font-semibold mb-1 text-slate-700">Province <span class="text-red-500">*</span></label>
+                    <select x-model="provinceId" @change="onProvinceChange()"
+                            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400 bg-white"
+                            :disabled="loading.provinces">
+                        <option value="0">— Select province —</option>
+                        <template x-for="p in provinces" :key="p.id">
+                            <option :value="p.id" :selected="p.id == provinceId" x-text="p.name"></option>
+                        </template>
+                    </select>
+                    <p class="text-[10px] text-slate-400 mt-1" x-show="loading.provinces">Loading provinces…</p>
                 </div>
+
+                <div>
+                    <label class="block text-sm font-semibold mb-1 text-slate-700">City / Town <span class="text-red-500">*</span></label>
+                    <select x-model="cityId" @change="onCityChange()"
+                            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400 bg-white"
+                            :disabled="!provinceId || provinceId == 0 || loading.cities">
+                        <option value="0" x-text="provinceId && provinceId != 0 ? '— Select city —' : '— Pick a province first —'"></option>
+                        <template x-for="c in cities" :key="c.id">
+                            <option :value="c.id" :selected="c.id == cityId" x-text="c.name"></option>
+                        </template>
+                    </select>
+                    <p class="text-[10px] text-slate-400 mt-1" x-show="loading.cities">Loading cities…</p>
+                </div>
+
                 <div>
                     <label class="block text-sm font-semibold mb-1 text-slate-700">Suburb <span class="text-red-500">*</span></label>
-                    <input type="text" name="suburb" value="{{ old('suburb', $property?->suburb) }}"
+                    <select x-model="suburbId" @change="onSuburbChange()"
+                            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400 bg-white"
+                            :disabled="!cityId || cityId == 0 || loading.suburbs">
+                        <option value="0" x-text="cityId && cityId != 0 ? '— Select suburb —' : '— Pick a city first —'"></option>
+                        <template x-for="s in suburbs" :key="s.id">
+                            <option :value="s.id" :selected="s.id == suburbId" x-text="s.name"></option>
+                        </template>
+                    </select>
+                    <p class="text-[10px] text-slate-400 mt-1" x-show="loading.suburbs">Loading suburbs…</p>
+                    <p class="text-[10px] text-amber-700 mt-1" x-show="syncWarning" x-cloak>
+                        No P24 suburbs cached yet — ask an admin to run a P24 sync in <strong>Settings → Agency → Property24</strong>.
+                    </p>
+                </div>
+            </div>
+
+            {{-- ── Address + Map ── --}}
+            <div class="space-y-3" x-data="propertyMap({
+                    initialLat: {{ (float) old('latitude',  $property?->latitude ?? 0) }},
+                    initialLng: {{ (float) old('longitude', $property?->longitude ?? 0) }},
+                })">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500">Address</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold mb-1 text-slate-600">Street Number</label>
+                        <input type="text" name="street_number" x-model="streetNumber" @input.debounce.700ms="geocode()"
+                               value="{{ old('street_number', $property?->street_number) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="e.g. 12">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-semibold mb-1 text-slate-600">Street Name</label>
+                        <input type="text" name="street_name" x-model="streetName" @input.debounce.700ms="geocode()"
+                               value="{{ old('street_name', $property?->street_name) }}"
+                               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                               placeholder="e.g. Marine Drive">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1 text-slate-600">Full Address (optional, for documents)</label>
+                    <input type="text" name="address" value="{{ old('address', $property?->address) }}"
                            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
-                           placeholder="e.g. Uvongo" required>
+                           placeholder="auto-filled from street + suburb if blank">
+                </div>
+
+                <input type="hidden" name="latitude"  :value="lat">
+                <input type="hidden" name="longitude" :value="lng">
+
+                <div class="rounded-lg border border-slate-200 overflow-hidden">
+                    <div class="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+                        <div class="text-xs text-slate-600">
+                            <span x-show="lat && lng" x-cloak>
+                                Pin: <span class="font-mono" x-text="(+lat).toFixed(5) + ', ' + (+lng).toFixed(5)"></span>
+                                <span x-show="geocoding" class="text-slate-400">(locating…)</span>
+                            </span>
+                            <span x-show="!lat || !lng" class="text-slate-400" x-cloak>
+                                Enter the street number and name above — the map will drop a pin automatically.
+                            </span>
+                        </div>
+                        <button type="button" @click="clearPin()" x-show="lat && lng" x-cloak
+                                class="text-[11px] text-slate-500 hover:text-slate-700 underline">Clear pin</button>
+                    </div>
+                    <div id="property-map" class="w-full" style="height: 280px; background:#e5e7eb;"></div>
                 </div>
             </div>
 
@@ -507,6 +623,189 @@
         if (e.key === 'Escape' && !modal.classList.contains('hidden')) hideModal();
     });
 })();
+</script>
+
+{{-- Leaflet (OpenStreetMap) — free, no API key. --}}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<script>
+/**
+ * Property24 cascading Province → City → Suburb picker.
+ * Backed by /api/v1/p24/{provinces,cities,suburbs}.
+ */
+function p24LocationPicker(init) {
+    return {
+        provinceId: init.initialProvinceId || 0,
+        cityId:     init.initialCityId     || 0,
+        suburbId:   init.initialSuburbId   || 0,
+        provinceName: init.initialProvinceName || '',
+        cityName:     init.initialCityName     || '',
+        suburbName:   init.initialSuburbName   || '',
+        provinces: [], cities: [], suburbs: [],
+        loading: { provinces: false, cities: false, suburbs: false },
+        syncWarning: false,
+
+        init() {
+            this.loadProvinces();
+        },
+
+        async _fetch(url) {
+            const r = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+            if (!r.ok) return { data: [] };
+            return await r.json();
+        },
+
+        async loadProvinces() {
+            this.loading.provinces = true;
+            const { data } = await this._fetch('/api/v1/p24/provinces');
+            this.provinces = data || [];
+            this.loading.provinces = false;
+            this.syncWarning = this.provinces.length === 0;
+            if (this.provinceId && this.provinceId != 0) {
+                await this.loadCities();
+            }
+        },
+
+        async loadCities() {
+            if (!this.provinceId || this.provinceId == 0) { this.cities = []; return; }
+            this.loading.cities = true;
+            const { data } = await this._fetch('/api/v1/p24/cities?province_id=' + this.provinceId);
+            this.cities = data || [];
+            this.loading.cities = false;
+            if (this.cityId && this.cityId != 0) {
+                await this.loadSuburbs();
+            }
+        },
+
+        async loadSuburbs() {
+            if (!this.cityId || this.cityId == 0) { this.suburbs = []; return; }
+            this.loading.suburbs = true;
+            const { data } = await this._fetch('/api/v1/p24/suburbs?city_id=' + this.cityId);
+            this.suburbs = data || [];
+            this.loading.suburbs = false;
+        },
+
+        onProvinceChange() {
+            const p = this.provinces.find(x => x.id == this.provinceId);
+            this.provinceName = p ? p.name : '';
+            this.cityId = 0; this.cityName = '';
+            this.suburbId = 0; this.suburbName = '';
+            this.suburbs = [];
+            this.loadCities();
+        },
+
+        onCityChange() {
+            const c = this.cities.find(x => x.id == this.cityId);
+            this.cityName = c ? c.name : '';
+            this.suburbId = 0; this.suburbName = '';
+            this.loadSuburbs();
+            // Geocode hint: re-trigger map geocode if available.
+            window.dispatchEvent(new CustomEvent('p24-location-changed'));
+        },
+
+        onSuburbChange() {
+            const s = this.suburbs.find(x => x.id == this.suburbId);
+            this.suburbName = s ? s.name : '';
+            window.dispatchEvent(new CustomEvent('p24-location-changed'));
+        },
+    };
+}
+
+/**
+ * Leaflet/OSM map + Nominatim geocoder for the property address.
+ * Pin is set automatically when address fields change (debounced) and is
+ * draggable for manual fine-tuning. lat/lng are written to hidden inputs.
+ */
+function propertyMap(init) {
+    return {
+        lat: init.initialLat || 0,
+        lng: init.initialLng || 0,
+        streetNumber: '',
+        streetName:   '',
+        geocoding: false,
+        _map: null, _marker: null,
+
+        init() {
+            // Hidden input values come from existing model; populate display fields from form inputs.
+            const numEl = document.querySelector('input[name="street_number"]');
+            const nameEl = document.querySelector('input[name="street_name"]');
+            if (numEl)  this.streetNumber = numEl.value || '';
+            if (nameEl) this.streetName   = nameEl.value || '';
+
+            this.$nextTick(() => this._renderMap());
+
+            window.addEventListener('p24-location-changed', () => this.geocode());
+        },
+
+        _renderMap() {
+            const el = document.getElementById('property-map');
+            if (!el || !window.L) return;
+            const center = (this.lat && this.lng)
+                ? [+this.lat, +this.lng]
+                : [-30.5, 30.5]; // South coast KZN default
+            this._map = L.map(el).setView(center, (this.lat && this.lng) ? 16 : 8);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors',
+            }).addTo(this._map);
+
+            if (this.lat && this.lng) {
+                this._placeMarker(+this.lat, +this.lng);
+            }
+        },
+
+        _placeMarker(lat, lng) {
+            if (!this._map) return;
+            if (this._marker) {
+                this._marker.setLatLng([lat, lng]);
+            } else {
+                this._marker = L.marker([lat, lng], { draggable: true }).addTo(this._map);
+                this._marker.on('dragend', (e) => {
+                    const p = e.target.getLatLng();
+                    this.lat = p.lat.toFixed(7);
+                    this.lng = p.lng.toFixed(7);
+                });
+            }
+            this._map.setView([lat, lng], 16);
+        },
+
+        async geocode() {
+            // Build a freeform query from the cascading selects + street fields.
+            const suburb = document.querySelector('input[name="suburb"]')?.value || '';
+            const city   = document.querySelector('input[name="city"]')?.value || '';
+            const province = document.querySelector('input[name="province"]')?.value || '';
+            const parts = [
+                [this.streetNumber, this.streetName].filter(Boolean).join(' '),
+                suburb, city, province, 'South Africa',
+            ].filter(Boolean);
+            const q = parts.join(', ').trim();
+            if (q.length < 6) return;
+
+            this.geocoding = true;
+            try {
+                const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=za&q=' + encodeURIComponent(q);
+                const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                const arr = await r.json();
+                if (Array.isArray(arr) && arr.length > 0) {
+                    const hit = arr[0];
+                    this.lat = (+hit.lat).toFixed(7);
+                    this.lng = (+hit.lon).toFixed(7);
+                    this._placeMarker(+hit.lat, +hit.lon);
+                }
+            } catch (e) {
+                // Silent — geocoding is best-effort; user can drag the pin manually.
+            } finally {
+                this.geocoding = false;
+            }
+        },
+
+        clearPin() {
+            this.lat = 0; this.lng = 0;
+            if (this._marker && this._map) { this._map.removeLayer(this._marker); this._marker = null; }
+        },
+    };
+}
 </script>
 @endpush
 @endsection

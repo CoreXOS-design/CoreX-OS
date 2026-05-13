@@ -408,6 +408,11 @@ class PropertyController extends Controller
             'suburb'           => 'required|string|max:100',
             'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
+            'latitude'         => 'nullable|numeric|between:-90,90',
+            'longitude'        => 'nullable|numeric|between:-180,180',
+            'p24_province_id'  => 'nullable|integer|exists:p24_provinces,id',
+            'p24_city_id'      => 'nullable|integer|exists:p24_cities,id',
+            'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
@@ -474,6 +479,7 @@ class PropertyController extends Controller
         ]);
 
         $data = $this->processSpacesJson($data);
+        $data = $this->applyP24Location($data);
 
         // Extract YouTube video ID from full URL if pasted
         if (!empty($data['youtube_video_id'])) {
@@ -502,6 +508,15 @@ class PropertyController extends Controller
 
         // Create to get ID, then attach images
         $property = Property::create($data);
+
+        if ($property->p24_suburb_id) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property,
+                previousP24SuburbId: null,
+                newP24SuburbId: (int) $property->p24_suburb_id,
+                actorUserId: auth()->id(),
+            ));
+        }
 
         $property->dawn_images_json    = $this->storeImages($request, 'dawn_images',    $property->id);
         $property->noon_images_json    = $this->storeImages($request, 'noon_images',    $property->id);
@@ -617,6 +632,11 @@ class PropertyController extends Controller
             'suburb'           => 'required|string|max:100',
             'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
+            'latitude'         => 'nullable|numeric|between:-90,90',
+            'longitude'        => 'nullable|numeric|between:-180,180',
+            'p24_province_id'  => 'nullable|integer|exists:p24_provinces,id',
+            'p24_city_id'      => 'nullable|integer|exists:p24_cities,id',
+            'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
@@ -714,6 +734,7 @@ class PropertyController extends Controller
         $data['pp_hide_unit_number']   = $request->boolean('pp_hide_unit_number');
 
         $data = $this->processSpacesJson($data);
+        $data = $this->applyP24Location($data);
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
@@ -753,7 +774,18 @@ class PropertyController extends Controller
             }
         }
 
+        $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
+        if (isset($data['p24_suburb_id'])
+            && (int) $data['p24_suburb_id'] > 0
+            && (int) $previousP24SuburbId !== (int) $data['p24_suburb_id']) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property->fresh(),
+                previousP24SuburbId: $previousP24SuburbId ? (int) $previousP24SuburbId : null,
+                newP24SuburbId: (int) $data['p24_suburb_id'],
+                actorUserId: auth()->id(),
+            ));
+        }
         // Force-touch updated_at even when no fillable attribute changed (e.g. only photos uploaded),
         // so the Modified column always reflects the latest save action.
         if (! $property->wasChanged()) {
@@ -987,6 +1019,64 @@ class PropertyController extends Controller
             'snapshot_at' => $property->compliance_snapshot_at->toIso8601String(),
             'message' => 'Property is now live and ready for marketing.',
         ]);
+    }
+
+    /**
+     * Verify the P24 location chain (suburb → city → province) and overwrite
+     * the denormalized free-text columns (`suburb`, `city`, `province`) with
+     * the canonical P24 names. If the chain is invalid we abort with a
+     * validation error so users can't bypass the autocomplete by tampering
+     * with the hidden IDs.
+     */
+    private function applyP24Location(array $data): array
+    {
+        $suburbId   = $data['p24_suburb_id']   ?? null;
+        $cityId     = $data['p24_city_id']     ?? null;
+        $provinceId = $data['p24_province_id'] ?? null;
+
+        if (!$suburbId) {
+            $data['p24_suburb_mismatch'] = empty($data['p24_suburb_id']);
+            return $data;
+        }
+
+        $suburb = \App\Models\P24Suburb::find($suburbId);
+        if (!$suburb || !$suburb->p24_city_id) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'p24_suburb_id' => 'Selected suburb is no longer recognised by Property24.',
+            ]);
+        }
+
+        $city = \App\Models\P24City::find($suburb->p24_city_id);
+        if (!$city) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'p24_suburb_id' => 'Selected suburb has no parent city on Property24.',
+            ]);
+        }
+
+        if ($cityId && (int) $cityId !== (int) $city->id) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'p24_city_id' => 'Suburb does not belong to the selected city.',
+            ]);
+        }
+
+        $province = \App\Models\P24Province::find($city->p24_province_id);
+        if ($provinceId && $province && (int) $provinceId !== (int) $province->id) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'p24_province_id' => 'City does not belong to the selected province.',
+            ]);
+        }
+
+        $data['p24_suburb_id']   = $suburb->id;
+        $data['p24_city_id']     = $city->id;
+        $data['p24_province_id'] = $province?->id;
+        $data['suburb']          = $suburb->name;
+        $data['city']            = $city->name;
+        if ($province) {
+            $data['province'] = $province->name;
+        }
+        $data['p24_suburb_mismatch'] = false;
+
+        return $data;
     }
 
     private function processSpacesJson(array $data): array
