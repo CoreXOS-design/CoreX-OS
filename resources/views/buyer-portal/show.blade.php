@@ -16,14 +16,14 @@
     </div>
 
     {{-- Preferences summary --}}
-    @if($prefs)
+    @if($primaryMatch)
     <div class="card p-4 mb-6">
         <h2 class="text-xs font-semibold uppercase text-slate-500 mb-2">Your Preferences</h2>
         <div class="flex flex-wrap gap-3 text-sm text-slate-300">
-            @if($prefs->budget_min || $prefs->budget_max)
-                <span>Budget: R {{ number_format($prefs->budget_min ?? 0) }} – R {{ number_format($prefs->budget_max ?? 0) }}</span>
+            @if($primaryMatch->price_min || $primaryMatch->price_max)
+                <span>Budget: R {{ number_format($primaryMatch->price_min ?? 0) }} – R {{ number_format($primaryMatch->price_max ?? 0) }}</span>
             @endif
-            @php $areas = json_decode($prefs->preferred_areas ?? '[]', true); @endphp
+            @php $areas = $primaryMatch->suburbList(); @endphp
             @if(!empty($areas))
                 <span>Areas: {{ implode(', ', $areas) }}</span>
             @endif

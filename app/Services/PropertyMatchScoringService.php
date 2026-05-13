@@ -13,6 +13,7 @@ use App\Models\ProspectingBuyerMatch;
 use App\Models\ProspectingListing;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -41,6 +42,18 @@ use Illuminate\Support\Facades\DB;
 class PropertyMatchScoringService
 {
     public const MIN_SCORE_TO_CACHE = 50;
+
+    /**
+     * True while RegenerateBuyerMatchesJob is rebuilding the cache tables.
+     * Consumers (prospecting tab, demand-intelligence widgets) check this
+     * to show a "rebuilding" banner instead of stale counts.
+     *
+     * Spec: .ai/specs/unified-buyer-wishlist-spec.md Section 9 (D7).
+     */
+    public function isRegenerating(): bool
+    {
+        return (bool) Cache::get('corex.matches.regenerating', false);
+    }
 
     /* =========================================================
      |  Scoring

@@ -707,7 +707,11 @@ class CalendarController extends Controller
                 'performed_at'         => now(),
             ]);
 
-            // Fan-out: log feedback_captured to buyer activity timelines
+            // Fan-out: log feedback_captured to buyer activity timelines.
+            // Only meaningful for per-contact feedback (viewings). For
+            // listing_presentation the rows are keyed by property_id, not
+            // contact_id, so there's nothing to fan out to here.
+            if ($feedbackKind !== 'listing_presentation') {
             $linkedPropertyIds = $calendarEvent->linkedProperties()->pluck('properties.id')->toArray();
             foreach ($data['feedback'] as $row) {
                 $contactId = $row['contact_id'];
@@ -744,6 +748,7 @@ class CalendarController extends Controller
                     $contact->updateQuietly(['last_activity_at' => now()]);
                 }
             }
+            } // end if feedbackKind !== listing_presentation
 
             // Close any open missed-feedback tasks for this event
             \App\Models\CommandCenter\CommandTask::query()

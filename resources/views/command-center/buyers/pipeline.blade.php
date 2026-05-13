@@ -37,6 +37,40 @@
         </div>
     </div>
 
+    {{-- Prospecting drill-down context banner (set when arriving via a
+         "N buyers" badge click from the prospecting tab). --}}
+    @if(!empty($contextListing))
+        <div class="rounded-md px-4 py-3 flex items-center justify-between gap-3"
+             style="background: color-mix(in srgb, var(--brand-button) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-button) 30%, transparent);">
+            <div class="min-w-0">
+                <div class="text-[10px] uppercase tracking-wider" style="color: var(--brand-button);">
+                    Filtered to buyers matching prospecting listing
+                </div>
+                <div class="text-sm font-semibold truncate mt-0.5" style="color: var(--text-primary);">
+                    {{ $contextListing->address ?? ('Listing #' . $contextListing->id) }}
+                    @if(!empty($contextListing->suburb))
+                        <span class="font-normal" style="color: var(--text-muted);">· {{ $contextListing->suburb }}</span>
+                    @endif
+                    @if(!empty($contextListing->price))
+                        <span class="font-normal" style="color: var(--text-muted);">· R {{ number_format($contextListing->price) }}</span>
+                    @endif
+                    @if(!empty($contextListing->portal_source))
+                        <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                              style="{{ $contextListing->portal_source === 'p24' ? 'background:#1e40af;color:#fff;' : 'background:#059669;color:#fff;' }}">
+                            {{ strtoupper($contextListing->portal_source) === 'P24' ? 'P24' : 'PP' }}
+                        </span>
+                    @endif
+                </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <a href="{{ route('prospecting.show', $contextListing->id) }}"
+                   class="text-xs no-underline hover:underline" style="color: var(--brand-button);">View listing →</a>
+                <a href="{{ route('command-center.buyers.pipeline', array_merge(request()->except('prospecting_listing_id'), [])) }}"
+                   class="text-xs no-underline hover:underline" style="color: var(--text-muted);">Clear filter</a>
+            </div>
+        </div>
+    @endif
+
     @if($view === 'kanban')
         {{-- Kanban View (drag-drop enabled) --}}
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" x-data="kanbanDrag()">

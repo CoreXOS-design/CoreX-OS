@@ -28,12 +28,10 @@ class BuyerPortalController extends Controller
 
         $contact = Contact::withoutGlobalScopes()->find($link->contact_id);
         $agency = Agency::withoutGlobalScopes()->find($contact->agency_id ?? 1);
-        // Build a legacy buyer_preferences-shape shim so the existing buyer-portal
-        // view (resources/views/buyer-portal/show.blade.php) continues to render
-        // without changes. Source of truth is now the primary ContactMatch + the
-        // Contact preapproval block. Remove this shim when the buyer-portal view
-        // is refreshed (out of scope for the unification spec).
-        $prefs = $this->buildLegacyPrefsShim($contact);
+        // Primary ContactMatch (or null). The view reads its fields directly —
+        // shim retired in Prompt 11.
+        $primaryMatch = $contact->matches()->primary()->first()
+                     ?? $contact->matches()->orderByDesc('updated_at')->first();
 
         // Get matches by tier
         $service = app(PropertyMatchScoringService::class);
@@ -50,14 +48,14 @@ class BuyerPortalController extends Controller
         $viewed = BuyerPropertyView::where('contact_id', $contact->id)->with('property')->get();
 
         return view('buyer-portal.show', [
-            'buyer' => $contact,
-            'agency' => $agency,
-            'prefs' => $prefs,
-            'matches' => $matches,
-            'properties' => $properties,
-            'responses' => $responses,
-            'viewed' => $viewed,
-            'token' => $token,
+            'buyer'       => $contact,
+            'agency'      => $agency,
+            'primaryMatch' => $primaryMatch,
+            'matches'     => $matches,
+            'properties'  => $properties,
+            'responses'   => $responses,
+            'viewed'      => $viewed,
+            'token'       => $token,
         ]);
     }
 
@@ -105,36 +103,5 @@ class BuyerPortalController extends Controller
     public function demo()
     {
         return view('buyer-portal.demo');
-    }
-
-    /**
-     * Build a stdClass mirroring the deprecated buyer_preferences row shape
-     * from the contact's primary ContactMatch + Contact preapproval block.
-     * Keeps the existing buyer-portal Blade view working until it is itself
-     * refreshed (separate future spec). Returns null when there is nothing
-     * to show.
-     */
-    private function buildLegacyPrefsShim(Contact $contact): ?object
-    {
-        $match = $contact->matches()->primary()->first()
-              ?? $contact->matches()->orderByDesc('updated_at')->first();
-        if (!$match && !$contact->preapproval_amount && !$contact->preapproval_institution) {
-            return null;
-        }
-        $shim = new \stdClass();
-        $shim->budget_min               = $match?->price_min;
-        $shim->budget_max               = $match?->price_max;
-        $shim->bedrooms_min             = $match?->beds_min;
-        $shim->bedrooms_max             = $match?->bedrooms_max;
-        $shim->preferred_areas          = json_encode($match?->suburbs ?? []);
-        $shim->preferred_property_types = json_encode($match?->propertyTypeList() ?? []);
-        $shim->must_have_features       = json_encode($match?->must_have_features ?? []);
-        $shim->nice_to_have_features    = json_encode($match?->nice_to_have_features ?? []);
-        $shim->deal_breakers            = json_encode($match?->deal_breakers ?? []);
-        $shim->notes                    = $match?->notes;
-        $shim->preapproval_amount       = $contact->preapproval_amount;
-        $shim->preapproval_expires_at   = $contact->preapproval_expires_at?->toDateString();
-        $shim->preapproval_institution  = $contact->preapproval_institution;
-        return $shim;
     }
 }
