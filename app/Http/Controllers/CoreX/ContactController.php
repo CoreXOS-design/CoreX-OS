@@ -502,16 +502,17 @@ class ContactController extends Controller
     private function agentList(): \Illuminate\Support\Collection
     {
         /** @var User $user */
-        $user  = auth()->user();
-        $role  = $user->effectiveRole();
+        $user      = auth()->user();
+        $dataScope = PermissionService::getDataScope($user, 'contacts');
+
         $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
 
-        if ($role === 'branch_manager') {
+        if ($dataScope === 'branch') {
             $branchId = $user->effectiveBranchId();
             if ($branchId) {
                 $query->where('branch_id', $branchId);
             }
-        } elseif (! in_array($role, ['super_admin', 'admin'])) {
+        } elseif ($dataScope !== 'all') {
             $query->where('id', $user->id);
         }
 

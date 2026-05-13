@@ -46,15 +46,26 @@ class PropertyController extends Controller
 
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        // Agent filter (admin/BM only) — defaults to self on fresh load UNLESS
-        // a compliance filter is active (card click-through shows full scope).
+        // Agent filter with session persistence (mirrors ContactController).
+        // Defaults to self on fresh load UNLESS a compliance filter is active
+        // (card click-through shows full scope).
         if ($canPickAgent) {
             if ($request->has('agent_id')) {
-                $filterAgentId = $request->query('agent_id', '');
+                $raw           = $request->query('agent_id', '');
+                $filterAgentId = $raw;
+                session(['corex_properties_agent_id' => $raw === '' ? 'all' : $raw]);
             } elseif ($request->query('filter') === 'marketing_pending') {
                 $filterAgentId = '';
             } else {
-                $filterAgentId = (string) $user->id;
+                $saved = session('corex_properties_agent_id');
+                if ($saved === null) {
+                    $filterAgentId = (string) $user->id;
+                    session(['corex_properties_agent_id' => $filterAgentId]);
+                } elseif ($saved === 'all') {
+                    $filterAgentId = '';
+                } else {
+                    $filterAgentId = $saved;
+                }
             }
         }
 

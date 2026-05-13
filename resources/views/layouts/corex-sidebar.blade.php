@@ -1335,3 +1335,50 @@
     @endauth
 </div>
 
+<script>
+(function () {
+    function sortKey(el) {
+        // Use the first text node's content so a trailing badge (e.g. "Invitations [3]")
+        // doesn't poison the sort key. Fall back to trimmed textContent.
+        for (const node of el.childNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const t = node.textContent.trim();
+                if (t) return t.toLowerCase();
+            }
+        }
+        return (el.textContent || '').trim().toLowerCase();
+    }
+
+    function sortPanels() {
+        document.querySelectorAll('.corex-sidebar .corex-nav-panel').forEach(panel => {
+            // Sort runs of .corex-nav-subitem siblings, treating .corex-nav-sublabel
+            // (and any other element type) as a section boundary so grouped items
+            // remain under their heading.
+            const children = Array.from(panel.children);
+            let group = [];
+            const flush = () => {
+                if (group.length < 2) { group = []; return; }
+                const sorted = group.slice().sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+                const anchor = group[group.length - 1].nextSibling;
+                sorted.forEach(el => panel.insertBefore(el, anchor));
+                group = [];
+            };
+            for (const child of children) {
+                if (child.classList && child.classList.contains('corex-nav-subitem')) {
+                    group.push(child);
+                } else {
+                    flush();
+                }
+            }
+            flush();
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', sortPanels);
+    } else {
+        sortPanels();
+    }
+})();
+</script>
+

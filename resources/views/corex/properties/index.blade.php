@@ -132,12 +132,31 @@
                        style="padding-left:2.25rem;">
             </div>
 
-            {{-- Scope (agents only) --}}
-            @if($dataScope === 'own')
-            <select name="scope" onchange="this.form.submit()" class="list-header-filter">
-                <option value="my" {{ $scope === 'my' ? 'selected' : '' }}>My Listings</option>
-                <option value="branch" {{ $scope === 'branch' ? 'selected' : '' }}>Branch</option>
-            </select>
+            {{-- My / All pill toggle (role must grant Data Scope = On for properties.view) --}}
+            @if($canPickAgent)
+            @php
+                $pcuId      = (string) auth()->id();
+                $pcIsMine   = (string) $filterAgentId === $pcuId;
+                $pcIsAll    = $filterAgentId === '';
+                $pcCarry    = request()->except(['agent_id', 'page']);
+                $pcMineUrl  = route('corex.properties.index', array_merge($pcCarry, ['agent_id' => $pcuId]));
+                $pcAllUrl   = route('corex.properties.index', array_merge($pcCarry, ['agent_id' => '']));
+                $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
+            @endphp
+            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <a href="{{ $pcMineUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="{{ $pcIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show only my properties">
+                    My Properties
+                </a>
+                <a href="{{ $pcAllUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $pcIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all {{ $pcAllLabel }} properties">
+                    All Properties
+                </a>
+            </div>
             @endif
 
             {{-- Status --}}
