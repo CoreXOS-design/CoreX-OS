@@ -160,7 +160,14 @@ class BuyerIntelligenceService
         $contact = Contact::withoutGlobalScopes()->find($contactId);
         if (!$contact) return collect();
 
-        $prefs = DB::table('buyer_preferences')->where('contact_id', $contactId)->first();
+        // Read criteria from the contact's primary ContactMatch (spec D1).
+        $match = \App\Models\ContactMatch::withoutGlobalScopes()
+            ->where('contact_id', $contactId)
+            ->whereNull('deleted_at')
+            ->where('status', \App\Models\ContactMatch::STATUS_ACTIVE)
+            ->primary()
+            ->first();
+
         $viewed = BuyerPropertyView::where('contact_id', $contactId)->pluck('property_id')->toArray();
 
         $query = Property::withoutGlobalScopes()
@@ -169,10 +176,10 @@ class BuyerIntelligenceService
             ->whereNotNull('published_at')
             ->whereNotIn('id', $viewed);
 
-        if ($prefs) {
-            if ($prefs->budget_min) $query->where('price', '>=', $prefs->budget_min * 0.85);
-            if ($prefs->budget_max) $query->where('price', '<=', $prefs->budget_max * 1.15);
-            $areas = json_decode($prefs->preferred_areas ?? '[]', true);
+        if ($match) {
+            if ($match->price_min) $query->where('price', '>=', $match->price_min * 0.85);
+            if ($match->price_max) $query->where('price', '<=', $match->price_max * 1.15);
+            $areas = $match->suburbs ?? [];
             if (!empty($areas)) $query->whereIn('suburb', $areas);
         }
 
@@ -182,7 +189,7 @@ class BuyerIntelligenceService
                 'address' => $p->title,
                 'price' => $p->price,
                 'suburb' => $p->suburb,
-                'match_score' => $this->computeMatchScore($p, $prefs),
+                'match_score' => $this->computeMatchScore($p, $match),
                 'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
             ]);
     }
@@ -277,14 +284,20 @@ class BuyerIntelligenceService
         return round($viewings / $weeks, 1);
     }
 
-    private function computeMatchScore($property, $prefs): int
+    /**
+     * Lightweight match score for the buyer-intelligence "matched properties"
+     * tab. Reads criteria from the contact's primary ContactMatch.
+     * Authoritative scoring lives in PropertyMatchScoringService — this is
+     * a tab-display heuristic.
+     */
+    private function computeMatchScore($property, ?\App\Models\ContactMatch $match): int
     {
-        if (!$prefs) return 75; // Default if no preferences set
+        if (!$match) return 75;
         $score = 100;
-        if ($prefs->budget_max && $property->price > $prefs->budget_max) $score -= 20;
-        if ($prefs->budget_min && $property->price < $prefs->budget_min) $score -= 10;
-        $areas = json_decode($prefs->preferred_areas ?? '[]', true);
-        if (!empty($areas) && !in_array($property->suburb, $areas)) $score -= 15;
+        if ($match->price_max && $property->price > $match->price_max) $score -= 20;
+        if ($match->price_min && $property->price < $match->price_min) $score -= 10;
+        $areas = $match->suburbs ?? [];
+        if (!empty($areas) && !in_array($property->suburb, $areas, true)) $score -= 15;
         return max(50, $score);
     }
 }

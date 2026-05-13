@@ -38,6 +38,7 @@ class Contact extends Model
         'last_consent_check_at',
         'is_buyer', 'buyer_state', 'last_activity_at',
         'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
+        'preapproval_amount', 'preapproval_expires_at', 'preapproval_institution',
     ];
 
     protected $casts = [
@@ -48,7 +49,26 @@ class Contact extends Model
         'is_buyer'          => 'boolean',
         'last_activity_at'  => 'datetime',
         'buyer_pipeline_entered_at' => 'datetime',
+        'preapproval_amount'        => 'decimal:2',
+        'preapproval_expires_at'    => 'date',
     ];
+
+    /**
+     * True iff the contact has a non-zero preapproval amount and the
+     * preapproval has not expired. Used by demand-intelligence queries
+     * (PropertyMatchScoringService::getBuyerDemandForProperty).
+     */
+    public function hasValidPreapproval(): bool
+    {
+        if ($this->preapproval_amount === null || (float) $this->preapproval_amount <= 0) {
+            return false;
+        }
+        if ($this->preapproval_expires_at === null) {
+            return false;
+        }
+        return $this->preapproval_expires_at->isToday()
+            || $this->preapproval_expires_at->isFuture();
+    }
 
     public function type(): BelongsTo
     {

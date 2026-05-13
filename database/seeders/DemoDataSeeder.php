@@ -30,7 +30,7 @@ class DemoDataSeeder extends Seeder
         $this->command->info('Seeding demo data (local only)...');
 
         DB::transaction(function () {
-            $this->seedBuyerPreferences();
+            $this->seedContactMatchesWithPreapproval();
             $this->seedDemoContacts();
             $this->seedDemoProperties();
             $this->seedDemoCalendarEvents();
@@ -44,29 +44,37 @@ class DemoDataSeeder extends Seeder
         $this->command->info('Demo data seeded successfully.');
     }
 
-    // ─── A. BUYER PREFERENCES (enriching real buyers) ────────
+    // ─── A. CONTACT MATCHES + PREAPPROVAL (enriching real buyers) ────────
+    // Post-unification (spec D1, D3): wishlists live on contact_matches, preapproval
+    // on contacts. Old seedBuyerPreferences() wrote to buyer_preferences.
 
-    private function seedBuyerPreferences(): void
+    private function seedContactMatchesWithPreapproval(): void
     {
+        // Pick buyers who do not yet have a ContactMatch.
         $buyerIds = DB::table('contacts')
-            ->where('agency_id', $this->agencyId)->where('is_buyer', 1)->whereNull('deleted_at')
-            ->leftJoin('buyer_preferences', 'contacts.id', '=', 'buyer_preferences.contact_id')
-            ->whereNull('buyer_preferences.id')
+            ->where('contacts.agency_id', $this->agencyId)
+            ->where('contacts.is_buyer', 1)
+            ->whereNull('contacts.deleted_at')
+            ->leftJoin('contact_matches', function ($j) {
+                $j->on('contacts.id', '=', 'contact_matches.contact_id')
+                  ->whereNull('contact_matches.deleted_at');
+            })
+            ->whereNull('contact_matches.id')
             ->pluck('contacts.id')->toArray();
 
         $presets = [
-            ['budget_min' => 1500000, 'budget_max' => 2500000, 'bedrooms_min' => 2, 'bedrooms_max' => 3, 'preferred_areas' => ['Margate', 'Uvongo'], 'must_have_features' => ['garden']],
-            ['budget_min' => 3000000, 'budget_max' => 5000000, 'bedrooms_min' => 4, 'bedrooms_max' => 5, 'preferred_areas' => ['Southbroom', 'Shelly Beach'], 'must_have_features' => ['pool', 'sea view'], 'preapproval_amount' => 4500000, 'preapproval_institution' => 'Standard Bank', 'preapproval_expires_at' => now()->addMonths(2)->toDateString()],
-            ['budget_min' => 800000, 'budget_max' => 1500000, 'bedrooms_min' => 1, 'bedrooms_max' => 2, 'preferred_areas' => ['Margate'], 'preferred_property_types' => ['Apartment'], 'must_have_features' => ['pet friendly']],
-            ['budget_min' => 5000000, 'budget_max' => 8000000, 'bedrooms_min' => 4, 'bedrooms_max' => 5, 'preferred_areas' => ['Southbroom'], 'preapproval_amount' => 6000000, 'preapproval_institution' => 'Investec', 'preapproval_expires_at' => now()->addMonths(3)->toDateString()],
-            ['budget_min' => 2000000, 'budget_max' => 3500000, 'bedrooms_min' => 3, 'bedrooms_max' => 3, 'preferred_areas' => ['Margate', 'Uvongo', 'Shelly Beach', 'Ramsgate'], 'must_have_features' => ['security estate']],
-            ['budget_min' => 1200000, 'budget_max' => 2000000, 'bedrooms_min' => 2, 'bedrooms_max' => 3, 'preferred_areas' => ['Uvongo', 'Margate'], 'preferred_property_types' => ['Townhouse'], 'preapproval_amount' => 1800000, 'preapproval_institution' => 'SA Home Loans', 'preapproval_expires_at' => now()->addDays(45)->toDateString()],
-            ['budget_min' => 4000000, 'budget_max' => 6000000, 'bedrooms_min' => 4, 'bedrooms_max' => 4, 'preferred_areas' => ['Southbroom', 'Shelly Beach'], 'must_have_features' => ['garden', 'pool']],
-            ['budget_min' => 900000, 'budget_max' => 1400000, 'bedrooms_min' => 1, 'bedrooms_max' => 2, 'preferred_areas' => ['Margate'], 'preapproval_amount' => 1200000, 'preapproval_institution' => 'ooba', 'preapproval_expires_at' => now()->addDays(20)->toDateString()],
-            ['budget_min' => 2500000, 'budget_max' => 4000000, 'bedrooms_min' => 3, 'bedrooms_max' => 4, 'preferred_areas' => ['Margate', 'Uvongo', 'Ramsgate'], 'must_have_features' => ['pet friendly', 'domestic accommodation']],
-            ['budget_min' => 6000000, 'budget_max' => 10000000, 'bedrooms_min' => 5, 'bedrooms_max' => 6, 'preferred_areas' => ['Southbroom']],
-            ['budget_min' => 1800000, 'budget_max' => 2800000, 'bedrooms_min' => 3, 'bedrooms_max' => 3, 'preferred_areas' => ['Uvongo', 'Margate'], 'must_have_features' => ['garage 2+']],
-            ['budget_min' => 3500000, 'budget_max' => 5000000, 'bedrooms_min' => 4, 'bedrooms_max' => 4, 'preferred_areas' => ['Shelly Beach', 'Margate'], 'preapproval_amount' => 4500000, 'preapproval_institution' => 'Standard Bank', 'preapproval_expires_at' => now()->addMonths(4)->toDateString()],
+            ['price_min' => 1500000, 'price_max' => 2500000, 'beds_min' => 2, 'bedrooms_max' => 3, 'suburbs' => ['Margate', 'Uvongo'], 'must_have_features' => ['garden']],
+            ['price_min' => 3000000, 'price_max' => 5000000, 'beds_min' => 4, 'bedrooms_max' => 5, 'suburbs' => ['Southbroom', 'Shelly Beach'], 'must_have_features' => ['pool', 'sea_view'], 'preapproval_amount' => 4500000, 'preapproval_institution' => 'Standard Bank', 'preapproval_expires_at' => now()->addMonths(2)->toDateString()],
+            ['price_min' => 800000,  'price_max' => 1500000, 'beds_min' => 1, 'bedrooms_max' => 2, 'suburbs' => ['Margate'], 'property_types' => ['Apartment'], 'must_have_features' => ['pet_friendly']],
+            ['price_min' => 5000000, 'price_max' => 8000000, 'beds_min' => 4, 'bedrooms_max' => 5, 'suburbs' => ['Southbroom'], 'preapproval_amount' => 6000000, 'preapproval_institution' => 'Investec', 'preapproval_expires_at' => now()->addMonths(3)->toDateString()],
+            ['price_min' => 2000000, 'price_max' => 3500000, 'beds_min' => 3, 'bedrooms_max' => 3, 'suburbs' => ['Margate', 'Uvongo', 'Shelly Beach', 'Ramsgate'], 'must_have_features' => ['security']],
+            ['price_min' => 1200000, 'price_max' => 2000000, 'beds_min' => 2, 'bedrooms_max' => 3, 'suburbs' => ['Uvongo', 'Margate'], 'property_types' => ['Townhouse'], 'preapproval_amount' => 1800000, 'preapproval_institution' => 'SA Home Loans', 'preapproval_expires_at' => now()->addDays(45)->toDateString()],
+            ['price_min' => 4000000, 'price_max' => 6000000, 'beds_min' => 4, 'bedrooms_max' => 4, 'suburbs' => ['Southbroom', 'Shelly Beach'], 'must_have_features' => ['garden', 'pool']],
+            ['price_min' => 900000,  'price_max' => 1400000, 'beds_min' => 1, 'bedrooms_max' => 2, 'suburbs' => ['Margate'], 'preapproval_amount' => 1200000, 'preapproval_institution' => 'ooba', 'preapproval_expires_at' => now()->addDays(20)->toDateString()],
+            ['price_min' => 2500000, 'price_max' => 4000000, 'beds_min' => 3, 'bedrooms_max' => 4, 'suburbs' => ['Margate', 'Uvongo', 'Ramsgate'], 'must_have_features' => ['pet_friendly']],
+            ['price_min' => 6000000, 'price_max' => 10000000, 'beds_min' => 5, 'bedrooms_max' => 6, 'suburbs' => ['Southbroom']],
+            ['price_min' => 1800000, 'price_max' => 2800000, 'beds_min' => 3, 'bedrooms_max' => 3, 'suburbs' => ['Uvongo', 'Margate'], 'must_have_features' => ['garage']],
+            ['price_min' => 3500000, 'price_max' => 5000000, 'beds_min' => 4, 'bedrooms_max' => 4, 'suburbs' => ['Shelly Beach', 'Margate'], 'preapproval_amount' => 4500000, 'preapproval_institution' => 'Standard Bank', 'preapproval_expires_at' => now()->addMonths(4)->toDateString()],
         ];
 
         $count = 0;
@@ -74,28 +82,40 @@ class DemoDataSeeder extends Seeder
             if ($i >= count($presets)) break;
             $p = $presets[$i];
 
-            DB::table('buyer_preferences')->updateOrInsert(
-                ['contact_id' => $buyerId],
-                [
-                    'budget_min' => $p['budget_min'],
-                    'budget_max' => $p['budget_max'],
-                    'bedrooms_min' => $p['bedrooms_min'] ?? null,
-                    'bedrooms_max' => $p['bedrooms_max'] ?? null,
-                    'preferred_areas' => json_encode($p['preferred_areas'] ?? []),
-                    'preferred_property_types' => json_encode($p['preferred_property_types'] ?? []),
-                    'must_have_features' => json_encode($p['must_have_features'] ?? []),
-                    'deal_breakers' => json_encode([]),
-                    'preapproval_amount' => $p['preapproval_amount'] ?? null,
-                    'preapproval_expires_at' => $p['preapproval_expires_at'] ?? null,
-                    'preapproval_institution' => $p['preapproval_institution'] ?? null,
-                    'updated_by_user_id' => 22,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]
-            );
+            // 1. Preapproval → Contact pillar (spec D3).
+            $contactUpdates = array_filter([
+                'preapproval_amount'      => $p['preapproval_amount']      ?? null,
+                'preapproval_expires_at'  => $p['preapproval_expires_at']  ?? null,
+                'preapproval_institution' => $p['preapproval_institution'] ?? null,
+            ], fn ($v) => $v !== null);
+            if (!empty($contactUpdates)) {
+                DB::table('contacts')->where('id', $buyerId)->update($contactUpdates);
+            }
+
+            // 2. Wishlist → contact_matches (Eloquent so the observer fires and
+            //    is_primary auto-sets for the first match per contact).
+            $propertyTypes = $p['property_types'] ?? [];
+            \App\Models\ContactMatch::withoutGlobalScopes()->create([
+                'agency_id'             => $this->agencyId,
+                'contact_id'            => $buyerId,
+                'created_by_user_id'    => 22,
+                'updated_by_user_id'    => 22,
+                'status'                => \App\Models\ContactMatch::STATUS_ACTIVE,
+                'listing_type'          => 'sale',
+                'price_min'             => $p['price_min'],
+                'price_max'             => $p['price_max'],
+                'beds_min'              => $p['beds_min'] ?? null,
+                'bedrooms_max'          => $p['bedrooms_max'] ?? null,
+                'suburbs'               => $p['suburbs'] ?? [],
+                'property_types'        => $propertyTypes,
+                'property_type'         => $propertyTypes[0] ?? null,
+                'must_have_features'    => $p['must_have_features'] ?? [],
+                'nice_to_have_features' => [],
+                'deal_breakers'         => [],
+            ]);
             $count++;
         }
-        $this->command->info("  A. Buyer preferences enriched: {$count}");
+        $this->command->info("  A. ContactMatches + preapproval seeded: {$count}");
     }
 
     // ─── B. DEMO CONTACTS (buyers) ──────────────────────────
@@ -134,27 +154,37 @@ class DemoDataSeeder extends Seeder
                 'updated_at' => now(),
             ]);
 
-            // Add preferences for ~60% of demo buyers
+            // Add a wishlist for ~60% of demo buyers (post-unification: writes to
+            // contact_matches + contact preapproval block, not buyer_preferences).
             if ($i < 18) {
                 $suburb = $this->suburbs[array_rand($this->suburbs)];
                 $suburb2 = $this->suburbs[array_rand($this->suburbs)];
                 $budgetBase = [800000, 1200000, 1500000, 2000000, 2500000, 3000000, 4000000, 5000000][rand(0, 7)];
-                DB::table('buyer_preferences')->insert([
-                    'contact_id' => $contactId,
-                    'budget_min' => $budgetBase,
-                    'budget_max' => $budgetBase + rand(500000, 2000000),
-                    'bedrooms_min' => rand(1, 3),
-                    'bedrooms_max' => rand(3, 5),
-                    'preferred_areas' => json_encode(array_unique([$suburb, $suburb2])),
-                    'preferred_property_types' => json_encode([]),
-                    'must_have_features' => json_encode([]),
-                    'deal_breakers' => json_encode([]),
-                    'preapproval_amount' => ($i % 3 === 0) ? $budgetBase + rand(0, 500000) : null,
-                    'preapproval_institution' => ($i % 3 === 0) ? ['Standard Bank', 'FNB', 'Nedbank', 'ABSA', 'ooba'][rand(0, 4)] : null,
-                    'preapproval_expires_at' => ($i % 3 === 0) ? now()->addDays(rand(15, 90))->toDateString() : null,
+
+                if ($i % 3 === 0) {
+                    DB::table('contacts')->where('id', $contactId)->update([
+                        'preapproval_amount'      => $budgetBase + rand(0, 500000),
+                        'preapproval_institution' => ['Standard Bank', 'FNB', 'Nedbank', 'ABSA', 'ooba'][rand(0, 4)],
+                        'preapproval_expires_at'  => now()->addDays(rand(15, 90))->toDateString(),
+                    ]);
+                }
+
+                \App\Models\ContactMatch::withoutGlobalScopes()->create([
+                    'agency_id'          => $this->agencyId,
+                    'contact_id'         => $contactId,
+                    'created_by_user_id' => $agentId,
                     'updated_by_user_id' => $agentId,
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'status'             => \App\Models\ContactMatch::STATUS_ACTIVE,
+                    'listing_type'       => 'sale',
+                    'price_min'          => $budgetBase,
+                    'price_max'          => $budgetBase + rand(500000, 2000000),
+                    'beds_min'           => rand(1, 3),
+                    'bedrooms_max'       => rand(3, 5),
+                    'suburbs'            => array_values(array_unique([$suburb, $suburb2])),
+                    'property_types'     => [],
+                    'must_have_features' => [],
+                    'nice_to_have_features' => [],
+                    'deal_breakers'      => [],
                 ]);
             }
 

@@ -9,9 +9,33 @@ use App\Models\Deal;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 class ContactMatchController extends Controller
 {
+    /**
+     * Canonical feature token list for the wishlist chip selectors
+     * (must_have_features, nice_to_have_features, deal_breakers).
+     * Until a settings table owns this, the list lives here. Tokens are
+     * lower_snake_case; labels are derived via Str::headline() in the view.
+     */
+    public const FEATURE_OPTIONS = [
+        'pool',
+        'furnished',
+        'pet_friendly',
+        'garden',
+        'sea_view',
+        'security',
+        'garage',
+        'fibre',
+        'solar',
+        'air_conditioning',
+        'study',
+        'granny_flat',
+        'balcony',
+        'borehole',
+    ];
+
     public function __construct(protected MatchingService $matching) {}
 
     public function index()
@@ -142,56 +166,82 @@ class ContactMatchController extends Controller
 
     protected function validatePayload(Request $request): array
     {
-        $data = $request->validate([
-            'name'                  => 'nullable|string|max:120',
-            'listing_type'          => 'required|in:sale,rental',
-            'category'              => 'nullable|string|max:100',
-            'property_type'         => 'nullable|string|max:100',
-            'price_min'             => 'nullable|integer|min:0',
-            'price_max'             => 'nullable|integer|min:0',
-            'beds_min'              => 'nullable|integer|min:0|max:20',
-            'baths_min'             => 'nullable|integer|min:0|max:20',
-            'garages_min'           => 'nullable|integer|min:0|max:20',
-            'parking_min'           => 'nullable|integer|min:0|max:20',
-            'floor_size_min'        => 'nullable|integer|min:0',
-            'floor_size_max'        => 'nullable|integer|min:0',
-            'erf_size_min'          => 'nullable|integer|min:0',
-            'erf_size_max'          => 'nullable|integer|min:0',
-            'suburb'                => 'nullable|string|max:150',
-            'suburbs'               => 'nullable|array',
-            'suburbs.*'             => 'string|max:150',
-            'must_have_features'    => 'nullable|array',
-            'must_have_features.*'  => 'string|max:60',
-            'nice_to_have_features' => 'nullable|array',
+        // listing_type is required when creating a fresh match; optional when
+        // updating an existing one (e.g. a "Make primary" partial submit).
+        $isStore     = $request->routeIs('corex.contacts.matches.store');
+        $listingRule = ($isStore ? 'required' : 'nullable') . '|in:sale,rental';
+
+        $validator = Validator::make($request->all(), [
+            'name'                    => 'nullable|string|max:120',
+            'listing_type'            => $listingRule,
+            'is_primary'              => 'nullable|boolean',
+            'category'                => 'nullable|string|max:100',
+            'property_type'           => 'nullable|string|max:100',
+            'property_types'          => 'nullable|array',
+            'property_types.*'        => 'string|max:100',
+            'price_min'               => 'nullable|integer|min:0',
+            'price_max'               => 'nullable|integer|min:0',
+            'beds_min'                => 'nullable|integer|min:0|max:20',
+            'bedrooms_max'            => 'nullable|integer|min:0|max:20',
+            'baths_min'               => 'nullable|integer|min:0|max:20',
+            'garages_min'             => 'nullable|integer|min:0|max:20',
+            'parking_min'             => 'nullable|integer|min:0|max:20',
+            'floor_size_min'          => 'nullable|integer|min:0',
+            'floor_size_max'          => 'nullable|integer|min:0',
+            'erf_size_min'            => 'nullable|integer|min:0',
+            'erf_size_max'            => 'nullable|integer|min:0',
+            'suburb'                  => 'nullable|string|max:150',
+            'suburbs'                 => 'nullable|array',
+            'suburbs.*'               => 'string|max:150',
+            'must_have_features'      => 'nullable|array',
+            'must_have_features.*'    => 'string|max:60',
+            'nice_to_have_features'   => 'nullable|array',
             'nice_to_have_features.*' => 'string|max:60',
-            'feat_pool'             => 'nullable|in:yes,no',
-            'feat_furnished'        => 'nullable|in:yes,no',
-            'feat_pets'             => 'nullable|in:yes,no',
-            'notes'                 => 'nullable|string|max:500',
+            'deal_breakers'           => 'nullable|array',
+            'deal_breakers.*'         => 'string|max:60',
+            'notes'                   => 'nullable|string|max:500',
         ]);
 
-        // Normalise multi-suburb input — accept comma-separated string too
+        // Cross-field: bedrooms_max must be >= beds_min when both are present (spec D4).
+        $validator->after(function ($v) {
+            $bedsMin = $v->getData()['beds_min'] ?? null;
+            $bedsMax = $v->getData()['bedrooms_max'] ?? null;
+            if ($bedsMin !== null && $bedsMax !== null && (int) $bedsMax < (int) $bedsMin) {
+                $v->errors()->add('bedrooms_max', 'Maximum bedrooms cannot be less than minimum bedrooms.');
+            }
+        });
+
+        $data = $validator->validate();
+
+        // Normalise multi-suburb input.
         if (isset($data['suburbs']) && is_array($data['suburbs'])) {
             $data['suburbs'] = array_values(array_filter(array_map('trim', $data['suburbs'])));
         }
 
-        // Merge structured Yes/No feature filters into must_have_features.
-        $featureMap = [
-            'feat_pool'      => ['yes' => 'pool',         'no' => 'no_pool'],
-            'feat_furnished' => ['yes' => 'furnished',    'no' => 'unfurnished'],
-            'feat_pets'      => ['yes' => 'pet_friendly', 'no' => 'no_pets'],
-        ];
-        $existing = $data['must_have_features'] ?? [];
-        // Drop any prior feature tokens we manage so toggling Any clears them.
-        $managed = ['pool', 'no_pool', 'furnished', 'unfurnished', 'pet_friendly', 'no_pets'];
-        $existing = array_values(array_filter($existing, fn ($v) => !in_array(strtolower((string) $v), $managed, true)));
-        foreach ($featureMap as $field => $tokens) {
-            if (!empty($data[$field]) && isset($tokens[$data[$field]])) {
-                $existing[] = $tokens[$data[$field]];
+        // Normalise feature arrays — trim, lowercase tokens, drop blanks.
+        foreach (['must_have_features', 'nice_to_have_features', 'deal_breakers'] as $field) {
+            if (isset($data[$field]) && is_array($data[$field])) {
+                $data[$field] = array_values(array_unique(array_filter(array_map(
+                    fn ($v) => strtolower(trim((string) $v)),
+                    $data[$field]
+                ))));
             }
-            unset($data[$field]);
         }
-        $data['must_have_features'] = array_values(array_unique($existing));
+
+        // property_type <-> property_types reconciliation (spec D2 deprecation window).
+        // - If property_types (array) is submitted, set property_type to the first element
+        //   so the legacy column stays populated for one release cycle.
+        // - If only legacy property_type was submitted, mirror it into property_types
+        //   so new consumers see consistent shape.
+        if (isset($data['property_types']) && is_array($data['property_types'])) {
+            $data['property_types'] = array_values(array_filter(array_map(
+                fn ($v) => trim((string) $v),
+                $data['property_types']
+            )));
+            $data['property_type'] = $data['property_types'][0] ?? null;
+        } elseif (!empty($data['property_type'])) {
+            $data['property_types'] = [$data['property_type']];
+        }
 
         return $data;
     }

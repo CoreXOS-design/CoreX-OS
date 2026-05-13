@@ -40,8 +40,11 @@ class DemoCleanup extends Command
 
         // Cascade: buyer data
         if (!empty($demoContactIds)) {
-            $c = DB::table('buyer_preferences')->whereIn('contact_id', $demoContactIds)->delete();
-            $this->line("  buyer_preferences: {$c}");
+            // buyer_preferences cleanup removed — table is being deprecated (spec D11 Phase 1).
+            // ContactMatch rows for demo contacts get deleted below as part of the cascade,
+            // since contact_matches has a contact_id FK with cascadeOnDelete.
+            $c = DB::table('contact_matches')->whereIn('contact_id', $demoContactIds)->delete();
+            $this->line("  contact_matches: {$c}");
             $c = DB::table('buyer_property_responses')->whereIn('contact_id', $demoContactIds)->delete();
             $this->line("  buyer_property_responses: {$c}");
             $c = DB::table('buyer_activity_log')->whereIn('contact_id', $demoContactIds)->delete();

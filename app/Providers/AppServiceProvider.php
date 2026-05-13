@@ -15,15 +15,19 @@ use App\Models\CommandCenter\CommandTask;
 use App\Models\Contact;
 use App\Models\ContactAccessLog;
 use App\Models\ContactConsentRecord;
+use App\Models\ContactMatch;
 use App\Models\Deal;
 use App\Models\DealSettlement;
 use App\Models\Presentation;
 use App\Models\Property;
+use App\Events\Contracts\DomainEvent;
+use App\Listeners\Audit\RecordDomainEvent;
 use App\Observers\AgencyObserver;
 use App\Observers\CalendarEventFeedbackObserver;
 use App\Observers\CommandTaskObserver;
 use App\Observers\ContactAccessLogObserver;
 use App\Observers\ContactConsentRecordObserver;
+use App\Observers\ContactMatchObserver;
 use App\Observers\ContactObserver;
 use App\Observers\DealObserver;
 use App\Observers\DealSettlementObserver;
@@ -47,6 +51,7 @@ class AppServiceProvider extends ServiceProvider
         Contact::observe(ContactObserver::class);
         ContactAccessLog::observe(ContactAccessLogObserver::class);
         ContactConsentRecord::observe(ContactConsentRecordObserver::class);
+        ContactMatch::observe(ContactMatchObserver::class);
         Deal::observe(DealObserver::class);
         Presentation::observe(PresentationObserver::class);
         DealSettlement::observe(DealSettlementObserver::class);
@@ -66,6 +71,15 @@ class AppServiceProvider extends ServiceProvider
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\DocumentCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\PeopleCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\RecurringCalendarSource::class);
+
+        // Domain events: every concrete DomainEvent is recorded to
+        // domain_event_log by RecordDomainEvent. Spec:
+        // .ai/specs/corex-domain-events-spec.md Section 6, E6.
+        //
+        // Laravel's dispatcher resolves listeners by interface, not by parent
+        // class — so this listens on the DomainEvent interface, which every
+        // AbstractDomainEvent subclass implements transitively.
+        Event::listen(DomainEvent::class, RecordDomainEvent::class);
 
         // Auto-sync DocuPerfect named fields after every migration run
         Event::listen(MigrationsEnded::class, function () {

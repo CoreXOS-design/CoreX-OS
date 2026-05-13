@@ -234,7 +234,9 @@ class ContactController extends Controller
         $sellerPast = $sellerViewings->filter(fn ($v) => \Carbon\Carbon::parse($v['event_date'])->lt($now))->sortByDesc('event_date')->values();
         $viewingsCount = $buyerViewings->count() + $sellerViewings->count();
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount'));
+        $featureOptions = \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS;
+
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount'));
     }
 
     public function checkDuplicate(Request $request)
@@ -391,6 +393,10 @@ class ContactController extends Controller
             'bank_branch_name'    => 'nullable|string|max:255',
             'bank_branch_code'    => 'nullable|string|max:50',
             'bank_account_type'   => 'nullable|string|max:50',
+            // Financial position — buyer pre-approval (spec D3).
+            'preapproval_amount'      => 'nullable|numeric|min:0',
+            'preapproval_expires_at'  => 'nullable|date',
+            'preapproval_institution' => 'nullable|string|max:100',
         ]);
 
         $tagIds = $data['tag_ids'] ?? [];

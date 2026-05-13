@@ -532,6 +532,51 @@
                     </div>
                 </div>
 
+                {{-- Financial Position — buyer pre-approval (spec D3) --}}
+                <div x-data="{ open: {{ ($contact->preapproval_amount || $contact->preapproval_expires_at || $contact->preapproval_institution) ? 'true' : 'false' }} }">
+                    <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left mb-4">
+                        <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Financial Position</h3>
+                        @if($contact->hasValidPreapproval())
+                            <span class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">Pre-approved</span>
+                        @elseif($contact->preapproval_amount)
+                            <span class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(234,179,8,.15); color:#a16207;">Pre-approval expired</span>
+                        @endif
+                        <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                    </button>
+                    <div x-show="open" x-cloak>
+                        <p class="text-[11px] mb-3" style="color:var(--text-muted);">Buyer's verified financial pre-approval. Used for demand intelligence — pre-approved buyers count separately in the prospecting summary.</p>
+                        @if($contact->preapproval_amount)
+                            <div class="text-[11px] mb-3 rounded-md p-2" style="background:var(--surface-2); color:var(--text-secondary);">
+                                Currently: <strong>R {{ number_format((float) $contact->preapproval_amount, 0, '.', ',') }}</strong>
+                                @if($contact->preapproval_institution) via {{ $contact->preapproval_institution }} @endif
+                                @if($contact->preapproval_expires_at) , expires {{ $contact->preapproval_expires_at->format('d M Y') }} @endif
+                            </div>
+                        @endif
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Pre-approval Amount (R)</label>
+                                <input type="number" name="preapproval_amount" value="{{ old('preapproval_amount', $contact->preapproval_amount) }}"
+                                       placeholder="e.g. 2500000" min="0" step="1000"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Pre-approval Expires</label>
+                                <input type="date" name="preapproval_expires_at" value="{{ old('preapproval_expires_at', $contact->preapproval_expires_at?->format('Y-m-d')) }}"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Pre-approval Institution</label>
+                                <input type="text" name="preapproval_institution" value="{{ old('preapproval_institution', $contact->preapproval_institution) }}"
+                                       placeholder="e.g. FNB Home Loans" maxlength="100"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex items-center gap-3 pt-2">
                     <button type="submit" class="corex-btn-primary text-sm">Save Changes</button>
                     <a href="{{ route('corex.contacts.index') }}" class="text-sm" style="color:var(--text-muted);">Cancel</a>
@@ -1052,169 +1097,7 @@
             <div class="rounded-md p-5 space-y-5" style="background:var(--surface-2); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Add New Match Criteria</h3>
 
-                <form method="POST" action="{{ route('corex.contacts.matches.store', $contact) }}"
-                      x-data="{ listingType: 'sale' }"
-                      class="space-y-5">
-                    @csrf
-
-                    {{-- Listing type toggle --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Listing Type</label>
-                        <input type="hidden" name="listing_type" :value="listingType">
-                        <div class="inline-flex rounded-md p-0.5 gap-0.5" style="background:var(--surface); border:1px solid var(--border);">
-                            <button type="button"
-                                    @click="listingType = 'sale'"
-                                    :class="listingType === 'sale' ? 'text-white' : ''"
-                                    :style="listingType === 'sale' ? 'background:var(--brand-button, #0ea5e9);' : 'color:var(--text-secondary);'"
-                                    class="px-4 py-1.5 rounded-md text-xs font-semibold transition-all duration-150">
-                                For Sale
-                            </button>
-                            <button type="button"
-                                    @click="listingType = 'rental'"
-                                    :class="listingType === 'rental' ? 'text-white' : ''"
-                                    :style="listingType === 'rental' ? 'background:var(--brand-button, #0ea5e9);' : 'color:var(--text-secondary);'"
-                                    class="px-4 py-1.5 rounded-md text-xs font-semibold transition-all duration-150">
-                                Rental
-                            </button>
-                        </div>
-                    </div>
-
-                    {{-- Row 1: Category + Property Type + Suburb --}}
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Category</label>
-                            <select name="category" class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— Any —</option>
-                                @foreach($matchCategories as $cat)
-                                <option value="{{ $cat->name }}">{{ $cat->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Property Type</label>
-                            <select name="property_type" class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— Any —</option>
-                                @foreach($matchTypes as $type)
-                                <option value="{{ $type->name }}">{{ $type->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Suburb</label>
-                            <input type="text" name="suburb" placeholder="e.g. Uvongo, Margate"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                    </div>
-
-                    {{-- Row 2: Price range --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Price Range (R)</label>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <input type="number" name="price_min" placeholder="Min price" min="0" step="50000"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div>
-                                <input type="number" name="price_max" placeholder="Max price" min="0" step="50000"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                        </div>
-                    </div>
-
-                    {{-- Row 3: Beds / Baths / Garages / Parking --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Minimum Rooms</label>
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            @foreach([['beds_min','Bedrooms'],['baths_min','Bathrooms'],['garages_min','Garages'],['parking_min','Parking']] as [$field,$label])
-                            <div>
-                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">{{ $label }}</label>
-                                <input type="number" name="{{ $field }}" placeholder="Any" min="0" max="20"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            @endforeach
-                        </div>
-                    </div>
-
-                    {{-- Row 4: Floor size / Erf size --}}
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Floor Size (m²)</label>
-                            <div class="grid grid-cols-2 gap-2">
-                                <input type="number" name="floor_size_min" placeholder="Min" min="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <input type="number" name="floor_size_max" placeholder="Max" min="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Erf Size (m²)</label>
-                            <div class="grid grid-cols-2 gap-2">
-                                <input type="number" name="erf_size_min" placeholder="Min" min="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <input type="number" name="erf_size_max" placeholder="Max" min="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                        </div>
-                    </div>
-
-                    {{-- Features --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Features</label>
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div>
-                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Pool</label>
-                                <select name="feat_pool" class="w-full rounded-md px-3 py-2 text-sm"
-                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <option value="">Any</option>
-                                    <option value="yes">Has pool</option>
-                                    <option value="no">No pool</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Furnished</label>
-                                <select name="feat_furnished" class="w-full rounded-md px-3 py-2 text-sm"
-                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <option value="">Any</option>
-                                    <option value="yes">Furnished</option>
-                                    <option value="no">Unfurnished</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Pet friendly</label>
-                                <select name="feat_pets" class="w-full rounded-md px-3 py-2 text-sm"
-                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <option value="">Any</option>
-                                    <option value="yes">Pet friendly</option>
-                                    <option value="no">No pets</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    {{-- Notes --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notes (optional)</label>
-                        <textarea name="notes" rows="2" placeholder="Any additional requirements..."
-                                  class="w-full rounded-md px-3 py-2 text-sm resize-none"
-                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
-                    </div>
-
-                    <div class="flex justify-end">
-                        <button type="submit" class="corex-btn-primary text-sm">
-                            Save Match
-                        </button>
-                    </div>
-                </form>
+                @include('corex.contacts._match-form', ['contact' => $contact, 'match' => null])
             </div>
 
             {{-- Existing matches --}}
@@ -1226,12 +1109,19 @@
                     <div class="flex items-start justify-between gap-3">
                         <div class="flex-1 min-w-0 space-y-3">
 
-                            {{-- Header row: type badge + price --}}
+                            {{-- Header row: type badge + price + primary flag --}}
                             <div class="flex items-center gap-2 flex-wrap">
                                 <span class="ds-badge {{ $match->listing_type === 'rental' ? 'ds-badge-info' : 'ds-badge-default' }}"
                                       style="{{ $match->listing_type === 'rental' ? '' : 'background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);' }}">
                                     {{ $match->listingTypeLabel() }}
                                 </span>
+                                @if($match->is_primary)
+                                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
+                                      style="background:rgba(245,158,11,.18); color:#b45309; border:1px solid rgba(245,158,11,.35);"
+                                      title="This is the contact's primary wishlist — used for demand intelligence">
+                                    ⭐ Primary
+                                </span>
+                                @endif
                                 @if($match->price_min || $match->price_max)
                                 <span class="text-sm font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
                                 @endif
@@ -1292,6 +1182,18 @@
                                     @if($match->createdBy) · by {{ $match->createdBy->name }} @endif
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    @if(!$match->is_primary)
+                                    <form method="POST" action="{{ route('corex.contacts.matches.update', [$contact, $match]) }}" class="inline">
+                                        @csrf @method('PUT')
+                                        <input type="hidden" name="is_primary" value="1">
+                                        <button type="submit"
+                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                                                style="background:rgba(245,158,11,.10); color:#b45309; border:1px solid rgba(245,158,11,.25);"
+                                                title="Mark this wishlist as the contact's primary">
+                                            ⭐ Make Primary
+                                        </button>
+                                    </form>
+                                    @endif
                                     <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
                                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold no-underline transition-all duration-300"
                                        style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);"

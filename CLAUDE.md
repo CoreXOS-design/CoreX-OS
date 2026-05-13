@@ -105,6 +105,11 @@ All new HTTP API endpoints MUST live under `/api/v1/*` (or another versioned `/a
 - Always check for the other person's commits before merging to main.
 - Never push `database.sqlite` — this file must be in `.gitignore`.
 
+### 9. Cross-pillar reactivity uses domain events.
+For any feature that involves cross-pillar reactivity — where a state change in one part of CoreX should trigger updates, notifications, recomputations, or side effects in another part — the relevant build prompt MUST read `.ai/specs/corex-domain-events-spec.md` and use the event/listener pattern from the catalogue. Do NOT invent ad-hoc observer hooks, ad-hoc service calls, or ad-hoc query paths between pillars. Emit a named event when state changes; subscribe to existing events when reacting to state changes. The events catalogue is the API contract between pillars.
+
+CoreX is built on the principle that every important domain action sends signals across an interconnected system. The events catalogue is the connective tissue between Property, Contact, Agent, Mandate, Deal, FICA, and Documents. Without this pattern, every feature invents its own reactivity — leading to inconsistent behaviour, hard-to-debug cascades, and architectural debt at branch-merge time. Both Johan's and Andre's branches build to the same catalogue so that features either of them ship plug seamlessly into the work the other is doing.
+
 ---
 
 ## How to Build Something New
@@ -180,6 +185,7 @@ All new HTTP API endpoints MUST live under `/api/v1/*` (or another versioned `/a
 | `specs/ellie.md` | Ellie AI assistant spec | When working on Ellie |
 | `specs/tvadisplay.md` | TV display spec | When working on TV |
 | `specs/multi-tenancy.md` | Agency isolation — global scope, switcher rules | Any feature touching the DB |
+| `specs/corex-domain-events-spec.md` | Domain events catalogue — system-wide event/listener pattern (architectural foundation) | Whenever a feature involves cross-pillar reactivity |
 
 ---
 
