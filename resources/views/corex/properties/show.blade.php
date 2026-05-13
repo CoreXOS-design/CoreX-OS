@@ -15,6 +15,14 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
             Back
         </a>
+        @if(!$isNew && auth()->user()->hasPermission('outreach.compose'))
+        <a href="{{ route('seller-outreach.entry.from-property', $property) }}"
+           class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md no-underline flex-shrink-0"
+           style="background:#00d4aa; color:#003a2f;"
+           title="Compose a WhatsApp/Email pitch to the seller linked to this property">
+            💬 Pitch seller
+        </a>
+        @endif
         @if(session('success'))
         <div class="flex-1 rounded-md border px-4 py-2 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border-color:color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--ds-green, #059669);">
             {{ session('success') }}

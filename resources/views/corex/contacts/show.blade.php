@@ -90,6 +90,24 @@
                 Schedule Event
             </a>
 
+            {{-- Compose Seller Pitch (Prompt 08 entry-point) --}}
+            @if(auth()->user()->hasPermission('outreach.compose'))
+                @if($contact->messaging_opt_out_at)
+                    <span class="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md"
+                          style="background:color-mix(in srgb, var(--ds-crimson) 12%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);"
+                          title="This contact has opted out of messaging">
+                        ⚠ Opted out
+                    </span>
+                @else
+                    <a href="{{ route('seller-outreach.composer.show', $contact) }}"
+                       class="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"
+                       style="background:#00d4aa; color:#003a2f;"
+                       title="Compose a WhatsApp/Email pitch about a property linked to this contact">
+                        💬 Compose pitch
+                    </a>
+                @endif
+            @endif
+
             {{-- View as Buyer (if buyer) --}}
             @if($contact->is_buyer)
             <a href="{{ route('command-center.buyers.show', $contact) }}"
@@ -135,6 +153,12 @@
                     default => '<span class="ds-badge ds-badge-danger ml-1">Incomplete</span>',
                 };
             @endphp
+            @php
+                $outreachCount = $outreachSends?->count() ?? 0;
+                $outreachOptOutBadge = $contact->messaging_opt_out_at
+                    ? ' <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase" style="background:var(--ds-crimson); color:#fff;">opt-out</span>'
+                    : '';
+            @endphp
             @foreach([
                 ['key'=>'info','label'=>'Info'],
                 ['key'=>'properties','label'=>'Properties <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->properties->count() .'</span>'],
@@ -144,8 +168,12 @@
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
                 ['key'=>'matches','label'=>'Core Matches <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->matches->count() .'</span>'],
+                ['key'=>'outreach','label'=>'Outreach <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $outreachCount .'</span>' . $outreachOptOutBadge],
             ] as $t)
             @if($t['key'] === 'matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !auth()->user()->hasPermission('access_core_matches')))
+                @continue
+            @endif
+            @if($t['key'] === 'outreach' && !auth()->user()->hasPermission('outreach.compose'))
                 @continue
             @endif
             <button type="button"
@@ -1342,6 +1370,21 @@
             @endif
 
         </div>{{-- /viewings tab --}}
+
+        {{-- ════════════════════════════
+             OUTREACH TAB (Prompt 07)
+             ════════════════════════════ --}}
+        @if(auth()->user()->hasPermission('outreach.compose') && isset($outreachSends))
+        <div x-show="activeTab === 'outreach'" x-cloak class="p-6 space-y-6" id="tab-outreach">
+            @include('seller-outreach.contact-timeline._panel', [
+                'contact'        => $contact,
+                'sends'          => $outreachSends,
+                'clickCounts'    => $outreachClickCounts ?? collect(),
+                'optedOut'       => $contact->messaging_opt_out_at !== null,
+                'outcomeOptions' => $outreachOutcomeOptions ?? [],
+            ])
+        </div>
+        @endif
 
     </div>{{-- /tab container --}}
 

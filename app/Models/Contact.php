@@ -39,6 +39,7 @@ class Contact extends Model
         'is_buyer', 'buyer_state', 'last_activity_at',
         'buyer_pipeline_entered_at', 'buyer_pipeline_notes',
         'preapproval_amount', 'preapproval_expires_at', 'preapproval_institution',
+        'messaging_opt_out_at', 'messaging_opt_out_reason', 'messaging_opt_out_recorded_by_user_id',
     ];
 
     protected $casts = [
@@ -51,6 +52,7 @@ class Contact extends Model
         'buyer_pipeline_entered_at' => 'datetime',
         'preapproval_amount'        => 'decimal:2',
         'preapproval_expires_at'    => 'date',
+        'messaging_opt_out_at'      => 'datetime',
     ];
 
     /**
