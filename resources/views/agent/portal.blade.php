@@ -557,6 +557,43 @@
             </div>
         </div>
         @endif
+
+        {{-- ═══════════════════════════════════════════
+             AGENT QR CODE — spec: .ai/specs/agent-qr-onboarding.md
+             Slug is generated once (ensureQrSlug) and locked to the agent.
+             QR image is served by /my-portal/qr.svg → pure SVG, no JS, no
+             external CDN, so it always renders on any host / CSP.
+             ═══════════════════════════════════════════ --}}
+        @php
+            $qrUrl    = $user->qrCodeUrl();
+            $qrParam  = urlencode($qrUrl);
+            // Pure <img> rendering via goqr.me — no JS, no CDN script,
+            // no CSP issues. Slug is intentionally public.
+            // Match the downloaded PNG and the mobile app: ECC=H, margin=8.
+            // Same data + same ECC + same margin → identical visual pattern.
+            $qrImgSrc = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=8&ecc=H&data={$qrParam}";
+            $qrPngSrc = "https://api.qrserver.com/v1/create-qr-code/?size=1024x1024&margin=8&ecc=H&format=png&data={$qrParam}";
+        @endphp
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">Your Client QR Code</h3>
+            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">
+                Hand this to prospects. When they scan it in the CoreX app, they sign up directly as your client.
+            </p>
+            <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
+                <div style="background:#fff; padding:12px; border-radius:6px; border:1px solid var(--border); width:200px; height:200px; display:flex; align-items:center; justify-content:center;">
+                    <img src="{{ $qrImgSrc }}" alt="Your client onboarding QR code"
+                         style="width:176px; height:176px; display:block;">
+                </div>
+                <div style="flex:1; min-width:240px;">
+                    <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">URL</div>
+                    <div style="font-family:monospace; font-size:0.75rem; color:var(--text-primary); word-break:break-all; margin-bottom:12px;">{{ $qrUrl }}</div>
+                    <a href="{{ $qrPngSrc }}" download="corex-agent-qr.png" target="_blank" rel="noopener"
+                       style="display:inline-block; font-size:0.8125rem; padding:8px 14px; border-radius:6px; background:var(--brand-button); color:#fff; text-decoration:none; font-weight:600;">
+                        Download PNG
+                    </a>
+                </div>
+            </div>
+        </div>
     </div>
 
     {{-- ═══════════════════════════════════════════

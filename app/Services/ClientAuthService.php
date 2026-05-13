@@ -78,12 +78,35 @@ class ClientAuthService
         $email = strtolower(trim($email));
 
         $clientUser = ClientUser::where('email', $email)->first();
+
+        // Pre-fetch matching contacts so we can stamp the origin agency on
+        // first creation (earliest contact's agency = origin).
+        $matches = $this->findContactsByIdentifierAcrossAgencies($email);
+
         if (!$clientUser) {
-            $clientUser = ClientUser::create(['email' => $email]);
+            $originAgencyId = $matches['contacts']
+                ->sortBy('id')
+                ->pluck('agency_id')
+                ->filter()
+                ->first();
+
+            $clientUser = ClientUser::create([
+                'email' => $email,
+                'created_by_agency_id' => $originAgencyId,
+            ]);
+        } elseif (empty($clientUser->created_by_agency_id)) {
+            // Backfill origin if missing (legacy rows).
+            $originAgencyId = $matches['contacts']
+                ->sortBy('id')
+                ->pluck('agency_id')
+                ->filter()
+                ->first();
+            if ($originAgencyId) {
+                $clientUser->forceFill(['created_by_agency_id' => $originAgencyId])->save();
+            }
         }
 
         // Lazy-link any matching contacts (across all agencies).
-        $matches = $this->findContactsByIdentifierAcrossAgencies($email);
         foreach ($matches['contacts'] as $contact) {
             if (!$contact->client_user_id) {
                 $contact->forceFill(['client_user_id' => $clientUser->id])->saveQuietly();

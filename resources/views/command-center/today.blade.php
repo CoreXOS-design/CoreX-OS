@@ -1,18 +1,22 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div x-data="commandCentre()" x-init="startAutoRefresh(); computeLayout();" @resize.window.debounce.100ms="computeLayout()">
-    {{-- Compact header --}}
-    <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-3 min-w-0">
-            <h1 class="text-base font-bold whitespace-nowrap" style="color:var(--text-primary);">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>
-            <span class="text-xs hidden sm:inline" style="color:var(--text-muted);">{{ now()->format('l, d M Y') }}</span>
+<div x-data="commandCentre()" x-init="startAutoRefresh()">
+    {{-- Header --}}
+    <div class="flex items-end justify-between mb-5 gap-4 flex-wrap">
+        <div class="min-w-0">
+            <h1 class="text-2xl font-bold leading-tight" style="color:var(--text-primary);">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>
+            <p class="text-sm mt-0.5" style="color:var(--text-muted);">{{ now()->format('l, d F Y') }}</p>
         </div>
-        <div class="flex items-center gap-2 flex-shrink-0">
-            <span class="text-[10px] hidden md:inline" style="color:var(--text-muted);" x-text="lastRefresh"></span>
-            <button type="button" @click="toggleView()" class="text-[10px] px-2 py-0.5 rounded transition-colors" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);" x-text="viewMode === 'compact' ? 'Detailed' : 'Compact'"></button>
-            <button type="button" @click="refresh()" :disabled="refreshing" class="p-1.5 rounded-md transition-colors" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);" title="Refresh">
-                <svg class="w-3.5 h-3.5" :class="refreshing && 'animate-spin'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" /></svg>
+        <div class="flex items-center gap-3 flex-shrink-0">
+            <span class="text-xs hidden md:inline" style="color:var(--text-muted);" x-text="lastRefresh"></span>
+
+            <button type="button" @click="refresh()" :disabled="refreshing"
+                    class="p-1.5 rounded-md transition-colors"
+                    style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);" title="Refresh">
+                <svg class="w-4 h-4" :class="refreshing && 'animate-spin'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+                </svg>
             </button>
         </div>
     </div>
@@ -26,91 +30,128 @@
         </div>
     </template>
 
-    {{-- ═══════════ ADAPTIVE GRID ═══════════ --}}
-    <div x-ref="grid" class="grid gap-2" :style="gridStyle()">
-        <template x-for="card in cards" :key="card.card_id">
-            <a :href="card.view_all_url || '#'" class="group block rounded-lg overflow-hidden transition-all no-underline"
-               style="background:var(--surface);border:1px solid var(--border);"
-               :style="'border-left:4px solid ' + urgencyColour(card.urgency) + ';' + cardSizeStyle()"
-               @mouseenter="hoveredCard = card.card_id" @mouseleave="hoveredCard = null">
+    {{-- ═══════════ GROUPED SECTIONS ═══════════ --}}
+    <template x-for="group in groups" :key="group.key">
+        <section x-show="group.cards.length > 0" class="mb-6">
+            {{-- Section label --}}
+            <div class="flex items-center gap-2 mb-3">
+                <span class="w-2 h-2 rounded-full" :style="'background:' + group.colour"></span>
+                <h2 class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-secondary);" x-text="group.label"></h2>
+                <span class="text-xs tabular-nums" style="color:var(--text-muted);" x-text="'· ' + group.cards.length"></span>
+                <div class="flex-1 h-px" style="background:var(--border);"></div>
+            </div>
 
-                {{-- ─── Compact card content ─── --}}
-                <div x-show="viewMode === 'compact'" class="p-3 h-full flex flex-col justify-between">
-                    <div class="flex items-start justify-between">
-                        <div class="w-7 h-7 rounded flex items-center justify-center flex-shrink-0" :style="'background:' + urgencyColour(card.urgency) + '18; color:' + urgencyColour(card.urgency)">
-                            <span x-html="cardIcon(card.icon)" class="w-3.5 h-3.5"></span>
-                        </div>
-                        <span class="font-bold tabular-nums leading-none" :class="cardH > 140 ? 'text-2xl' : 'text-xl'" :style="card.count > 0 ? 'color:' + urgencyColour(card.urgency) : 'color:var(--text-muted);opacity:0.4;'" x-text="card.count > 99 ? '99+' : (card.count || '')"></span>
-                    </div>
-                    <div class="mt-auto pt-1">
-                        <div class="text-[11px] font-semibold leading-tight truncate" style="color:var(--text-primary);" x-text="card.title"></div>
-                        <div x-show="cardH >= 120" class="text-[10px] mt-0.5 truncate" style="color:var(--text-muted);" x-text="compactPreview(card)"></div>
-                    </div>
-                </div>
+            {{-- Card grid: capped at 4 cols, responsive --}}
+            <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <template x-for="card in group.cards" :key="card.card_id">
+                    <a :href="card.view_all_url || '#'"
+                       class="group flex flex-col rounded-lg overflow-hidden transition-all no-underline hover:-translate-y-0.5 hover:shadow-lg h-full"
+                       :style="cardStyle(card)"
+                       @mouseenter="hoveredCard = card.card_id" @mouseleave="hoveredCard = null">
 
-                {{-- ─── Detailed card content ─── --}}
-                <div x-show="viewMode === 'detailed'" class="p-3 h-full flex flex-col overflow-hidden">
-                    <div class="flex items-center justify-between mb-1.5">
-                        <div class="flex items-center gap-1.5 min-w-0">
-                            <div class="w-6 h-6 rounded flex items-center justify-center flex-shrink-0" :style="'background:' + urgencyColour(card.urgency) + '15; color:' + urgencyColour(card.urgency)">
-                                <span x-html="cardIcon(card.icon)" class="w-3 h-3"></span>
+                        {{-- ─── Compact (disabled — always detailed) ─── --}}
+                        <div x-show="false" class="p-4 flex flex-col gap-3 min-h-[140px]">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                                         :style="'background:' + urgencyColour(card.urgency) + '20; color:' + urgencyColour(card.urgency)">
+                                        <span x-html="cardIcon(card.icon)" class="w-4 h-4"></span>
+                                    </div>
+                                    <span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded"
+                                          :style="'background:' + urgencyColour(card.urgency) + '15; color:' + urgencyColour(card.urgency)"
+                                          x-text="urgencyLabel(card.urgency)"></span>
+                                </div>
+                                <span class="font-bold tabular-nums leading-none text-3xl"
+                                      :style="card.count > 0 ? 'color:' + urgencyColour(card.urgency) : 'color:var(--text-muted);opacity:0.35;'"
+                                      x-text="card.count > 99 ? '99+' : (card.count || '0')"></span>
                             </div>
-                            <h3 class="text-xs font-semibold truncate" style="color:var(--text-primary);" x-text="card.title"></h3>
+                            <div class="mt-auto">
+                                <div class="text-sm font-semibold leading-tight truncate" style="color:var(--text-primary);" x-text="card.title"></div>
+                                <div class="text-xs mt-1 truncate" style="color:var(--text-muted);" x-text="compactPreview(card)"></div>
+                            </div>
                         </div>
-                        <span x-show="card.count > 0" class="text-lg font-bold flex-shrink-0 tabular-nums leading-none" :style="'color:' + urgencyColour(card.urgency)" x-text="card.count > 99 ? '99+' : card.count"></span>
-                    </div>
-                    {{-- Inline invitation actions --}}
-                    <template x-if="card.card_id === 'pending_invitations'">
-                        <div class="flex-1 overflow-hidden space-y-1 text-[11px]">
-                            <template x-for="item in card.items.slice(0,3)" :key="item.id">
-                                <div>
-                                    <div class="truncate font-medium" style="color:var(--text-primary);" x-text="item.title"></div>
-                                    <div class="flex items-center gap-1 mt-0.5">
-                                        <button type="button" @click.prevent="respondInvitation(item, 'accepted')" class="text-[9px] px-1.5 py-0.5 rounded text-white" style="background:#10b981;">Accept</button>
-                                        <button type="button" @click.prevent="respondInvitation(item, 'tentative')" class="text-[9px] px-1.5 py-0.5 rounded" style="color:#f59e0b;background:var(--surface-2);">Tentative</button>
-                                        <button type="button" @click.prevent="respondInvitation(item, 'declined')" class="text-[9px] px-1.5 py-0.5 rounded" style="color:#ef4444;background:var(--surface-2);">Decline</button>
+
+                        {{-- ─── Detailed ─── --}}
+                        <div class="p-4 flex flex-col flex-1 min-h-[180px]">
+                            <div class="flex items-center justify-between mb-3 gap-2">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                                         :style="'background:' + urgencyColour(card.urgency) + '20; color:' + urgencyColour(card.urgency)">
+                                        <span x-html="cardIcon(card.icon)" class="w-4 h-4"></span>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <h3 class="text-sm font-semibold truncate leading-tight" style="color:var(--text-primary);" x-text="card.title"></h3>
+                                        <span class="text-[10px] uppercase tracking-wider font-semibold"
+                                              :style="'color:' + urgencyColour(card.urgency)"
+                                              x-text="urgencyLabel(card.urgency)"></span>
                                     </div>
                                 </div>
-                            </template>
-                        </div>
-                    </template>
-                    {{-- Active Buyer Pipeline breakdown --}}
-                    <template x-if="['active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing'].includes(card.card_id)">
-                        <div class="flex-1 overflow-hidden space-y-1 text-[11px]">
-                            <template x-for="item in card.items" :key="item.label">
-                                <div class="flex items-center justify-between">
-                                    <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + item.colour"></span><span style="color:var(--text-secondary);" x-text="item.label"></span></div>
-                                    <span class="font-bold tabular-nums" style="color:var(--text-primary);" x-text="item.value"></span>
+                                <span x-show="card.count > 0" class="text-2xl font-bold flex-shrink-0 tabular-nums leading-none"
+                                      :style="'color:' + urgencyColour(card.urgency)" x-text="card.count > 99 ? '99+' : card.count"></span>
+                            </div>
+
+                            {{-- Inline invitation actions --}}
+                            <template x-if="card.card_id === 'pending_invitations'">
+                                <div class="flex-1 space-y-1.5 text-xs">
+                                    <template x-for="item in card.items.slice(0,3)" :key="item.id">
+                                        <div>
+                                            <div class="truncate font-medium" style="color:var(--text-primary);" x-text="item.title"></div>
+                                            <div class="flex items-center gap-1 mt-1">
+                                                <button type="button" @click.prevent="respondInvitation(item, 'accepted')" class="text-[10px] px-2 py-0.5 rounded text-white font-medium" style="background:#10b981;">Accept</button>
+                                                <button type="button" @click.prevent="respondInvitation(item, 'tentative')" class="text-[10px] px-2 py-0.5 rounded font-medium" style="color:#f59e0b;background:var(--surface);">Tentative</button>
+                                                <button type="button" @click.prevent="respondInvitation(item, 'declined')" class="text-[10px] px-2 py-0.5 rounded font-medium" style="color:#ef4444;background:var(--surface);">Decline</button>
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
                             </template>
-                        </div>
-                    </template>
-                    {{-- Agency Snapshot --}}
-                    <template x-if="card.card_id === 'agency_health'">
-                        <div class="flex-1 overflow-hidden grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
-                            <template x-for="item in card.items" :key="'ah'"><template x-if="true"><div class="contents">
-                                <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.agents"></span> <span style="color:var(--text-muted);">agents</span></div>
-                                <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.listings"></span> <span style="color:var(--text-muted);">listings</span></div>
-                                <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.active_buyers"></span> <span style="color:var(--text-muted);">buyers</span></div>
-                                <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.lost_value_30d"></span> <span style="color:var(--text-muted);">lost</span></div>
-                            </div></template></template>
-                        </div>
-                    </template>
-                    {{-- Generic item list (all other cards) --}}
-                    <template x-if="!['pending_invitations','active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing','agency_health'].includes(card.card_id)">
-                        <div class="flex-1 overflow-hidden space-y-0.5 text-[11px]">
-                            <template x-for="(item, idx) in card.items.slice(0, 4)" :key="idx">
-                                <div class="truncate py-0.5" style="color:var(--text-secondary);" x-text="detailedItemText(card, item)"></div>
+
+                            {{-- Pipeline / breakdown --}}
+                            <template x-if="['active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing'].includes(card.card_id)">
+                                <div class="flex-1 space-y-1.5 text-xs min-w-0">
+                                    <template x-for="item in card.items" :key="item.label">
+                                        <div class="flex items-center justify-between gap-2 min-w-0">
+                                            <div class="flex items-center gap-2 min-w-0 flex-1">
+                                                <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + item.colour"></span>
+                                                <span class="truncate" style="color:var(--text-secondary);" x-text="item.label"></span>
+                                            </div>
+                                            <span class="font-bold tabular-nums flex-shrink-0" style="color:var(--text-primary);" x-text="item.value"></span>
+                                        </div>
+                                    </template>
+                                </div>
                             </template>
-                            <template x-if="card.items.length > 4"><div style="color:var(--text-muted);" x-text="'+ ' + (card.items.length - 4) + ' more'"></div></template>
+
+                            {{-- Agency snapshot --}}
+                            <template x-if="card.card_id === 'agency_health'">
+                                <div class="flex-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                                    <template x-for="item in card.items" :key="'ah'"><template x-if="true"><div class="contents">
+                                        <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.agents"></span> <span style="color:var(--text-muted);">agents</span></div>
+                                        <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.listings"></span> <span style="color:var(--text-muted);">listings</span></div>
+                                        <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.active_buyers"></span> <span style="color:var(--text-muted);">buyers</span></div>
+                                        <div><span class="font-bold" style="color:var(--text-primary);" x-text="item.lost_value_30d"></span> <span style="color:var(--text-muted);">lost</span></div>
+                                    </div></template></template>
+                                </div>
+                            </template>
+
+                            {{-- Generic list --}}
+                            <template x-if="!['pending_invitations','active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing','agency_health'].includes(card.card_id)">
+                                <div class="flex-1 space-y-1 text-xs">
+                                    <template x-for="(item, idx) in card.items.slice(0, 4)" :key="idx">
+                                        <div class="truncate" style="color:var(--text-secondary);" x-text="detailedItemText(card, item)"></div>
+                                    </template>
+                                    <template x-if="card.items.length > 4"><div class="text-[11px]" style="color:var(--text-muted);" x-text="'+ ' + (card.items.length - 4) + ' more'"></div></template>
+                                </div>
+                            </template>
+
+                            <div class="mt-auto pt-2 text-xs font-semibold flex items-center gap-1" style="color:var(--brand-button);border-top:1px solid var(--border);">
+                                <span>View all</span><span class="group-hover:translate-x-0.5 transition-transform">&rarr;</span>
+                            </div>
                         </div>
-                    </template>
-                    {{-- Footer --}}
-                    <div class="mt-auto pt-1 text-[10px] font-medium" style="color:var(--brand-button);">View all &rarr;</div>
-                </div>
-            </a>
-        </template>
-    </div>
+                    </a>
+                </template>
+            </div>
+        </section>
+    </template>
 
     {{-- Hover tooltip (compact mode) --}}
     <template x-if="hoveredCard && viewMode === 'compact'">
@@ -132,86 +173,38 @@
 function commandCentre() {
     return {
         cards: @json($cards),
-        viewMode: localStorage.getItem('cc_view') || 'compact',
+        viewMode: 'detailed',
         refreshing: false,
         lastRefresh: 'Just now',
         hoveredCard: null,
         _refreshTimer: null,
         _mouseX: 0, _mouseY: 0,
 
-        // Adaptive layout state
-        cols: 4, cardH: 130, cardW: 300,
-
         init() {
             document.addEventListener('mousemove', (e) => { this._mouseX = e.clientX; this._mouseY = e.clientY; });
         },
 
-        toggleView() {
-            this.viewMode = this.viewMode === 'compact' ? 'detailed' : 'compact';
-            localStorage.setItem('cc_view', this.viewMode);
-            this.$nextTick(() => this.computeLayout());
+        setView(mode) {
+            this.viewMode = mode;
+            localStorage.setItem('cc_view', mode);
         },
 
-        computeLayout() {
-            const N = this.cards.length;
-            if (N === 0) return;
-
-            const gridEl = this.$refs.grid;
-            if (!gridEl) return;
-
-            // Available space — measure from grid container
-            const rect = gridEl.parentElement.getBoundingClientRect();
-            const Aw = rect.width - 4; // small buffer
-            const Ah = window.innerHeight - rect.top - 24; // from grid top to viewport bottom
-            const gap = 8;
-
-            // Constraints depend on view mode
-            const isDetailed = this.viewMode === 'detailed';
-            const minW = isDetailed ? 280 : 200;
-            const maxW = isDetailed ? 420 : 380;
-            const minH = isDetailed ? 140 : 100;
-            const maxH = isDetailed ? 220 : 170;
-
-            let bestCols = 3, bestScore = -1, bestH = 130;
-
-            for (let c = 1; c <= 7; c++) {
-                const cw = (Aw - (c - 1) * gap) / c;
-                if (cw < minW || cw > maxW) continue;
-
-                const rows = Math.ceil(N / c);
-                let ch = (Ah - (rows - 1) * gap) / rows;
-
-                // Clamp height
-                const fits = ch >= minH;
-                ch = Math.max(minH, Math.min(maxH, ch));
-
-                // Score: prefer filling viewport (less waste), all visible (no scroll), good aspect ratio
-                const usedH = rows * ch + (rows - 1) * gap;
-                const wasteRatio = Math.max(0, Ah - usedH) / Ah;
-                const aspectScore = 1 - Math.abs((cw / ch) - 2.2) / 3; // ideal ~2.2:1
-                const fitBonus = fits ? 0.3 : 0;
-                const colPenalty = (c <= 2 && N > 6) ? -0.2 : (c >= 6 ? -0.1 : 0);
-
-                const score = (1 - wasteRatio) * 0.4 + aspectScore * 0.3 + fitBonus + colPenalty;
-
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestCols = c;
-                    bestH = Math.round(ch);
-                }
-            }
-
-            this.cols = bestCols;
-            this.cardH = bestH;
-            this.cardW = Math.round((Aw - (bestCols - 1) * gap) / bestCols);
+        // Group cards by urgency for the three-tier layout
+        get groups() {
+            const by = (urgencies) => this.cards.filter(c => urgencies.includes(c.urgency));
+            return [
+                { key: 'now',   label: 'Action Required', colour: '#ef4444', cards: by(['critical','high']) },
+                { key: 'today', label: 'Today',           colour: '#0ea5e9', cards: by(['medium']) },
+                { key: 'fyi',   label: 'Snapshot',        colour: '#64748b', cards: by(['low']) },
+            ];
         },
 
-        gridStyle() {
-            return `grid-template-columns: repeat(${this.cols}, minmax(0, 1fr));`;
+        cardStyle(card) {
+            return 'background:var(--surface-2);border:1px solid var(--border);border-top:3px solid ' + this.urgencyColour(card.urgency) + ';';
         },
 
-        cardSizeStyle() {
-            return `min-height:${this.cardH}px; max-height:${this.cardH}px;`;
+        urgencyLabel(u) {
+            return { critical: 'Now', high: 'Now', medium: 'Today', low: 'FYI' }[u] || 'FYI';
         },
 
         startAutoRefresh() {
@@ -229,7 +222,6 @@ function commandCentre() {
                     const data = await r.json();
                     this.cards = data.cards;
                     this.lastRefresh = 'Updated ' + new Date().toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
-                    this.$nextTick(() => this.computeLayout());
                 }
             } catch (e) { console.warn('Refresh failed:', e); }
             this.refreshing = false;

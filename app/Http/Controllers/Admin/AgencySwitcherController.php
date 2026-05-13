@@ -73,7 +73,19 @@ class AgencySwitcherController extends Controller
 
         $agencies = Agency::orderBy('name')->get();
 
-        return view('agency.select', compact('agencies'));
+        // Live 24h cross-agency consent grants for this user, keyed by
+        // agency_id → ISO expires-at. Mirrors the sidebar switcher so locked
+        // agencies are visually consistent across both entry points.
+        $accessGrants = \App\Models\AgencyAccessRequest::query()
+            ->byRequester($user->id)
+            ->where('status', \App\Models\AgencyAccessRequest::STATUS_APPROVED)
+            ->where('granted_session_expires_at', '>', now())
+            ->get(['target_agency_id', 'granted_session_expires_at'])
+            ->groupBy('target_agency_id')
+            ->map(fn ($rows) => $rows->max('granted_session_expires_at')->toIso8601String())
+            ->all();
+
+        return view('agency.select', compact('agencies', 'accessGrants'));
     }
 
     /**

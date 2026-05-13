@@ -99,9 +99,10 @@ class ContactMatchController extends Controller
     {
         abort_if($match->contact_id !== $contact->id, 403);
 
-        $overrides = ['include_hidden' => true] + MatchingService::scopeOverridesFor($match);
-
-        $properties = $this->matching->propertiesForMatch($match, $overrides);
+        // Use the strict ClientMatchResolver so the agent web view applies the
+        // same hard filters as the mobile client API — sale matches never show
+        // rentals, and vice versa. Spec: .ai/specs/client-auth.md (round 4).
+        $properties = app(\App\Services\Matching\ClientMatchResolver::class)->resolve($match);
         $feedback   = $match->feedback()->get()->keyBy('property_id');
 
         return view('corex.contacts.match-results', compact(

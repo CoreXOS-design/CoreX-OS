@@ -20,7 +20,17 @@
         <div class="rounded-md px-4 py-3 flex items-start gap-3" style="background:var(--surface);border:1px solid var(--border);{{ $isUnread ? 'border-left:3px solid var(--brand-button);' : '' }}">
             <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="{{ $isUnread ? 'background:var(--brand-button);' : 'background:var(--text-muted);opacity:0.3;' }}"></div>
             <div class="flex-1 min-w-0">
-                <div class="text-sm" style="color:var(--text-primary);">{{ $data['message'] ?? str_replace('_', ' ', class_basename($n->type)) }}</div>
+                @php
+                    $title = $data['title'] ?? $data['message'] ?? null;
+                    $body  = $data['body']  ?? null;
+                    if (!$title && !$body) { $title = \Illuminate\Support\Str::headline(class_basename($n->type)); }
+                @endphp
+                @if($title)
+                    <div class="text-sm font-medium" style="color:var(--text-primary);">{{ $title }}</div>
+                @endif
+                @if($body)
+                    <div class="text-xs mt-0.5" style="color:var(--text-secondary);">{{ $body }}</div>
+                @endif
                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($n->created_at)->diffForHumans() }}</div>
             </div>
             @if($isUnread)

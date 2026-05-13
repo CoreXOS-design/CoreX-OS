@@ -23,6 +23,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'qr_code_slug',
         'role',
         'designation',
         'supervised_by',
@@ -302,6 +303,38 @@ class User extends Authenticatable
             $query->where(fn($q) => $q->where('branch_id', $branchId)->orWhereNull('branch_id'));
         }
         return $query->exists();
+    }
+
+    /**
+     * Ensure this user has a unique QR slug; generate one if missing.
+     * The slug is embedded in the agent's onboarding QR URL.
+     * Spec: .ai/specs/agent-qr-onboarding.md
+     */
+    public function ensureQrSlug(): string
+    {
+        if (!empty($this->qr_code_slug)) {
+            return $this->qr_code_slug;
+        }
+
+        $alphabet = '23456789abcdefghjkmnpqrstuvwxyz';
+        do {
+            $slug = '';
+            for ($i = 0; $i < 10; $i++) {
+                $slug .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+            }
+            $exists = static::where('qr_code_slug', $slug)->exists();
+        } while ($exists);
+
+        $this->forceFill(['qr_code_slug' => $slug])->save();
+        return $slug;
+    }
+
+    /**
+     * Canonical web URL the agent's QR code encodes.
+     */
+    public function qrCodeUrl(): string
+    {
+        return rtrim(config('app.url'), '/') . '/r/a/' . $this->ensureQrSlug();
     }
 
     // ── Owner role checks (the ONLY hardcoded concept) ──

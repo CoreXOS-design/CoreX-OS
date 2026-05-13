@@ -56,6 +56,23 @@
                 <div class="rounded-md p-4 flex flex-col"
                      style="background: var(--surface); border: 1px solid var(--border);"
                      x-show="!search || '{{ strtolower(addslashes($ag->name)) }}'.includes(search.toLowerCase())">
+                    @php
+                        $grantExpiresIso = $accessGrants[$ag->id] ?? null;
+                        $hasLiveGrant = false;
+                        $grantRemaining = null;
+                        if ($grantExpiresIso) {
+                            $expiresAt = \Illuminate\Support\Carbon::parse($grantExpiresIso);
+                            if ($expiresAt->isFuture()) {
+                                $hasLiveGrant = true;
+                                $hoursLeft = (int) floor(now()->diffInMinutes($expiresAt) / 60);
+                                $grantRemaining = $hoursLeft >= 1
+                                    ? $hoursLeft . 'h'
+                                    : max(1, (int) now()->diffInMinutes($expiresAt)) . 'm';
+                            }
+                        }
+                        $requiresAuth = (bool) ($ag->require_external_access_authorization ?? false);
+                        $showLock = $requiresAuth && !$hasLiveGrant;
+                    @endphp
                     <div class="flex items-center gap-3 mb-3">
                         @if($ag->logo_path)
                         <img src="{{ Storage::url($ag->logo_path) }}" alt="" class="w-10 h-10 rounded-md object-cover" style="background: var(--surface-2);">
@@ -65,8 +82,19 @@
                             {{ strtoupper(substr($ag->name, 0, 2)) }}
                         </div>
                         @endif
-                        <div class="min-w-0">
-                            <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">{{ $ag->name }}</div>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm font-semibold truncate flex items-center gap-1.5" style="color: var(--text-primary);">
+                                <span class="truncate">{{ $ag->name }}</span>
+                                @if($hasLiveGrant)
+                                <span title="Access granted — {{ $grantRemaining }} remaining"
+                                      class="text-[10px] px-1.5 py-0.5 rounded font-mono flex-shrink-0"
+                                      style="background:color-mix(in srgb, var(--ds-green) 20%, transparent); color:var(--ds-green);">{{ $grantRemaining }}</span>
+                                @elseif($showLock)
+                                <span title="Requires consent"
+                                      class="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0"
+                                      style="background:color-mix(in srgb, var(--ds-amber) 20%, transparent); color:var(--ds-amber);">🔒</span>
+                                @endif
+                            </div>
                             @if($ag->trading_name && $ag->trading_name !== $ag->name)
                             <div class="text-xs truncate" style="color: var(--text-secondary);">{{ $ag->trading_name }}</div>
                             @endif
