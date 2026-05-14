@@ -544,7 +544,10 @@ class ImporterController extends Controller
         // Prefer detached shell over queue: independent of worker config and
         // works on any host with PHP CLI. The artisan command writes progress
         // to cache so the UI poller picks it up the same way either path.
-        $php       = PHP_BINARY ?: 'php';
+        //
+        // PHP_BINARY in a web request points at php-fpm (which can't run CLI
+        // scripts) — explicitly resolve a real CLI binary instead.
+        $php = $this->resolvePhpCliBinary();
         $base      = base_path();
         $logFile   = storage_path('logs/p24-sync.log');
         $cmd       = sprintf('%s %s/artisan p24:sync-locations', escapeshellarg($php), escapeshellarg($base));
@@ -566,6 +569,32 @@ class ImporterController extends Controller
         return $request->expectsJson()
             ? response()->json(['success' => true, 'message' => $msg])
             : back()->with('success', $msg);
+    }
+
+    /**
+     * Find a PHP CLI binary on the host. PHP_BINARY in a web request resolves
+     * to whatever SAPI is serving the request — under FPM that's php-fpm,
+     * which can't run artisan. We try CLI-only paths first and fall back to
+     * the unqualified `php` on PATH.
+     */
+    private function resolvePhpCliBinary(): string
+    {
+        $candidates = [
+            '/usr/bin/php',
+            '/usr/local/bin/php',
+            '/opt/homebrew/bin/php',
+        ];
+        // If PHP_BINARY isn't php-fpm/php-cgi, use it.
+        if (defined('PHP_BINARY') && PHP_BINARY) {
+            $name = strtolower(basename(PHP_BINARY));
+            if (!str_contains($name, 'fpm') && !str_contains($name, 'cgi')) {
+                return PHP_BINARY;
+            }
+        }
+        foreach ($candidates as $path) {
+            if (is_executable($path)) return $path;
+        }
+        return 'php'; // Last-resort PATH lookup.
     }
 
     public function p24LocationsStatus()
