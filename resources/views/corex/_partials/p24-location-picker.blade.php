@@ -106,14 +106,25 @@
 @push('scripts')
 <script>
 function p24LocationCombobox(init) {
+    // Only pre-fill the visible query text if there's a real P24 ID backing
+    // it. Legacy free-text suburbs ("KwaZulu-Natal", "Margate", etc.) that
+    // were never linked to P24 must start blank so the user is forced to
+    // re-pick from the recognised list.
+    const provinceId = init.initialProvinceId || 0;
+    const cityId     = init.initialCityId     || 0;
+    const suburbId   = init.initialSuburbId   || 0;
     return {
-        provinceId: init.initialProvinceId || 0,
-        cityId:     init.initialCityId     || 0,
-        suburbId:   init.initialSuburbId   || 0,
-        provinceName: init.initialProvinceName || '',
-        cityName:     init.initialCityName     || '',
-        suburbName:   init.initialSuburbName   || '',
-        queries:    { province: init.initialProvinceName || '', city: init.initialCityName || '', suburb: init.initialSuburbName || '' },
+        provinceId: provinceId,
+        cityId:     cityId,
+        suburbId:   suburbId,
+        provinceName: provinceId ? (init.initialProvinceName || '') : '',
+        cityName:     cityId     ? (init.initialCityName     || '') : '',
+        suburbName:   suburbId   ? (init.initialSuburbName   || '') : '',
+        queries:    {
+            province: provinceId ? (init.initialProvinceName || '') : '',
+            city:     cityId     ? (init.initialCityName     || '') : '',
+            suburb:   suburbId   ? (init.initialSuburbName   || '') : '',
+        },
         options:    { province: [], city: [], suburb: [] },
         dropdown:   { province: false, city: false, suburb: false },
         loading:    { province: false, city: false, suburb: false },
