@@ -110,6 +110,18 @@ For any feature that involves cross-pillar reactivity — where a state change i
 
 CoreX is built on the principle that every important domain action sends signals across an interconnected system. The events catalogue is the connective tissue between Property, Contact, Agent, Mandate, Deal, FICA, and Documents. Without this pattern, every feature invents its own reactivity — leading to inconsistent behaviour, hard-to-debug cascades, and architectural debt at branch-merge time. Both Johan's and Andre's branches build to the same catalogue so that features either of them ship plug seamlessly into the work the other is doing.
 
+### 10. Universal Match-or-Create Rule.
+Every data ingress into CoreX — CMA presentations, P24 alerts, PP feed events, Chrome capture imports, manual entries, mandate signings, scraping outputs, deeds-office lookups, any future source — MUST call `App\Services\Prospecting\TrackedPropertyMatchOrCreateService::matchOrCreate()` before storing property data. Match first, create only if no match. Every contribution appends to `source_chain` for audit. No property data ever sits orphaned.
+
+There are two property tiers, clearly separated:
+
+| Tier | Table | Purpose |
+|------|-------|---------|
+| Agency Stock | `properties` | Formal mandates HFC works (My Listings) |
+| Tracked Properties | `tracked_properties` | Every property CoreX has intelligence on (Prospecting → Tracked Properties) |
+
+Promotion from Tracked → Stock happens when a mandate is signed, via `promoteToStock()`. Promotion preserves the audit chain — the Tracked Property record stays as the long-lived audit trail, and its `promoted_to_property_id` points at the operational Property. Resolution uses a 5-strategy match: source-ref exact → GPS proximity (~5m) → erf+suburb → normalised address → token overlap. This is the architectural mechanism by which CoreX builds a comprehensive property intelligence dataset organically through normal agent work.
+
 ---
 
 ## How to Build Something New
