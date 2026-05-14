@@ -13,6 +13,22 @@ class Agency extends Model
 {
     use SoftDeletes;
 
+    /**
+     * WhatsApp launch-mode constants per the 2026-05-14 hotfix. Controls how
+     * the "Open WhatsApp" buttons hand off to the user's WhatsApp app:
+     *
+     *   WHATSAPP_LAUNCH_APP — `whatsapp://send?...` deeplink (no intermediate page;
+     *                         requires the app to be installed).
+     *   WHATSAPP_LAUNCH_WEB — `https://wa.me/...` universal-fallback URL (default;
+     *                         shows the app/web/download chooser page).
+     */
+    public const WHATSAPP_LAUNCH_APP = 'whatsapp_app';
+    public const WHATSAPP_LAUNCH_WEB = 'whatsapp_web';
+    public const WHATSAPP_LAUNCH_MODES = [
+        self::WHATSAPP_LAUNCH_APP => 'Open app directly (no intermediate page)',
+        self::WHATSAPP_LAUNCH_WEB => 'Open WhatsApp web (with fallback for users without the app)',
+    ];
+
     protected $fillable = [
         'name',
         'slug',
@@ -36,6 +52,8 @@ class Agency extends Model
         'logo_path',
         'email_disclaimer',
         'popi_url',
+        'whatsapp_launch_mode_agent',
+        'whatsapp_launch_mode_seller',
         'is_active',
         'is_demo',
         'require_external_access_authorization',

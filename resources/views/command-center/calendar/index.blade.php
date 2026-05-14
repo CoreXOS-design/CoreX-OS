@@ -12,7 +12,7 @@
         $firstDayOfWeek = $carbon->dayOfWeekIso;
     }
 
-    // RAG colour classes â€” solid backgrounds, white text (WCAG AA compliant on any surface)
+    // RAG colour classes — solid backgrounds, white text (WCAG AA compliant on any surface)
     $ragChip = [
         'red'     => 'background:#dc2626; color:#ffffff; border-left:2px solid #991b1b;',
         'amber'   => 'background:#d97706; color:#ffffff; border-left:2px solid #92400e;',
@@ -46,12 +46,12 @@
     };
 @endphp
 
-<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill();" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (!open) sessionStorage.removeItem('corex.calendar.createEventState'); }); $watch('panelOpen', open => { if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
-    {{-- â•â•â•â•â•â• HEADER BAND (fixed, never scrolls) â•â•â•â•â•â• --}}
+    {{-- ══════ HEADER BAND (fixed, never scrolls) ══════ --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-3 space-y-3 pt-1" style="background: var(--bg);">
 
-    {{-- â•â•â•â•â•â• PAGE HEADER (Pattern A â€” branded) â•â•â•â•â•â• --}}
+    {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
@@ -64,7 +64,7 @@
                     @elseif(isset($monthLabel))
                         {{ $monthLabel }}
                     @endif
-                    â€” deals, leases, compliance and personal events.
+                    — deals, leases, compliance and personal events.
                 </p>
             </div>
             <div class="flex items-center gap-2">
@@ -76,7 +76,7 @@
         </div>
     </div>
 
-    {{-- â•â•â•â•â•â• TOOLBAR (nav + view switcher) â•â•â•â•â•â• --}}
+    {{-- ══════ TOOLBAR (nav + view switcher) ══════ --}}
     @php
         // View-aware navigation URLs
         if (in_array($currentView, ['week', 'day'])) {
@@ -177,15 +177,15 @@
 
     </div>{{-- END sticky header band --}}
 
-    {{-- â•â•â•â•â•â• FLEX ROW: Calendar grid + Right panel (fills remaining height) â•â•â•â•â•â• --}}
+    {{-- ══════ FLEX ROW: Calendar grid + Right panel (fills remaining height) ══════ --}}
     <div class="flex gap-0 flex-1 min-h-0 overflow-hidden px-4 lg:px-6">
     {{-- Main calendar column (scrolls independently) --}}
     <div class="flex-1 min-w-0 overflow-y-auto space-y-4 pr-0">
 
-    {{-- â•â•â•â•â•â• FILTER BAR (compact â€” panel toggle + active filter summary) â•â•â•â•â•â• --}}
+    {{-- ══════ FILTER BAR (compact — panel toggle + active filter summary) ══════ --}}
     <div class="flex items-center gap-3 rounded-md px-4 py-2"
          style="background: var(--surface); border: 1px solid var(--border);">
-        {{-- Scope pills (kept inline â€” primary control) --}}
+        {{-- Scope pills (kept inline — primary control) --}}
         <form method="GET" action="{{ route('command-center.calendar') }}" id="calendar-filters" class="flex items-center gap-2">
             <input type="hidden" name="view" value="{{ $currentView }}">
             <input type="hidden" name="month" value="{{ $month ?? now()->month }}">
@@ -234,7 +234,7 @@
     </div>
 
     @if($currentView === 'month')
-        {{-- â•â•â•â•â•â• MONTH VIEW â•â•â•â•â•â• --}}
+        {{-- ══════ MONTH VIEW ══════ --}}
         @php
             // Build week rows: each row is an array of 7 date strings
             $gridStart = $grid['start'];
@@ -303,14 +303,14 @@
                 @endforeach
             </div>
 
-            {{-- Calendar grid â€” scrollable container --}}
+            {{-- Calendar grid — scrollable container --}}
             <div class="flex-1">
                 @foreach($weekRows as $weekIdx => $weekDates)
                     @php
                         $weekSlots = $barSlotsByWeek[$weekIdx] ?? [];
                         $barCount = count($weekSlots);
                     @endphp
-                    {{-- WEEK ROW STRUCTURE â€” do not change ordering:
+                    {{-- WEEK ROW STRUCTURE — do not change ordering:
                          1. Date numbers strip (7-col grid with day numbers)
                          2. Spanning bar zone (sits INSIDE row, between dates and chips)
                          3. Cell grid with single-day chips
@@ -330,7 +330,7 @@
                                     $isWeekend = in_array($cellDate->dayOfWeekIso, [6, 7]);
                                     $dateBg = $isWeekend ? 'var(--surface-2)' : 'transparent';
                                 @endphp
-                                <div @click="selectedDate = '{{ $cellDate->toDateString() }}'"
+                                <div @click="selectDate('{{ $cellDate->toDateString() }}')"
                                      class="px-1.5 pt-1 pb-0.5 cursor-pointer"
                                      style="opacity: {{ $isCurrentMonth ? '1' : '0.5' }}; background: {{ $dateBg }}; {{ $colIdx < 6 ? 'border-right: 1px solid var(--border);' : '' }}"
                                      :class="selectedDate === '{{ $cellDate->toDateString() }}' && 'ring-2 ring-inset ring-[#00d4aa]'">
@@ -348,7 +348,7 @@
                             @endforeach
                         </div>
 
-                        {{-- 2. SPANNING BAR ZONE (between dates and chips â€” NEVER move this) --}}
+                        {{-- 2. SPANNING BAR ZONE (between dates and chips — NEVER move this) --}}
                         @if($barCount > 0)
                             <div class="relative" style="min-height: {{ $barCount * 22 + 4 }}px; padding: 2px 0;">
                                 @foreach($weekSlots as $slotIdx => $slotBars)
@@ -379,7 +379,7 @@
                                                        background: {{ $barBg }};
                                                        border: 2px solid {{ $barBorder }};
                                                        border-radius:6px;"
-                                                title="{{ $barEvt->title }} ({{ \Carbon\Carbon::parse($bar['start_date'])->format('d M') }}â€“{{ \Carbon\Carbon::parse($bar['end_date'])->format('d M') }})">
+                                                title="{{ $barEvt->title }} ({{ \Carbon\Carbon::parse($bar['start_date'])->format('d M') }}–{{ \Carbon\Carbon::parse($bar['end_date'])->format('d M') }})">
                                             {{ \Illuminate\Support\Str::limit($barEvt->title, 30) }}
                                         </button>
                                     @endforeach
@@ -387,7 +387,7 @@
                             </div>
                         @endif
 
-                        {{-- 3. CELL GRID (single-day chips only â€” no date numbers, no bars) --}}
+                        {{-- 3. CELL GRID (single-day chips only — no date numbers, no bars) --}}
                         <div class="grid grid-cols-7">
                             @foreach($weekDates as $colIdx => $cellDate)
                                 @php
@@ -399,7 +399,7 @@
                                     $cellOpacity = $isCurrentMonth ? '1' : '0.5';
                                     $chipCap = 6;
                                 @endphp
-                                <div @click="selectedDate = '{{ $dateStr }}'"
+                                <div @click="selectDate('{{ $dateStr }}')"
                                      @dblclick="window.location.href='{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $dateStr])) }}'"
                                      @dragover.prevent="rescheduleDragOver = '{{ $dateStr }}'"
                                      @drop.prevent="rescheduleDropOnDate('{{ $dateStr }}')"
@@ -447,7 +447,7 @@
             </div>
         </div>
     @elseif($currentView === 'week')
-        {{-- â•â•â•â•â•â• WEEK VIEW â€” Time-slot grid â•â•â•â•â•â• --}}
+        {{-- ══════ WEEK VIEW — Time-slot grid ══════ --}}
         @php
             $weekDaySplits = [];
             foreach ($weekDays as $day) {
@@ -486,6 +486,7 @@
                 <div></div>
                 @foreach($weekDaySplits as $day)
                     <a href="{{ route('command-center.calendar', array_merge(request()->only(['scope','types','categories']), ['view' => 'day', 'date' => $day['date']->toDateString()])) }}"
+                       @click="if (showCreateEvent) { $event.preventDefault(); selectDate('{{ $day['date']->toDateString() }}'); }"
                        class="block text-center py-2 no-underline hover:opacity-80 transition-opacity"
                        style="background: {{ $day['is_today'] ? 'color-mix(in srgb, var(--brand-button) 8%, transparent)' : 'var(--surface)' }}; border-left: 1px solid var(--border);">
                         <div class="text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">{{ $day['date']->format('D') }}</div>
@@ -651,7 +652,7 @@
         </div>
 
     @elseif($currentView === 'day')
-        {{-- â•â•â•â•â•â• DAY VIEW â€” Time-slot grid â•â•â•â•â•â• --}}
+        {{-- ══════ DAY VIEW — Time-slot grid ══════ --}}
         @php
             $dayAllDay = collect();
             $dayTimedByHour = [];
@@ -796,7 +797,7 @@
         </div>
 
     @elseif($currentView === 'agenda')
-        {{-- â•â•â•â•â•â• AGENDA VIEW â•â•â•â•â•â• --}}
+        {{-- ══════ AGENDA VIEW ══════ --}}
         <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
             {{-- Range filter bar --}}
             <form method="GET" action="{{ route('command-center.calendar') }}"
@@ -822,7 +823,7 @@
                             </select>
                         </div>
 
-                        {{-- Custom from/to â€” editing a date forces range=custom --}}
+                        {{-- Custom from/to — editing a date forces range=custom --}}
                         <div class="flex flex-col gap-1">
                             <label for="agenda-from" class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">From</label>
                             <input id="agenda-from" type="date" name="from" value="{{ $agendaFrom }}"
@@ -847,7 +848,7 @@
 
                     <div class="flex items-center gap-3 self-end pb-1">
                         <span class="text-xs" style="color: var(--text-muted);">
-                            {{ \Carbon\Carbon::parse($agendaFrom)->format('d M Y') }} â€” {{ \Carbon\Carbon::parse($agendaTo)->format('d M Y') }}
+                            {{ \Carbon\Carbon::parse($agendaFrom)->format('d M Y') }} — {{ \Carbon\Carbon::parse($agendaTo)->format('d M Y') }}
                         </span>
                         <span class="text-xs font-semibold" style="color: var(--text-primary);">
                             {{ $agendaEvents->count() }} {{ Str::plural('event', $agendaEvents->count()) }}
@@ -936,21 +937,18 @@
         </div>
     @endif
 
-    {{-- â•â•â•â•â•â• CREATE EVENT MODAL V2 â•â•â•â•â•â• --}}
-    <div x-show="showCreateEvent" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/50" @click="showCreateEvent = false"></div>
-        <div class="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-md shadow-2xl"
-             style="background: var(--surface); border: 1px solid var(--border);">
-
-            {{-- Header --}}
-            <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
-                <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editMode ? 'Edit Event' : 'New Event'"></h2>
-                <button type="button" @click="showCreateEvent = false" class="text-xl leading-none px-2" style="color: var(--text-muted);">&times;</button>
-            </div>
-
-            {{-- Body (scrollable) --}}
-            <form id="createEventFormV2" method="POST"
+    {{-- CREATE EVENT PANEL is rendered below as a flex sibling of the
+         calendar grid + rightPanel aside (search for "CREATE EVENT PANEL
+         (column-flex sibling)" below). Anchoring it as a flex column rather
+         than a fixed-positioned overlay is what lets the grid SHRINK to
+         make room when the panel opens — Google/Outlook/Cal.com pattern. --}}
+    @php /* The create-event panel previously lived here as a fixed-positioned overlay.
+            Moved to a flex-sibling position at the end of the flex row so the calendar
+            grid SHRINKS when the panel opens (instead of being covered). The block
+            below is now empty by design; @if(false) keeps the original closing tags
+            valid until the file is re-saved without them. */ @endphp
+    @if(false)
+            <form id="createEventFormV2_DEAD" method="POST"
                   :action="editMode ? '/corex/command-center/calendar/' + editingEventId : '{{ route('command-center.calendar.store') }}'"
                   class="flex-1 overflow-y-auto px-6 py-4 space-y-4" @submit="submitting = true">
                 @csrf
@@ -970,7 +968,7 @@
                     <select name="category" x-model="form.category" required
                             class="w-full rounded-md px-3 py-2 text-sm"
                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                        <option value="">Select typeâ€¦</option>
+                        <option value="">Select type…</option>
                         @foreach($manualCreatableClasses as $cls)
                             <option value="{{ $cls->event_class }}" data-multi-property="{{ $cls->allow_multiple_properties ? '1' : '0' }}">{{ $cls->label }}</option>
                         @endforeach
@@ -1026,7 +1024,7 @@
                         <select x-model="form.endTime" @change="onEndTimeChange()"
                                 class="w-full rounded-md px-3 py-2 text-sm"
                                 style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                            <option value="">â€”</option>
+                            <option value="">—</option>
                             @for($h = 6; $h <= 22; $h++)
                                 @foreach([0, 15, 30, 45] as $m)
                                     @php
@@ -1060,7 +1058,7 @@
                     {{-- Search input --}}
                     <div class="relative">
                         <input type="text" x-model="query" @input.debounce.250ms="search()"
-                               placeholder="Search address or suburbâ€¦"
+                               placeholder="Search address or suburb…"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <div x-show="results.length > 0" x-cloak
@@ -1095,11 +1093,11 @@
                         <template x-for="c in chosen" :key="(c.type||'contact') + ':' + c.id">
                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
                                   :style="c.conflict ? 'background: var(--surface-2); border: 2px solid #f59e0b; color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
-                                  :title="c.conflictLabel ? 'âš  Conflict: ' + c.conflictLabel : ''">
+                                  :title="c.conflictLabel ? '⚠  Conflict: ' + c.conflictLabel : ''">
                                 <span class="text-[10px] px-1 py-0.5 rounded font-bold"
                                       :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : 'background:var(--brand-icon);color:#fff')"
                                       x-text="c.type === 'agent' ? 'Agent' : (c.role === 'seller_contact' ? 'Seller' : 'Buyer')"></span>
-                                <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">âš </span></template>
+                                <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">⚠ </span></template>
                                 <span x-text="c.name"></span>
                                 <button type="button" @click="remove(c)" class="opacity-60 hover:opacity-100">&times;</button>
                             </span>
@@ -1107,7 +1105,7 @@
                     </div>
                     <div class="relative">
                         <input type="text" x-model="query" @input.debounce.250ms="search()"
-                               placeholder="Search contacts or agentsâ€¦"
+                               placeholder="Search contacts or agents…"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <div x-show="results.length > 0" x-cloak
@@ -1153,13 +1151,13 @@
                 <button type="submit" form="createEventFormV2" :disabled="submitting"
                         class="corex-btn-primary disabled:opacity-50">
                     <span x-show="!submitting" x-text="editMode ? 'Save Changes' : 'Create Event'"></span>
-                    <span x-show="submitting" x-cloak x-text="editMode ? 'Savingâ€¦' : 'Creatingâ€¦'"></span>
+                    <span x-show="submitting" x-cloak x-text="editMode ? 'Saving…' : 'Creating…'"></span>
                 </button>
             </div>
-        </div>
-    </div>
+    @endif
+    {{-- END dead create-event block (live panel rendered below as flex sibling) --}}
 
-    {{-- â•â•â•â•â•â• KEYBOARD SHORTCUT HELP â•â•â•â•â•â• --}}
+    {{-- ══════ KEYBOARD SHORTCUT HELP ══════ --}}
     <div x-show="helpOpen" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @click.self="helpOpen = false">
@@ -1175,7 +1173,7 @@
                     $shortcuts = [
                         ['T', 'Jump to today'],
                         ['M / W / D / A', 'Switch view'],
-                        ['â† / â†’', 'Previous / next period'],
+                        ['â† / â†’', 'Previous / next period'],
                         ['N', 'New event'],
                         ['Esc', 'Close panel / modal'],
                         ['?', 'Show this help'],
@@ -1195,17 +1193,15 @@
         </div>
     </div>
 
-    {{-- â•â•â•â•â•â• EVENT DETAIL SIDE PANEL (Redesigned) â•â•â•â•â•â• --}}
-    <div x-show="panelOpen" x-cloak class="fixed inset-0 z-40">
-        <div class="absolute inset-0 bg-black/40" @click="panelOpen = false"></div>
-        <aside class="absolute top-0 right-0 h-full w-full max-w-md flex flex-col shadow-2xl"
-               style="background: var(--surface); border-left: 1px solid var(--border);"
-               x-transition:enter="transition ease-out duration-200 transform"
-               x-transition:enter-start="translate-x-full"
-               x-transition:enter-end="translate-x-0"
-               x-transition:leave="transition ease-in duration-150 transform"
-               x-transition:leave-start="translate-x-0"
-               x-transition:leave-end="translate-x-full">
+    {{-- EVENT DETAIL SIDE PANEL — original location stub. The live panel is
+         rendered below as a flex-sibling of the calendar grid (search for
+         "EVENT DETAIL PANEL (column-flex sibling)"). The original here is
+         kept disabled so the rest of the file's div/template counts stay
+         balanced during the move. --}}
+    @if(false)
+    <div x-show="panelOpen" x-cloak class="hidden">
+        <div class="hidden"></div>
+        <aside class="hidden">
 
             {{-- Scrollable content --}}
             <div class="flex-1 overflow-y-auto">
@@ -1428,8 +1424,10 @@
             </div>
         </aside>
     </div>
+    @endif
+    {{-- END original-location stub for EVENT DETAIL SIDE PANEL --}}
 
-    {{-- â•â•â•â•â•â• REASON PICKER MODAL (dismiss + require_reason complete) â•â•â•â•â•â• --}}
+    {{-- ══════ REASON PICKER MODAL (dismiss + require_reason complete) ══════ --}}
     <div x-show="reasonPickerOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/50" @click="reasonPickerOpen = false"></div>
         <div class="relative w-full max-w-sm rounded-md shadow-2xl p-5" style="background: var(--surface); border: 1px solid var(--border);">
@@ -1445,7 +1443,7 @@
                 </template>
             </div>
             <div x-show="reasonPickerCode === 'other'" class="mb-4">
-                <textarea x-model="reasonPickerNotes" rows="2" placeholder="Additional detailsâ€¦"
+                <textarea x-model="reasonPickerNotes" rows="2" placeholder="Additional details…"
                           class="w-full rounded-md px-3 py-2 text-sm"
                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
             </div>
@@ -1454,13 +1452,13 @@
                 <button type="button" @click="submitReasonPicker()" :disabled="!reasonPickerCode || reasonPickerSaving"
                         class="text-xs font-semibold px-3 py-1.5 rounded text-white disabled:opacity-50" style="background: var(--brand-button);">
                     <span x-show="!reasonPickerSaving" x-text="reasonPickerAction === 'dismiss' ? 'Dismiss' : 'Complete'"></span>
-                    <span x-show="reasonPickerSaving" x-cloak>Savingâ€¦</span>
+                    <span x-show="reasonPickerSaving" x-cloak>Saving…</span>
                 </button>
             </div>
         </div>
     </div>
 
-    {{-- â•â•â•â•â•â• FEEDBACK CAPTURE MODAL â•â•â•â•â•â• --}}
+    {{-- ══════ FEEDBACK CAPTURE MODAL ══════ --}}
     <div x-show="feedbackOpen" x-cloak
          class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/50" @click="feedbackOpen = false"></div>
@@ -1471,7 +1469,7 @@
             <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
                 <div>
                     <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Capture Feedback</h2>
-                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="feedbackData.event?.title + ' â€” ' + feedbackData.event?.date"></p>
+                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="feedbackData.event?.title + ' — ' + feedbackData.event?.date"></p>
                     {{-- Multi-property step indicator --}}
                     <template x-if="feedbackData.is_multi_property && feedbackData.properties.length > 1">
                         <div class="mt-1.5 flex items-center gap-2">
@@ -1487,7 +1485,83 @@
 
             {{-- Body --}}
             <div class="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-                <template x-for="contact in feedbackData.contacts" :key="contact.id">
+
+                {{-- Per-property feedback (listing_presentation events) --}}
+                <template x-if="feedbackData.feedback_mode === 'per_property'">
+                    <div class="space-y-4">
+                        <template x-for="item in feedbackData.items" :key="item.property_id">
+                            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="item.label"></h3>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                    {{-- Outcome --}}
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+                                        <select x-model="feedbackForm['prop:' + item.property_id].outcome"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <option value="">Select…</option>
+                                            <template x-for="o in feedbackData.lp_outcomes" :key="o">
+                                                <option :value="o" x-text="o"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    {{-- Mandate type --}}
+                                    <div>
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
+                                        <select x-model="feedbackForm['prop:' + item.property_id].mandate_type"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <option value="">Select…</option>
+                                            <template x-for="m in feedbackData.lp_mandate_types" :key="m">
+                                                <option :value="m" x-text="m"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {{-- Concerns --}}
+                                <div class="mb-3" x-show="feedbackData.lp_concerns.length > 0">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="c in feedbackData.lp_concerns" :key="c.id">
+                                            <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
+                                                <input type="checkbox" :value="c.id"
+                                                       x-model="feedbackForm['prop:' + item.property_id].concern_ids"
+                                                       class="rounded">
+                                                <span x-text="c.label"></span>
+                                            </label>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                {{-- Internal notes --}}
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
+                                    <textarea x-model="feedbackForm['prop:' + item.property_id].internal_notes" rows="2"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="Agent-only notes for this property…"></textarea>
+                                </div>
+
+                                {{-- Next action --}}
+                                <div>
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
+                                    <input type="text" x-model="feedbackForm['prop:' + item.property_id].next_action_notes"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                           placeholder="Follow-up action…">
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="feedbackData.items.length === 0">
+                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this listing presentation.</p>
+                        </template>
+                    </div>
+                </template>
+
+                {{-- Per-contact feedback (viewings — original UI) --}}
+                <template x-for="contact in (feedbackData.feedback_mode === 'per_property' ? [] : feedbackData.contacts)" :key="contact.id">
                     <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="contact.label"></h3>
 
@@ -1497,7 +1571,7 @@
                             <select x-model="feedbackForm[contact.id].outcome_id"
                                     class="w-full rounded-md px-3 py-2 text-sm"
                                     style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                <option value="">Selectâ€¦</option>
+                                <option value="">Select…</option>
                                 <template x-for="o in feedbackData.outcomes" :key="o.id">
                                     <option :value="o.id" x-text="o.label"></option>
                                 </template>
@@ -1526,7 +1600,7 @@
                             <textarea x-model="feedbackForm[contact.id].seller_visible_notes" rows="2"
                                       class="w-full rounded-md px-3 py-2 text-sm"
                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                      placeholder="Shown to seller on live linkâ€¦"></textarea>
+                                      placeholder="Shown to seller on live link…"></textarea>
                         </div>
 
                         {{-- Internal notes --}}
@@ -1535,7 +1609,7 @@
                             <textarea x-model="feedbackForm[contact.id].internal_notes" rows="2"
                                       class="w-full rounded-md px-3 py-2 text-sm"
                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                      placeholder="Agent-only notesâ€¦"></textarea>
+                                      placeholder="Agent-only notes…"></textarea>
                         </div>
 
                         {{-- Next action --}}
@@ -1544,7 +1618,7 @@
                             <input type="text" x-model="feedbackForm[contact.id].next_action_notes"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                   placeholder="Follow-up actionâ€¦">
+                                   placeholder="Follow-up action…">
                         </div>
                     </div>
                 </template>
@@ -1566,14 +1640,14 @@
                         <button type="button" @click="saveFeedback()" :disabled="feedbackSaving"
                                 class="corex-btn-primary disabled:opacity-50">
                             <span x-show="!feedbackSaving">Save Feedback</span>
-                            <span x-show="feedbackSaving" x-cloak>Savingâ€¦</span>
+                            <span x-show="feedbackSaving" x-cloak>Saving…</span>
                         </button>
                     </template>
                     <template x-if="feedbackData.is_multi_property && feedbackPropertyStep < feedbackData.properties.length - 1">
                         <button type="button" @click="saveFeedbackAndNext()" :disabled="feedbackSaving"
                                 class="corex-btn-primary disabled:opacity-50">
                             <span x-show="!feedbackSaving">Save & Next Property</span>
-                            <span x-show="feedbackSaving" x-cloak>Savingâ€¦</span>
+                            <span x-show="feedbackSaving" x-cloak>Saving…</span>
                         </button>
                     </template>
                 </div>
@@ -1583,7 +1657,7 @@
 
 </div>{{-- END main calendar column --}}
 
-{{-- â•â•â•â•â•â• RIGHT SIDE PANEL â•â•â•â•â•â• --}}
+{{-- ══════ RIGHT SIDE PANEL ══════ --}}
 <aside x-show="rightPanelOpen" x-cloak x-transition:enter="transition ease-out duration-200" x-transition:leave="transition ease-in duration-150"
        class="hidden lg:block flex-shrink-0 relative"
        :style="'width:' + panelWidth + 'px; border-left: 1px solid var(--border); background: var(--surface);'">
@@ -1592,7 +1666,7 @@
          @mousedown.prevent="startPanelResize($event)">
         <div class="absolute top-0 left-[2px] w-[2px] h-full group-hover:bg-blue-500/50 group-active:bg-blue-500/70 transition-colors"></div>
     </div>
-    {{-- Scrollable content (no explicit width â€” fills aside naturally) --}}
+    {{-- Scrollable content (no explicit width — fills aside naturally) --}}
     <div class="flex flex-col h-full overflow-y-auto">
 
         {{-- Panel header --}}
@@ -1683,7 +1757,7 @@
                     </label>
                 </template>
 
-                {{-- Legend removed â€” filter swatches serve as legend --}}
+                {{-- Legend removed — filter swatches serve as legend --}}
             </div>
         </div>
 
@@ -1716,6 +1790,455 @@
                 </template>
             </div>
         </div>
+    </div>
+</aside>
+
+{{-- ══════ CREATE EVENT PANEL (column-flex sibling — Google/Outlook layout) ══════
+     The panel docks as a real column inside the flex row. When x-show flips
+     to true, the panel takes its column space and the grid (flex-1) shrinks
+     to make room — no overlap. NO fixed positioning, NO backdrop, NO
+     click-outside-to-close. Escape closes. --}}
+<aside x-show="showCreateEvent" x-cloak
+       x-transition:enter="transform transition ease-out duration-200"
+       x-transition:enter-start="translate-x-full opacity-0"
+       x-transition:enter-end="translate-x-0 opacity-100"
+       x-transition:leave="transform transition ease-in duration-150"
+       x-transition:leave-start="translate-x-0 opacity-100"
+       x-transition:leave-end="translate-x-full opacity-0"
+       @keydown.escape.window="showCreateEvent = false"
+       class="w-full max-w-md flex-shrink-0 flex flex-col overflow-hidden"
+       style="background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 12px rgba(0,0,0,0.08);">
+
+    {{-- Header --}}
+    <div class="px-6 py-4 flex items-center justify-between flex-shrink-0" style="border-bottom: 1px solid var(--border);">
+        <h2 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="editMode ? 'Edit Event' : 'New Event'"></h2>
+        <button type="button" @click="showCreateEvent = false" class="text-xl leading-none px-2" style="color: var(--text-muted); background: none; border: none; cursor: pointer;">&times;</button>
+    </div>
+
+    {{-- Body (scrollable) --}}
+    <form id="createEventFormV2" method="POST"
+          :action="editMode ? '/corex/command-center/calendar/' + editingEventId : '{{ route('command-center.calendar.store') }}'"
+          class="flex-1 overflow-y-auto px-6 py-4 space-y-4" @submit="submitting = true">
+        @csrf
+        <template x-if="editMode"><input type="hidden" name="_method" value="PUT"></template>
+
+        {{-- Title --}}
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title <span style="color:var(--ds-crimson)">*</span></label>
+            <input type="text" name="title" x-model="form.title" required
+                   class="w-full rounded-md px-3 py-2 text-sm"
+                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+        </div>
+
+        {{-- Category --}}
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span style="color:var(--ds-crimson)">*</span></label>
+            <select name="category" x-model="form.category" required
+                    class="w-full rounded-md px-3 py-2 text-sm"
+                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <option value="">Select type…</option>
+                @foreach($manualCreatableClasses as $cls)
+                    <option value="{{ $cls->event_class }}" data-multi-property="{{ $cls->allow_multiple_properties ? '1' : '0' }}">{{ $cls->label }}</option>
+                @endforeach
+            </select>
+        </div>
+
+        {{-- All day toggle --}}
+        <div>
+            <label class="inline-flex items-center gap-2 text-sm cursor-pointer" style="color: var(--text-secondary);">
+                <input type="checkbox" x-model="form.allDay" class="rounded">
+                All day
+            </label>
+        </div>
+
+        {{-- Start date + time --}}
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Start <span style="color:var(--ds-crimson)">*</span></label>
+            <div class="grid gap-2" :class="form.allDay ? 'grid-cols-1' : 'grid-cols-2'">
+                <input type="date" x-model="form.startDate" @change="onStartDateChange()" required
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <select x-show="!form.allDay" x-model="form.startTime" @change="onStartTimeChange()" required
+                        class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    @for($h = 6; $h <= 22; $h++)
+                        @foreach([0, 15, 30, 45] as $m)
+                            @php
+                                $val = str_pad($h, 2, '0', STR_PAD_LEFT) . ':' . str_pad($m, 2, '0', STR_PAD_LEFT);
+                                $display = ($h > 12 ? $h - 12 : ($h === 0 ? 12 : $h)) . ':' . str_pad($m, 2, '0', STR_PAD_LEFT) . ' ' . ($h >= 12 ? 'PM' : 'AM');
+                            @endphp
+                            <option value="{{ $val }}">{{ $display }}</option>
+                        @endforeach
+                    @endfor
+                </select>
+            </div>
+        </div>
+
+        {{-- End date + time (hidden for all-day events) --}}
+        <div x-show="!form.allDay">
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">End</label>
+            <div class="grid grid-cols-2 gap-2">
+                <input type="date" x-model="form.endDate" @change="endManuallyEdited = true"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <select x-model="form.endTime" @change="onEndTimeChange()"
+                        class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <option value="">—</option>
+                    @for($h = 6; $h <= 22; $h++)
+                        @foreach([0, 15, 30, 45] as $m)
+                            @php
+                                $val = str_pad($h, 2, '0', STR_PAD_LEFT) . ':' . str_pad($m, 2, '0', STR_PAD_LEFT);
+                                $display = ($h > 12 ? $h - 12 : ($h === 0 ? 12 : $h)) . ':' . str_pad($m, 2, '0', STR_PAD_LEFT) . ' ' . ($h >= 12 ? 'PM' : 'AM');
+                            @endphp
+                            <option value="{{ $val }}">{{ $display }}</option>
+                        @endforeach
+                    @endfor
+                </select>
+            </div>
+        </div>
+
+        {{-- Hidden datetime fields for backend (assembled from split pickers) --}}
+        <input type="hidden" name="event_date" :value="computedEventDate">
+        <input type="hidden" name="end_date" :value="computedEndDate">
+
+        {{-- Property multi-select --}}
+        <div x-data="propertySearch()">
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Properties</label>
+            <div class="flex flex-wrap gap-1 mb-1.5" x-show="chosen.length > 0">
+                <template x-for="p in chosen" :key="p.id">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <span x-text="p.address" class="truncate max-w-[180px]"></span>
+                        <button type="button" @click="remove(p)" class="opacity-60 hover:opacity-100">&times;</button>
+                    </span>
+                </template>
+            </div>
+            <div class="relative">
+                <input type="text" x-model="query" @input.debounce.250ms="search()"
+                       placeholder="Search address or suburb…"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <div x-show="results.length > 0" x-cloak
+                     class="absolute z-20 left-0 right-0 mt-1 rounded-md max-h-48 overflow-y-auto shadow-lg"
+                     style="background: var(--surface); border: 1px solid var(--border);">
+                    <template x-for="r in results" :key="r.id">
+                        <button type="button" @click="pick(r)"
+                                class="block w-full text-left px-3 py-2 text-sm transition"
+                                style="color: var(--text-primary);"
+                                onmouseover="this.style.background='var(--surface-2)'"
+                                onmouseout="this.style.background='transparent'">
+                            <span x-text="r.address"></span>
+                            <span class="text-xs opacity-60 ml-1" x-text="r.listing_agent_name ? '(' + r.listing_agent_name + ')' : ''"></span>
+                        </button>
+                    </template>
+                </div>
+                <div x-show="query.length >= 2 && results.length === 0 && !loading" x-cloak
+                     class="text-xs mt-1" style="color: var(--text-muted);">No properties found.</div>
+            </div>
+            <template x-for="(p, idx) in chosen" :key="p.id">
+                <input type="hidden" :name="'property_ids[' + idx + ']'" :value="p.id">
+            </template>
+            <input type="hidden" name="property_id" :value="chosen.length === 1 ? chosen[0].id : ''">
+        </div>
+
+        {{-- Attendees multi-select --}}
+        <div x-data="contactSearch()" x-ref="attendeePicker">
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Attendees</label>
+            <div class="flex flex-wrap gap-1 mb-1.5">
+                <template x-for="c in chosen" :key="(c.type||'contact') + ':' + c.id">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                          :style="c.conflict ? 'background: var(--surface-2); border: 2px solid #f59e0b; color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
+                          :title="c.conflictLabel ? '⚠  Conflict: ' + c.conflictLabel : ''">
+                        <span class="text-[10px] px-1 py-0.5 rounded font-bold"
+                              :style="c.type === 'agent' ? 'background:#475569;color:#fff' : (c.role === 'seller_contact' ? 'background:#0f172a;color:#fff' : 'background:var(--brand-icon);color:#fff')"
+                              x-text="c.type === 'agent' ? 'Agent' : (c.role === 'seller_contact' ? 'Seller' : 'Buyer')"></span>
+                        <template x-if="c.conflict"><span class="text-[10px]" style="color: #f59e0b;">⚠ </span></template>
+                        <span x-text="c.name"></span>
+                        <button type="button" @click="remove(c)" class="opacity-60 hover:opacity-100">&times;</button>
+                    </span>
+                </template>
+            </div>
+            <div class="relative">
+                <input type="text" x-model="query" @input.debounce.250ms="search()"
+                       placeholder="Search contacts or agents…"
+                       class="w-full rounded-md px-3 py-2 text-sm"
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <div x-show="results.length > 0" x-cloak
+                     class="absolute z-20 left-0 right-0 mt-1 rounded-md max-h-48 overflow-y-auto shadow-lg"
+                     style="background: var(--surface); border: 1px solid var(--border);">
+                    <template x-for="r in results" :key="(r.type||'contact') + ':' + r.id">
+                        <button type="button" @click="add(r)"
+                                class="block w-full text-left px-3 py-2 text-sm transition"
+                                style="color: var(--text-primary);"
+                                onmouseover="this.style.background='var(--surface-2)'"
+                                onmouseout="this.style.background='transparent'">
+                            <span x-text="r.name"></span>
+                            <span class="text-[10px] px-1 py-0.5 rounded ml-1"
+                                  :style="r.type === 'agent' ? 'background:#0d9488;color:#fff' : 'background:var(--surface-2);color:var(--text-muted)'"
+                                  x-text="r.type === 'agent' ? 'agent' : 'contact'"></span>
+                            <span class="text-xs opacity-50 ml-1" x-text="r.phone || r.email || ''"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+            <template x-for="(c, idx) in chosen" :key="(c.type||'contact') + ':' + c.id">
+                <div>
+                    <input type="hidden" :name="'attendees[' + idx + '][id]'" :value="c.id">
+                    <input type="hidden" :name="'attendees[' + idx + '][type]'" :value="c.type || 'contact'">
+                    <input type="hidden" :name="'attendees[' + idx + '][role]'" :value="c.role || ''">
+                </div>
+            </template>
+        </div>
+
+        {{-- Description --}}
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Description</label>
+            <textarea name="description" x-model="form.description" rows="3"
+                      class="w-full rounded-md px-3 py-2 text-sm"
+                      style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
+        </div>
+    </form>
+
+    {{-- Footer --}}
+    <div class="px-6 py-4 flex items-center justify-end gap-2 flex-shrink-0" style="border-top: 1px solid var(--border);">
+        <button type="button" @click="showCreateEvent = false" class="corex-btn-outline">Cancel</button>
+        <button type="submit" form="createEventFormV2" :disabled="submitting"
+                class="corex-btn-primary disabled:opacity-50">
+            <span x-show="!submitting" x-text="editMode ? 'Save Changes' : 'Create Event'"></span>
+            <span x-show="submitting" x-cloak x-text="editMode ? 'Saving…' : 'Creating…'"></span>
+        </button>
+    </div>
+</aside>
+
+{{-- ══════ EVENT DETAIL PANEL (column-flex sibling — Google/Outlook layout) ══════
+     Replaces the previous fixed-positioned overlay. Behaves as a column
+     beside the grid: no backdrop, no click-outside-to-close, prev/next/view
+     navigation no longer dismisses it. Escape closes. --}}
+<aside x-show="panelOpen" x-cloak
+       x-transition:enter="transform transition ease-out duration-200"
+       x-transition:enter-start="translate-x-full opacity-0"
+       x-transition:enter-end="translate-x-0 opacity-100"
+       x-transition:leave="transform transition ease-in duration-150"
+       x-transition:leave-start="translate-x-0 opacity-100"
+       x-transition:leave-end="translate-x-full opacity-0"
+       @keydown.escape.window="panelOpen = false"
+       class="w-full max-w-md flex-shrink-0 flex flex-col overflow-hidden"
+       style="background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 12px rgba(0,0,0,0.08);">
+
+    {{-- Scrollable content --}}
+    <div class="flex-1 overflow-y-auto">
+
+        {{-- Header: class label + status + close --}}
+        <div class="px-5 pt-4 pb-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);" x-text="panelData.class_label"></span>
+                <span x-show="panelData.colour"
+                      class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                      :style="panelColourStyle(panelData.colour)">
+                    <span class="w-1.5 h-1.5 rounded-full" :style="'background:' + panelDotHex(panelData.colour)"></span>
+                    <span x-text="panelColourLabel(panelData.colour)"></span>
+                </span>
+            </div>
+            <button @click="panelOpen = false" class="p-1 rounded transition-colors" style="color: var(--text-muted); background: none; border: none; cursor: pointer;"
+                    onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+
+        {{-- Invitation status pill + respond buttons (invitee only) --}}
+        <template x-if="panelData.invitation && !panelData.is_organizer">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <template x-if="panelData.invitation.status === 'pending'">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Pending</span>
+                        <span class="text-xs" style="color:var(--text-muted);">Invitation from <span x-text="panelData.invitation.inviter_name" style="color:var(--text-secondary);"></span></span>
+                    </div>
+                </template>
+                <template x-if="panelData.invitation.status === 'tentative'">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(245,158,11,0.15); color:#f59e0b;">Tentative</span>
+                        <span class="text-xs" style="color:var(--text-muted);">You marked tentative<template x-if="panelData.invitation.response_at"> on <span x-text="panelData.invitation.response_at"></span></template></span>
+                    </div>
+                </template>
+                <template x-if="panelData.invitation.status === 'accepted'">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="background:rgba(16,185,129,0.15); color:#10b981;">Accepted</span>
+                        <span class="text-xs" style="color:var(--text-muted);">You accepted this invitation</span>
+                    </div>
+                </template>
+                <template x-if="panelData.invitation.status === 'pending' || panelData.invitation.status === 'tentative'">
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" @click="respondInvitation('accepted')" class="text-[11px] font-medium px-3 py-1 rounded text-white" style="background:#10b981;">Accept</button>
+                        <button type="button" @click="respondInvitation('tentative')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);">Tentative</button>
+                        <button type="button" @click="respondInvitation('declined')" class="text-[11px] font-medium px-3 py-1 rounded" style="background:var(--surface-2); color:#ef4444; border:1px solid rgba(239,68,68,0.3);">Decline</button>
+                    </div>
+                </template>
+                <template x-if="panelData.invitation.status === 'accepted'">
+                    <button type="button" @click="respondInvitation('pending')" class="text-[10px] underline" style="color:var(--text-muted); background: none; border: none; cursor: pointer;">Change response</button>
+                </template>
+            </div>
+        </template>
+
+        {{-- Title + date --}}
+        <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
+            <h2 class="text-xl font-semibold leading-tight" style="color: var(--text-primary);" x-text="panelData.title"></h2>
+            <p class="text-sm mt-1.5" style="color: var(--text-secondary);" x-text="panelData.event_date_h"></p>
+            <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="panelDaysDiffLabel(panelData.days_diff)"></p>
+        </div>
+
+        {{-- Linked property --}}
+        <template x-if="panelData.linked_property">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Property</div>
+                <a :href="'/corex/properties/' + panelData.linked_property.id"
+                   class="text-sm font-medium transition-colors hover:underline" style="color: var(--brand-button);"
+                   x-text="panelData.linked_property.address"></a>
+            </div>
+        </template>
+
+        {{-- Attendees --}}
+        <template x-if="panelData.attendees && panelData.attendees.length > 0">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Attendees</div>
+                <div class="flex flex-wrap gap-1.5">
+                    <template x-for="att in panelData.attendees" :key="(att.type||'contact') + ':' + att.id">
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs transition-colors"
+                              style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                              onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='var(--surface-2)'">
+                            <span x-text="att.name"></span>
+                            <span x-show="att.type === 'agent'" class="text-[9px] uppercase" style="color: var(--text-muted);">agent</span>
+                        </span>
+                    </template>
+                </div>
+            </div>
+        </template>
+
+        {{-- Description --}}
+        <template x-if="panelData.description">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Description</div>
+                <p class="text-sm leading-relaxed" style="color: var(--text-primary);" x-text="panelData.description"></p>
+            </div>
+        </template>
+
+        {{-- Linked Records --}}
+        <template x-if="panelData.linked_records && panelData.linked_records.length > 0">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <template x-for="group in [{key:'buyers',label:'Buyers',color:'#00d4aa'},{key:'sellers',label:'Sellers',color:'#0f172a'},{key:'agents',label:'Agents',color:'#475569'},{key:'properties',label:'Properties',color:'var(--brand-icon)'},{key:'attendees',label:'Attendees',color:'var(--text-muted)'},{key:'deals',label:'Deals',color:'var(--brand-icon)'}]" :key="group.key">
+                    <template x-if="panelData.linked_records.filter(r => r.group === group.key).length > 0">
+                        <div class="mb-2">
+                            <div class="text-[10px] font-semibold uppercase tracking-wider mb-1" :style="'color:' + group.color" x-text="group.label + ' (' + panelData.linked_records.filter(r => r.group === group.key).length + ')'"></div>
+                            <div class="space-y-1">
+                                <template x-for="rec in panelData.linked_records.filter(r => r.group === group.key)" :key="rec.url + rec.name">
+                                    <a :href="rec.url" :target="rec.url === '#' ? '' : '_blank'" rel="noopener"
+                                       class="flex items-center gap-2 px-2 py-1 rounded transition hover:opacity-80 no-underline"
+                                       style="background: var(--surface-2);">
+                                        <template x-if="rec.badge">
+                                            <span class="text-[9px] px-1 py-0.5 rounded font-bold text-white"
+                                                  :style="'background:' + (rec.badge === 'Buyer' ? '#00d4aa' : rec.badge === 'Seller' ? '#0f172a' : '#475569')"
+                                                  x-text="rec.badge"></span>
+                                        </template>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="rec.name"></div>
+                                        </div>
+                                        <template x-if="rec.url !== '#'">
+                                            <svg class="w-3 h-3 flex-shrink-0 opacity-40" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                        </template>
+                                    </a>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </template>
+            </div>
+        </template>
+
+        {{-- Legacy source link fallback --}}
+        <template x-if="panelData.source_link && (!panelData.linked_records || panelData.linked_records.length === 0)">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <a :href="panelData.source_link.url" target="_blank" class="text-xs font-medium hover:underline" style="color: var(--brand-button);">
+                    <span x-text="panelData.source_link.label"></span> &rarr;
+                </a>
+            </div>
+        </template>
+
+        {{-- Activity timeline --}}
+        <template x-if="panelData.audit_log && panelData.audit_log.length > 0">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style="color: var(--text-muted);">Activity</div>
+                <ul class="space-y-1">
+                    <template x-for="entry in panelData.audit_log" :key="entry.when + entry.action">
+                        <li class="flex justify-between gap-2 text-[11px]">
+                            <span x-text="formatAuditAction(entry)" style="color: var(--text-secondary);"></span>
+                            <span x-text="entry.when" class="whitespace-nowrap" style="color: var(--text-muted);"></span>
+                        </li>
+                    </template>
+                </ul>
+            </div>
+        </template>
+
+        {{-- Feedback CTA --}}
+        <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+                <button type="button" @click="openFeedbackModal(panelData.id)"
+                        class="text-xs font-medium transition-colors hover:underline" style="color: var(--brand-button); background: none; border: none; cursor: pointer;">
+                    Capture feedback &rarr;
+                </button>
+            </div>
+        </template>
+
+    </div>
+
+    {{-- Sticky footer action bar --}}
+    <div class="px-5 py-2.5 flex items-center gap-4 flex-shrink-0" style="border-top: 1px solid var(--border); background: var(--surface);">
+        <template x-if="panelData.is_editable">
+            <button type="button" @click="openEditModal(panelData.id)"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: var(--text-primary); background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"/></svg>
+                Edit
+            </button>
+        </template>
+        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_feedback'">
+            <button type="button" @click="openFeedbackModal(panelData.id)"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: #00d4aa; background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                Capture Feedback to Complete
+            </button>
+        </template>
+        <template x-if="panelData.is_actionable && panelData.completion_behaviour === 'require_reason'">
+            <button type="button" @click="reasonPickerAction = 'complete'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: var(--text-secondary); background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                Complete with Reason
+            </button>
+        </template>
+        <template x-if="panelData.is_actionable && (!panelData.completion_behaviour || panelData.completion_behaviour === 'freeform')">
+            <form :action="'/corex/command-center/calendar/' + panelData.id + '/complete'" method="POST">
+                @csrf
+                <template x-if="panelData.metadata && panelData.metadata.deal_ref">
+                    <div class="mb-2 px-2 py-1 rounded text-[10px] inline-flex items-center gap-1" style="background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);">
+                        <span>Deal Step:</span> <span x-text="(panelData.metadata.step_name || 'Step') + ' — ' + panelData.metadata.deal_ref"></span>
+                    </div>
+                </template>
+                <button type="submit" class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                        style="color: var(--text-secondary); background: none; border: none; cursor: pointer;">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                    <span x-text="(panelData.metadata && panelData.metadata.deal_ref) ? 'Mark Step Complete' : 'Complete'"></span>
+                </button>
+            </form>
+        </template>
+        <template x-if="panelData.is_actionable">
+            <button type="button" @click="reasonPickerAction = 'dismiss'; reasonPickerEventId = panelData.id; reasonPickerOpen = true"
+                    class="text-xs font-medium transition-colors hover:opacity-70 inline-flex items-center gap-1"
+                    style="color: var(--text-muted); background: none; border: none; cursor: pointer;">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                Dismiss
+            </button>
+        </template>
     </div>
 </aside>
 
@@ -1848,6 +2371,100 @@ function calendarPage() {
             this.submitting = false;
             this.showCreateEvent = true;
         },
+
+        // View switches in this calendar are full page reloads (<a href>
+        // links). Without persistence the create-event panel would lose its
+        // open state + form contents on every view switch. We snapshot to
+        // sessionStorage on beforeunload and restore on init.
+        persistCreateEventState() {
+            try {
+                if (!this.showCreateEvent) {
+                    sessionStorage.removeItem('corex.calendar.createEventState');
+                    return;
+                }
+                sessionStorage.setItem('corex.calendar.createEventState', JSON.stringify({
+                    showCreateEvent: true,
+                    form: this.form,
+                    editMode: this.editMode,
+                    editingEventId: this.editingEventId,
+                    // Snapshot the property + attendee picker chips so they
+                    // survive too. Read directly from the live Alpine pickers.
+                    pickedProperties: this.readPickerChosen('propertySearch'),
+                    pickedAttendees:  this.readPickerChosen('contactSearch'),
+                }));
+            } catch (e) { console.warn('persist create-event state failed:', e); }
+        },
+        // Mirror persistence for the event-detail panel (panelOpen).
+        // Snapshot just the event id so we can re-open the same event on the
+        // next page load — the full panelData is fetched fresh from the
+        // server so it reflects any state changes since.
+        persistEventDetailState() {
+            try {
+                if (!this.panelOpen || !this.panelData || !this.panelData.id) {
+                    sessionStorage.removeItem('corex.calendar.eventDetailState');
+                    return;
+                }
+                sessionStorage.setItem('corex.calendar.eventDetailState', JSON.stringify({
+                    panelOpen: true,
+                    eventId: this.panelData.id,
+                }));
+            } catch (e) { console.warn('persist event-detail state failed:', e); }
+        },
+        restoreEventDetailState() {
+            try {
+                const raw = sessionStorage.getItem('corex.calendar.eventDetailState');
+                if (!raw) return;
+                const state = JSON.parse(raw);
+                if (!state || !state.panelOpen || !state.eventId) return;
+                this.openEventPanel(state.eventId);
+            } catch (e) { console.warn('restore event-detail state failed:', e); }
+        },
+        readPickerChosen(componentMatch) {
+            try {
+                const el = document.querySelector('[x-data*="' + componentMatch + '"]');
+                return el ? (Alpine.$data(el).chosen || []) : [];
+            } catch { return []; }
+        },
+        restoreCreateEventState() {
+            try {
+                const raw = sessionStorage.getItem('corex.calendar.createEventState');
+                if (!raw) return;
+                const state = JSON.parse(raw);
+                if (!state || !state.showCreateEvent) return;
+                this.form = state.form || this.form;
+                this.editMode = !!state.editMode;
+                this.editingEventId = state.editingEventId || null;
+                this.showCreateEvent = true;
+                // Restore picker chips after Alpine wires the new pickers.
+                this.$nextTick(() => {
+                    if (Array.isArray(state.pickedProperties) && state.pickedProperties.length) {
+                        const el = document.querySelector('[x-data*="propertySearch"]');
+                        if (el) Alpine.$data(el).chosen = state.pickedProperties;
+                    }
+                    if (Array.isArray(state.pickedAttendees) && state.pickedAttendees.length) {
+                        const el = document.querySelector('[x-data*="contactSearch"]');
+                        if (el) Alpine.$data(el).chosen = state.pickedAttendees;
+                    }
+                });
+            } catch (e) { console.warn('restore create-event state failed:', e); }
+        },
+
+        // Called by date-cell clicks in Month/Week views. Always updates the
+        // day-preview selection (selectedDate). If the create-event panel is
+        // open, also pushes the date into the form so the agent can flip
+        // through the calendar to pick a date for the event being created.
+        selectDate(dateStr, time = null) {
+            this.selectedDate = dateStr;
+            if (this.showCreateEvent) {
+                this.form.startDate = dateStr;
+                if (time) this.form.startTime = time;
+                // Push end forward if it's now before start.
+                if (this.form.endDate && this.form.endDate < dateStr) {
+                    this.form.endDate = dateStr;
+                    this.endManuallyEdited = false;
+                }
+            }
+        },
         openBlank() {
             const today = new Date().toISOString().slice(0, 10);
             const dateToUse = this.selectedDate || today;
@@ -1865,7 +2482,48 @@ function calendarPage() {
             const params = new URLSearchParams(window.location.search);
             const prefillContactId = params.get('prefill_contact_id');
             const prefillClass = params.get('prefill_class');
+            const prefillPropertiesRaw = params.get('prefill_properties');
+            const prefillAttendeesRaw = params.get('prefill_attendees');
             if (!prefillContactId) return;
+
+            // Parse property handoff from the buyer-pipeline picker. Format:
+            // ?prefill_properties=<JSON array of {id, address}>. The address
+            // travels with the id so chips render without an extra fetch.
+            let prefillProperties = [];
+            if (prefillPropertiesRaw) {
+                try {
+                    const parsed = JSON.parse(prefillPropertiesRaw);
+                    if (Array.isArray(parsed)) {
+                        prefillProperties = parsed
+                            .filter(p => p && p.id)
+                            .map(p => ({ id: Number(p.id), address: String(p.address || ('Property #' + p.id)) }));
+                    }
+                } catch (e) { console.warn('Prefill properties parse failed:', e); }
+            }
+
+            // Parse attendee handoff. Format:
+            // ?prefill_attendees=<JSON array of {id, name, type, role}>. When
+            // present, the chip(s) render immediately with no fetch. The
+            // legacy fetch-by-id path below is the fallback for entry points
+            // that only have prefill_contact_id.
+            let prefillAttendees = [];
+            if (prefillAttendeesRaw) {
+                try {
+                    const parsed = JSON.parse(prefillAttendeesRaw);
+                    if (Array.isArray(parsed)) {
+                        prefillAttendees = parsed
+                            .filter(a => a && a.id && a.name)
+                            .map(a => ({
+                                id: Number(a.id),
+                                name: String(a.name),
+                                type: a.type || 'contact',
+                                role: a.role || (prefillClass === 'viewing' ? 'buyer_contact' : 'attendee'),
+                                phone: a.phone || null,
+                                email: a.email || null,
+                            }));
+                    }
+                } catch (e) { console.warn('Prefill attendees parse failed:', e); }
+            }
 
             this.$nextTick(() => {
                 const today = new Date().toISOString().slice(0, 10);
@@ -1883,7 +2541,35 @@ function calendarPage() {
                 this.editingEventId = null;
                 this.showCreateEvent = true;
 
-                // Fetch contact by ID and pre-populate
+                // Pre-populate property picker if the buyer-pipeline handoff
+                // passed properties. Runs after $nextTick so the form is in the DOM.
+                if (prefillProperties.length) {
+                    this.$nextTick(() => {
+                        const form = document.getElementById('createEventFormV2');
+                        const propPicker = form?.querySelector('[x-data*="propertySearch"]');
+                        if (propPicker) {
+                            Alpine.$data(propPicker).chosen = prefillProperties;
+                        }
+                    });
+                }
+
+                // Fast path: pre-populate attendee chips from prefill_attendees
+                // payload (carries id+name from the source page — no fetch needed).
+                if (prefillAttendees.length) {
+                    this.$nextTick(() => {
+                        const form = document.getElementById('createEventFormV2');
+                        const picker = form?.querySelector('[x-ref="attendeePicker"]');
+                        if (picker) {
+                            Alpine.$data(picker).chosen = prefillAttendees;
+                        }
+                        if (prefillClass === 'viewing' && prefillAttendees[0]?.name) {
+                            this.form.title = 'Viewing with ' + prefillAttendees[0].name;
+                        }
+                    });
+                    return; // skip the fetch fallback below
+                }
+
+                // Fallback: fetch contact by ID when only prefill_contact_id was passed
                 this.$nextTick(async () => {
                     try {
                         // Search by ID directly (attendee search works by name; use contact endpoint)
@@ -2230,25 +2916,66 @@ function calendarPage() {
         },
 
         async openFeedbackModal(eventId) {
-            const r = await fetch('/corex/command-center/calendar/' + eventId + '/feedback', {
-                headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
-            });
-            if (!r.ok) return;
-            const data = await r.json();
-            this.feedbackData = data;
-            this.feedbackPropertyStep = 0;
-            this.feedbackForm = {};
-            data.contacts.forEach(c => {
-                this.feedbackForm[c.id] = {
-                    outcome_id: c.outcome_id ? String(c.outcome_id) : '',
-                    concern_ids: (c.concerns || []).map(String),
-                    seller_visible_notes: c.seller_notes || '',
-                    internal_notes: c.internal_notes || '',
-                    next_action_notes: c.next_action || '',
+            try {
+                const r = await fetch('/corex/command-center/calendar/' + eventId + '/feedback', {
+                    headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+                });
+                if (!r.ok) {
+                    console.warn('Feedback endpoint returned', r.status);
+                    return;
+                }
+                const data = await r.json();
+                // Per-property mode (listing_presentation) returns `items`
+                // instead of `contacts`. Normalise so the rest of the
+                // pipeline can branch on feedback_mode without crashing.
+                const mode = data.feedback_mode || 'per_contact';
+                this.feedbackData = {
+                    event: data.event || null,
+                    feedback_mode: mode,
+                    feedback_kind: data.feedback_kind || (mode === 'per_property' ? 'listing_presentation' : 'viewing'),
+                    contacts: Array.isArray(data.contacts) ? data.contacts : [],
+                    properties: Array.isArray(data.properties) ? data.properties : [],
+                    items: Array.isArray(data.items) ? data.items : [],
+                    is_multi_property: !!data.is_multi_property,
+                    outcomes: data.outcomes || [],
+                    concerns: data.concerns || [],
+                    lp_outcomes: data.lp_outcomes || [],
+                    lp_mandate_types: data.lp_mandate_types || [],
+                    lp_concerns: data.lp_concerns || [],
                 };
-            });
-            this.panelOpen = false;
-            this.feedbackOpen = true;
+                this.feedbackPropertyStep = 0;
+                this.feedbackForm = {};
+
+                if (mode === 'per_property') {
+                    // Index per-property form rows by property_id.
+                    this.feedbackData.items.forEach(it => {
+                        const kd = it.kind_data || {};
+                        this.feedbackForm['prop:' + it.property_id] = {
+                            outcome:        kd.outcome || '',
+                            mandate_type:   kd.mandate_type || '',
+                            concern_ids:    Array.isArray(kd.concern_ids) ? kd.concern_ids.map(String) : [],
+                            seller_notes:   kd.seller_notes || '',
+                            internal_notes: it.internal_notes || '',
+                            next_action_notes: it.next_action || '',
+                        };
+                    });
+                } else {
+                    this.feedbackData.contacts.forEach(c => {
+                        this.feedbackForm[c.id] = {
+                            outcome_id: c.outcome_id ? String(c.outcome_id) : '',
+                            concern_ids: (c.concerns || []).map(String),
+                            seller_visible_notes: c.seller_notes || '',
+                            internal_notes: c.internal_notes || '',
+                            next_action_notes: c.next_action || '',
+                        };
+                    });
+                }
+
+                this.panelOpen = false;
+                this.feedbackOpen = true;
+            } catch (e) {
+                console.warn('openFeedbackModal failed:', e);
+            }
         },
         getCurrentFeedbackPropertyId() {
             if (!this.feedbackData.is_multi_property || !this.feedbackData.properties.length) {
@@ -2258,8 +2985,30 @@ function calendarPage() {
         },
 
         buildFeedbackPayload() {
+            // Per-property mode (listing_presentation) — keys are "prop:<id>"
+            if (this.feedbackData.feedback_mode === 'per_property') {
+                return {
+                    feedback_kind: 'listing_presentation',
+                    feedback: Object.entries(this.feedbackForm)
+                        .filter(([k, _]) => k.startsWith('prop:'))
+                        .map(([k, f]) => ({
+                            property_id: parseInt(k.slice('prop:'.length)),
+                            kind_specific_data: {
+                                outcome:        f.outcome || null,
+                                mandate_type:   f.mandate_type || null,
+                                concern_ids:    (f.concern_ids || []).map(Number),
+                                seller_notes:   f.seller_notes || null,
+                            },
+                            internal_notes:    f.internal_notes || null,
+                            next_action_notes: f.next_action_notes || null,
+                        })),
+                };
+            }
+
+            // Per-contact (viewings) — original behaviour
             const propertyId = this.getCurrentFeedbackPropertyId();
             return {
+                feedback_kind: 'viewing',
                 feedback: Object.entries(this.feedbackForm).map(([cid, f]) => ({
                     contact_id: parseInt(cid),
                     property_id: propertyId,

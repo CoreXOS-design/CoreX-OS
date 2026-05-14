@@ -22,6 +22,16 @@ Route::get('/buyer/portal/demo', [\App\Http\Controllers\BuyerPortalController::c
 Route::get('/buyer/portal/{token}', [\App\Http\Controllers\BuyerPortalController::class, 'show'])->name('buyer-portal.show');
 Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalController::class, 'respond'])->name('buyer-portal.respond');
 
+// ── Seller-Outreach Public Landing (no auth) ──
+// Spec: .ai/specs/seller-outreach-spec.md S8, 6.4, 6.5.
+Route::get('/m/{shortcode}', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'show'])
+    ->where('shortcode', '[A-Za-z0-9]{6}')
+    ->name('seller-outreach.public.landing');
+Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
+    ->where('shortcode', '[A-Za-z0-9]{6}')
+    ->middleware('throttle:10,60')
+    ->name('seller-outreach.public.callback');
+
 Route::get('/', function () {
     return auth()->check()
         ? redirect()->route('dashboard')
@@ -1005,9 +1015,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         Route::get('/buyers/pipeline', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'index'])->name('command-center.buyers.pipeline');
         Route::get('/buyers/{contact}', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'show'])->name('command-center.buyers.show');
-        // Route name `command-center.buyers.preferences` preserved for backward compat with the existing Blade view;
-        // method renamed to saveWishlist per spec D10 (unified buyer wishlist).
+        // Backward-compat alias for the legacy preferences POST. Prompt 11 added
+        // explicit add/update endpoints below; the new Wishlists tab uses those.
         Route::post('/buyers/{contact}/preferences', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'saveWishlist'])->name('command-center.buyers.preferences');
+        // Prompt 11 — Wishlists tab CRUD.
+        Route::post('/buyers/{contact}/wishlists', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'addWishlist'])->name('command-center.buyers.wishlists.add');
+        Route::put('/buyers/{contact}/wishlists/{match}', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'updateWishlist'])->name('command-center.buyers.wishlists.update');
+        Route::post('/buyers/{contact}/wishlists/{match}/primary', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'setWishlistPrimary'])->name('command-center.buyers.wishlists.primary');
+        Route::post('/buyers/{contact}/wishlists/{match}/archive', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'archiveWishlist'])->name('command-center.buyers.wishlists.archive');
+
         Route::post('/buyers/{contact}/playbook-action', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markPlaybookAction'])->name('command-center.buyers.playbook-action');
         Route::post('/buyers/{contact}/mark-lost', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markLost'])->name('command-center.buyers.mark-lost');
         Route::post('/buyers/{contact}/reengage', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'reengage'])->name('command-center.buyers.reengage');
@@ -1484,6 +1500,95 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/compliance-officers', function () {
         return redirect('/corex/settings?tab=user');
     })->middleware('permission:access_settings')->name('corex.settings.compliance-officers');
+
+    // ── Prospecting Setup (per-agency configuration of towns / property types / bedroom segments / price bands) ──
+    // Spec: .ai/specs/prospecting-setup-spec.md Section 6.
+    Route::prefix('settings/prospecting')
+        ->middleware('permission:prospecting_setup.manage')
+        ->name('settings.prospecting.')
+        ->group(function () {
+            Route::get('/',                                       [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'index'])->name('index');
+
+            // Build-from-Web helper (curated SA region library) — spec S4.
+            Route::get('/suggestions/{regionKey}',                [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'suggestions'])->name('suggestions');
+            Route::post('/towns/bulk-import',                     [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'bulkImport'])->name('towns.bulk-import');
+
+            Route::post('/towns',                                 [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'store'])->name('towns.store');
+            Route::put('/towns/{town}',                           [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'update'])->name('towns.update');
+            Route::post('/towns/{town}/archive',                  [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'archive'])->name('towns.archive');
+            Route::post('/towns/{townId}/restore',                [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'restore'])->name('towns.restore');
+            Route::post('/towns/reorder',                         [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'reorder'])->name('towns.reorder');
+
+            Route::post('/towns/{town}/suburbs',                  [\App\Http\Controllers\Settings\Prospecting\SuburbsController::class, 'store'])->name('suburbs.store');
+            Route::put('/suburbs/{suburb}',                       [\App\Http\Controllers\Settings\Prospecting\SuburbsController::class, 'update'])->name('suburbs.update');
+            Route::post('/suburbs/{suburb}/archive',              [\App\Http\Controllers\Settings\Prospecting\SuburbsController::class, 'archive'])->name('suburbs.archive');
+            // One-click cleanup of unmapped suburbs surfaced on the Towns tab.
+            Route::post('/suburbs/map',                           [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'mapSuburb'])->name('suburbs.map');
+
+            Route::post('/property-types',                        [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'store'])->name('property-types.store');
+            Route::put('/property-types/{type}',                  [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'update'])->name('property-types.update');
+            Route::post('/property-types/{type}/archive',         [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'archive'])->name('property-types.archive');
+            Route::post('/property-types/{type}/toggle',          [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'toggleActive'])->name('property-types.toggle');
+            Route::post('/property-types/reorder',                [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'reorder'])->name('property-types.reorder');
+
+            Route::post('/bedroom-segments',                      [\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class, 'store'])->name('bedroom-segments.store');
+            Route::put('/bedroom-segments/{segment}',             [\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class, 'update'])->name('bedroom-segments.update');
+            Route::post('/bedroom-segments/{segment}/archive',    [\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class, 'archive'])->name('bedroom-segments.archive');
+            Route::post('/bedroom-segments/reorder',              [\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class, 'reorder'])->name('bedroom-segments.reorder');
+
+            Route::post('/price-bands',                           [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'store'])->name('price-bands.store');
+            Route::put('/price-bands/{band}',                     [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'update'])->name('price-bands.update');
+            Route::post('/price-bands/{band}/archive',            [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'archive'])->name('price-bands.archive');
+            Route::post('/price-bands/reorder',                   [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'reorder'])->name('price-bands.reorder');
+        });
+
+    // ── Seller Outreach Templates (per-agency template CRUD) ──
+    // Spec: .ai/specs/seller-outreach-spec.md S4, 6.3.
+    Route::prefix('settings/outreach-templates')
+        ->middleware('permission:outreach_templates.manage')
+        ->name('settings.outreach-templates.')
+        ->group(function () {
+            Route::get('/',                       [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'index'])->name('index');
+            Route::post('/',                      [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'store'])->name('store');
+            Route::put('/{template}',             [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'update'])->name('update');
+            Route::post('/{template}/archive',    [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'archive'])->name('archive');
+            Route::post('/{templateId}/restore',  [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'restore'])->name('restore');
+        });
+
+    // ── Seller Outreach Composer (agent-facing pitch composer) ──
+    // Spec: .ai/specs/seller-outreach-spec.md S6, 6.1.
+    Route::prefix('contacts/{contact}/outreach')
+        ->middleware('permission:outreach.compose')
+        ->name('seller-outreach.composer.')
+        ->group(function () {
+            Route::get('/compose',     [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'show'])->name('show');
+            Route::post('/send',       [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'submit'])->name('submit');
+            Route::get('/sent/{send}', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'sent'])->name('sent');
+
+            // Timeline (Prompt 07) — agent-side view of every send + click + opt-out
+            Route::get('/timeline',                       [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'index'])->name('timeline');
+            Route::post('/timeline/sends/{send}/outcome', [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'updateOutcome'])->name('outcome');
+            Route::post('/timeline/opt-out',              [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'recordOptOut'])->name('opt-out');
+        });
+
+    // ── Seller Outreach Entry Points (Prompt 08) ──
+    // Property + prospecting-listing → composer redirects.
+    // Contact pillar entry point is a direct link from the contact page (no controller action).
+    Route::middleware('permission:outreach.compose')
+        ->name('seller-outreach.entry.')
+        ->group(function () {
+            Route::get('/properties/{property}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromProperty'])
+                ->name('from-property');
+            Route::get('/prospecting/{prospectingListingId}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('from-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('store-from-prospecting');
+        });
 
     // ── Whistleblower Settings ──
     Route::post('/settings/whistleblow', [CoreXSettingsController::class, 'saveWhistleblowSettings'])->middleware('permission:compliance.whistleblow.configure')->name('corex.settings.whistleblow.save');
@@ -2361,6 +2466,17 @@ Route::middleware(['auth', 'permission:access_document_library'])->prefix('docum
 // ===== PROSPECTING =====
 Route::middleware(['auth', 'permission:access_prospecting'])->prefix('prospecting')->name('prospecting.')->group(function () {
     Route::get('/', [\App\Http\Controllers\ProspectingController::class, 'index'])->name('index');
+
+    // Intelligence layer endpoints — must be declared BEFORE the {listing}
+    // catch-alls below or Laravel's model-binding would shadow these paths.
+    Route::get('/snapshot.json', [\App\Http\Controllers\ProspectingController::class, 'snapshotJson'])->name('snapshot');
+    Route::get('/segment/{dimension}/{value}/buyers',  [\App\Http\Controllers\ProspectingController::class, 'segmentBuyers'])
+        ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
+        ->name('segment.buyers');
+    Route::get('/segment/{dimension}/{value}/listings', [\App\Http\Controllers\ProspectingController::class, 'segmentListings'])
+        ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
+        ->name('segment.listings');
+
     Route::get('/thumbnail/{listing}', [\App\Http\Controllers\ProspectingController::class, 'thumbnail'])->name('thumbnail');
     Route::post('/{listing}/claim', [\App\Http\Controllers\ProspectingController::class, 'claim'])->name('claim');
     Route::post('/{listing}/feedback', [\App\Http\Controllers\ProspectingController::class, 'feedback'])->name('feedback');

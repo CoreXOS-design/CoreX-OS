@@ -1,7 +1,27 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
+{{-- Outer flex container: holds the main content column + the optional
+     Prospecting Setup drawer as a flex sibling (the post-Prompt-11.4 calendar
+     pattern). When the drawer is closed it takes 0 space; when open it docks
+     to the right and the main column shrinks. NO fixed positioning, NO
+     backdrop. Escape closes. Survives full reload via #setup-open fragment. --}}
+<div class="flex gap-0 min-h-[60vh]"
+     x-data="{ setupDrawerOpen: false }"
+     x-init="if (window.location.hash === '#setup-open') setupDrawerOpen = true;
+             $watch('setupDrawerOpen', v => { if (v) window.location.hash = 'setup-open'; else if (window.location.hash === '#setup-open') history.replaceState(null, '', window.location.pathname + window.location.search); });">
+
+<div class="flex-1 min-w-0 overflow-y-auto">
 <div class="max-w-7xl mx-auto space-y-6">
+
+    {{-- Buyer-match regeneration banner (spec D7) --}}
+    @if($regenerating ?? false)
+    <div class="rounded-md px-4 py-3 flex items-center gap-2 text-sm"
+         style="background: rgba(245,158,11,.12); color: #b45309; border: 1px solid rgba(245,158,11,.30);">
+        <span>⚠</span>
+        <span>Rebuilding buyer matches — counts may be stale. Refresh in a few minutes.</span>
+    </div>
+    @endif
 
     {{-- Page header (Pattern A) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -10,8 +30,24 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Market Intelligence</h1>
                 <p class="text-sm text-white/60">Portal listings captured by your team — {{ number_format($listings->total()) }} results.</p>
             </div>
+            <div class="flex items-center gap-2">
+                @if(auth()->user()?->hasPermission('prospecting_setup.manage'))
+                <button type="button"
+                        @click="setupDrawerOpen = !setupDrawerOpen"
+                        title="Configure prospecting segments (towns, property types, bedroom segments, price bands)"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md inline-flex items-center gap-1.5"
+                        style="background: rgba(255,255,255,0.10); color: #fff; border: 1px solid rgba(255,255,255,0.20);">
+                    ⚙ <span>Setup</span>
+                </button>
+                @endif
+            </div>
         </div>
     </div>
+
+    {{-- Prospecting Intelligence — summary block (Prompt 04).
+         Consumes $snapshot, $filters, $segmentLabels — all passed by
+         ProspectingController@index post-Prompt-03 refactor. --}}
+    @include('prospecting._summary-block')
 
     {{-- Stats cards --}}
     <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -196,6 +232,50 @@
         </div>
     </div>
 
+    {{-- Filtered-to-zero banner — sits above the listing table.
+         Rebuilds $urlWithout inline because Blade closures defined inside
+         _summary-block don't leak back to this parent scope. --}}
+    @php
+        // User-applied filters only (exclude system params like agency_id,
+        // pagination, sort, listing_type default, and the funnel view toggle).
+        $systemKeys = ['agency_id', 'listing_type', 'funnel_view', 'sort', 'page', 'per_page'];
+        $userFilterCount = collect($filters ?? [])
+            ->except($systemKeys)
+            ->filter(fn ($v) => $v !== null && $v !== '' && $v !== false)
+            ->count();
+
+        // Local urlWithout closure — DateTimeInterface → Y-m-d serialisation
+        // mirrors _summary-block's $serialiseFilters helper.
+        $urlWithoutBuilder = function (string $key) use ($filters) {
+            $new = $filters ?? [];
+            unset($new[$key]);
+            $clean = [];
+            foreach ($new as $k => $v) {
+                if ($v === null || $v === '' || $v === false) continue;
+                if ($k === 'agency_id') continue;
+                if ($v instanceof \DateTimeInterface) { $clean[$k] = $v->format('Y-m-d'); continue; }
+                if (is_array($v))                     { $clean[$k] = array_values($v); continue; }
+                $clean[$k] = $v;
+            }
+            return route('prospecting.index') . ($clean ? '?' . http_build_query($clean) : '');
+        };
+
+        // Snapshot is built from the intelligence-layer filter set; its
+        // activeListings figure reflects all user-applied filter keys
+        // (town_id, bedroom_segment_id, etc.). The legacy $listings paginator
+        // uses different filter keys (portal_source, etc.) so checking it
+        // alone would miss the new-filter empty-state cases.
+        $intelEmpty = isset($snapshot) ? $snapshot->activeListings === 0 : false;
+    @endphp
+
+    @if($intelEmpty && $userFilterCount > 0)
+        @include('prospecting._empty-state', [
+            'kind'       => 'filtered_to_zero',
+            'filters'    => $filters ?? [],
+            'urlWithout' => $urlWithoutBuilder,
+        ])
+    @endif
+
     {{-- Results table --}}
     @if($listings->count())
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
@@ -248,7 +328,7 @@
 
                         {{-- Address --}}
                         <td class="px-4 py-3">
-                            <div class="flex items-center gap-2">
+                            <div class="flex items-center gap-2 flex-wrap">
                                 <a href="{{ $listing->portal_url }}" target="_blank" rel="noopener"
                                    class="text-sm font-medium hover:underline" style="color: var(--brand-icon);">
                                     {{ Str::limit($listing->address, 40) }}
@@ -257,6 +337,14 @@
                                 <a href="{{ route('corex.properties.show', $listing->matched_property_id) }}"
                                    class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded no-underline" style="background:var(--brand-default); color:#fff;">
                                     IN STOCK
+                                </a>
+                                @endif
+                                @if(auth()->user()->hasPermission('outreach.compose'))
+                                <a href="{{ route('seller-outreach.entry.from-prospecting', $listing->id) }}"
+                                   class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded no-underline"
+                                   style="background:color-mix(in srgb, #00d4aa 18%, transparent); color:#00d4aa; border:1px solid color-mix(in srgb, #00d4aa 35%, transparent);"
+                                   title="Capture the seller's contact and compose a pitch about this property">
+                                    💬 Pitch seller
                                 </a>
                                 @endif
                             </div>
@@ -280,12 +368,36 @@
                             @endif
                         </td>
 
-                        {{-- Buyer Matches --}}
+                        {{-- Buyer Matches — clickable drill-down to buyer pipeline filtered by this listing.
+                             Defensibility: count is DISTINCT contact_id (a buyer with multiple wishlists
+                             matching this listing counts once). Tooltip shows MAX(score). --}}
                         <td class="px-4 py-3 text-center">
-                            @if(($listing->buyer_match_count ?? 0) > 0)
-                                <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
-                                      style="{{ ($listing->buyer_match_count ?? 0) >= 5 ? 'background:rgba(239,68,68,0.15);color:#ef4444;' : (($listing->buyer_match_count ?? 0) >= 2 ? 'background:rgba(245,158,11,0.15);color:#f59e0b;' : 'background:rgba(16,185,129,0.15);color:#10b981;') }}">
-                                    {{ $listing->buyer_match_count }} buyer{{ $listing->buyer_match_count > 1 ? 's' : '' }}
+                            @php
+                                $bmc = (int) ($listing->buyer_match_count ?? 0);
+                                $bmts = $listing->buyer_match_top_score ?? null;
+                                $bmStyle = $bmc >= 5
+                                    ? 'background:rgba(239,68,68,0.15);color:#ef4444;'
+                                    : ($bmc >= 2
+                                        ? 'background:rgba(245,158,11,0.15);color:#f59e0b;'
+                                        : 'background:rgba(16,185,129,0.15);color:#10b981;');
+                                $bmTitle = $bmc > 0
+                                    ? $bmc . ' matching buyer' . ($bmc === 1 ? '' : 's')
+                                        . ($bmts !== null ? ' (top score ' . $bmts . '%)' : '')
+                                        . ' — click to drill in'
+                                    : '';
+                            @endphp
+                            @if($bmc > 0)
+                                <a href="{{ route('command-center.buyers.pipeline', ['view' => 'list', 'prospecting_listing_id' => $listing->id]) }}"
+                                   class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full no-underline transition hover:brightness-110"
+                                   style="{{ $bmStyle }}"
+                                   title="{{ $bmTitle }}">
+                                    {{ $bmc }} buyer{{ $bmc === 1 ? '' : 's' }}
+                                </a>
+                            @else
+                                <span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full"
+                                      style="background: var(--surface-2); color: var(--text-muted);"
+                                      title="No matching buyers — consider widening wishlists or capturing more buyers in this segment">
+                                    No matches yet
                                 </span>
                             @endif
                         </td>
@@ -304,19 +416,30 @@
                         {{-- Agency --}}
                         <td class="px-4 py-3 text-sm" style="color: var(--text-secondary);">{{ Str::limit($listing->agency_name, 20) ?? '-' }}</td>
 
-                        {{-- Portal badges --}}
+                        {{-- Portal source — colour-differentiated per portal:
+                             P24 = #1e40af (Property24 brand blue family)
+                             PP  = #059669 (Private Property brand green family) --}}
                         <td class="px-4 py-3 text-center">
+                            @php
+                                $portalStyle = fn ($s) => $s === 'p24'
+                                    ? 'background:#1e40af;color:#fff;'
+                                    : ($s === 'pp' ? 'background:#059669;color:#fff;' : 'background:#6b7280;color:#fff;');
+                                $portalLabel = fn ($s) => $s === 'p24' ? 'P24' : ($s === 'pp' ? 'PP' : strtoupper((string) $s));
+                            @endphp
                             @if(!empty($listing->portals))
                                 @foreach($listing->portals as $portal)
                                 <a href="{{ $portal['url'] }}" target="_blank" rel="noopener"
-                                   class="ds-badge ds-badge-info me-0.5"
-                                   style="text-decoration: none;"
+                                   class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold me-0.5 no-underline"
+                                   style="{{ $portalStyle($portal['source']) }}"
                                    title="{{ $portal['ref'] }}">
-                                    {{ $portal['source'] === 'p24' ? 'P24' : 'PP' }}
+                                    {{ $portalLabel($portal['source']) }}
                                 </a>
                                 @endforeach
                             @else
-                                <span class="ds-badge ds-badge-info">{{ $listing->portal_source === 'p24' ? 'P24' : 'PP' }}</span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold"
+                                      style="{{ $portalStyle($listing->portal_source) }}">
+                                    {{ $portalLabel($listing->portal_source) }}
+                                </span>
                             @endif
                         </td>
 
@@ -491,7 +614,46 @@
         </div>
     </div>
 
-</div>
+</div>{{-- /max-w-7xl mx-auto --}}
+</div>{{-- /flex-1 main content column --}}
+
+{{-- Prospecting Setup drawer (flex sibling, opens on ⚙ click) --}}
+@if(auth()->user()?->hasPermission('prospecting_setup.manage'))
+<aside x-show="setupDrawerOpen" x-cloak
+       x-transition:enter="transform transition ease-out duration-200"
+       x-transition:enter-start="translate-x-full opacity-0"
+       x-transition:enter-end="translate-x-0 opacity-100"
+       x-transition:leave="transform transition ease-in duration-150"
+       x-transition:leave-start="translate-x-0 opacity-100"
+       x-transition:leave-end="translate-x-full opacity-0"
+       @keydown.escape.window="setupDrawerOpen = false"
+       class="w-full max-w-3xl flex-shrink-0 flex flex-col overflow-hidden"
+       style="background: var(--surface); border-left: 1px solid var(--border); box-shadow: -4px 0 12px rgba(0,0,0,0.08);">
+
+    <div class="flex items-center justify-between px-5 py-3 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
+        <h2 class="text-base font-semibold" style="color: var(--text-primary);">Prospecting Setup</h2>
+        <button type="button" @click="setupDrawerOpen = false"
+                class="text-xl leading-none px-2"
+                style="color: var(--text-muted); background: none; border: none; cursor: pointer;">×</button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-5 py-4">
+        @include('settings.prospecting._panel', [
+            'activeTab'         => 'towns',
+            'towns'             => $prospectingSetupTowns,
+            'propertyTypes'     => $prospectingSetupPropertyTypes,
+            'bedroomSegments'   => $prospectingSetupBedroomSegments,
+            'priceBandsSale'    => $prospectingSetupPriceBandsSale,
+            'priceBandsRental'  => $prospectingSetupPriceBandsRental,
+            'suggestionRegions' => $prospectingSetupSuggestionRegions,
+            'unmappedSuburbs'   => $prospectingSetupUnmappedSuburbs,
+            'context'           => 'drawer',
+        ])
+    </div>
+</aside>
+@endif
+
+</div>{{-- /outer flex container --}}
 
 <script>
 function openFeedbackModal(listingId, currentStatus) {

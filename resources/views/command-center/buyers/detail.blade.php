@@ -1,7 +1,59 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="space-y-4" x-data="{ activeTab: '{{ $tab }}' }">
+<div class="space-y-4"
+     x-data="{
+        activeTab: '{{ $tab }}',
+        wishlistDrawerOpen: false,
+        wishlistEditingId: null,
+        openAddDrawer() { this.wishlistEditingId = null; this.wishlistDrawerOpen = true; },
+        openEditDrawer(id) { this.wishlistEditingId = id; this.wishlistDrawerOpen = true; },
+        closeDrawer() { this.wishlistDrawerOpen = false; this.wishlistEditingId = null; },
+
+        showViewingPicker: false,
+        pickerProperties: @js($matched->take(6)->map(fn($mp) => ['id' => $mp['id'], 'address' => $mp['address'], 'suburb' => $mp['suburb'] ?? null, 'price' => $mp['price'] ?? null, 'match_score' => $mp['match_score'] ?? null])->values()),
+        pickerSelected: @js($matched->take(6)->pluck('id')->values()),
+        togglePickerProperty(id) {
+            const i = this.pickerSelected.indexOf(id);
+            if (i === -1) this.pickerSelected.push(id);
+            else this.pickerSelected.splice(i, 1);
+        },
+        pickerAllChecked() { return this.pickerProperties.length > 0 && this.pickerSelected.length === this.pickerProperties.length; },
+        pickerToggleAll() {
+            this.pickerSelected = this.pickerAllChecked() ? [] : this.pickerProperties.map(p => p.id);
+        },
+        continueToSchedule() {
+            const chosen = this.pickerProperties.filter(p => this.pickerSelected.includes(p.id))
+                                              .map(p => ({ id: p.id, address: p.address }));
+            // Pass the buyer as a prefill_attendees handoff so the calendar
+            // chips render immediately — no fetch, no name lookup roundtrip.
+            const attendees = [{
+                id: {{ $buyer->id }},
+                name: @js(trim(($buyer->first_name ?? '') . ' ' . ($buyer->last_name ?? '')) ?: ('Contact #' . $buyer->id)),
+                type: 'contact',
+                role: 'buyer_contact',
+                phone: @js($buyer->phone),
+                email: @js($buyer->email),
+            }];
+            const base = '{{ route('command-center.calendar') }}';
+            const params = new URLSearchParams();
+            params.set('view', 'day');
+            params.set('prefill_class', 'viewing');
+            params.set('prefill_contact_id', '{{ $buyer->id }}');
+            params.set('prefill_attendees', JSON.stringify(attendees));
+            if (chosen.length) params.set('prefill_properties', JSON.stringify(chosen));
+            window.location.href = base + '?' + params.toString();
+        },
+     }">
+    {{-- Back to Buyer Pipeline --}}
+    <div>
+        <a href="{{ route('command-center.buyers.pipeline') }}"
+           class="inline-flex items-center gap-1 text-xs no-underline"
+           style="color: var(--text-muted);">
+            ← Back to Buyer Pipeline
+        </a>
+    </div>
+
     {{-- Header --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -21,8 +73,8 @@
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
-                   class="text-xs font-semibold px-3 py-1.5 rounded-md no-underline" style="background: #00d4aa; color: #0f172a;">Schedule Viewing</a>
+                <button type="button" @click="showViewingPicker = true"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: #00d4aa; color: #0f172a; border: none; cursor: pointer;">Schedule Viewing</button>
                 <a href="{{ route('corex.contacts.show', $buyer) }}" class="text-xs font-semibold px-3 py-1.5 rounded-md no-underline" style="background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);">Contact Record</a>
                 @if($buyer->buyer_state !== 'lost')
                 <button type="button" x-data x-on:click="$refs.lostModal.showModal()"
@@ -42,7 +94,7 @@
             $pastViewings = $propertiesViewed['past'] ?? collect();
             $allViewingsFlat = $upcomingViewings->concat($pastViewings);
         @endphp
-        @foreach(['overview' => 'Overview', 'timeline' => 'Activity', 'properties' => 'Viewings & Feedback', 'matched' => 'Matched', 'preferences' => 'Preferences', 'playbook' => 'Retention'] as $key => $label)
+        @foreach(['overview' => 'Overview', 'timeline' => 'Activity', 'properties' => 'Viewings & Feedback', 'wishlists' => 'Wishlists', 'playbook' => 'Retention'] as $key => $label)
             <button @click="activeTab = '{{ $key }}'"
                     :class="activeTab === '{{ $key }}' ? 'border-b-2' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $key }}' ? 'color: #00d4aa; border-color: #00d4aa;' : 'color: var(--text-secondary);'"
@@ -211,28 +263,10 @@
 
     </div>
 
-    {{-- Matched Properties Tab --}}
-    <div x-show="activeTab === 'matched'" x-cloak class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        @forelse($matched as $mp)
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="flex items-center justify-between mb-1">
-                    <span class="text-sm font-semibold truncate" style="color: var(--text-primary);">{{ $mp['address'] }}</span>
-                    <span class="text-[10px] px-1.5 py-0.5 rounded font-bold" style="background: {{ $mp['match_score'] >= 90 ? '#10b981' : ($mp['match_score'] >= 75 ? '#f59e0b' : '#ef4444') }}20; color: {{ $mp['match_score'] >= 90 ? '#10b981' : ($mp['match_score'] >= 75 ? '#f59e0b' : '#ef4444') }};">{{ $mp['match_score'] }}%</span>
-                </div>
-                <div class="text-[10px]" style="color: var(--text-muted);">{{ $mp['suburb'] }} · R {{ number_format($mp['price'] ?? 0) }} · {{ $mp['days_on_market'] ?? '?' }}d</div>
-                <div class="mt-2">
-                    <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
-                       class="text-[10px] font-medium no-underline" style="color: #00d4aa;">Schedule Viewing →</a>
-                </div>
-            </div>
-        @empty
-            <p class="col-span-full text-sm py-8 text-center" style="color: var(--text-muted);">No matching properties found. Update preferences to improve matches.</p>
-        @endforelse
-    </div>
+    {{-- Wishlists Tab (replaces legacy Matched + Preferences tabs) --}}
+    <div x-show="activeTab === 'wishlists'" x-cloak class="space-y-4">
 
-    {{-- Preferences Tab --}}
-    <div x-show="activeTab === 'preferences'" x-cloak class="space-y-4">
-        {{-- Auto-derived patterns (read-only) --}}
+        {{-- Auto-derived patterns (read-only) — preserved from the old Preferences tab --}}
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Auto-Derived from Viewing History</h3>
             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
@@ -250,84 +284,248 @@
             @endif
         </div>
 
-        {{-- Stated Preferences (editable) --}}
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Stated Preferences (Agent Input)</h3>
-            <form method="POST" action="{{ route('command-center.buyers.preferences', $buyer) }}" class="space-y-3">
-                @csrf
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Budget Min (R)</label>
-                        <input type="number" name="budget_min" value="{{ $statedPrefs->budget_min ?? '' }}" placeholder="e.g. 1500000"
-                               class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Budget Max (R)</label>
-                        <input type="number" name="budget_max" value="{{ $statedPrefs->budget_max ?? '' }}" placeholder="e.g. 3000000"
-                               class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Bedrooms Min</label>
-                        <input type="number" name="bedrooms_min" value="{{ $statedPrefs->bedrooms_min ?? '' }}" min="0" max="20"
-                               class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Bedrooms Max</label>
-                        <input type="number" name="bedrooms_max" value="{{ $statedPrefs->bedrooms_max ?? '' }}" min="0" max="20"
-                               class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+        {{-- Wishlists header + Add button --}}
+        <div class="flex items-center justify-between">
+            <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                Wishlists ({{ $buyer->matches->count() }})
+            </h3>
+            <button type="button" @click="openAddDrawer()"
+                    class="text-xs font-semibold px-3 py-1.5 rounded text-white"
+                    style="background: var(--brand-button);">
+                + Add Wishlist
+            </button>
+        </div>
+
+        @if($buyer->matches->isEmpty())
+            <div class="rounded-md p-6 text-center" style="background: var(--surface); border: 1px dashed var(--border);">
+                <p class="text-sm mb-3" style="color: var(--text-muted);">No wishlists yet. Add one to start matching properties to this buyer.</p>
+                <button type="button" @click="openAddDrawer()"
+                        class="text-xs font-semibold px-3 py-1.5 rounded text-white"
+                        style="background: var(--brand-button);">
+                    Add first wishlist
+                </button>
+            </div>
+        @else
+            <div class="grid gap-3">
+                @foreach($buyer->matches as $wishlist)
+                <div class="rounded-md p-4"
+                     style="background: var(--surface); border: 1px solid {{ $wishlist->is_primary ? '#f59e0b' : 'var(--border)' }};">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0 space-y-2">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                @if($wishlist->is_primary)
+                                    <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded"
+                                          style="background: rgba(245,158,11,0.18); color: #b45309; border: 1px solid rgba(245,158,11,0.35);">
+                                        ⭐ Primary
+                                    </span>
+                                @endif
+                                <span class="text-xs px-2 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-secondary);">
+                                    {{ $wishlist->listingTypeLabel() }}
+                                </span>
+                                @if($wishlist->price_min || $wishlist->price_max)
+                                    <span class="text-sm font-bold" style="color: var(--text-primary);">{{ $wishlist->priceRangeLabel() }}</span>
+                                @endif
+                                <span class="text-[10px]" style="color: var(--text-muted);">Status: {{ $wishlist->status }}</span>
+                            </div>
+
+                            <div class="text-xs" style="color: var(--text-secondary);">
+                                @if($wishlist->name)<span class="font-semibold">{{ $wishlist->name }}</span> · @endif
+                                @if($wishlist->category){{ $wishlist->category }} · @endif
+                                @php $types = $wishlist->propertyTypeList(); @endphp
+                                @if(!empty($types))Types: {{ implode(', ', $types) }} · @endif
+                                @php $suburbs = $wishlist->suburbList(); @endphp
+                                @if(!empty($suburbs))Suburbs: {{ implode(', ', $suburbs) }}@endif
+                            </div>
+
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-[10px]" style="color: var(--text-muted);">
+                                @if($wishlist->beds_min !== null || $wishlist->bedrooms_max !== null)
+                                    <div>Beds: {{ $wishlist->beds_min ?? '—' }}–{{ $wishlist->bedrooms_max ?? '—' }}</div>
+                                @endif
+                                @if(!empty($wishlist->must_have_features))
+                                    <div>Must-have: {{ count($wishlist->must_have_features) }}</div>
+                                @endif
+                                @if(!empty($wishlist->deal_breakers))
+                                    <div>Deal-breakers: {{ count($wishlist->deal_breakers) }}</div>
+                                @endif
+                                <div>Updated {{ $wishlist->updated_at->diffForHumans() }}</div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col gap-1.5 flex-shrink-0">
+                            <button type="button" @click="openEditDrawer({{ $wishlist->id }})"
+                                    class="text-[10px] font-semibold px-2.5 py-1 rounded"
+                                    style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
+                                Edit
+                            </button>
+                            @if(!$wishlist->is_primary)
+                            <form method="POST" action="{{ route('command-center.buyers.wishlists.primary', [$buyer, $wishlist]) }}"
+                                  onsubmit="return confirm('Make this the primary wishlist? The current primary will be demoted.');">
+                                @csrf
+                                <button type="submit"
+                                        class="w-full text-[10px] font-semibold px-2.5 py-1 rounded"
+                                        style="background: rgba(245,158,11,0.10); color: #b45309; border: 1px solid rgba(245,158,11,0.25);">
+                                    ⭐ Make Primary
+                                </button>
+                            </form>
+                            @endif
+                            <form method="POST" action="{{ route('command-center.buyers.wishlists.archive', [$buyer, $wishlist]) }}"
+                                  onsubmit="return confirm('Archive this wishlist? It can be restored by an admin.');">
+                                @csrf
+                                <button type="submit"
+                                        class="text-[10px] font-semibold px-2.5 py-1 rounded"
+                                        style="background: rgba(239,68,68,0.10); color: #b91c1c; border: 1px solid rgba(239,68,68,0.25);">
+                                    Archive
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
+                @endforeach
+            </div>
+
+            {{-- "Matched properties for primary wishlist" — replaces the legacy Matched tab as a contextual drilldown --}}
+            @if($matched->isNotEmpty())
+            <div class="mt-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Top Matches for Primary Wishlist</h3>
+                    <button type="button" @click="showViewingPicker = true"
+                            class="text-xs font-semibold px-3 py-1 rounded" style="background: #00d4aa; color: #0f172a; border: none; cursor: pointer;">
+                        Schedule Viewing
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    @foreach($matched->take(6) as $mp)
+                        <div class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border);">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-xs font-semibold truncate" style="color: var(--text-primary);">{{ $mp['address'] }}</span>
+                                <span class="text-[10px] px-1.5 py-0.5 rounded font-bold" style="background: {{ $mp['match_score'] >= 90 ? '#10b981' : ($mp['match_score'] >= 75 ? '#f59e0b' : '#ef4444') }}20; color: {{ $mp['match_score'] >= 90 ? '#10b981' : ($mp['match_score'] >= 75 ? '#f59e0b' : '#ef4444') }};">{{ $mp['match_score'] }}%</span>
+                            </div>
+                            <div class="text-[10px]" style="color: var(--text-muted);">{{ $mp['suburb'] }} · R {{ number_format($mp['price'] ?? 0) }} · {{ $mp['days_on_market'] ?? '?' }}d</div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+            @endif
+        @endif
+    </div>
+
+    {{-- Property-Picker Modal: opened by either "Schedule Viewing" button.
+         Submits via JS to /calendar with prefill_class=viewing, prefill_contact_id,
+         and prefill_properties=<JSON array of {id, address}>. The calendar's
+         handlePrefill() reads these and pre-populates the create-event form. --}}
+    <div x-show="showViewingPicker" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center"
+         style="background: rgba(0,0,0,0.55);"
+         @keydown.escape.window="showViewingPicker = false">
+        <div class="rounded-md w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6"
+             style="background: var(--surface); border: 1px solid var(--border);"
+             @click.outside="showViewingPicker = false">
+            <div class="flex justify-between items-start mb-3">
                 <div>
-                    <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Preferred Areas (comma-separated)</label>
-                    @php $prefAreas = json_decode($statedPrefs->preferred_areas ?? '[]', true); @endphp
-                    <input type="text" name="preferred_areas[]" value="{{ implode(', ', $prefAreas) }}" placeholder="e.g. Margate, Uvongo, Shelly Beach"
-                           class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <h2 class="text-base font-bold" style="color: var(--text-primary);">Schedule Viewing</h2>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">
+                        Select the properties to include. You can add more on the next screen.
+                    </p>
+                </div>
+                <button type="button" @click="showViewingPicker = false"
+                        class="text-xl leading-none px-2 py-0"
+                        style="color: var(--text-muted); background: none; border: none; cursor: pointer;">×</button>
+            </div>
+
+            @if($matched->isEmpty())
+                <div class="rounded-md p-6 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
+                    <p class="text-sm mb-3" style="color: var(--text-muted);">
+                        No matching properties yet for this buyer's primary wishlist.
+                    </p>
+                    <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
+                       class="text-xs font-semibold px-3 py-1.5 rounded no-underline inline-block"
+                       style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);">
+                        Schedule manually →
+                    </a>
+                </div>
+            @else
+                <div class="space-y-2 mb-4">
+                    <template x-for="p in pickerProperties" :key="p.id">
+                        <label class="flex items-start gap-3 p-3 rounded cursor-pointer"
+                               style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <input type="checkbox"
+                                   :checked="pickerSelected.includes(p.id)"
+                                   @change="togglePickerProperty(p.id)"
+                                   class="mt-1">
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-semibold truncate" style="color: var(--text-primary);" x-text="p.address"></div>
+                                <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">
+                                    <span x-text="p.suburb"></span>
+                                    <span> · R </span>
+                                    <span x-text="(p.price || 0).toLocaleString()"></span>
+                                    <template x-if="p.match_score !== null && p.match_score !== undefined">
+                                        <span> · <span x-text="p.match_score"></span>% match</span>
+                                    </template>
+                                </div>
+                            </div>
+                        </label>
+                    </template>
                 </div>
 
-                {{-- Pre-approval Status --}}
-                <div class="pt-3 mt-2" style="border-top: 1px solid var(--border);">
-                    <h4 class="text-[10px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Pre-approval Status</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div>
-                            <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Pre-approved Amount (R)</label>
-                            <input type="number" name="preapproval_amount" value="{{ $statedPrefs->preapproval_amount ?? '' }}" placeholder="e.g. 2500000" step="1000"
-                                   class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Expires</label>
-                            <input type="date" name="preapproval_expires_at" value="{{ $statedPrefs->preapproval_expires_at ?? '' }}"
-                                   class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Institution</label>
-                            <select name="preapproval_institution" class="w-full rounded px-2 py-1.5 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                                <option value="">— Select —</option>
-                                @foreach(['Standard Bank', 'Nedbank', 'FNB', 'ABSA', 'Investec', 'Capitec', 'SA Home Loans', 'ooba', 'BetterBond', 'Other'] as $bank)
-                                    <option value="{{ $bank }}" {{ ($statedPrefs->preapproval_institution ?? '') === $bank ? 'selected' : '' }}>{{ $bank }}</option>
-                                @endforeach
-                            </select>
-                        </div>
+                <div class="flex items-center justify-between pt-3" style="border-top: 1px solid var(--border);">
+                    <label class="flex items-center gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                        <input type="checkbox" :checked="pickerAllChecked()" @change="pickerToggleAll()">
+                        Select all
+                    </label>
+                    <div class="flex gap-2">
+                        <button type="button" @click="showViewingPicker = false"
+                                class="text-xs font-semibold px-3 py-1.5 rounded"
+                                style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); cursor: pointer;">Cancel</button>
+                        <button type="button"
+                                @click="continueToSchedule()"
+                                :disabled="pickerSelected.length === 0"
+                                :style="pickerSelected.length === 0 ? 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); cursor: not-allowed;' : 'background: #00d4aa; color: #0f172a; border: none; cursor: pointer;'"
+                                class="text-xs font-semibold px-3 py-1.5 rounded">
+                            Continue to schedule (<span x-text="pickerSelected.length"></span>)
+                        </button>
                     </div>
-                    @if(!empty($statedPrefs->preapproval_amount))
-                        @php
-                            $preExpiry = $statedPrefs->preapproval_expires_at ? \Carbon\Carbon::parse($statedPrefs->preapproval_expires_at) : null;
-                            $preExpired = $preExpiry && $preExpiry->isPast();
-                            $preExpiring = $preExpiry && !$preExpired && $preExpiry->diffInDays(now()) <= 30;
-                        @endphp
-                        <div class="mt-2 px-2 py-1.5 rounded text-xs inline-flex items-center gap-1.5"
-                             style="{{ $preExpired ? 'background:rgba(239,68,68,0.1);color:#ef4444;' : ($preExpiring ? 'background:rgba(245,158,11,0.1);color:#f59e0b;' : 'background:rgba(16,185,129,0.1);color:#10b981;') }}">
-                            <span class="w-1.5 h-1.5 rounded-full" style="{{ $preExpired ? 'background:#ef4444;' : ($preExpiring ? 'background:#f59e0b;' : 'background:#10b981;') }}"></span>
-                            Pre-approved R {{ number_format($statedPrefs->preapproval_amount) }}
-                            @if($statedPrefs->preapproval_institution) via {{ $statedPrefs->preapproval_institution }}@endif
-                            @if($preExpiry) · {{ $preExpired ? 'Expired ' . $preExpiry->format('d M Y') : 'Expires ' . $preExpiry->format('d M Y') }}@endif
-                        </div>
-                    @endif
                 </div>
+            @endif
+        </div>
+    </div>
 
-                <div class="flex justify-end">
-                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded text-white" style="background: var(--brand-button);">Save Preferences</button>
+    {{-- Drawer: add / edit wishlist (renders one form per existing wishlist as hidden panels + one for "add") --}}
+    <div x-show="wishlistDrawerOpen" x-cloak
+         class="fixed inset-0 z-50 flex justify-end"
+         style="background: rgba(0,0,0,0.55);"
+         @keydown.escape.window="closeDrawer()">
+        <div class="bg-white h-full overflow-y-auto p-6 w-full max-w-3xl"
+             style="background: var(--surface);"
+             @click.outside="closeDrawer()">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-base font-bold" style="color: var(--text-primary);">
+                    <span x-show="wishlistEditingId === null">New Wishlist</span>
+                    <span x-show="wishlistEditingId !== null">Edit Wishlist</span>
+                </h2>
+                <button type="button" @click="closeDrawer()"
+                        class="text-xl leading-none px-2 py-0"
+                        style="color: var(--text-muted);">×</button>
+            </div>
+
+            {{-- "Add" form: shown when wishlistEditingId is null --}}
+            <div x-show="wishlistEditingId === null">
+                @include('corex.contacts._match-form', [
+                    'contact'    => $buyer,
+                    'match'      => null,
+                    'formAction' => route('command-center.buyers.wishlists.add', $buyer),
+                ])
+            </div>
+
+            {{-- Per-wishlist edit forms: one hidden panel per existing wishlist --}}
+            @foreach($buyer->matches as $wishlist)
+                <div x-show="wishlistEditingId === {{ $wishlist->id }}" x-cloak>
+                    @include('corex.contacts._match-form', [
+                        'contact'    => $buyer,
+                        'match'      => $wishlist,
+                        'formAction' => route('command-center.buyers.wishlists.update', [$buyer, $wishlist]),
+                    ])
                 </div>
-            </form>
+            @endforeach
         </div>
     </div>
 

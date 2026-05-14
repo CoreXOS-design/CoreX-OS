@@ -80,6 +80,9 @@ class CompanySettingsController extends Controller
             'button_color'          => ['nullable', 'string', 'max:20'],
             'logo'                  => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'remove_logo'           => ['nullable', 'boolean'],
+            // 2026-05-14 hotfix — agency-scoped WhatsApp launch modes.
+            'whatsapp_launch_mode_agent'  => ['nullable', 'in:whatsapp_app,whatsapp_web'],
+            'whatsapp_launch_mode_seller' => ['nullable', 'in:whatsapp_app,whatsapp_web'],
         ]);
 
         $removeLogo = $data['remove_logo'] ?? false;

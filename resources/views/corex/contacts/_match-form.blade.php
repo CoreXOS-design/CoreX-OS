@@ -27,9 +27,18 @@
     $selectedDealBreakers   = old('deal_breakers',            $isEdit ? ($match->deal_breakers ?? [])     : []);
     $initialListingType     = old('listing_type', $isEdit ? $match->listing_type : 'sale');
     $featureLabel = fn (string $token) => \Illuminate\Support\Str::headline(str_replace('_', ' ', $token));
+
+    // Caller may override the form-submit URL by passing $formAction. Default
+    // routes to the corex.contacts.matches.* endpoints (the Contact-page surface).
+    // The buyer-pipeline Wishlists tab passes its own routes to keep the spec D8
+    // permission gate route-scoped.
+    $formAction = $formAction
+        ?? ($isEdit
+            ? route('corex.contacts.matches.update', [$contact, $match])
+            : route('corex.contacts.matches.store', $contact));
 @endphp
 
-                <form method="POST" action="{{ $isEdit ? route('corex.contacts.matches.update', [$contact, $match]) : route('corex.contacts.matches.store', $contact) }}"
+                <form method="POST" action="{{ $formAction }}"
                       x-data="{ listingType: @js($initialListingType) }"
                       class="space-y-5">
                     @csrf

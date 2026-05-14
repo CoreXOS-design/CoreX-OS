@@ -81,6 +81,12 @@
                 'items' => array_values(array_filter([
                     ['key'=>'commission',            'label'=>'Commission & Revenue Share','type'=>'link', 'href'=>route('corex.settings.commission'), 'keywords'=>'splits caps fees tiers'],
                     ['key'=>'command-center',        'label'=>'Command Center Rules',  'type'=>'link', 'href'=>route('command-center.settings'), 'keywords'=>'expectations reminders'],
+                    $can('prospecting_setup.manage')
+                        ? ['key'=>'prospecting-setup', 'label'=>'Prospecting Setup', 'type'=>'link', 'href'=>route('settings.prospecting.index'), 'keywords'=>'towns suburbs property types bedroom segments price bands prospecting']
+                        : null,
+                    $can('outreach_templates.manage')
+                        ? ['key'=>'outreach-templates', 'label'=>'Outreach Templates', 'type'=>'link', 'href'=>route('settings.outreach-templates.index'), 'keywords'=>'seller outreach whatsapp email template merge fields pitch']
+                        : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
                 ])),

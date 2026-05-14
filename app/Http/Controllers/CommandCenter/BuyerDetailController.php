@@ -21,30 +21,153 @@ class BuyerDetailController extends Controller
         }
 
         $service = app(BuyerIntelligenceService::class);
-        $tab = $request->get('tab', 'overview');
+        $tab = $request->get('tab', 'wishlists');
 
-        $data = [
-            'buyer' => $contact->load('createdBy'),
-            'tab' => $tab,
-            'risk' => $service->getLostRiskScore($contact->id),
+        // Eager-load the contact's wishlists for the new tab. Sort primary
+        // first so the card layout naturally puts the primary at the top.
+        $contact->load('createdBy');
+        $contact->setRelation(
+            'matches',
+            $contact->matches()->orderByDesc('is_primary')->orderByDesc('updated_at')->get()
+        );
+
+        // The match-form partial needs these collections to render its dropdowns
+        // and chip options. Same source as the contact-page Core Matches tab.
+        $matchCategories = \App\Models\PropertySettingItem::group('category')->get();
+        $matchTypes      = \App\Models\PropertySettingItem::group('property_type')->where('active', true)->get();
+        $featureOptions  = \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS;
+
+        return view('command-center.buyers.detail', [
+            'buyer'            => $contact,
+            'tab'              => $tab,
+            'risk'             => $service->getLostRiskScore($contact->id),
             'propertiesViewed' => $service->getPropertiesViewed($contact->id),
-            'matched' => $service->getMatchedProperties($contact->id),
-            'preferences' => $service->getPreferencePatterns($contact->id),
-            'timeline' => $service->getActivityTimeline($contact->id),
-            'playbook' => $service->getRetentionPlaybook($contact->id),
-        ];
-
-        // Stated preferences — sourced from the contact's primary ContactMatch
-        // (post-unification) + preapproval block on the Contact pillar. Shaped
-        // to the legacy buyer_preferences interface so the existing Preferences
-        // tab Blade view continues to render until Prompt 11 replaces it with
-        // the Wishlists tab.
-        $data['statedPrefs'] = $this->buildStatedPrefsShim($contact);
-
-        return view('command-center.buyers.detail', $data);
+            'matched'          => $service->getMatchedProperties($contact->id),
+            'preferences'      => $service->getPreferencePatterns($contact->id),
+            'timeline'         => $service->getActivityTimeline($contact->id),
+            'playbook'         => $service->getRetentionPlaybook($contact->id),
+            'matchCategories'  => $matchCategories,
+            'matchTypes'       => $matchTypes,
+            'featureOptions'   => $featureOptions,
+        ]);
     }
 
+    /**
+     * Backward-compat alias for the legacy command-center.buyers.preferences
+     * route. Now delegates to addWishlist() when the contact has no matches
+     * yet, otherwise updates the existing primary wishlist. Prompt 11's
+     * Wishlists tab uses the explicit add/update endpoints below.
+     */
     public function saveWishlist(Request $request, Contact $contact)
+    {
+        $validated = $this->validateWishlistPayload($request);
+
+        DB::transaction(function () use ($contact, $validated) {
+            $this->applyPreapproval($contact, $validated);
+            $match = $contact->matches()->primary()->first()
+                  ?? $contact->matches()->orderByDesc('updated_at')->first();
+            $matchFields = $this->extractMatchFields($validated);
+
+            if (!$match) {
+                $contact->matches()->create(array_merge([
+                    'agency_id'          => $contact->agency_id,
+                    'created_by_user_id' => Auth::id(),
+                    'status'             => ContactMatch::STATUS_ACTIVE,
+                    'is_primary'         => true,
+                    'listing_type'       => $matchFields['listing_type'] ?? 'sale',
+                ], $matchFields));
+            } else {
+                $match->update($matchFields);
+            }
+        });
+
+        return back()->with('success', 'Wishlist saved.');
+    }
+
+    /**
+     * Create a new ContactMatch for this contact via the buyer-pipeline UI.
+     * Always creates — never updates. Use updateWishlist() for edits.
+     */
+    public function addWishlist(Request $request, Contact $contact)
+    {
+        $validated = $this->validateWishlistPayload($request);
+
+        DB::transaction(function () use ($contact, $validated) {
+            $this->applyPreapproval($contact, $validated);
+            $matchFields = $this->extractMatchFields($validated);
+
+            // Observer auto-flags is_primary=true when this is the contact's
+            // first match. If is_primary=true was explicitly submitted on a
+            // subsequent match, the observer's saved() handler demotes others.
+            $contact->matches()->create(array_merge([
+                'agency_id'          => $contact->agency_id,
+                'created_by_user_id' => Auth::id(),
+                'status'             => ContactMatch::STATUS_ACTIVE,
+                'listing_type'       => $matchFields['listing_type'] ?? 'sale',
+            ], $matchFields));
+        });
+
+        return redirect()
+            ->route('command-center.buyers.show', $contact)
+            ->with('success', 'Wishlist added.');
+    }
+
+    /**
+     * Update an existing ContactMatch from the buyer-pipeline UI.
+     */
+    public function updateWishlist(Request $request, Contact $contact, ContactMatch $match)
+    {
+        abort_if($match->contact_id !== $contact->id, 403);
+
+        $validated = $this->validateWishlistPayload($request);
+
+        DB::transaction(function () use ($contact, $match, $validated) {
+            $this->applyPreapproval($contact, $validated);
+            $match->update($this->extractMatchFields($validated));
+        });
+
+        return redirect()
+            ->route('command-center.buyers.show', $contact)
+            ->with('success', 'Wishlist updated.');
+    }
+
+    /**
+     * Promote a wishlist to primary. ContactMatchObserver auto-demotes the
+     * previous primary via its saved() handler (spec D1).
+     */
+    public function setWishlistPrimary(Request $request, Contact $contact, ContactMatch $match)
+    {
+        abort_if($match->contact_id !== $contact->id, 403);
+
+        $match->setAsPrimary();
+
+        return redirect()
+            ->route('command-center.buyers.show', $contact)
+            ->with('success', 'Primary wishlist updated.');
+    }
+
+    /**
+     * Archive (soft-delete) a wishlist. CoreX rule #1: no hard deletes.
+     * If the archived row was the primary, the observer's deleted() handler
+     * auto-promotes the next-most-recently-updated sibling.
+     */
+    public function archiveWishlist(Request $request, Contact $contact, ContactMatch $match)
+    {
+        abort_if($match->contact_id !== $contact->id, 403);
+
+        $match->delete(); // soft-delete via SoftDeletes trait
+
+        return redirect()
+            ->route('command-center.buyers.show', $contact)
+            ->with('success', 'Wishlist archived.');
+    }
+
+    /* =========================================================
+     |  Shared wishlist payload helpers
+     * ========================================================= */
+
+    /** @return array<string,mixed> */
+    private function validateWishlistPayload(Request $request): array
     {
         $validator = Validator::make($request->all(), [
             // Wishlist criteria → ContactMatch.
@@ -70,6 +193,7 @@ class BuyerDetailController extends Controller
             'preapproval_amount'        => 'nullable|numeric|min:0',
             'preapproval_expires_at'    => 'nullable|date',
             'preapproval_institution'   => 'nullable|string|max:100',
+            'name'                      => 'nullable|string|max:120',
         ]);
 
         // Cross-field: bedrooms_max must be >= beds_min when both present (spec D4).
@@ -81,49 +205,35 @@ class BuyerDetailController extends Controller
             }
         });
 
-        $validated = $validator->validate();
+        return $validator->validate();
+    }
 
-        DB::transaction(function () use ($contact, $validated) {
-            // 1. Preapproval block → Contact (spec D3).
-            $preapprovalKeys = ['preapproval_amount', 'preapproval_expires_at', 'preapproval_institution'];
-            $preapprovalUpdates = array_intersect_key($validated, array_flip($preapprovalKeys));
-            if (!empty($preapprovalUpdates)) {
-                $contact->update($preapprovalUpdates);
-            }
+    private function applyPreapproval(Contact $contact, array $validated): void
+    {
+        $keys = ['preapproval_amount', 'preapproval_expires_at', 'preapproval_institution'];
+        $updates = array_intersect_key($validated, array_flip($keys));
+        if (!empty($updates)) {
+            $contact->update($updates);
+        }
+    }
 
-            // 2. Wishlist criteria → contact's primary ContactMatch.
-            //    Buyer-pipeline UI is single-wishlist for now; Prompt 11's Wishlists
-            //    tab will allow multi-wishlist editing. Until then, this method
-            //    operates on the primary ContactMatch.
-            $match = $contact->matches()->primary()->first()
-                  ?? $contact->matches()->orderByDesc('updated_at')->first();
-
-            // Legacy property_type column mirroring (spec D2 deprecation window).
-            if (isset($validated['property_types']) && !empty($validated['property_types'])) {
-                $validated['property_type'] = $validated['property_types'][0] ?? null;
-            }
-
-            $matchFields = array_intersect_key($validated, array_flip([
-                'listing_type', 'category', 'property_type', 'property_types',
-                'suburbs', 'price_min', 'price_max', 'beds_min', 'bedrooms_max',
-                'must_have_features', 'nice_to_have_features', 'deal_breakers',
-                'notes', 'is_primary',
-            ]));
-
-            if (!$match) {
-                $match = $contact->matches()->create(array_merge([
-                    'agency_id'          => $contact->agency_id,
-                    'created_by_user_id' => Auth::id(),
-                    'status'             => ContactMatch::STATUS_ACTIVE,
-                    'is_primary'         => true,
-                    'listing_type'       => $matchFields['listing_type'] ?? 'sale',
-                ], $matchFields));
-            } else {
-                $match->update($matchFields);
-            }
-        });
-
-        return back()->with('success', 'Wishlist saved.');
+    /**
+     * Pluck only the ContactMatch-bound fields out of the validated payload.
+     * Mirrors legacy property_type column (spec D2 deprecation window).
+     *
+     * @return array<string,mixed>
+     */
+    private function extractMatchFields(array $validated): array
+    {
+        if (isset($validated['property_types']) && !empty($validated['property_types'])) {
+            $validated['property_type'] = $validated['property_types'][0] ?? null;
+        }
+        return array_intersect_key($validated, array_flip([
+            'listing_type', 'category', 'property_type', 'property_types',
+            'suburbs', 'price_min', 'price_max', 'beds_min', 'bedrooms_max',
+            'must_have_features', 'nice_to_have_features', 'deal_breakers',
+            'notes', 'is_primary', 'name',
+        ]));
     }
 
     public function markLost(Request $request, Contact $contact)
@@ -226,38 +336,4 @@ class BuyerDetailController extends Controller
         return back()->with('success', 'Action recorded.');
     }
 
-    /**
-     * Build a stdClass that emulates the deprecated buyer_preferences row
-     * shape so the existing Preferences tab in the view continues to render.
-     * Removed in Prompt 11 along with the Preferences tab itself.
-     */
-    private function buildStatedPrefsShim(Contact $contact): ?object
-    {
-        $match = $contact->matches()->primary()->first()
-              ?? $contact->matches()->orderByDesc('updated_at')->first();
-
-        $hasPreapproval = $contact->preapproval_amount !== null
-            || $contact->preapproval_expires_at !== null
-            || $contact->preapproval_institution !== null;
-
-        if (!$match && !$hasPreapproval) {
-            return null;
-        }
-
-        $shim = new \stdClass();
-        $shim->budget_min               = $match?->price_min;
-        $shim->budget_max               = $match?->price_max;
-        $shim->bedrooms_min             = $match?->beds_min;
-        $shim->bedrooms_max             = $match?->bedrooms_max;
-        $shim->preferred_areas          = json_encode($match?->suburbs ?? []);
-        $shim->preferred_property_types = json_encode($match?->propertyTypeList() ?? []);
-        $shim->must_have_features       = json_encode($match?->must_have_features ?? []);
-        $shim->nice_to_have_features    = json_encode($match?->nice_to_have_features ?? []);
-        $shim->deal_breakers            = json_encode($match?->deal_breakers ?? []);
-        $shim->notes                    = $match?->notes;
-        $shim->preapproval_amount       = $contact->preapproval_amount;
-        $shim->preapproval_expires_at   = $contact->preapproval_expires_at?->toDateString();
-        $shim->preapproval_institution  = $contact->preapproval_institution;
-        return $shim;
-    }
 }

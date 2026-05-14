@@ -7,7 +7,9 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use App\Models\Agency;
 use App\Models\CommandCenter\CalendarEventFeedback;
@@ -21,7 +23,13 @@ use App\Models\DealSettlement;
 use App\Models\Presentation;
 use App\Models\Property;
 use App\Events\Contracts\DomainEvent;
+use App\Events\Prospecting\BedroomSegmentConfigured;
+use App\Events\Prospecting\PriceBandConfigured;
+use App\Events\Prospecting\PropertyTypeConfigured;
+use App\Events\Prospecting\SuburbMappingChanged;
+use App\Events\Prospecting\TownConfigured;
 use App\Listeners\Audit\RecordDomainEvent;
+use App\Listeners\Prospecting\InvalidateProspectingConfigurationCache;
 use App\Observers\AgencyObserver;
 use App\Observers\CalendarEventFeedbackObserver;
 use App\Observers\CommandTaskObserver;
@@ -42,6 +50,21 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarVisibilityResolver::class);
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarNotificationDispatcher::class);
         $this->app->singleton(\App\Services\CommandCenter\Calendar\CalendarSourceRegistry::class);
+
+        // Prospecting configuration service: singleton so the cache-invalidation
+        // listener and the controllers / consumers share the same per-request
+        // cache instance. Without this, the listener would clear a fresh
+        // empty cache and the controller's pre-cached state would remain stale.
+        $this->app->singleton(\App\Services\Prospecting\ProspectingConfigurationService::class);
+
+        // Seller-outreach services. Singletons so the composer's per-request
+        // template lookup and the landing service's repeat snapshot calls
+        // share state with future cache-invalidation listeners (Prompt 03).
+        $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachTemplateValidator::class);
+        $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachComposerService::class);
+        $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachSenderService::class);
+        $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachLandingService::class);
+        $this->app->singleton(\App\Services\SellerOutreach\SellerOutreachOptOutService::class);
     }
 
     public function boot(): void
@@ -80,6 +103,72 @@ class AppServiceProvider extends ServiceProvider
         // class — so this listens on the DomainEvent interface, which every
         // AbstractDomainEvent subclass implements transitively.
         Event::listen(DomainEvent::class, RecordDomainEvent::class);
+
+        // Prospecting setup: clear the ProspectingConfigurationService's
+        // per-request cache for the affected agency on any configuration write.
+        // Sync — invalidation must complete before the next read in the same
+        // request, otherwise the consumer sees stale data.
+        // Spec: .ai/specs/prospecting-setup-spec.md S7, Section 8.
+        foreach ([
+            TownConfigured::class,
+            SuburbMappingChanged::class,
+            PropertyTypeConfigured::class,
+            BedroomSegmentConfigured::class,
+            PriceBandConfigured::class,
+        ] as $prospectingEvent) {
+            Event::listen($prospectingEvent, InvalidateProspectingConfigurationCache::class);
+        }
+
+        // Seller outreach: contact-timeline append on send / click / opt-out.
+        // Failure-isolated — see AppendOutreachToContactTimeline.
+        // Spec: .ai/specs/seller-outreach-spec.md S11.
+        foreach ([
+            \App\Events\SellerOutreach\PitchSent::class,
+            \App\Events\SellerOutreach\PitchClicked::class,
+            \App\Events\SellerOutreach\OptOutRecorded::class,
+        ] as $outreachTimelineEvent) {
+            Event::listen($outreachTimelineEvent, \App\Listeners\SellerOutreach\AppendOutreachToContactTimeline::class);
+        }
+
+        // Seller outreach: opt-out flag setter. Re-throws on failure —
+        // compliance-critical per spec S9 (POPIA).
+        Event::listen(
+            \App\Events\SellerOutreach\OptOutRecorded::class,
+            \App\Listeners\SellerOutreach\RecordOptOutOnContact::class,
+        );
+
+        // buyer_preferences deprecation listener (spec D11 Phase 1).
+        // Logs a WARNING to the `deprecation` channel for any query that
+        // touches the deprecated table. The legitimate callers post-Prompt-08
+        // are the wishlist migration commands themselves (WishlistMigrate,
+        // WishlistMigrateDryRun, WishlistRollbackMigration, snapshot trait) —
+        // their entries serve as audit trail. Anything else is a leaked caller
+        // that Prompt 06 missed, which is exactly what this listener catches.
+        if (config('corex.deprecation.buyer_preferences_listener', true)) {
+            DB::listen(function ($query) {
+                if (stripos($query->sql, 'buyer_preferences') !== false) {
+                    $allFrames = collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 14))
+                        ->map(fn ($frame) => ($frame['file'] ?? '?') . ':' . ($frame['line'] ?? '?'));
+                    $appFrames = $allFrames
+                        ->filter(fn ($line) => !str_contains($line, 'vendor/')
+                            && !str_contains($line, 'vendor\\'))
+                        ->take(6)
+                        ->values();
+                    // Fallback to top vendor frames when no app-code frame
+                    // exists (e.g. Tinker / artisan invocations) so the log
+                    // still names the entry point.
+                    $caller = $appFrames->isNotEmpty()
+                        ? $appFrames->all()
+                        : $allFrames->take(4)->values()->all();
+                    Log::channel('deprecation')->warning('DEPRECATED: query touched buyer_preferences', [
+                        'sql'      => $query->sql,
+                        'bindings' => $query->bindings,
+                        'time_ms'  => $query->time,
+                        'caller'   => $caller,
+                    ]);
+                }
+            });
+        }
 
         // Auto-sync DocuPerfect named fields after every migration run
         Event::listen(MigrationsEnded::class, function () {

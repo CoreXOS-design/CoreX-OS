@@ -236,7 +236,23 @@ class ContactController extends Controller
 
         $featureOptions = \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS;
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount'));
+        // Seller-outreach timeline (Prompt 07). Only fetched when the viewer
+        // has the composer permission — gated tab.
+        $outreachSends = collect();
+        $outreachClickCounts = collect();
+        $outreachOutcomeOptions = [];
+        if ($request->user()->hasPermission('outreach.compose')) {
+            $agencyId = $request->user()->effectiveAgencyId();
+            if ($agencyId !== null && (int) $contact->agency_id === (int) $agencyId) {
+                $timeline = app(\App\Http\Controllers\SellerOutreach\ContactTimelineController::class)
+                    ->buildTimelineData((int) $agencyId, $contact);
+                $outreachSends = $timeline['sends'];
+                $outreachClickCounts = $timeline['clickCounts'];
+                $outreachOutcomeOptions = $timeline['outcomeOptions'];
+            }
+        }
+
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions'));
     }
 
     public function checkDuplicate(Request $request)

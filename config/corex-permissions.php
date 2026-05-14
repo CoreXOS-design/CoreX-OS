@@ -342,6 +342,7 @@ return [
         ['key' => 'access_settings',             'label' => 'Access Settings',             'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 1],
         ['key' => 'manage_designations',         'label' => 'Manage Designations',         'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 2],
         ['key' => 'manage_branch_settings',      'label' => 'Manage Branch Settings',      'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 3],
+        ['key' => 'prospecting_setup.manage',    'label' => 'Manage Prospecting Setup',    'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
@@ -385,6 +386,11 @@ return [
         // ── Contact Governance ──
         ['key' => 'contact_governance.manage',       'label' => 'Manage Contact Governance Settings', 'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 50],
         ['key' => 'contact_governance.leave_matrix', 'label' => 'Manage Leave Visibility Matrix',    'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 51],
+
+        // ── Seller Outreach ──
+        // See .ai/specs/seller-outreach-spec.md
+        ['key' => 'outreach.compose',             'label' => 'Compose Seller Outreach',     'section' => 'outreach', 'type' => 'action', 'module' => 'outreach', 'sort_order' => 1],
+        ['key' => 'outreach_templates.manage',    'label' => 'Manage Outreach Templates',   'section' => 'outreach', 'type' => 'action', 'module' => 'outreach', 'sort_order' => 2],
 
         // ── Payroll ──
         ['key' => 'manage_payroll',        'label' => 'Manage Payroll (employees, types)', 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 120],
@@ -452,6 +458,8 @@ return [
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
                 'compliance.whistleblow.configure',
+                // Seller Outreach
+                'outreach.compose', 'outreach_templates.manage',
             ],
         ],
 
@@ -534,6 +542,8 @@ return [
                 // Whistleblower
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
+                // Seller Outreach
+                'outreach.compose',
             ],
         ],
 
@@ -593,6 +603,8 @@ return [
                 'sidebar.section.agents', 'sidebar.section.tools',
                 // Whistleblower
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
+                // Seller Outreach — composer only; template management is admin
+                'outreach.compose',
             ],
         ],
 

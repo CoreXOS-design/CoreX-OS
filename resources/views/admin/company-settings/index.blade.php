@@ -186,6 +186,59 @@
                     </div>
                 </div>
 
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">WhatsApp Launch Behaviour</div>
+                <div class="space-y-4">
+                    <p class="text-xs" style="color:var(--text-muted);">
+                        Controls how WhatsApp links open when an agent sends a pitch or a seller clicks "Reply on WhatsApp" on the public landing page.
+                    </p>
+
+                    {{-- Agent-side --}}
+                    <div>
+                        <label class="block text-xs font-medium mb-2" style="color:var(--text-secondary);">
+                            Agent-side (Compose pitch → Send button)
+                        </label>
+                        <div class="space-y-2">
+                            @foreach([
+                                'whatsapp_app' => ['title' => 'Open app directly', 'desc' => 'Faster. No intermediate page. Recommended if all agents have WhatsApp installed.'],
+                                'whatsapp_web' => ['title' => 'Open WhatsApp web (default)', 'desc' => 'Safer. Works regardless of whether the agent has WhatsApp installed.'],
+                            ] as $value => $opt)
+                                <label class="flex items-start gap-2 cursor-pointer">
+                                    <input type="radio" name="whatsapp_launch_mode_agent" value="{{ $value }}"
+                                           @checked(old('whatsapp_launch_mode_agent', $agency->whatsapp_launch_mode_agent ?? 'whatsapp_web') === $value)
+                                           class="mt-0.5">
+                                    <span class="text-sm" style="color:var(--text-primary);">
+                                        <span class="font-medium">{{ $opt['title'] }}</span>
+                                        <span class="block text-xs mt-0.5" style="color:var(--text-muted);">{{ $opt['desc'] }}</span>
+                                    </span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    {{-- Seller-side --}}
+                    <div>
+                        <label class="block text-xs font-medium mb-2" style="color:var(--text-secondary);">
+                            Seller-side (Public landing → Reply on WhatsApp button)
+                        </label>
+                        <div class="space-y-2">
+                            @foreach([
+                                'whatsapp_app' => ['title' => 'Open app directly', 'desc' => 'Faster but requires seller to have WhatsApp installed.'],
+                                'whatsapp_web' => ['title' => 'Open WhatsApp web (default)', 'desc' => 'Safer. Falls back gracefully if the seller does not have WhatsApp. Recommended.'],
+                            ] as $value => $opt)
+                                <label class="flex items-start gap-2 cursor-pointer">
+                                    <input type="radio" name="whatsapp_launch_mode_seller" value="{{ $value }}"
+                                           @checked(old('whatsapp_launch_mode_seller', $agency->whatsapp_launch_mode_seller ?? 'whatsapp_web') === $value)
+                                           class="mt-0.5">
+                                    <span class="text-sm" style="color:var(--text-primary);">
+                                        <span class="font-medium">{{ $opt['title'] }}</span>
+                                        <span class="block text-xs mt-0.5" style="color:var(--text-muted);">{{ $opt['desc'] }}</span>
+                                    </span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Company Logo</div>
                 <div>
                     @if($agency->logo_path)

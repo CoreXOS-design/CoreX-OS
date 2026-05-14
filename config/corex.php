@@ -34,4 +34,20 @@ return [
         'audit_enabled' => env('COREX_DOMAIN_EVENTS_AUDIT_ENABLED', true),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Runtime deprecation listeners
+    |--------------------------------------------------------------------------
+    |
+    | Spec: .ai/specs/unified-buyer-wishlist-spec.md Section 10 (D11 Phase 1).
+    | The buyer_preferences listener logs a WARNING to the `deprecation` log
+    | channel whenever any query touches the deprecated buyer_preferences
+    | table. Default ON. Disable in production if it generates noise without
+    | value.
+    |
+    */
+    'deprecation' => [
+        'buyer_preferences_listener' => env('COREX_DEPRECATION_BUYER_PREFERENCES_LISTENER', true),
+    ],
+
 ];

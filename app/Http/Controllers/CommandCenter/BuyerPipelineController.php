@@ -38,6 +38,31 @@ class BuyerPipelineController extends Controller
             $query->where('created_by_user_id', (int) $agentFilter);
         }
 
+        // Drill-down from a prospecting listing: show only buyers who have an
+        // active match against this listing (score >= 50, not dismissed).
+        // Multi-tenancy belt-and-braces: explicit agency_id on the match query.
+        $contextListing = null;
+        if ($request->filled('prospecting_listing_id')) {
+            $listingId = (int) $request->query('prospecting_listing_id');
+            $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
+
+            $matchingContactIds = DB::table('prospecting_buyer_matches')
+                ->where('prospecting_listing_id', $listingId)
+                ->where('agency_id', $agencyId)
+                ->whereNull('dismissed_at')
+                ->where('score', '>=', 50)
+                ->pluck('contact_id')
+                ->all();
+
+            // Force empty result when no matches rather than returning all buyers.
+            $query->whereIn('id', $matchingContactIds ?: [0]);
+
+            $contextListing = DB::table('prospecting_listings')
+                ->where('id', $listingId)
+                ->where('agency_id', $agencyId)
+                ->first(['id', 'address', 'suburb', 'price', 'portal_source']);
+        }
+
         if ($view === 'list') {
             $sortBy = $request->get('sort', 'last_activity_at');
             $sortDir = $request->get('dir', 'desc');
@@ -49,6 +74,7 @@ class BuyerPipelineController extends Controller
                 'counts' => $this->stateCounts($user, $pipelineScope),
                 'pipelineScope' => $pipelineScope,
                 'canSeeBranch' => (bool) $user->branch_id,
+                'contextListing' => $contextListing,
             ]);
         }
 
@@ -75,6 +101,7 @@ class BuyerPipelineController extends Controller
             'riskScores' => $riskScores,
             'pipelineScope' => $pipelineScope,
             'canSeeBranch' => (bool) $user->branch_id,
+            'contextListing' => $contextListing,
         ]);
     }
 

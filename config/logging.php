@@ -73,6 +73,19 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Custom channel for CoreX runtime deprecation warnings (e.g. the
+        // buyer_preferences-table listener from spec D11 Phase 1). Daily
+        // rotating files at storage/logs/deprecation-YYYY-MM-DD.log, 30-day
+        // retention. Distinct from Laravel's built-in 'deprecations' pointer
+        // above (which targets PHP-internal deprecations).
+        'deprecation' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/deprecation.log'),
+            'level' => env('LOG_LEVEL', 'warning'),
+            'days' => 30,
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

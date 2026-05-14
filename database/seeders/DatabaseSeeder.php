@@ -44,6 +44,8 @@ class DatabaseSeeder extends Seeder
             NotificationEventTypeSeeder::class,
             PublicHolidaySeeder::class,
             LeaveTypeSeeder::class,
+            ProspectingSetupSeeder::class,
+            SellerOutreachTemplatesSeeder::class,
         ]);
     }
 }
