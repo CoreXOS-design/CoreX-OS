@@ -1535,6 +1535,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::put('/price-bands/{band}',                     [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'update'])->name('price-bands.update');
             Route::post('/price-bands/{band}/archive',            [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'archive'])->name('price-bands.archive');
             Route::post('/price-bands/reorder',                   [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'reorder'])->name('price-bands.reorder');
+
+            // Buyer-match tier thresholds — single PUT per agency.
+            Route::put('/buyer-match-tiers',                      [\App\Http\Controllers\Settings\Prospecting\BuyerMatchTiersController::class, 'update'])->name('buyer-match-tiers.update');
         });
 
     // ── Seller Outreach Templates (per-agency template CRUD) ──
@@ -2456,7 +2459,61 @@ Route::middleware(['auth', 'permission:access_document_library'])->prefix('docum
         ->name('library.types.destroy');
 });
 
-// ===== PROSPECTING =====
+// ===== TRACKED PROPERTIES (Prospecting sub-menu) =====
+// Universe of properties CoreX knows about, regardless of mandate status.
+// Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule), Build D.3.
+Route::middleware(['auth', 'permission:access_prospecting'])
+    ->prefix('corex/tracked-properties')
+    ->name('corex.tracked-properties.')
+    ->group(function () {
+        Route::get('/',                      [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'index'])->name('index');
+        Route::get('/{trackedProperty}',     [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'show'])->name('show');
+        Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->name('promote');
+    });
+
+// ===== MARKET INTELLIGENCE (Build F.1 — rename of Prospecting) =====
+// New canonical surface for the canvassing pool. Mirrors every legacy
+// prospecting.* route name 1:1 under market-intelligence.*. The legacy group
+// below remains mounted for the F.1–F.6 migration window so internal callers
+// using route('prospecting.*') keep resolving and rollback is a one-line revert.
+//
+// GET-only redirects sit BEFORE the legacy group so bookmarked browser hits to
+// /prospecting and /prospecting/* land on the new URL without breaking any
+// internal Alpine :action="'/prospecting/...'" form posts (which still hit the
+// legacy POST routes unchanged).
+//
+// Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.
+Route::middleware(['auth', 'permission:access_prospecting'])
+    ->prefix('corex/market-intelligence')
+    ->name('market-intelligence.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'index'])->name('index');
+
+        // Intelligence layer — declared before the {listing} catch-alls so
+        // model-binding doesn't shadow them.
+        Route::get('/snapshot.json', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'snapshotJson'])->name('snapshot');
+        Route::get('/segment/{dimension}/{value}/buyers',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'segmentBuyers'])
+            ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
+            ->name('segment.buyers');
+        Route::get('/segment/{dimension}/{value}/listings', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'segmentListings'])
+            ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
+            ->name('segment.listings');
+
+        Route::get('/{listing}/buyer-matches', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'buyerMatches'])
+            ->name('buyer-matches');
+
+        Route::post('/claims/{claimId}/release-as-manager', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'releaseAsManager'])
+            ->where('claimId', '\d+')
+            ->name('claims.release-as-manager');
+
+        Route::get('/thumbnail/{listing}', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'thumbnail'])->name('thumbnail');
+        Route::post('/{listing}/claim',    [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'claim'])->name('claim');
+        Route::post('/{listing}/feedback', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedback'])->name('feedback');
+        Route::post('/{listing}/release',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'release'])->name('release');
+        Route::get('/{listing}',           [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'show'])->name('show');
+    });
+
+// ===== PROSPECTING (legacy — kept mounted for F.1 migration window) =====
 Route::middleware(['auth', 'permission:access_prospecting'])->prefix('prospecting')->name('prospecting.')->group(function () {
     Route::get('/', [\App\Http\Controllers\ProspectingController::class, 'index'])->name('index');
 
@@ -2470,12 +2527,45 @@ Route::middleware(['auth', 'permission:access_prospecting'])->prefix('prospectin
         ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
         ->name('segment.listings');
 
+    // Side-panel: tier-ranked buyer matches for one listing. Declared before the
+    // {listing} catch-all routes below so model-binding doesn't shadow it.
+    Route::get('/{listing}/buyer-matches', [\App\Http\Controllers\ProspectingController::class, 'buyerMatches'])
+        ->name('buyer-matches');
+
+    // BM/admin or owner: release a claim with reason. Path-scoped to /claims/
+    // so model-binding for ProspectingListing doesn't interfere.
+    Route::post('/claims/{claimId}/release-as-manager', [\App\Http\Controllers\ProspectingController::class, 'releaseAsManager'])
+        ->where('claimId', '\d+')
+        ->name('claims.release-as-manager');
+
     Route::get('/thumbnail/{listing}', [\App\Http\Controllers\ProspectingController::class, 'thumbnail'])->name('thumbnail');
     Route::post('/{listing}/claim', [\App\Http\Controllers\ProspectingController::class, 'claim'])->name('claim');
     Route::post('/{listing}/feedback', [\App\Http\Controllers\ProspectingController::class, 'feedback'])->name('feedback');
     Route::post('/{listing}/release', [\App\Http\Controllers\ProspectingController::class, 'release'])->name('release');
     Route::get('/{listing}', [\App\Http\Controllers\ProspectingController::class, 'show'])->name('show');
 });
+
+// Bookmark-continuity redirect from the legacy bare /prospecting URL to the new
+// Market Intelligence canonical URL. Registered AFTER the legacy group so it
+// wins URI matching for "/prospecting" (Laravel's last-write-wins behaviour on
+// identical URIs). Sub-paths (/prospecting/{listing}, /prospecting/snapshot.json,
+// etc.) intentionally remain on the legacy controller for the F.1 migration
+// window so internal callers using route('prospecting.*') and existing Alpine
+// :action="'/prospecting/...'" form posts keep working unchanged. F.6 retires
+// the legacy surface entirely.
+//
+// Query string is preserved by request()->getQueryString().
+//
+// Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.
+// Note: this route reuses the name `prospecting.index` so any internal caller
+// that still does route('prospecting.index') gets the legacy URL (which then
+// 301s through to the new canonical URL). Without this name, the route() helper
+// would throw RouteNotFoundException since Laravel drops the previous URI's
+// name from the registry when a new route registers the same method+URI.
+Route::get('/prospecting', function () {
+    $qs = request()->getQueryString();
+    return redirect('/corex/market-intelligence' . ($qs ? '?' . $qs : ''), 301);
+})->name('prospecting.index');
 
 // ===== SELLER INFO PUBLIC PAGE (no auth, token-based) =====
 Route::get('/info/{token}', [\App\Http\Controllers\Compliance\SellerInfoPublicController::class, 'show'])->name('seller-info.public');

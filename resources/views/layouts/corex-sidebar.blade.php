@@ -343,8 +343,15 @@
                 <div class="corex-nav-panel-title">Real Estate</div>
 
                 @permission('access_prospecting')
-                @if(\Illuminate\Support\Facades\Route::has('prospecting.index'))
-                <a href="{{ route('prospecting.index') }}" class="corex-nav-subitem {{ request()->routeIs('prospecting.*') ? 'active' : '' }}">Prospecting</a>
+                {{-- F.1: relabelled from "Prospecting" to "Market intelligence" + retargeted at the
+                     new route. The active-state class also matches the legacy prospecting.* names so
+                     the old route group (still mounted during the F.1 migration window) keeps the
+                     sidebar entry highlighted if anything internal still routes there. --}}
+                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.index'))
+                <a href="{{ route('market-intelligence.index') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.*') || request()->routeIs('prospecting.*') ? 'active' : '' }}">Market intelligence</a>
+                @endif
+                @if(\Illuminate\Support\Facades\Route::has('corex.tracked-properties.index'))
+                <a href="{{ route('corex.tracked-properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.tracked-properties.*') ? 'active' : '' }}">Tracked Properties</a>
                 @endif
                 @endpermission
 
