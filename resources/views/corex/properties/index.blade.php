@@ -557,12 +557,22 @@
                     </svg>
                     <span class="text-xs truncate" style="color:var(--text-secondary);">
                         @php
-                            $locParts = array_filter([
-                                $property->suburb ?? null,
-                                (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) ? $property->city : null,
-                            ]);
+                            $addrParts = [];
+                            if (!empty($property->unit_number)) $addrParts[] = 'Unit ' . $property->unit_number;
+                            if (!empty($property->complex_name)) $addrParts[] = $property->complex_name;
+                            if (!empty($property->street_number) && !empty($property->street_name)) {
+                                $addrParts[] = $property->street_number . ' ' . $property->street_name;
+                            } elseif (!empty($property->street_name)) {
+                                $addrParts[] = $property->street_name;
+                            } elseif (!empty($property->address)) {
+                                $addrParts[] = $property->address;
+                            }
+                            if (!empty($property->suburb)) $addrParts[] = $property->suburb;
+                            if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
+                                $addrParts[] = $property->city;
+                            }
                         @endphp
-                        {{ count($locParts) ? implode(', ', $locParts) : '—' }}
+                        {{ count($addrParts) ? implode(', ', $addrParts) : '—' }}
                     </span>
                 </div>
 
