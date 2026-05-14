@@ -4,22 +4,53 @@
 <div class="max-w-5xl mx-auto space-y-5">
 
     {{-- Header --}}
-    <div class="rounded-2xl px-6 py-4 flex items-start justify-between gap-4" style="background:var(--brand-default, #0b2a4a);">
-        <div>
-            <h2 class="text-xl font-bold text-white">P24 Locations</h2>
-            <div class="text-sm mt-0.5" style="color:rgba(255,255,255,0.6);">
-                The Property24 location tree cached locally — browse Region → Town → Suburb.
+    <div class="rounded-2xl px-6 py-4 space-y-3" style="background:var(--brand-default, #0b2a4a);"
+         x-data="p24SyncWidget({
+             refreshUrl: '{{ route('admin.importer.p24-locations.refresh') }}',
+             statusUrl:  '{{ route('admin.importer.p24-locations.status') }}',
+             csrf:       '{{ csrf_token() }}',
+         })" x-init="init()">
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <h2 class="text-xl font-bold text-white">P24 Locations</h2>
+                <div class="text-sm mt-0.5" style="color:rgba(255,255,255,0.6);">
+                    The Property24 location tree cached locally — browse Region → Town → Suburb.
+                </div>
+            </div>
+            <button type="button" @click="start()"
+                    :disabled="running"
+                    class="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    style="background:var(--brand-button, #0ea5e9);">
+                <span x-text="running ? 'Sync in progress…' : 'Refresh from Property24'"></span>
+            </button>
+        </div>
+
+        {{-- Progress bar (visible while running or just-completed) --}}
+        <div x-show="running || finishedAt" x-cloak class="space-y-1.5">
+            <div class="flex items-center justify-between text-xs text-white/80">
+                <span x-text="statusLabel"></span>
+                <span x-text="percent + '%'"></span>
+            </div>
+            <div class="h-2 rounded-full overflow-hidden bg-white/10">
+                <div class="h-full transition-all duration-500"
+                     :class="failed ? 'bg-red-400' : (running ? 'bg-cyan-300' : 'bg-emerald-400')"
+                     :style="'width: ' + percent + '%'"></div>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[11px] text-white/70">
+                <span>Provinces <span class="font-semibold text-white" x-text="(progress.provinces_done||0) + '/' + (progress.provinces_total||'?')"></span></span>
+                <span>Cities <span class="font-semibold text-white" x-text="progress.cities_done || 0"></span></span>
+                <span>Suburbs <span class="font-semibold text-white" x-text="(progress.suburbs_done||0).toLocaleString()"></span></span>
+                <span class="text-white/50" x-text="progress.current || ''"></span>
+            </div>
+            <div x-show="failed" x-cloak class="text-xs text-red-200 mt-1">
+                <span class="font-semibold">Sync failed:</span>
+                <span x-text="progress.error || ''"></span>
+            </div>
+            <div x-show="!running && !failed && finishedAt" x-cloak class="text-xs text-emerald-200 mt-1">
+                Sync complete. Reload the page to see updated counts.
+                <button type="button" @click="reload()" class="underline ml-2">Reload now</button>
             </div>
         </div>
-        <form method="POST" action="{{ route('admin.importer.p24-locations.refresh') }}"
-              onsubmit="this.querySelector('button').disabled=true; this.querySelector('button span').textContent='Refreshing (15–30 min)…';">
-            @csrf
-            <button type="submit"
-                    class="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors"
-                    style="background:var(--brand-button, #0ea5e9);">
-                <span>Refresh from Property24</span>
-            </button>
-        </form>
     </div>
 
     @if(session('success'))
@@ -130,6 +161,79 @@
 
 @push('scripts')
 <script>
+function p24SyncWidget(cfg) {
+    return {
+        progress: { status: 'idle' },
+        running: false,
+        finishedAt: null,
+        failed: false,
+        _pollHandle: null,
+
+        get percent() {
+            const p = this.progress || {};
+            const total = +p.provinces_total || 0;
+            const done  = +p.provinces_done  || 0;
+            if (!this.running && this.finishedAt && !this.failed) return 100;
+            if (total > 0) return Math.min(99, Math.round((done / total) * 100));
+            // Pre-province-list phase: small bump so the bar visibly moves.
+            return this.running ? 3 : 0;
+        },
+        get statusLabel() {
+            if (this.failed) return 'Sync failed';
+            if (this.running) return 'Syncing Property24 locations';
+            if (this.finishedAt) return 'Sync complete';
+            return 'Idle';
+        },
+
+        async init() {
+            await this.poll();
+            if (this.running) this._startPolling();
+        },
+
+        async start() {
+            this.failed = false;
+            this.finishedAt = null;
+            const r = await fetch(cfg.refreshUrl, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json' },
+            });
+            const body = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                this.failed = true;
+                this.progress = { ...this.progress, status: 'failed', error: body.message || 'HTTP ' + r.status };
+                return;
+            }
+            this.running = true;
+            this._startPolling();
+        },
+
+        _startPolling() {
+            if (this._pollHandle) return;
+            this._pollHandle = setInterval(() => this.poll(), 2500);
+        },
+
+        async poll() {
+            try {
+                const r = await fetch(cfg.statusUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+                const data = await r.json();
+                this.progress = data || {};
+                const s = data?.status || 'idle';
+                this.running = (s === 'running');
+                this.failed  = (s === 'failed');
+                this.finishedAt = (s === 'complete' || s === 'failed') ? (data.finished_at || true) : null;
+                if (!this.running && this._pollHandle) {
+                    clearInterval(this._pollHandle);
+                    this._pollHandle = null;
+                }
+            } catch (e) {
+                // Swallow — next tick will retry.
+            }
+        },
+
+        reload() { window.location.reload(); },
+    };
+}
+
 function p24Province(id) {
     return {
         open: false, loading: false, loaded: false, cities: [],

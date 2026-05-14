@@ -9,18 +9,43 @@ use App\Models\P24Province;
 use App\Models\P24Suburb;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class SyncP24Locations extends Command
 {
+    /**
+     * Cache key holding the live progress payload for the UI poller.
+     * Shape: { status: idle|running|complete|failed, provinces_total, provinces_done,
+     *          cities_done, suburbs_done, current: 'Western Cape › Cape Town', error, started_at, finished_at }
+     */
+    public const PROGRESS_KEY = 'p24:sync:progress';
+    public const PROGRESS_TTL = 7200; // 2h
+
     protected $signature = 'p24:sync-locations
                             {--agency= : Sync using a specific agency\'s P24 credentials (id)}
                             {--country=South+Africa : Restrict sync to this country name}';
 
     protected $description = 'Pulls the P24 location tree (countries → provinces → cities → suburbs) into local cache tables.';
 
+    /** @var array<string,mixed> */
+    private array $progress = [];
+
     public function handle(): int
     {
+        $this->progress = [
+            'status'           => 'running',
+            'provinces_total'  => 0,
+            'provinces_done'   => 0,
+            'cities_done'      => 0,
+            'suburbs_done'     => 0,
+            'current'          => 'Starting…',
+            'error'            => null,
+            'started_at'       => now()->toIso8601String(),
+            'finished_at'      => null,
+        ];
+        $this->writeProgress();
+
         $agency = null;
         if ($this->option('agency')) {
             $agency = Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
@@ -50,6 +75,10 @@ class SyncP24Locations extends Command
             if ($agency) {
                 $agency->forceFill(['p24_last_sync_error' => $e->getMessage()])->save();
             }
+            $this->progress['status']      = 'failed';
+            $this->progress['error']       = $e->getMessage();
+            $this->progress['finished_at'] = now()->toIso8601String();
+            $this->writeProgress();
             $this->error('Sync failed: ' . $e->getMessage());
             return self::FAILURE;
         }
@@ -61,8 +90,18 @@ class SyncP24Locations extends Command
             ])->save();
         }
 
+        $this->progress['status']      = 'complete';
+        $this->progress['current']     = 'Sync complete.';
+        $this->progress['finished_at'] = now()->toIso8601String();
+        $this->writeProgress();
+
         $this->info('P24 location sync complete.');
         return self::SUCCESS;
+    }
+
+    private function writeProgress(): void
+    {
+        Cache::put(self::PROGRESS_KEY, $this->progress, self::PROGRESS_TTL);
     }
 
     private function syncTree(?Agency $agency): void
@@ -92,30 +131,36 @@ class SyncP24Locations extends Command
                 ['name' => $name]
             );
             $countryCount++;
-            $this->syncProvinces($client, $country);
+
+            $this->progress['current'] = "Fetching provinces for {$country->name}…";
+            $this->writeProgress();
+            $provResp = $client->getProvinces($country->p24_id);
+            $this->guard($provResp, 'provinces');
+            $provList = $this->extractList($provResp['data']);
+
+            $this->progress['provinces_total'] = ($this->progress['provinces_total'] ?? 0) + count($provList);
+            $this->writeProgress();
+
+            foreach ($provList as $p) {
+                $pname = $p['Name'] ?? $p['name'] ?? null;
+                $ppid  = $p['Id'] ?? $p['id'] ?? null;
+                if (!$pname || !$ppid) continue;
+
+                $province = P24Province::updateOrCreate(
+                    ['p24_id' => $ppid],
+                    ['name' => $pname, 'p24_country_id' => $country->id]
+                );
+
+                $this->progress['current'] = $province->name;
+                $this->writeProgress();
+                $this->syncCities($client, $province);
+
+                $this->progress['provinces_done'] = ($this->progress['provinces_done'] ?? 0) + 1;
+                $this->writeProgress();
+            }
         }
 
         $this->info("Synced {$countryCount} country/countries.");
-    }
-
-    private function syncProvinces(Property24ApiClient $client, P24Country $country): void
-    {
-        $this->line("  Provinces for {$country->name}…");
-        $resp = $client->getProvinces($country->p24_id);
-        $this->guard($resp, 'provinces');
-        $list = $this->extractList($resp['data']);
-
-        foreach ($list as $p) {
-            $name = $p['Name'] ?? $p['name'] ?? null;
-            $pid  = $p['Id'] ?? $p['id'] ?? null;
-            if (!$name || !$pid) continue;
-
-            $province = P24Province::updateOrCreate(
-                ['p24_id' => $pid],
-                ['name' => $name, 'p24_country_id' => $country->id]
-            );
-            $this->syncCities($client, $province);
-        }
     }
 
     private function syncCities(Property24ApiClient $client, P24Province $province): void
@@ -133,6 +178,11 @@ class SyncP24Locations extends Command
                 ['p24_id' => $pid],
                 ['name' => $name, 'p24_province_id' => $province->id]
             );
+
+            $this->progress['cities_done'] = ($this->progress['cities_done'] ?? 0) + 1;
+            $this->progress['current']     = $province->name . ' › ' . $city->name;
+            $this->writeProgress();
+
             $this->syncSuburbs($client, $city);
         }
     }
@@ -143,6 +193,7 @@ class SyncP24Locations extends Command
         $this->guard($resp, 'suburbs');
         $list = $this->extractList($resp['data']);
 
+        $countBefore = $this->progress['suburbs_done'] ?? 0;
         foreach ($list as $s) {
             $name = $s['Name'] ?? $s['name'] ?? null;
             $pid  = $s['Id'] ?? $s['id'] ?? null;
@@ -157,7 +208,10 @@ class SyncP24Locations extends Command
                     'deleted_at'  => null,
                 ]
             );
+            $this->progress['suburbs_done'] = ($this->progress['suburbs_done'] ?? 0) + 1;
         }
+        // Flush progress once per city (avoids 50k cache writes for 27k suburbs).
+        $this->writeProgress();
     }
 
     private function guard(array $resp, string $what): void

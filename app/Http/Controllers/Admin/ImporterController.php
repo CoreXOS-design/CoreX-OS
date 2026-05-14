@@ -510,14 +510,51 @@ class ImporterController extends Controller
         ]);
     }
 
-    public function refreshP24Locations()
+    public function refreshP24Locations(\Illuminate\Http\Request $request)
     {
-        try {
-            \Artisan::call('p24:sync-locations');
-            $output = trim(\Artisan::output());
-            return back()->with('success', 'Property24 location sync ran. ' . $output);
-        } catch (\Throwable $e) {
-            return back()->with('error', 'P24 sync failed: ' . $e->getMessage());
+        $current = \Illuminate\Support\Facades\Cache::get(
+            \App\Console\Commands\SyncP24Locations::PROGRESS_KEY
+        );
+        if (is_array($current) && ($current['status'] ?? null) === 'running') {
+            $msg = 'Sync already running — watch the progress bar.';
+            return $request->expectsJson()
+                ? response()->json(['success' => true, 'already_running' => true, 'message' => $msg])
+                : back()->with('success', $msg);
         }
+
+        // Seed cache with a running stub so the UI's poller immediately sees
+        // a running state (otherwise there's a 1–2s window before the queue
+        // worker picks up the job).
+        \Illuminate\Support\Facades\Cache::put(
+            \App\Console\Commands\SyncP24Locations::PROGRESS_KEY,
+            [
+                'status'          => 'running',
+                'provinces_total' => 0,
+                'provinces_done'  => 0,
+                'cities_done'     => 0,
+                'suburbs_done'    => 0,
+                'current'         => 'Queuing sync…',
+                'error'           => null,
+                'started_at'      => now()->toIso8601String(),
+                'finished_at'     => null,
+            ],
+            \App\Console\Commands\SyncP24Locations::PROGRESS_TTL
+        );
+
+        \App\Jobs\SyncP24LocationsJob::dispatch();
+
+        $msg = 'Property24 location sync queued. Progress will update below.';
+        return $request->expectsJson()
+            ? response()->json(['success' => true, 'message' => $msg])
+            : back()->with('success', $msg);
+    }
+
+    public function p24LocationsStatus()
+    {
+        $progress = \Illuminate\Support\Facades\Cache::get(
+            \App\Console\Commands\SyncP24Locations::PROGRESS_KEY
+        ) ?: ['status' => 'idle'];
+
+        return response()->json($progress);
     }
 }
