@@ -1999,19 +1999,22 @@
                         </div>
                     </div>
 
-                    {{-- Map (collapsible) — shows a pin for the picked Internal address.
-                         Auto-geocodes via Nominatim when address fields change; the pin
-                         is draggable for manual fine-tuning. lat/lng save with the form.
-                         Hidden while an address modal is open so the map tiles don't
-                         float over the modal (Leaflet creates its own stacking context). --}}
+                    {{-- Map (collapsible) — pin for the Internal suburb.
+                         Auto-geocodes on page load and whenever the P24 picker
+                         reports a new suburb. Panel auto-collapses when an
+                         address modal opens (Leaflet tiles otherwise float
+                         over the modal due to their own stacking context). --}}
                     <div class="mt-2 rounded-md overflow-hidden"
-                         x-show="!openModal" x-cloak
                          style="border:1px solid var(--border); background:var(--surface); position:relative; z-index:0; isolation:isolate;"
                          x-data="propertyMapWidget({
-                             initialLat: {{ (float) old('latitude',  $property->latitude  ?? 0) }},
-                             initialLng: {{ (float) old('longitude', $property->longitude ?? 0) }},
+                             initialLat:      {{ (float) old('latitude',  $property->latitude  ?? 0) }},
+                             initialLng:      {{ (float) old('longitude', $property->longitude ?? 0) }},
+                             initialSuburb:   @js(old('suburb',   $property->suburb   ?? '')),
+                             initialCity:     @js(old('city',     $property->city     ?? '')),
+                             initialProvince: @js(old('province', $property->province ?? '')),
                          })"
-                         x-init="init()">
+                         x-init="init()"
+                         x-effect="if (openModal && open) open = false">
                         <input type="hidden" name="latitude"  :value="lat">
                         <input type="hidden" name="longitude" :value="lng">
 
@@ -5322,17 +5325,19 @@ function p24Syndication(config) {
  * from the surrounding propertyAddress Alpine scope and drops a Leaflet/OSM
  * pin via Nominatim geocoding. Drag-to-adjust. lat/lng saved on form submit.
  */
-function propertyMapWidget(init) {
+function propertyMapWidget(cfg) {
     return {
         open: false,
-        lat: init.initialLat || 0,
-        lng: init.initialLng || 0,
+        lat: cfg.initialLat || 0,
+        lng: cfg.initialLng || 0,
         geocoding: false,
         _map: null, _marker: null,
+        _initialSuburb:   cfg.initialSuburb   || '',
+        _initialCity:     cfg.initialCity     || '',
+        _initialProvince: cfg.initialProvince || '',
 
         init() {
-            // Panel stays CLOSED by default — user opens it to see the map.
-            // The pin still gets dropped behind the scenes so coords save on submit.
+            // Panel starts CLOSED — user opens it to see the map.
             this.open = false;
 
             // Auto-geocode every time the P24 picker reports a new suburb.
@@ -5343,16 +5348,15 @@ function propertyMapWidget(init) {
             // Render the map only after the user expands the panel.
             this.$watch('open', (val) => { if (val) this.$nextTick(() => this._renderMap()); });
 
-            // On initial load: if we don't have saved coords but the property
-            // already has a suburb saved (legacy or just-loaded), geocode it
-            // in the background so the pin is ready when the user expands.
-            if (!this.lat || !this.lng) {
-                const sub = document.querySelector('input[name="suburb"]')?.value || '';
-                const cty = document.querySelector('input[name="city"]')?.value   || '';
-                const prv = document.querySelector('input[name="province"]')?.value || '';
-                if (sub) {
-                    this.geocodeSuburb({ suburbName: sub, cityName: cty, provinceName: prv });
-                }
+            // On initial load: if no saved coords but property already has
+            // a suburb, geocode it now so the pin is ready when the user
+            // expands, and so submit saves real coords.
+            if ((!this.lat || !this.lng) && this._initialSuburb) {
+                this.geocodeSuburb({
+                    suburbName:   this._initialSuburb,
+                    cityName:     this._initialCity,
+                    provinceName: this._initialProvince,
+                });
             }
         },
 
