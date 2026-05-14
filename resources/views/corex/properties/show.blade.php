@@ -5,6 +5,7 @@
 <div class="w-full space-y-4"
      x-data="{ activeTab: '{{ $isNew ? 'info' : session('tab', $activeTab) }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), formDirty: false, wbReportOpen: false, complianceModalOpen: false, unsavedModalOpen: false, pendingNavUrl: null, contactRequiredModalOpen: false }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
+     @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:clear-dirty.window="formDirty = false"
      x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')"
      @beforeunload.window="if (formDirty && !unsavedModalOpen) { $event.preventDefault(); $event.returnValue = ''; }"
@@ -3298,10 +3299,11 @@
             {{-- Linked contacts --}}
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">
-                    Linked Contacts ({{ $property->contacts->count() }})
+                    Linked Contacts (<span data-linked-count>{{ $property->contacts->count() }}</span>)
                 </h3>
+                <div id="linked-contacts-list">
                 @forelse($property->contacts as $c)
-                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);" data-contact-row="{{ $c->id }}">
                     <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
                          style="background:{{ $c->type?->color ?? '#334155' }};">
                         {{ $c->initials }}
@@ -3316,17 +3318,16 @@
                             @if($c->pivot->role)<span class="font-semibold" style="color:var(--brand-icon);">{{ ucfirst($c->pivot->role) }}</span>@endif
                         </div>
                     </div>
-                    <form method="POST" action="{{ route('corex.properties.contacts.unlink', [$property, $c]) }}"
-                          onsubmit="return confirm('Unlink {{ addslashes($c->full_name) }} from this property?')">
-                        @csrf @method('DELETE')
-                        <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
-                    </form>
+                    <button type="button"
+                            @click="unlinkContact({{ $c->id }}, @js($c->full_name))"
+                            class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
                 </div>
                 @empty
-                <div class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
+                @endforelse
+                </div>
+                <div id="linked-contacts-empty" class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover); {{ $property->contacts->count() > 0 ? 'display:none;' : '' }}">
                     <div class="text-sm" style="color:var(--text-secondary);">No contacts linked yet.</div>
                 </div>
-                @endforelse
             </div>
 
             {{-- Link existing contact --}}
@@ -3346,18 +3347,15 @@
                 <div x-show="results.length > 0" class="rounded-md overflow-hidden mb-3"
                      style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
-                        <form method="POST" action="{{ route('corex.properties.contacts.link', $property) }}">
-                            @csrf
-                            <input type="hidden" name="contact_id" :value="r.id">
-                            <button type="submit" class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
-                                    style="border-bottom:1px solid var(--border); background:var(--surface);">
-                                <div>
-                                    <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
-                                    <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[r.phone, r.email].filter(Boolean).join(' · ')"></div>
-                                </div>
-                                <span class="ml-auto text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon);">+ Link</span>
-                            </button>
-                        </form>
+                        <button type="button" @click="linkExisting(r)"
+                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
+                                style="border-bottom:1px solid var(--border); background:var(--surface); width:100%;">
+                            <div>
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[r.phone, r.email].filter(Boolean).join(' · ')"></div>
+                            </div>
+                            <span class="ml-auto text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon);">+ Link</span>
+                        </button>
                     </template>
                 </div>
 
@@ -3380,7 +3378,7 @@
                 </button>
 
                 <div x-show="open" x-cloak class="mt-5 space-y-4">
-                    <form method="POST" action="{{ route('corex.properties.contacts.createAndLink', $property) }}" class="space-y-4">
+                    <form @submit.prevent="createAndLink($el, () => { open = false; })" class="space-y-4">
                         @csrf
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
@@ -3426,9 +3424,10 @@
                             </div>
                         </div>
                         <button type="submit"
+                                :disabled="submitting"
                                 class="px-5 py-2 rounded-md text-sm font-semibold text-white"
                                 style="background:var(--brand-button,#0ea5e9);">
-                            Create Contact &amp; Link
+                            <span x-text="submitting ? 'Saving…' : 'Create Contact & Link'"></span>
                         </button>
                     </form>
                 </div>
@@ -4457,6 +4456,7 @@ function propertyContactsManager(searchUrl) {
         results: [],
         loading: false,
         searched: false,
+        submitting: false,
         async search() {
             if (this.query.length < 1) { this.results = []; this.searched = false; return; }
             this.loading = true;
@@ -4469,8 +4469,182 @@ function propertyContactsManager(searchUrl) {
             } finally {
                 this.loading = false;
             }
-        }
+        },
+        _csrf() {
+            const m = document.querySelector('meta[name="csrf-token"]');
+            return m ? m.getAttribute('content') : '';
+        },
+        _afterAdd(contact) {
+            window.coreXAppendLinkedContact(contact);
+            // Drop this contact from current search results
+            this.results = this.results.filter(r => r.id !== contact.id);
+            // Dismiss contact-required modal and return to info tab so user can save
+            window.dispatchEvent(new CustomEvent('corex:contact-added'));
+        },
+        async linkExisting(r) {
+            if (this.submitting) return;
+            this.submitting = true;
+            try {
+                const res = await fetch(@js(route('corex.properties.contacts.link', $property)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify({ contact_id: r.id })
+                });
+                if (!res.ok) { alert('Failed to link contact.'); return; }
+                const data = await res.json();
+                if (data.ok && data.contact) this._afterAdd(data.contact);
+            } catch (e) {
+                alert('Network error while linking contact.');
+            } finally {
+                this.submitting = false;
+            }
+        },
+        async createAndLink(formEl, onDone) {
+            if (this.submitting) return;
+            this.submitting = true;
+            try {
+                const fd = new FormData(formEl);
+                const payload = {};
+                for (const [k, v] of fd.entries()) { if (k !== '_token') payload[k] = v; }
+                let res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (res.status === 409) {
+                    const data = await res.json();
+                    const dup = data.duplicate_detected || {};
+                    const names = (dup.duplicates || []).map(d => '• ' + d.name + (d.phone ? ' (' + d.phone + ')' : '')).join('\n');
+                    if (dup.mode === 'hard_block_request') {
+                        alert('A possible duplicate contact exists. Please ask an admin to review:\n\n' + names);
+                        return;
+                    }
+                    if (dup.can_override || dup.mode === 'soft_warn') {
+                        if (!confirm('Possible duplicate contact(s) found:\n\n' + names + '\n\nCreate anyway?')) return;
+                        payload.bypass_duplicate_check = 1;
+                        res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRF-TOKEN': this._csrf(),
+                            },
+                            body: JSON.stringify(payload)
+                        });
+                    } else {
+                        alert('Duplicate contact exists:\n\n' + names);
+                        return;
+                    }
+                }
+                if (!res.ok) {
+                    if (res.status === 422) {
+                        const data = await res.json().catch(() => ({}));
+                        const msgs = Object.values(data.errors || {}).flat().join('\n');
+                        alert('Please fix the following:\n' + (msgs || 'Validation failed.'));
+                    } else {
+                        alert('Failed to create contact.');
+                    }
+                    return;
+                }
+                const data = await res.json();
+                if (data.ok && data.contact) {
+                    this._afterAdd(data.contact);
+                    formEl.reset();
+                    if (typeof onDone === 'function') onDone();
+                }
+            } catch (e) {
+                alert('Network error while creating contact.');
+            } finally {
+                this.submitting = false;
+            }
+        },
+        async unlinkContact(id, name) {
+            if (!confirm('Unlink ' + name + ' from this property?')) return;
+            try {
+                const urlTpl = @js(route('corex.properties.contacts.unlink', [$property->id, 0]));
+                const res = await fetch(urlTpl.replace(/\/0$/, '/' + id), {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                });
+                if (!res.ok) { alert('Failed to unlink contact.'); return; }
+                const data = await res.json();
+                window.coreXRemoveLinkedContact(id, data.count);
+            } catch (e) {
+                alert('Network error while unlinking contact.');
+            }
+        },
     };
+}
+
+// DOM helpers — keep the linked-contacts list in sync with AJAX results,
+// update the data-contact-count on the main form, and toggle empty state.
+window.coreXAppendLinkedContact = function (c) {
+    const list = document.getElementById('linked-contacts-list');
+    const empty = document.getElementById('linked-contacts-empty');
+    if (!list) return;
+    if (list.querySelector('[data-contact-row="' + c.id + '"]')) return; // already present
+    const meta = [];
+    if (c.phone) meta.push('<span>' + escapeHtml(c.phone) + '</span>');
+    if (c.email) meta.push('<span>' + escapeHtml(c.email) + '</span>');
+    if (c.role)  meta.push('<span class="font-semibold" style="color:var(--brand-icon);">' + escapeHtml(c.role.charAt(0).toUpperCase() + c.role.slice(1)) + '</span>');
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-3 px-4 py-3 rounded-md mb-2';
+    row.setAttribute('style', 'background:var(--surface-2); border:1px solid var(--border);');
+    row.setAttribute('data-contact-row', c.id);
+    row.innerHTML =
+        '<div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white" style="background:' + escapeHtml(c.type_color || '#334155') + ';">' + escapeHtml(c.initials || '?') + '</div>' +
+        '<div class="flex-1 min-w-0">' +
+            '<a href="' + escapeHtml(c.show_url) + '" class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">' + escapeHtml(c.full_name) + '</a>' +
+            '<div class="text-xs mt-0.5 flex gap-3" style="color:var(--text-muted);">' + meta.join('') + '</div>' +
+        '</div>' +
+        '<button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>';
+    row.querySelector('button').addEventListener('click', function () {
+        // Defer to Alpine manager so we go through the same unlink flow.
+        const wrap = document.querySelector('[x-data^="propertyContactsManager"]');
+        if (wrap && wrap._x_dataStack && wrap._x_dataStack[0]) {
+            wrap._x_dataStack[0].unlinkContact(c.id, c.full_name);
+        }
+    });
+    list.appendChild(row);
+    if (empty) empty.style.display = 'none';
+    // Update count badge + main-form data-contact-count
+    document.querySelectorAll('[data-linked-count]').forEach(el => el.textContent = list.children.length);
+    const form = document.getElementById('prop-update-form');
+    if (form) form.setAttribute('data-contact-count', String(list.children.length));
+};
+
+window.coreXRemoveLinkedContact = function (id, serverCount) {
+    const list = document.getElementById('linked-contacts-list');
+    const empty = document.getElementById('linked-contacts-empty');
+    if (!list) return;
+    const row = list.querySelector('[data-contact-row="' + id + '"]');
+    if (row) row.remove();
+    const count = typeof serverCount === 'number' ? serverCount : list.children.length;
+    document.querySelectorAll('[data-linked-count]').forEach(el => el.textContent = count);
+    const form = document.getElementById('prop-update-form');
+    if (form) form.setAttribute('data-contact-count', String(count));
+    if (empty) empty.style.display = count > 0 ? 'none' : '';
+};
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
 // ── Spaces & Features Manager ─────────────────────────────────────────────

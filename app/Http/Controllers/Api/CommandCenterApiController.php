@@ -195,6 +195,189 @@ class CommandCenterApiController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    public function calendarUpdate(Request $request, CalendarEvent $calendarEvent): JsonResponse
+    {
+        $data = $request->validate([
+            'title'         => 'sometimes|required|string|max:255',
+            'event_date'    => 'sometimes|required|date',
+            'end_date'      => 'nullable|date|after_or_equal:event_date',
+            'description'   => 'nullable|string|max:2000',
+            'priority'      => 'nullable|in:low,normal,high,critical',
+            'status'        => 'nullable|in:pending,completed,overdue,dismissed',
+            'category'      => 'nullable|string|max:50',
+            'property_id'   => 'nullable|integer|exists:properties,id',
+            'contact_id'    => 'nullable|integer|exists:contacts,id',
+        ]);
+
+        $oldValues = $calendarEvent->only(['title', 'event_date', 'end_date', 'description', 'category', 'priority', 'status', 'property_id', 'contact_id']);
+
+        $calendarEvent->update(collect($data)->only([
+            'title', 'event_date', 'end_date', 'description', 'category', 'priority', 'status', 'property_id', 'contact_id',
+        ])->all());
+
+        $newValues = $calendarEvent->fresh()->only(array_keys($oldValues));
+        $changed   = array_filter($newValues, fn ($v, $k) => ($oldValues[$k] ?? null) != $v, ARRAY_FILTER_USE_BOTH);
+
+        if (!empty($changed)) {
+            \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                'calendar_event_id'    => $calendarEvent->id,
+                'action'               => 'updated',
+                'old_values'           => array_intersect_key($oldValues, $changed),
+                'new_values'           => $changed,
+                'performed_by_user_id' => $request->user()->id,
+                'performed_at'         => now(),
+                'notes'                => 'Edited via mobile API',
+            ]);
+        }
+
+        // Re-notify accepted attendees on time change
+        if (array_key_exists('event_date', $changed) || array_key_exists('end_date', $changed)) {
+            $invitations = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
+                ->whereIn('status', ['accepted', 'tentative'])->get();
+            foreach ($invitations as $inv) {
+                DB::table('notifications')->insert([
+                    'id'              => \Illuminate\Support\Str::uuid(),
+                    'type'            => 'event_time_changed',
+                    'notifiable_type' => 'App\\Models\\User',
+                    'notifiable_id'   => $inv->invitee_user_id,
+                    'data'            => json_encode([
+                        'message'   => 'Time changed: ' . $calendarEvent->title . ' is now ' . $calendarEvent->fresh()->event_date->format('D d M, H:i'),
+                        'event_id'  => $calendarEvent->id,
+                        'old_start' => $oldValues['event_date'] ?? null,
+                        'new_start' => $changed['event_date'] ?? null,
+                    ]),
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+        }
+
+        return response()->json($this->formatEvent($calendarEvent->fresh()->load(['property', 'contact'])));
+    }
+
+    public function calendarDestroy(Request $request, CalendarEvent $calendarEvent): JsonResponse
+    {
+        // Cancel cascade — notify attendees + cancel invitations (parity with web destroy)
+        $invitations = \App\Models\CommandCenter\CalendarEventInvitation::where('event_id', $calendarEvent->id)
+            ->whereIn('status', ['pending', 'accepted', 'tentative'])->get();
+        foreach ($invitations as $inv) {
+            $inv->update(['status' => 'cancelled']);
+            DB::table('notifications')->insert([
+                'id'              => \Illuminate\Support\Str::uuid(),
+                'type'            => 'event_cancelled',
+                'notifiable_type' => 'App\\Models\\User',
+                'notifiable_id'   => $inv->invitee_user_id,
+                'data'            => json_encode([
+                    'message'      => 'Event cancelled: ' . $calendarEvent->title,
+                    'event_id'     => $calendarEvent->id,
+                    'cancelled_by' => $request->user()->name ?? 'Unknown',
+                ]),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        $calendarEvent->delete();
+        return response()->json(['ok' => true]);
+    }
+
+    public function calendarConflicts(Request $request): JsonResponse
+    {
+        $request->validate([
+            'start'            => 'required|date',
+            'end'              => 'required|date|after_or_equal:start',
+            'exclude_event_id' => 'nullable|integer',
+        ]);
+        $svc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);
+        return response()->json($svc->checkUserConflicts(
+            (int) $request->user()->id,
+            $request->get('start'),
+            $request->get('end'),
+            $request->get('exclude_event_id')
+        ));
+    }
+
+    // ── Calendar Invitations ──────────────────────────────────────
+
+    public function invitationsIndex(Request $request): JsonResponse
+    {
+        $userId = $request->user()->id;
+        $invitations = \App\Models\CommandCenter\CalendarEventInvitation::forUser($userId)
+            ->with(['event' => fn ($q) => $q->withoutGlobalScopes(), 'inviter'])
+            ->whereIn('status', ['pending', 'tentative'])
+            ->orderByDesc('created_at')->limit(50)->get();
+
+        $conflictSvc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);
+
+        $payload = $invitations->map(function ($inv) use ($userId, $conflictSvc) {
+            $conflicts = [];
+            if ($inv->event && $inv->event->event_date && $inv->event->end_date) {
+                try {
+                    $conflicts = $conflictSvc->checkUserConflicts(
+                        $userId,
+                        $inv->event->event_date->toIso8601String(),
+                        $inv->event->end_date->toIso8601String(),
+                        $inv->event_id
+                    );
+                } catch (\Throwable $e) {}
+            }
+            return [
+                'id'             => $inv->id,
+                'event_id'       => $inv->event_id,
+                'status'         => $inv->status,
+                'inviter_name'   => $inv->inviter?->name,
+                'created_at'     => $inv->created_at?->toIso8601String(),
+                'response_at'    => $inv->response_at?->toIso8601String(),
+                'acknowledged_at'=> $inv->acknowledged_at?->toIso8601String(),
+                'event'          => $inv->event ? $this->formatEvent($inv->event) : null,
+                'live_conflicts' => $conflicts,
+            ];
+        })->values();
+
+        return response()->json(['invitations' => $payload]);
+    }
+
+    public function invitationRespond(Request $request, \App\Models\CommandCenter\CalendarEventInvitation $invitation): JsonResponse
+    {
+        if ((int) $invitation->invitee_user_id !== (int) $request->user()->id) {
+            abort(403);
+        }
+        $data = $request->validate([
+            'action' => 'required|in:accepted,tentative,declined',
+            'notes'  => 'nullable|string|max:500',
+        ]);
+        $invitation->update([
+            'status'         => $data['action'],
+            'response_at'    => now(),
+            'response_notes' => $data['notes'] ?? null,
+        ]);
+        DB::table('notifications')->insert([
+            'id'              => \Illuminate\Support\Str::uuid(),
+            'type'            => 'invitation_response',
+            'notifiable_type' => 'App\\Models\\User',
+            'notifiable_id'   => $invitation->inviter_user_id,
+            'data'            => json_encode([
+                'message'  => $request->user()->name . ' ' . $data['action'] . ': ' . ($invitation->event?->title ?? 'Event'),
+                'event_id' => $invitation->event_id,
+            ]),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        return response()->json(['ok' => true, 'invitation_id' => $invitation->id, 'status' => $invitation->fresh()->status]);
+    }
+
+    public function invitationAcknowledge(Request $request, \App\Models\CommandCenter\CalendarEventInvitation $invitation): JsonResponse
+    {
+        $event = $invitation->event;
+        if (!$event) abort(404);
+        $user = $request->user();
+        if ((int) $event->user_id !== (int) $user->id && !in_array($user->role, ['super_admin', 'owner'])) {
+            abort(403);
+        }
+        $invitation->update(['acknowledged_at' => now()]);
+        return response()->json([
+            'ok' => true,
+            'invitation_id'   => $invitation->id,
+            'acknowledged_at' => $invitation->fresh()->acknowledged_at->toIso8601String(),
+        ]);
+    }
+
     // ── Tasks ─────────────────────────────────────────────────────
 
     public function tasksIndex(Request $request): JsonResponse
@@ -258,6 +441,30 @@ class CommandCenterApiController extends Controller
         $task    = $service->updateStatus($task, $request->status);
 
         return response()->json($this->formatTask($task->load('property')));
+    }
+
+    public function tasksUpdate(Request $request, CommandTask $task): JsonResponse
+    {
+        $data = $request->validate([
+            'title'         => 'sometimes|required|string|max:255',
+            'task_type'     => 'nullable|string|max:50',
+            'priority'      => 'nullable|in:low,normal,high,critical',
+            'status'        => 'nullable|in:todo,in_progress,awaiting,done,dismissed',
+            'due_date'      => 'nullable|date',
+            'send_reminder' => 'nullable|boolean',
+            'description'   => 'nullable|string',
+            'property_id'   => 'nullable|exists:properties,id',
+            'contact_id'    => 'nullable|exists:contacts,id',
+            'deal_id'       => 'nullable|integer',
+            'assigned_to'   => 'nullable|integer|exists:users,id',
+        ]);
+
+        $task->update(collect($data)->only([
+            'title', 'task_type', 'priority', 'status', 'due_date', 'send_reminder',
+            'description', 'property_id', 'contact_id', 'deal_id', 'assigned_to',
+        ])->all());
+
+        return response()->json($this->formatTask($task->fresh()->load(['property', 'contact'])));
     }
 
     /**

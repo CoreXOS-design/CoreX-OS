@@ -206,8 +206,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::get('/calendar', [CommandCenterApiController::class, 'calendarIndex']);
         Route::post('/calendar', [CommandCenterApiController::class, 'calendarStore']);
+        // Conflict + invitations MUST be declared before /calendar/{calendarEvent} wildcard
+        Route::get('/calendar/conflicts', [CommandCenterApiController::class, 'calendarConflicts']);
+        Route::get('/calendar/invitations', [CommandCenterApiController::class, 'invitationsIndex']);
+        Route::post('/calendar/invitations/{invitation}/respond', [CommandCenterApiController::class, 'invitationRespond']);
+        Route::post('/calendar/invitations/{invitation}/acknowledge', [CommandCenterApiController::class, 'invitationAcknowledge']);
         Route::post('/calendar/{calendarEvent}/complete', [CommandCenterApiController::class, 'calendarComplete']);
         Route::post('/calendar/{calendarEvent}/dismiss', [CommandCenterApiController::class, 'calendarDismiss']);
+        Route::put('/calendar/{calendarEvent}', [CommandCenterApiController::class, 'calendarUpdate']);
+        Route::delete('/calendar/{calendarEvent}', [CommandCenterApiController::class, 'calendarDestroy']);
 
         Route::get('/tasks', [CommandCenterApiController::class, 'tasksIndex']);
         Route::get('/tasks/archived', [CommandCenterApiController::class, 'tasksArchived']);
@@ -216,6 +223,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/tasks', [CommandCenterApiController::class, 'tasksStore']);
         Route::post('/tasks/{task}/complete', [CommandCenterApiController::class, 'tasksComplete']);
         Route::patch('/tasks/{task}/status', [CommandCenterApiController::class, 'tasksUpdateStatus']);
+        Route::put('/tasks/{task}', [CommandCenterApiController::class, 'tasksUpdate']);
         Route::delete('/tasks/{task}', [CommandCenterApiController::class, 'tasksDestroy']);
 
         // ── Task Notes (threaded) ──
