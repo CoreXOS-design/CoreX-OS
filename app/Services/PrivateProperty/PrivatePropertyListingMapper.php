@@ -564,7 +564,11 @@ class PrivatePropertyListingMapper
                 }
                 $urls[] = $imagePath;
             } else {
-                $urls[] = $baseUrl . $imagePath;
+                // Guarantee exactly one `/` between base and path. Without
+                // this, a stored path like `properties/123.jpg` (no leading
+                // slash) concatenates to `https://hostproperties/...` and
+                // PP fails to download → ErrorDownloadingImages.
+                $urls[] = $baseUrl . '/' . ltrim($imagePath, '/');
             }
         }
 

@@ -95,19 +95,25 @@ class PrivatePropertySyndicationService
             $updateData['pp_images_last_synced_at'] = now();
         }
 
-        // Extract PP references from response if present
-        if (isset($result['ListingFeedRef'])) {
-            $updateData['pp_listing_feed_ref'] = $result['ListingFeedRef'];
+        // Extract PP references from response. PHP SoapClient typically wraps
+        // the body in `{UpdateListingResult: {...}}`, and PP sometimes embeds
+        // the payload as raw XML inside an `any` element (same pattern used by
+        // `GetAllAgentsForBranchResult` — see ensureNoDuplicateBeforeUpdateAgent
+        // below). Walk all known wrapper shapes before giving up.
+        $listingFeedRef = $this->extractFromSoapResponse($result, 'UpdateListing', ['ListingFeedRef']);
+        $ppRef          = $this->extractFromSoapResponse($result, 'UpdateListing', ['PPRef']);
+        $delayUntil     = $this->extractFromSoapResponse($result, 'UpdateListing', ['DelayListingOnOtherWebsitesUntil']);
+
+        if ($listingFeedRef !== null) {
+            $updateData['pp_listing_feed_ref'] = $listingFeedRef;
         }
-        if (isset($result['PPRef'])) {
-            $updateData['pp_ref'] = $result['PPRef'];
+        if ($ppRef !== null) {
+            $updateData['pp_ref'] = $ppRef;
             $updateData['pp_syndication_status'] = 'active';
             $updateData['pp_activated_at'] = now();
         }
-
-        // Extract delay info from response
-        if (isset($result['DelayListingOnOtherWebsitesUntil'])) {
-            $updateData['pp_delay_until'] = $result['DelayListingOnOtherWebsitesUntil'];
+        if ($delayUntil !== null) {
+            $updateData['pp_delay_until'] = $delayUntil;
         }
 
         $property->update($updateData);
@@ -184,9 +190,10 @@ class PrivatePropertySyndicationService
             ];
         }
 
-        // Check for active status and PP ref
-        $ppRef  = $result['PPRef'] ?? $result['PropertyRef'] ?? $result['ListingRef'] ?? null;
-        $status = $result['Status'] ?? $result['PropertyStatus'] ?? null;
+        // Check for active status and PP ref. Walk wrapper shapes (see
+        // extractFromSoapResponse for rationale).
+        $ppRef  = $this->extractFromSoapResponse($result, 'GetListingStatus', ['PPRef', 'PropertyRef', 'ListingRef']);
+        $status = $this->extractFromSoapResponse($result, 'GetListingStatus', ['Status', 'PropertyStatus']);
 
         if ($status === 'Active' && empty($property->pp_ref) && $ppRef) {
             $property->update([
@@ -632,6 +639,58 @@ class PrivatePropertySyndicationService
 
         $this->log('info', "Agent #{$user->id} registered on PP", ['result' => $result]);
         return true;
+    }
+
+    /**
+     * Extract a value from a PP SOAP response, defensively walking common
+     * envelope shapes returned by PHP's SoapClient.
+     *
+     * Tried, in order, for each candidate key:
+     *   1. Top level                                 ($response[$key])
+     *   2. <Operation>Result wrapper                 ($response["{$op}Result"][$key])
+     *   3. <Operation>Response/<Operation>Result     ($response["{$op}Response"]["{$op}Result"][$key])
+     *   4. Generic `return` wrapper                  ($response['return'][$key])
+     *   5. Raw XML in `any` element                  (regex <Key>value</Key>)
+     *
+     * Returns the first non-empty string match, or null.
+     */
+    private function extractFromSoapResponse(array $response, string $operation, array $keys): ?string
+    {
+        $candidateContainers = [
+            $response,
+            $response["{$operation}Result"] ?? null,
+            ($response["{$operation}Response"]["{$operation}Result"] ?? null),
+            $response['return'] ?? null,
+        ];
+
+        foreach ($keys as $key) {
+            foreach ($candidateContainers as $container) {
+                if (!is_array($container)) continue;
+                if (isset($container[$key]) && is_scalar($container[$key])) {
+                    $val = trim((string) $container[$key]);
+                    if ($val !== '') return $val;
+                }
+            }
+        }
+
+        // Last resort: PP sometimes wraps the payload as raw XML in an `any`
+        // element on the *Result envelope (proven shape for GetAllAgents).
+        $xmlCandidates = [
+            $response["{$operation}Result"]['any'] ?? null,
+            ($response["{$operation}Response"]["{$operation}Result"]['any'] ?? null),
+            $response['any'] ?? null,
+        ];
+        foreach ($xmlCandidates as $xml) {
+            if (!is_string($xml) || $xml === '') continue;
+            foreach ($keys as $key) {
+                if (preg_match('/<' . preg_quote($key, '/') . '\b[^>]*>(.*?)<\/' . preg_quote($key, '/') . '>/s', $xml, $m)) {
+                    $val = trim($m[1]);
+                    if ($val !== '') return $val;
+                }
+            }
+        }
+
+        return null;
     }
 
     private function log(string $level, string $message, array $context = []): void
