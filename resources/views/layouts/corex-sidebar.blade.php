@@ -260,7 +260,7 @@
                 <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div class="corex-nav-panel {{ $activeGroup === 'command-center' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('command-center') }">
+            <div class="corex-nav-panel {{ $activeGroup === 'command-center' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('command-center') }" data-manual-order>
                 <button type="button" @click="pop()" class="corex-nav-back">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     <span>Back</span>
@@ -1352,6 +1352,7 @@
 
     function sortPanels() {
         document.querySelectorAll('.corex-sidebar .corex-nav-panel').forEach(panel => {
+            if (panel.hasAttribute('data-manual-order')) return;
             // Sort runs of .corex-nav-subitem siblings, treating .corex-nav-sublabel
             // (and any other element type) as a section boundary so grouped items
             // remain under their heading.
