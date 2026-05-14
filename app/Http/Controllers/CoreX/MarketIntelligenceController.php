@@ -12,7 +12,9 @@ use App\Services\Prospecting\ProspectingIntelligenceService;
 use App\Services\Prospecting\ProspectingListingResolver;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use App\Models\SuggestedActionThresholds;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -45,9 +47,24 @@ class MarketIntelligenceController extends Controller
         $query = ProspectingListing::where('agency_id', $agencyId)
             ->with('activeClaim.user');
 
+        // F.2: action preset URL param. Distinct from the legacy ?preset= (Smart
+        // Filter Preset) — that one still works for stale_claims / new_today etc.
+        // Action presets (pitch_now_high, pitch_now, log_outcomes, my_claims,
+        // expiring) preview the SuggestedActionResolver rule of the same name.
+        $actionPreset = $request->input('action_preset');
+        // Action presets that target rows which often have matched_property_id set
+        // (log/my-claims/expiring) need the default canvass-only filter suspended
+        // so those rows can surface even when they live in agency stock.
+        $presetSuspendsCanvassFilter = in_array(
+            $actionPreset,
+            ['log_outcomes', 'my_claims', 'expiring'],
+            true,
+        );
+
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
-        $query = $this->applyInStockFilter($query, $request, $isProspectingManager);
+        // F.2: also bypassed when an action preset suspends the canvass filter.
+        $query = $this->applyInStockFilter($query, $request, $isProspectingManager, $presetSuspendsCanvassFilter);
 
         // Filters
         if ($request->filled('portal_source') && $request->portal_source !== 'all') {
@@ -67,6 +84,11 @@ class MarketIntelligenceController extends Controller
         }
         if ($request->filled('bedrooms_min')) {
             $query->where('bedrooms', '>=', (int) $request->bedrooms_min);
+        }
+        // F.2 filter rail "By beds" uses exact-match so the counts on each
+        // segment label match the rows shown. Coexists with bedrooms_min.
+        if ($request->filled('bedrooms_exact')) {
+            $query->where('bedrooms', '=', (int) $request->bedrooms_exact);
         }
         if ($request->filled('agent_name')) {
             $query->where('agent_name', 'like', '%' . $request->agent_name . '%');
@@ -176,6 +198,20 @@ class MarketIntelligenceController extends Controller
             } elseif ($request->claim_filter === 'unclaimed') {
                 $query->whereDoesntHave('activeClaim');
             }
+        }
+
+        // F.2: action preset — applied AFTER all other filters so it composes
+        // cleanly with rail / search / etc. Thresholds resolved here so the
+        // singleton lookup is cached for the rest of the request.
+        $thresholdsForPreset = $config->getSuggestedActionThresholds($agencyId);
+        if ($actionPreset) {
+            $query = $this->applyActionPreset(
+                $query,
+                $actionPreset,
+                $agencyId,
+                $user?->id !== null ? (int) $user->id : null,
+                $thresholdsForPreset,
+            );
         }
 
         // Sorting
@@ -405,6 +441,33 @@ class MarketIntelligenceController extends Controller
             );
         }
 
+        // F.2 — Work mode shell data: snapshot KPIs, action preset counts,
+        // filter rail aggregates, demand pockets. All scoped to the same
+        // canvass-pool filter behaviour as the listings query (in-stock filter
+        // honoured), so the numbers agree with the table below.
+        $includeInStock = $request->boolean('include_in_stock') && $isProspectingManager;
+        $snapshotKpis = $this->computeSnapshotKpis($agencyId, $includeInStock);
+        $actionPresetCounts = $this->computeActionPresetCounts(
+            $agencyId,
+            $user?->id !== null ? (int) $user->id : null,
+            $thresholdsForPreset,
+        );
+        $filterRailAggregates = $this->computeFilterRailAggregates($agencyId, $includeInStock);
+        $demandPockets = $this->computeDemandPockets($agencyId, $thresholdsForPreset);
+
+        // Sidebar count badge — drives V12. Mirrors the sidebar-count precedent
+        // (see corex-sidebar.blade.php pendingVerificationCount / faultNewCount
+        // patterns). Cached 60s to keep the per-request cost negligible.
+        $marketIntelligenceSidebarCount = Cache::remember(
+            "mi.sidebar_count.{$agencyId}",
+            60,
+            fn () => ProspectingListing::where('agency_id', $agencyId)
+                ->where('is_active', true)
+                ->whereNull('matched_property_id')
+                ->whereNull('deleted_at')
+                ->count(),
+        );
+
         return view('corex.market-intelligence.index', compact(
             'listings', 'stats', 'suburbs', 'propertyTypes', 'users', 'claimStats', 'regenerating',
             'prospectingSetupTowns', 'prospectingSetupPropertyTypes', 'prospectingSetupBedroomSegments',
@@ -414,24 +477,361 @@ class MarketIntelligenceController extends Controller
             'listingStates',
             'buyerTiers', 'tierConfig',
             'presets', 'activePreset', 'isProspectingManager',
-            'suggestedActions'
+            'suggestedActions',
+            // F.2 Work mode shell data
+            'snapshotKpis', 'actionPresetCounts', 'filterRailAggregates',
+            'demandPockets', 'actionPreset', 'includeInStock',
+            'marketIntelligenceSidebarCount'
         ));
     }
 
     /**
-     * F.1 in-stock filter — the architectural anchor for the rename.
+     * F.1 / F.2 in-stock filter — the architectural anchor for the rename.
      *
      * Default: exclude listings already promoted to agency stock (matched_property_id NOT NULL).
-     * Override: managers with prospecting_setup.manage can pass ?include_in_stock=1 to audit.
+     * Override 1: managers with prospecting_setup.manage can pass ?include_in_stock=1 to audit.
+     * Override 2 (F.2): when an action preset targets rows that often have
+     *   matched_property_id set (log_outcomes / my_claims / expiring), the
+     *   caller passes $suspend=true so those rows can surface.
      *
-     * Spec: build-f-market-intelligence-redesign-spec.md §7.
+     * Spec: build-f-market-intelligence-redesign-spec.md §7, §8.2.
      */
-    protected function applyInStockFilter($query, Request $request, bool $isManager)
+    protected function applyInStockFilter($query, Request $request, bool $isManager, bool $suspend = false)
     {
+        if ($suspend) {
+            return $query;
+        }
         if ($request->boolean('include_in_stock') && $isManager) {
             return $query;
         }
         return $query->whereNull('matched_property_id');
+    }
+
+    /**
+     * F.2 — apply the active action preset as additional WHERE clauses on the
+     * listings query. The conditions mirror SuggestedActionResolver rules:
+     *
+     *   pitch_now_high → no active claim + strong-tier count >= high_value_strong_min
+     *   pitch_now      → no active claim + strong-tier count in [1, high_value_strong_min - 1]
+     *   log_outcomes   → matched_property had a pitch from $viewer in the
+     *                    outcome-overdue window, no outcome logged yet
+     *   my_claims      → active claim owned by $viewer
+     *   expiring       → active claim owned by $viewer, no feedback, hours_left below threshold
+     *
+     * Unknown preset values are silently ignored.
+     */
+    protected function applyActionPreset(
+        $query,
+        ?string $preset,
+        int $agencyId,
+        ?int $viewerId,
+        SuggestedActionThresholds $thresholds,
+    ) {
+        if (!$preset) {
+            return $query;
+        }
+
+        $strongMin = (int) $thresholds->high_value_strong_min;
+
+        switch ($preset) {
+            case 'pitch_now_high':
+                return $query->whereDoesntHave('activeClaim')
+                    ->whereIn('id', DB::table('prospecting_buyer_matches')
+                        ->where('agency_id', $agencyId)
+                        ->whereNull('dismissed_at')
+                        ->where('score', '>=', 80)
+                        ->groupBy('prospecting_listing_id')
+                        ->havingRaw('COUNT(*) >= ?', [$strongMin])
+                        ->select('prospecting_listing_id'));
+
+            case 'pitch_now':
+                return $query->whereDoesntHave('activeClaim')
+                    ->whereIn('id', DB::table('prospecting_buyer_matches')
+                        ->where('agency_id', $agencyId)
+                        ->whereNull('dismissed_at')
+                        ->where('score', '>=', 80)
+                        ->groupBy('prospecting_listing_id')
+                        ->havingRaw('COUNT(*) >= 1 AND COUNT(*) < ?', [$strongMin])
+                        ->select('prospecting_listing_id'));
+
+            case 'log_outcomes':
+                if ($viewerId === null) return $query->whereRaw('1 = 0');
+                $stale = now()->subDays($thresholds->outcome_stale_days);
+                $overdue = now()->subDays($thresholds->outcome_overdue_days);
+                return $query->whereIn('matched_property_id', DB::table('seller_outreach_sends')
+                    ->where('agency_id', $agencyId)
+                    ->where('agent_id', $viewerId)
+                    ->whereNull('deleted_at')
+                    ->where(function ($q) {
+                        $q->whereNull('outcome')->orWhere('outcome', 'sent');
+                    })
+                    ->whereBetween('sent_at', [$stale, $overdue])
+                    ->select('property_id'));
+
+            case 'my_claims':
+                if ($viewerId === null) return $query->whereRaw('1 = 0');
+                return $query->whereHas('activeClaim', fn ($q) => $q->where('user_id', $viewerId));
+
+            case 'expiring':
+                if ($viewerId === null) return $query->whereRaw('1 = 0');
+                // hours_left < expiry_warning_hours means the claim's
+                // last_updated_at + 48h is less than now + warning hours,
+                // i.e. last_updated_at is older than (now - (48 - warning)).
+                $hoursOlderThan = 48 - (int) $thresholds->expiry_warning_hours;
+                return $query->whereHas('activeClaim', function ($q) use ($viewerId, $hoursOlderThan) {
+                    $q->where('user_id', $viewerId)
+                      ->whereNull('feedback_at')
+                      ->where('last_updated_at', '<=', now()->subHours($hoursOlderThan));
+                });
+        }
+
+        return $query;
+    }
+
+    /**
+     * F.2 Row 1 — informational snapshot tiles. One grouped pass over the
+     * canvass pool (or full set when audit toggle is on) plus a tiny aggregate
+     * for cross-listed groups.
+     */
+    protected function computeSnapshotKpis(int $agencyId, bool $includeInStock): array
+    {
+        $baseQuery = ProspectingListing::where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->whereNull('deleted_at');
+        if (!$includeInStock) {
+            $baseQuery->whereNull('matched_property_id');
+        }
+
+        $active = (clone $baseQuery)->count();
+
+        $buyerMatched = (clone $baseQuery)
+            ->whereIn('id', DB::table('prospecting_buyer_matches')
+                ->where('agency_id', $agencyId)
+                ->whereNull('dismissed_at')
+                ->select('prospecting_listing_id'))
+            ->count();
+
+        $inStock = ProspectingListing::where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->whereNotNull('matched_property_id')
+            ->whereNull('deleted_at')
+            ->count();
+
+        $newToday = (clone $baseQuery)
+            ->where('first_seen_at', '>=', now()->startOfDay())
+            ->count();
+
+        // Cross-listed: same property_group_id appearing on >1 portal_source.
+        // Same canvass-pool restriction so the headline agrees with the table.
+        $crossListedQuery = DB::table('prospecting_listings')
+            ->where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->whereNotNull('property_group_id');
+        if (!$includeInStock) {
+            $crossListedQuery->whereNull('matched_property_id');
+        }
+        $crossListed = $crossListedQuery
+            ->select('property_group_id')
+            ->groupBy('property_group_id')
+            ->havingRaw('COUNT(DISTINCT portal_source) > 1')
+            ->get()
+            ->count();
+
+        return [
+            'active'        => $active,
+            'buyer_matched' => $buyerMatched,
+            'in_stock'      => $inStock,
+            'new_today'     => $newToday,
+            'cross_listed'  => $crossListed,
+        ];
+    }
+
+    /**
+     * F.2 Row 2 — action preset counts. Mirrors SuggestedActionResolver rules.
+     * Owner-scoped counts (Log outcomes, My claims, Expiring) use the viewer.
+     *
+     * Returns: ['pitch_now_high','pitch_now','log_outcomes','my_claims','expiring' => int]
+     */
+    protected function computeActionPresetCounts(
+        int $agencyId,
+        ?int $viewerId,
+        SuggestedActionThresholds $thresholds,
+    ): array {
+        $strongMin = (int) $thresholds->high_value_strong_min;
+
+        // Listing IDs with at least one strong-tier match
+        $strongMatches = DB::table('prospecting_buyer_matches')
+            ->where('agency_id', $agencyId)
+            ->whereNull('dismissed_at')
+            ->where('score', '>=', 80)
+            ->select('prospecting_listing_id', DB::raw('COUNT(*) as strong_count'))
+            ->groupBy('prospecting_listing_id')
+            ->get();
+
+        $pitchHighIds = $strongMatches->where('strong_count', '>=', $strongMin)
+            ->pluck('prospecting_listing_id')->all();
+        $pitchLowIds = $strongMatches
+            ->where('strong_count', '>=', 1)
+            ->where('strong_count', '<', $strongMin)
+            ->pluck('prospecting_listing_id')->all();
+
+        $claimedListingIds = DB::table('prospecting_claims')
+            ->where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->whereNull('released_at')
+            ->pluck('prospecting_listing_id')->unique()->all();
+
+        $canvassPool = ProspectingListing::where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->whereNull('matched_property_id')
+            ->whereNull('deleted_at')
+            ->pluck('id')->all();
+
+        $pitchHigh = count(array_intersect($pitchHighIds, $canvassPool)) -
+            count(array_intersect($pitchHighIds, $canvassPool, $claimedListingIds));
+        $pitchNow = count(array_intersect($pitchLowIds, $canvassPool)) -
+            count(array_intersect($pitchLowIds, $canvassPool, $claimedListingIds));
+
+        // Log outcomes (owner-only)
+        $logOutcomes = 0;
+        if ($viewerId !== null) {
+            $stale = now()->subDays($thresholds->outcome_stale_days);
+            $overdue = now()->subDays($thresholds->outcome_overdue_days);
+            $logOutcomes = DB::table('seller_outreach_sends as s')
+                ->join('prospecting_listings as pl', 'pl.matched_property_id', '=', 's.property_id')
+                ->where('s.agency_id', $agencyId)
+                ->where('s.agent_id', $viewerId)
+                ->whereNull('s.deleted_at')
+                ->where(function ($q) {
+                    $q->whereNull('s.outcome')->orWhere('s.outcome', 'sent');
+                })
+                ->whereBetween('s.sent_at', [$stale, $overdue])
+                ->distinct()->count(DB::raw('pl.id'));
+        }
+
+        // My claims (owner-only)
+        $myClaims = 0;
+        $expiring = 0;
+        if ($viewerId !== null) {
+            $myClaims = DB::table('prospecting_claims')
+                ->where('agency_id', $agencyId)
+                ->where('user_id', $viewerId)
+                ->where('is_active', true)
+                ->whereNull('released_at')
+                ->count();
+
+            $hoursOlderThan = 48 - (int) $thresholds->expiry_warning_hours;
+            $expiring = DB::table('prospecting_claims')
+                ->where('agency_id', $agencyId)
+                ->where('user_id', $viewerId)
+                ->where('is_active', true)
+                ->whereNull('released_at')
+                ->whereNull('feedback_at')
+                ->where('last_updated_at', '<=', now()->subHours($hoursOlderThan))
+                ->count();
+        }
+
+        return [
+            'pitch_now_high' => max(0, $pitchHigh),
+            'pitch_now'      => max(0, $pitchNow),
+            'log_outcomes'   => $logOutcomes,
+            'my_claims'      => $myClaims,
+            'expiring'       => $expiring,
+        ];
+    }
+
+    /**
+     * F.2 filter rail — top suburbs / types / beds with counts. Same canvass-
+     * pool scope as the listings query so each count matches what clicking
+     * would show.
+     */
+    protected function computeFilterRailAggregates(int $agencyId, bool $includeInStock): array
+    {
+        $base = function () use ($agencyId, $includeInStock) {
+            $q = DB::table('prospecting_listings')
+                ->where('agency_id', $agencyId)
+                ->where('is_active', true)
+                ->whereNull('deleted_at');
+            if (!$includeInStock) {
+                $q->whereNull('matched_property_id');
+            }
+            return $q;
+        };
+
+        $bySuburb = $base()
+            ->whereNotNull('suburb')->where('suburb', '!=', '')
+            ->select('suburb', DB::raw('COUNT(*) as c'))
+            ->groupBy('suburb')
+            ->orderByDesc('c')
+            ->limit(20)
+            ->get();
+
+        $byType = $base()
+            ->whereNotNull('property_type')->where('property_type', '!=', '')
+            ->select('property_type', DB::raw('COUNT(*) as c'))
+            ->groupBy('property_type')
+            ->orderByDesc('c')
+            ->get();
+
+        $byBeds = $base()
+            ->whereNotNull('bedrooms')
+            ->select('bedrooms', DB::raw('COUNT(*) as c'))
+            ->groupBy('bedrooms')
+            ->orderBy('bedrooms')
+            ->get();
+
+        return [
+            'by_suburb' => $bySuburb,
+            'by_type'   => $byType,
+            'by_beds'   => $byBeds,
+        ];
+    }
+
+    /**
+     * F.2 demand pockets — top (suburb × bedrooms) buckets where strong-tier
+     * buyer demand outstrips listing supply. Computed on-the-fly with a 1h
+     * cache; OpportunityPocketService in F.6 replaces this with the proper
+     * implementation including buyer wishlist data and cross-bucket logic.
+     *
+     * Threshold: at least 3 distinct strong-tier buyer contacts in the bucket.
+     * Ranked by buyer/listing ratio descending. Top 4 returned.
+     */
+    protected function computeDemandPockets(int $agencyId, SuggestedActionThresholds $thresholds): array
+    {
+        return Cache::remember("mi.demand_pockets.{$agencyId}", 3600, function () use ($agencyId) {
+            $rows = DB::table('prospecting_listings as pl')
+                ->join('prospecting_buyer_matches as pbm', 'pbm.prospecting_listing_id', '=', 'pl.id')
+                ->where('pl.agency_id', $agencyId)
+                ->where('pl.is_active', true)
+                ->whereNull('pl.matched_property_id')
+                ->whereNull('pl.deleted_at')
+                ->whereNull('pbm.dismissed_at')
+                ->where('pbm.score', '>=', 80)
+                ->whereNotNull('pl.suburb')->where('pl.suburb', '!=', '')
+                ->whereNotNull('pl.bedrooms')
+                ->select(
+                    'pl.suburb',
+                    'pl.bedrooms',
+                    DB::raw('COUNT(DISTINCT pl.id) as listing_count'),
+                    DB::raw('COUNT(DISTINCT pbm.contact_id) as buyer_count'),
+                )
+                ->groupBy('pl.suburb', 'pl.bedrooms')
+                ->having('buyer_count', '>=', 3)
+                ->orderByRaw('buyer_count / GREATEST(listing_count, 1) DESC, buyer_count DESC')
+                ->limit(4)
+                ->get();
+
+            return $rows->map(fn ($r) => [
+                'suburb'        => $r->suburb,
+                'bedrooms'      => (int) $r->bedrooms,
+                'listing_count' => (int) $r->listing_count,
+                'buyer_count'   => (int) $r->buyer_count,
+                'ratio'         => $r->listing_count > 0
+                    ? round($r->buyer_count / $r->listing_count, 2)
+                    : null,
+            ])->all();
+        });
     }
 
     public function buyerMatches(Request $request, ProspectingListing $listing)

@@ -346,9 +346,31 @@
                 {{-- F.1: relabelled from "Prospecting" to "Market intelligence" + retargeted at the
                      new route. The active-state class also matches the legacy prospecting.* names so
                      the old route group (still mounted during the F.1 migration window) keeps the
-                     sidebar entry highlighted if anything internal still routes there. --}}
+                     sidebar entry highlighted if anything internal still routes there.
+
+                     F.2: count badge — canvass-pool size (matched_property_id IS NULL).
+                     Cached 60s per agency. Mirrors the pendingVerificationCount / faultNewCount
+                     precedents elsewhere in this sidebar. --}}
                 @if(\Illuminate\Support\Facades\Route::has('market-intelligence.index'))
-                <a href="{{ route('market-intelligence.index') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.*') || request()->routeIs('prospecting.*') ? 'active' : '' }}">Market intelligence</a>
+                @php
+                    $miAgencyId = auth()->user()->effectiveAgencyId() ?? auth()->user()->agency_id ?? null;
+                    $miCount = $miAgencyId ? cache()->remember(
+                        'mi.sidebar_count.' . $miAgencyId,
+                        60,
+                        fn () => \App\Models\ProspectingListing::where('agency_id', $miAgencyId)
+                            ->where('is_active', true)
+                            ->whereNull('matched_property_id')
+                            ->whereNull('deleted_at')
+                            ->count(),
+                    ) : 0;
+                @endphp
+                <a href="{{ route('market-intelligence.index') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.*') || request()->routeIs('prospecting.*') ? 'active' : '' }}">
+                    <span>Market intelligence</span>
+                    @if($miCount > 0)
+                    <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
+                          style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
+                    @endif
+                </a>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('corex.tracked-properties.index'))
                 <a href="{{ route('corex.tracked-properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.tracked-properties.*') ? 'active' : '' }}">Tracked Properties</a>
