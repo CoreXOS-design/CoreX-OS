@@ -119,6 +119,20 @@ Every Blade view rendering new UI MUST start by reading `.ai/specs/UI_DESIGN_SYS
 
 When in doubt: tokens over hex, components over duplication, patterns over creativity.
 
+### Plain-English Visible Labels (F.8 binding rule)
+
+Every chip, badge, button, or short-form label visible to users MUST be either:
+
+(a) **Plain English** a first-day agent would understand without training — full words preferred over abbreviations, common estate-agent vocabulary, no codenames; OR
+(b) **Accompanied by a `title=` tooltip** (or the equivalent CoreX tooltip pattern from UI_DESIGN_SYSTEM.md) explaining what the label means and what clicking it does.
+
+**FORBIDDEN as visible labels:**
+- Developer jargon and internal abbreviations: `TP` (use "Property intel"), `KPI`, `R1`/`R2`/`R3` rule names, status enum values (`pitched_recently`, `meeting_set` shown raw — humanise with `str_replace('_', ' ', …)`).
+- Acronyms not common to South African estate agents.
+- Cryptic icons without a tooltip explaining the action.
+
+**Rationale:** new agents joining HFC should be able to use Market Intelligence on their first morning without a Loom video. Every visible label is a UX commitment that costs nothing to write clearly.
+
 ### Universal Match-or-Create for Property Data
 Every ingestion path produces or enriches a `tracked_properties` record via `App\Services\Prospecting\TrackedPropertyMatchOrCreateService::matchOrCreate()`. The service uses a 5-strategy match in priority order:
 

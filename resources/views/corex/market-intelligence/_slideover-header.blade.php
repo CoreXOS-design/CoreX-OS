@@ -64,21 +64,24 @@
             <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;">
                 @if($h['in_stock'])
                 <a href="{{ route('corex.properties.show', $h['matched_property_id']) }}"
-                   style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; border-radius: 4px; background: var(--brand-default); color: #fff; text-decoration: none;">
+                   style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; border-radius: 4px; background: var(--brand-default); color: #fff; text-decoration: none;"
+                   title="This property is in our agency stock — we already hold the mandate. Click to open the Property record.">
                     IN STOCK
                 </a>
                 @endif
                 @if($h['tracked_property_id'])
                 <a href="{{ route('corex.tracked-properties.show', $h['tracked_property_id']) }}"
-                   style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 600; border-radius: 4px; background: transparent; color: var(--text-secondary); border: 1px solid var(--border); text-decoration: none;">
-                    TP #{{ $h['tracked_property_id'] }} →
+                   style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 600; border-radius: 4px; background: transparent; color: var(--text-secondary); border: 1px solid var(--border); text-decoration: none;"
+                   title="Open the full Property intel record — every source for this property (P24, PP, CMA, captures), every buyer match, every action history.">
+                    Property intel →
                 </a>
                 @endif
                 @if($listing->portal_source === 'p24' || $listing->portal_source === 'pp')
                 {{-- Portal brand pill — external brand colours, var(--token, #fallback)
                      pattern per UI_DESIGN_SYSTEM.md §5.10. --}}
                 <span style="display: inline-flex; align-items: center; padding: 2px 7px; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.02em; border-radius: 4px;
-                             background: {{ $listing->portal_source === 'p24' ? 'var(--portal-p24, #1e40af)' : 'var(--portal-pp, #059669)' }}; color: #fff;">
+                             background: {{ $listing->portal_source === 'p24' ? 'var(--portal-p24, #1e40af)' : 'var(--portal-pp, #059669)' }}; color: #fff;"
+                      title="{{ $listing->portal_source === 'p24' ? 'Property24 portal listing — captured from property24.com' : 'Private Property portal listing — captured from privateproperty.co.za' }}">
                     {{ strtoupper($listing->portal_source) }}
                 </span>
                 @endif

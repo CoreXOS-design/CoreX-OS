@@ -126,7 +126,7 @@
             <a href="{{ route('corex.properties.show', $listing->matched_property_id) }}"
                onclick="event.stopPropagation();"
                style="{{ $tagTeal }} text-decoration: none;"
-               title="Promoted to agency stock — open property record">
+               title="This property is in our agency stock — we already hold the mandate. Click to open the Property record.">
                 IN STOCK
             </a>
             @endif
@@ -155,17 +155,25 @@
                         ? ('you · ' . ($hoursLeft !== null ? round($hoursLeft) . 'h' : '—'))
                         : (\Illuminate\Support\Str::limit($claim['claimer_name'] ?? 'claimed', 12) . ' · ' . str_replace('_', ' ', $claim['status'] ?? ''));
                 @endphp
+                @php
+                    // Plain-English tooltip explaining what the chip means and what the
+                    // 48-hour expiry window does.
+                    $claimTooltip = $claimedByMe
+                        ? ('Your claim — expires in ' . ($hoursLeft !== null ? round($hoursLeft, 1) : '?') . ' hours unless you log feedback. The 48-hour window resets every time you update the claim.')
+                        : (($claim['claimer_name'] ?? 'A colleague') . ' has claimed this listing (status: ' . str_replace('_', ' ', $claim['status'] ?? '') . '). You can still view buyers and contact details; open Property intel for the full record.');
+                @endphp
                 <span style="{{ $claimTagStyle }}"
-                      title="Claimed by {{ $claim['claimer_name'] ?? 'unknown' }} — status: {{ $claim['status'] ?? '' }}{{ $hoursLeft !== null ? ' — ' . round($hoursLeft, 1) . 'h until expiry' : '' }}">
+                      title="{{ $claimTooltip }}">
                     {{ $claimLabel }}
                 </span>
             @elseif($tempLock)
                 <span style="{{ $tagAmber }}"
-                      title="{{ $tempLock['user_name'] ?? '' }} is composing a pitch ({{ (int) ($tempLock['minutes_left'] ?? 0) }} min remaining)">
+                      title="{{ $tempLock['user_name'] ?? 'Someone' }} is composing a pitch on this listing right now. Lock expires in {{ (int) ($tempLock['minutes_left'] ?? 0) }} minutes.">
                     pitching · {{ \Illuminate\Support\Str::limit($tempLock['user_name'] ?? '?', 10) }}
                 </span>
             @else
-                <span style="{{ $tagNeutral }}">unclaimed</span>
+                <span style="{{ $tagNeutral }}"
+                      title="Nobody has claimed this listing yet. Click the bookmark icon on the right to claim it for yourself.">unclaimed</span>
             @endif
 
             {{-- Presentation marker --}}
@@ -178,13 +186,15 @@
             </a>
             @endif
 
-            {{-- TP → chip (F.3 BUG 5.3 FIX) — every linked row gets it --}}
+            {{-- F.8 — "TP →" renamed to "Property intel" (jargon-out pass).
+                 Click target unchanged: tracked-property record with the full
+                 source chain across P24/PP/CMA/captures plus action history. --}}
             @if($listing->tracked_property_id)
             <a href="{{ route('corex.tracked-properties.show', $listing->tracked_property_id) }}"
                onclick="event.stopPropagation();"
                style="{{ $tagOutline }} text-decoration: none;"
-               title="View Tracked Property record (audit trail across all sources)">
-                TP →
+               title="Open this property's full intelligence record — every source we have for it (P24, PP, CMA, captures), every buyer match, every action history.">
+                Property intel →
             </a>
             @endif
 
@@ -193,9 +203,11 @@
             <button type="button"
                     @click.stop="openBuyerPanel({{ $listing->id }})"
                     style="{{ $tagOutline }} cursor: pointer;"
-                    title="{{ $tiers['strong'] }} strong · {{ $tiers['mid'] }} mid · {{ $tiers['weak'] }} weak (top score {{ $tiers['top_score'] ?? '?' }}%) — click for buyer details">
-                @if($tiers['strong'] > 0)<span style="color: var(--ds-green, #10b981);">●</span> {{ $tiers['strong'] }}@endif
-                @if($tiers['mid'] > 0)<span style="color: var(--ds-amber, #f59e0b); margin-left: 4px;">●</span> {{ $tiers['mid'] }}@endif
+                    title="Buyer matches for this listing — green dot = strong-tier (high likelihood of conversion, score ≥ 80). Amber = mid-tier (50–79). Top score {{ $tiers['top_score'] ?? '?' }}%. Click for the full buyer list.">
+                @if($tiers['strong'] > 0)<span style="color: var(--ds-green, #10b981);"
+                                                 title="{{ $tiers['strong'] }} strong-tier buyer match{{ $tiers['strong'] === 1 ? '' : 'es' }} — high likelihood of conversion">●</span> {{ $tiers['strong'] }}@endif
+                @if($tiers['mid'] > 0)<span style="color: var(--ds-amber, #f59e0b); margin-left: 4px;"
+                                            title="{{ $tiers['mid'] }} mid-tier buyer match{{ $tiers['mid'] === 1 ? '' : 'es' }}">●</span> {{ $tiers['mid'] }}@endif
             </button>
             @endif
         </div>

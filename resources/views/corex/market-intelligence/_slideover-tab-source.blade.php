@@ -20,6 +20,15 @@
         'chrome_capture' => 'background: var(--portal-chrome, #d97706); color: #fff;',
         default          => 'background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);',
     };
+
+    // F.8 — plain-English tooltips for each source-type badge.
+    $badgeTooltip = fn (string $type) => match(strtolower($type)) {
+        'p24'            => 'Property24 portal listing — captured from property24.com',
+        'pp'             => 'Private Property portal listing — captured from privateproperty.co.za',
+        'cmainfo','cma'  => 'CMA presentation built in CoreX — comparable market analysis evidence',
+        'chrome_capture' => 'Captured via the CoreX browser extension on an agent\'s machine',
+        default          => 'Other ingestion source — see ref for details',
+    };
 @endphp
 
 <div style="padding: 16px;">
@@ -52,7 +61,8 @@
             $fields = $c['fields_contributed'] ?? [];
         @endphp
         <div style="display: grid; grid-template-columns: 80px 1fr; gap: 10px; align-items: start; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px;">
-            <span style="display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 4px; {{ $badgeStyle($type) }} align-self: start;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 4px; {{ $badgeStyle($type) }} align-self: start;"
+                  title="{{ $badgeTooltip($type) }}">
                 {{ strtoupper($type) }}
             </span>
             <div style="min-width: 0;">
@@ -78,7 +88,7 @@
     <div style="display: flex; flex-wrap: wrap; gap: 4px;">
         @foreach($externalRefs as $ref)
         <span style="display: inline-flex; align-items: center; padding: 3px 8px; font-size: 0.6875rem; font-weight: 600; border-radius: 4px; {{ $badgeStyle($ref->source_type) }}"
-              title="First seen {{ \Carbon\Carbon::parse($ref->first_seen_at)->format('j M Y') }}">
+              title="{{ $badgeTooltip($ref->source_type) }} · First seen {{ \Carbon\Carbon::parse($ref->first_seen_at)->format('j M Y') }}">
             {{ $ref->source_ref }}
         </span>
         @endforeach

@@ -20,6 +20,10 @@
     @include('corex.market-intelligence._stats-strip')
 </header>
 
+{{-- F.8 — one-time dismissable intro banner. localStorage-gated; bumping the
+     version suffix in the partial re-shows it to everyone. --}}
+@include('corex.market-intelligence._intro-banner')
+
 <div class="mi-split" style="display: grid; grid-template-columns: 200px 1fr; align-items: start;">
     @include('corex.market-intelligence._filter-rail')
 
