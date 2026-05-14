@@ -2001,9 +2001,12 @@
 
                     {{-- Map (collapsible) — shows a pin for the picked Internal address.
                          Auto-geocodes via Nominatim when address fields change; the pin
-                         is draggable for manual fine-tuning. lat/lng save with the form. --}}
+                         is draggable for manual fine-tuning. lat/lng save with the form.
+                         Hidden while an address modal is open so the map tiles don't
+                         float over the modal (Leaflet creates its own stacking context). --}}
                     <div class="mt-2 rounded-md overflow-hidden"
-                         style="border:1px solid var(--border); background:var(--surface);"
+                         x-show="!openModal" x-cloak
+                         style="border:1px solid var(--border); background:var(--surface); position:relative; z-index:0; isolation:isolate;"
                          x-data="propertyMapWidget({
                              initialLat: {{ (float) old('latitude',  $property->latitude  ?? 0) }},
                              initialLng: {{ (float) old('longitude', $property->longitude ?? 0) }},
@@ -5328,17 +5331,29 @@ function propertyMapWidget(init) {
         _map: null, _marker: null,
 
         init() {
-            // If we already have coordinates, open the panel by default so
-            // the user sees the pin immediately.
-            this.open = !!(this.lat && this.lng);
+            // Panel stays CLOSED by default — user opens it to see the map.
+            // The pin still gets dropped behind the scenes so coords save on submit.
+            this.open = false;
+
             // Auto-geocode every time the P24 picker reports a new suburb.
-            // Always re-locate to the new suburb centroid — the user expects
-            // the pin to follow their selection, not just appear once.
             window.addEventListener('p24-location-changed', (e) => {
                 if (e.detail && e.detail.suburbId) this.geocodeSuburb(e.detail);
             });
-            // Render the map only after Alpine has shown the panel.
+
+            // Render the map only after the user expands the panel.
             this.$watch('open', (val) => { if (val) this.$nextTick(() => this._renderMap()); });
+
+            // On initial load: if we don't have saved coords but the property
+            // already has a suburb saved (legacy or just-loaded), geocode it
+            // in the background so the pin is ready when the user expands.
+            if (!this.lat || !this.lng) {
+                const sub = document.querySelector('input[name="suburb"]')?.value || '';
+                const cty = document.querySelector('input[name="city"]')?.value   || '';
+                const prv = document.querySelector('input[name="province"]')?.value || '';
+                if (sub) {
+                    this.geocodeSuburb({ suburbName: sub, cityName: cty, provinceName: prv });
+                }
+            }
         },
 
         /**
@@ -5373,8 +5388,9 @@ function propertyMapWidget(init) {
                 if (hit) {
                     this.lat = (+hit.lat).toFixed(7);
                     this.lng = (+hit.lon).toFixed(7);
-                    if (!this.open) this.open = true;
-                    this.$nextTick(() => this._placeMarker(+hit.lat, +hit.lon));
+                    // Don't force the panel open — the pin is saved silently;
+                    // user can expand the Map strip whenever they want.
+                    if (this.open) this.$nextTick(() => this._placeMarker(+hit.lat, +hit.lon));
                 }
             } catch (e) { /* silent */ }
             finally { this.geocoding = false; }
