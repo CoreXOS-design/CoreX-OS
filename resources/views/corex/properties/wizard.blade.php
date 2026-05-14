@@ -187,50 +187,23 @@
                 </div>
             </div>
 
-            {{-- Property24-backed cascading Province → City → Suburb. Mandatory.
-                 User cannot enter a free-text suburb — they must pick one
-                 P24 recognises so the listing can syndicate. --}}
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Province <span class="text-red-500">*</span></label>
-                    <select x-model="s1.p24_province_id" @change="onProvinceChange()"
-                            :disabled="loading.provinces"
-                            class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                            style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                        <option value="0">— Select —</option>
-                        <template x-for="p in provinces" :key="p.id">
-                            <option :value="p.id" x-text="p.name"></option>
-                        </template>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">City / Town <span class="text-red-500">*</span></label>
-                    <select x-model="s1.p24_city_id" @change="onCityChange()"
-                            :disabled="!s1.p24_province_id || s1.p24_province_id == 0 || loading.cities"
-                            class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                            style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                        <option value="0" x-text="s1.p24_province_id && s1.p24_province_id != 0 ? '— Select —' : '— Pick a province —'"></option>
-                        <template x-for="c in cities" :key="c.id">
-                            <option :value="c.id" x-text="c.name"></option>
-                        </template>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Suburb <span class="text-red-500">*</span></label>
-                    <select x-model="s1.p24_suburb_id" @change="onSuburbChange()"
-                            :disabled="!s1.p24_city_id || s1.p24_city_id == 0 || loading.suburbs"
-                            class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                            style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                        <option value="0" x-text="s1.p24_city_id && s1.p24_city_id != 0 ? '— Select —' : '— Pick a city —'"></option>
-                        <template x-for="su in suburbs" :key="su.id">
-                            <option :value="su.id" x-text="su.name"></option>
-                        </template>
-                    </select>
-                </div>
+            {{-- Property24-backed cascading Province → City → Suburb.
+                 Type to filter; can only save if all three are picked from
+                 the list. See _partials/p24-location-picker.blade.php. --}}
+            <div x-ref="p24Picker">
+                @include('corex._partials.p24-location-picker', [
+                    'fieldPrefix'        => 'p24',
+                    'initialProvinceId'  => 0,
+                    'initialCityId'      => 0,
+                    'initialSuburbId'    => 0,
+                    'initialProvinceName'=> '',
+                    'initialCityName'    => '',
+                    'initialSuburbName'  => '',
+                    'denormaliseNames'   => false,
+                ])
             </div>
             <div class="text-[11px]" style="color:var(--text-muted);">
-                Suburbs are pulled from Property24 — you have to pick one we recognise so this listing can syndicate.
-                <span x-show="provinces.length === 0" x-cloak style="color:#92400e;">No P24 suburbs cached yet — ask an admin to run a sync.</span>
+                Start typing a province, city, or suburb — pick from the list. You can't save unless Property24 recognises the suburb.
             </div>
 
             {{-- Beds / Baths / Garages as steppers --}}
@@ -566,11 +539,9 @@ function propertyWizard(config) {
         csrf: config.csrf,
         routes: config.routes,
 
-        // P24 cascading location picker
-        provinces: [],
-        cities: [],
-        suburbs: [],
-        loading: { provinces: false, cities: false, suburbs: false },
+        // P24 picker state is owned by the included partial component.
+        // We mirror only the final IDs into s1 via the p24-location-changed
+        // event so submitStep1 can ship them.
 
         // Photos
         photos: config.existingImages || [],
@@ -587,48 +558,18 @@ function propertyWizard(config) {
         s3: { description: '', mandate_type: '', branch_id: '{{ auth()->user()->effectiveBranchId() ?? '' }}', agent_id: '{{ auth()->id() }}', size_m2: null, erf_size_m2: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
 
         init() {
-            this._loadProvinces();
+            // Sync P24 picker state into s1 so submitStep1 picks it up.
+            window.addEventListener('p24-location-changed', (e) => {
+                if (!e.detail) return;
+                this.s1.p24_province_id = e.detail.provinceId || 0;
+                this.s1.p24_city_id     = e.detail.cityId || 0;
+                this.s1.p24_suburb_id   = e.detail.suburbId || 0;
+                this.s1.province        = e.detail.provinceName || '';
+                this.s1.city            = e.detail.cityName || '';
+                this.s1.suburb          = e.detail.suburbName || '';
+            });
         },
 
-        async _loadProvinces() {
-            this.loading.provinces = true;
-            try {
-                const r = await fetch('/api/v1/p24/provinces', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-                const j = await r.json();
-                this.provinces = j.data || [];
-            } finally { this.loading.provinces = false; }
-        },
-        async onProvinceChange() {
-            const p = this.provinces.find(x => x.id == this.s1.p24_province_id);
-            this.s1.province = p ? p.name : '';
-            this.s1.p24_city_id = 0; this.s1.p24_suburb_id = 0;
-            this.s1.city = ''; this.s1.suburb = '';
-            this.cities = []; this.suburbs = [];
-            if (!this.s1.p24_province_id || this.s1.p24_province_id == 0) return;
-            this.loading.cities = true;
-            try {
-                const r = await fetch('/api/v1/p24/cities?province_id=' + this.s1.p24_province_id, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-                const j = await r.json();
-                this.cities = j.data || [];
-            } finally { this.loading.cities = false; }
-        },
-        async onCityChange() {
-            const c = this.cities.find(x => x.id == this.s1.p24_city_id);
-            this.s1.city = c ? c.name : '';
-            this.s1.p24_suburb_id = 0; this.s1.suburb = '';
-            this.suburbs = [];
-            if (!this.s1.p24_city_id || this.s1.p24_city_id == 0) return;
-            this.loading.suburbs = true;
-            try {
-                const r = await fetch('/api/v1/p24/suburbs?city_id=' + this.s1.p24_city_id, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-                const j = await r.json();
-                this.suburbs = j.data || [];
-            } finally { this.loading.suburbs = false; }
-        },
-        onSuburbChange() {
-            const s = this.suburbs.find(x => x.id == this.s1.p24_suburb_id);
-            this.s1.suburb = s ? s.name : '';
-        },
         get checklist() {
             return [
                 { key: 'title',   label: 'Headline',      ok: !!this.s1.title, step: 1 },

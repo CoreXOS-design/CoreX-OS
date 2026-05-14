@@ -117,68 +117,20 @@
                 </select>
             </div>
 
-            {{-- ── Province / City / Suburb (Property24-backed cascading select) ── --}}
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4"
-                 x-data="p24LocationPicker({
-                     initialProvinceId: {{ (int) old('p24_province_id', $property?->p24_province_id ?? 0) }},
-                     initialCityId:     {{ (int) old('p24_city_id',     $property?->p24_city_id ?? 0) }},
-                     initialSuburbId:   {{ (int) old('p24_suburb_id',   $property?->p24_suburb_id ?? 0) }},
-                     initialProvinceName: @js(old('province', $property?->province ?? '')),
-                     initialCityName:     @js(old('city',     $property?->city ?? '')),
-                     initialSuburbName:   @js(old('suburb',   $property?->suburb ?? '')),
-                 })">
-
-                <input type="hidden" name="p24_province_id" :value="provinceId">
-                <input type="hidden" name="p24_city_id"     :value="cityId">
-                <input type="hidden" name="p24_suburb_id"   :value="suburbId">
-                {{-- Denormalised free-text mirrors (kept for back-compat with existing
-                     search/display code). Server overwrites with canonical P24 names. --}}
-                <input type="hidden" name="province" :value="provinceName">
-                <input type="hidden" name="city"     :value="cityName">
-                <input type="hidden" name="suburb"   :value="suburbName" required>
-
-                <div>
-                    <label class="block text-sm font-semibold mb-1 text-slate-700">Province <span class="text-red-500">*</span></label>
-                    <select x-model="provinceId" @change="onProvinceChange()"
-                            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400 bg-white"
-                            :disabled="loading.provinces">
-                        <option value="0">— Select province —</option>
-                        <template x-for="p in provinces" :key="p.id">
-                            <option :value="p.id" :selected="p.id == provinceId" x-text="p.name"></option>
-                        </template>
-                    </select>
-                    <p class="text-[10px] text-slate-400 mt-1" x-show="loading.provinces">Loading provinces…</p>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-semibold mb-1 text-slate-700">City / Town <span class="text-red-500">*</span></label>
-                    <select x-model="cityId" @change="onCityChange()"
-                            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400 bg-white"
-                            :disabled="!provinceId || provinceId == 0 || loading.cities">
-                        <option value="0" x-text="provinceId && provinceId != 0 ? '— Select city —' : '— Pick a province first —'"></option>
-                        <template x-for="c in cities" :key="c.id">
-                            <option :value="c.id" :selected="c.id == cityId" x-text="c.name"></option>
-                        </template>
-                    </select>
-                    <p class="text-[10px] text-slate-400 mt-1" x-show="loading.cities">Loading cities…</p>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-semibold mb-1 text-slate-700">Suburb <span class="text-red-500">*</span></label>
-                    <select x-model="suburbId" @change="onSuburbChange()"
-                            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-400 bg-white"
-                            :disabled="!cityId || cityId == 0 || loading.suburbs">
-                        <option value="0" x-text="cityId && cityId != 0 ? '— Select suburb —' : '— Pick a city first —'"></option>
-                        <template x-for="s in suburbs" :key="s.id">
-                            <option :value="s.id" :selected="s.id == suburbId" x-text="s.name"></option>
-                        </template>
-                    </select>
-                    <p class="text-[10px] text-slate-400 mt-1" x-show="loading.suburbs">Loading suburbs…</p>
-                    <p class="text-[10px] text-amber-700 mt-1" x-show="syncWarning" x-cloak>
-                        No P24 suburbs cached yet — ask an admin to run a P24 sync in <strong>Settings → Agency → Property24</strong>.
-                    </p>
-                </div>
-            </div>
+            {{-- ── Province / City / Suburb (Property24-backed typeahead) ──
+                 Type to filter; can only submit if all three are picked
+                 from the P24 list. Shared partial: see
+                 _partials/p24-location-picker.blade.php. --}}
+            @include('corex._partials.p24-location-picker', [
+                'fieldPrefix'         => 'p24',
+                'initialProvinceId'   => old('p24_province_id', $property?->p24_province_id ?? 0),
+                'initialCityId'       => old('p24_city_id',     $property?->p24_city_id ?? 0),
+                'initialSuburbId'     => old('p24_suburb_id',   $property?->p24_suburb_id ?? 0),
+                'initialProvinceName' => old('province', $property?->province ?? ''),
+                'initialCityName'     => old('city',     $property?->city ?? ''),
+                'initialSuburbName'   => old('suburb',   $property?->suburb ?? ''),
+                'denormaliseNames'    => true,
+            ])
 
             {{-- ── Address + Map ── --}}
             <div class="space-y-3" x-data="propertyMap({
@@ -630,88 +582,6 @@
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
 <script>
-/**
- * Property24 cascading Province → City → Suburb picker.
- * Backed by /api/v1/p24/{provinces,cities,suburbs}.
- */
-function p24LocationPicker(init) {
-    return {
-        provinceId: init.initialProvinceId || 0,
-        cityId:     init.initialCityId     || 0,
-        suburbId:   init.initialSuburbId   || 0,
-        provinceName: init.initialProvinceName || '',
-        cityName:     init.initialCityName     || '',
-        suburbName:   init.initialSuburbName   || '',
-        provinces: [], cities: [], suburbs: [],
-        loading: { provinces: false, cities: false, suburbs: false },
-        syncWarning: false,
-
-        init() {
-            this.loadProvinces();
-        },
-
-        async _fetch(url) {
-            const r = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
-            if (!r.ok) return { data: [] };
-            return await r.json();
-        },
-
-        async loadProvinces() {
-            this.loading.provinces = true;
-            const { data } = await this._fetch('/api/v1/p24/provinces');
-            this.provinces = data || [];
-            this.loading.provinces = false;
-            this.syncWarning = this.provinces.length === 0;
-            if (this.provinceId && this.provinceId != 0) {
-                await this.loadCities();
-            }
-        },
-
-        async loadCities() {
-            if (!this.provinceId || this.provinceId == 0) { this.cities = []; return; }
-            this.loading.cities = true;
-            const { data } = await this._fetch('/api/v1/p24/cities?province_id=' + this.provinceId);
-            this.cities = data || [];
-            this.loading.cities = false;
-            if (this.cityId && this.cityId != 0) {
-                await this.loadSuburbs();
-            }
-        },
-
-        async loadSuburbs() {
-            if (!this.cityId || this.cityId == 0) { this.suburbs = []; return; }
-            this.loading.suburbs = true;
-            const { data } = await this._fetch('/api/v1/p24/suburbs?city_id=' + this.cityId);
-            this.suburbs = data || [];
-            this.loading.suburbs = false;
-        },
-
-        onProvinceChange() {
-            const p = this.provinces.find(x => x.id == this.provinceId);
-            this.provinceName = p ? p.name : '';
-            this.cityId = 0; this.cityName = '';
-            this.suburbId = 0; this.suburbName = '';
-            this.suburbs = [];
-            this.loadCities();
-        },
-
-        onCityChange() {
-            const c = this.cities.find(x => x.id == this.cityId);
-            this.cityName = c ? c.name : '';
-            this.suburbId = 0; this.suburbName = '';
-            this.loadSuburbs();
-            // Geocode hint: re-trigger map geocode if available.
-            window.dispatchEvent(new CustomEvent('p24-location-changed'));
-        },
-
-        onSuburbChange() {
-            const s = this.suburbs.find(x => x.id == this.suburbId);
-            this.suburbName = s ? s.name : '';
-            window.dispatchEvent(new CustomEvent('p24-location-changed'));
-        },
-    };
-}
-
 /**
  * Leaflet/OSM map + Nominatim geocoder for the property address.
  * Pin is set automatically when address fields change (debounced) and is
