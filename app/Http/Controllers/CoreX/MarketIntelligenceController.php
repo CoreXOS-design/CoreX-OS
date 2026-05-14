@@ -40,6 +40,17 @@ class MarketIntelligenceController extends Controller
         ProspectingListingResolver $resolver,
         ProspectingConfigurationService $config,
     ) {
+        // F.6 — when ?mode=analyse, dispatch to the Analyse mode handler.
+        // Work mode (default) continues to render the legacy listings flow.
+        if ($request->query('mode') === 'analyse') {
+            return $this->analyse(
+                $request,
+                app(\App\Services\MarketIntelligence\AnalyseModeOrchestrator::class),
+                $intelligence,
+                $config,
+            );
+        }
+
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
         $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
@@ -486,6 +497,75 @@ class MarketIntelligenceController extends Controller
             'snapshotKpis', 'actionPresetCounts', 'filterRailAggregates',
             'demandPockets', 'actionPreset', 'includeInStock',
             'marketIntelligenceSidebarCount'
+        ));
+    }
+
+    /**
+     * F.6 — Analyse mode body. Same top bar + stats strip as Work mode
+     * (so the modes feel like one page); body is the brief + matrix +
+     * pockets + velocity + competitive landscape + buyer funnel.
+     *
+     * Analyse mode is always agency-wide — query filters from Work mode
+     * are intentionally NOT applied here (see V17 in the build prompt).
+     *
+     * Spec: build-f-market-intelligence-redesign-spec.md §9.
+     */
+    public function analyse(
+        Request $request,
+        \App\Services\MarketIntelligence\AnalyseModeOrchestrator $orchestrator,
+        ProspectingIntelligenceService $intelligence,
+        ProspectingConfigurationService $config,
+    ) {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
+        $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
+
+        // Reuse the stats-strip computation so the strip is identical to Work mode.
+        $includeInStock = $request->boolean('include_in_stock') && $isProspectingManager;
+        $snapshotKpis = $this->computeSnapshotKpis($agencyId, $includeInStock);
+        $thresholds = $config->getSuggestedActionThresholds($agencyId);
+        $actionPresetCounts = $this->computeActionPresetCounts(
+            $agencyId,
+            $user?->id !== null ? (int) $user->id : null,
+            $thresholds,
+        );
+
+        // Optional competitive-landscape override via ?landscape_suburb=
+        $competitiveSuburb = $request->filled('landscape_suburb')
+            ? (string) $request->query('landscape_suburb')
+            : null;
+        $data = $orchestrator->loadFor($agencyId, $competitiveSuburb);
+
+        // Buyer funnel sources from the existing intelligence snapshot.
+        // We pass an empty filter set so the funnel reflects agency-wide
+        // activity — Analyse mode is agency-wide by spec.
+        $filters = ['agency_id' => $agencyId, 'funnel_view' => 'inflow'];
+        $snapshot = $intelligence->snapshot($filters);
+        $segmentLabels = $this->buildSegmentLabelMap($config, $agencyId);
+
+        // urlWith closure used by the lifted buyer-funnel partial.
+        $urlWith = function (array $params) {
+            $merged = array_merge(request()->except(['page']), $params);
+            return route('market-intelligence.index', $merged);
+        };
+
+        // Sidebar count consistency with Work mode.
+        $marketIntelligenceSidebarCount = Cache::remember(
+            "mi.sidebar_count.{$agencyId}",
+            60,
+            fn () => ProspectingListing::where('agency_id', $agencyId)
+                ->where('is_active', true)
+                ->whereNull('matched_property_id')
+                ->whereNull('deleted_at')
+                ->count(),
+        );
+
+        return view('corex.market-intelligence.analyse', compact(
+            'data',
+            'snapshotKpis', 'actionPresetCounts',
+            'snapshot', 'filters', 'segmentLabels', 'urlWith',
+            'isProspectingManager', 'includeInStock',
+            'marketIntelligenceSidebarCount',
         ));
     }
 
