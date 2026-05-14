@@ -123,7 +123,26 @@
                             <span class="ds-badge ds-badge-success">Published</span>
                         @endif
                     </div>
-                    <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);">{{ $property->title ?: 'New Property' }}</div>
+                    <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</div>
+                    @php
+                        $sbAddrParts = [];
+                        if (!empty($property->unit_number)) $sbAddrParts[] = 'Unit ' . $property->unit_number;
+                        if (!empty($property->complex_name)) $sbAddrParts[] = $property->complex_name;
+                        if (!empty($property->street_number) && !empty($property->street_name)) {
+                            $sbAddrParts[] = $property->street_number . ' ' . $property->street_name;
+                        } elseif (!empty($property->street_name)) {
+                            $sbAddrParts[] = $property->street_name;
+                        } elseif (!empty($property->address)) {
+                            $sbAddrParts[] = $property->address;
+                        }
+                        if (!empty($property->suburb)) $sbAddrParts[] = $property->suburb;
+                        if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
+                            $sbAddrParts[] = $property->city;
+                        }
+                    @endphp
+                    @if(count($sbAddrParts))
+                    <div class="text-[11px] mt-0.5 leading-snug" style="color:var(--text-muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ implode(', ', $sbAddrParts) }}">{{ implode(', ', $sbAddrParts) }}</div>
+                    @endif
                 </div>
             </div>
 
