@@ -68,11 +68,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
-    // Notification API
-    Route::get('/api/notifications', [\App\Http\Controllers\Api\NotificationController::class, 'index']);
-    Route::post('/api/notifications/{id}/read', [\App\Http\Controllers\Api\NotificationController::class, 'markRead']);
-    Route::post('/api/notifications/mark-all-read', [\App\Http\Controllers\Api\NotificationController::class, 'markAllRead']);
-
     // ── Admin: API Catalog (auto-generated from route table) ──
     Route::get('/admin/api', [\App\Http\Controllers\Admin\ApiCatalogController::class, 'index'])
         ->middleware('permission:manage_users')
