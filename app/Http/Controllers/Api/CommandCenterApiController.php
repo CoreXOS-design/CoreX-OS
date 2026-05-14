@@ -11,6 +11,7 @@ use App\Models\CommandCenter\UserDashboardSetting;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Services\CandidatePractitionerService;
 use App\Services\CommandCenter\CalendarEventService;
+use App\Services\CommandCenter\CommandCentreService;
 use App\Services\CommandCenter\PropertyHealthCalculator;
 use App\Services\CommandCenter\TaskService;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,27 @@ use Illuminate\Support\Facades\DB;
 
 class CommandCenterApiController extends Controller
 {
+    // ── Today (full card stream — mirrors web /command-center/today) ──
+
+    public function today(Request $request): JsonResponse
+    {
+        $user    = $request->user();
+        $service = new CommandCentreService();
+        $cards   = $service->assembleForUser($user);
+
+        return response()->json([
+            'user'  => ['id' => $user->id, 'name' => $user->name, 'role' => $user->effectiveRole()],
+            'cards' => $cards,
+        ]);
+    }
+
+    public function todayRefresh(Request $request): JsonResponse
+    {
+        // Bust the 5-min cache used by assembleForUser() then return fresh cards
+        \Illuminate\Support\Facades\Cache::forget("command_centre_{$request->user()->id}");
+        return $this->today($request);
+    }
+
     // ── Dashboard ──────────────────────────────────────────────────
 
     public function dashboard(Request $request): JsonResponse

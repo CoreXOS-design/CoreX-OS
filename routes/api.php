@@ -203,6 +203,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Command Center ────────────────────────────────────────────
     Route::prefix('command-center')->group(function () {
         Route::get('/dashboard', [CommandCenterApiController::class, 'dashboard']);
+        Route::get('/today', [CommandCenterApiController::class, 'today']);
+        Route::post('/today/refresh', [CommandCenterApiController::class, 'todayRefresh']);
 
         Route::get('/calendar', [CommandCenterApiController::class, 'calendarIndex']);
         Route::post('/calendar', [CommandCenterApiController::class, 'calendarStore']);
