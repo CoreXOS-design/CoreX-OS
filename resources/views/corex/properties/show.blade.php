@@ -2062,28 +2062,21 @@
                                     </div>
                                 </div>
 
-                                {{-- City or Suburb --}}
+                                {{-- Province / City / Suburb — Property24-backed typeahead.
+                                     User must pick a suburb P24 recognises; can't save free-text. --}}
                                 <div>
-                                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">City or Suburb</div>
-                                    <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
-                                        <div>
-                                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Suburb <span class="prop-required">*</span></label>
-                                            <input type="text" name="suburb" x-model="suburb" required placeholder="e.g. Uvongo Beach" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                        </div>
-                                        <div class="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">City / Town</label>
-                                                <input type="text" name="city" x-model="city" placeholder="e.g. Margate" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                            </div>
-                                            <div>
-                                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Province</label>
-                                                <select name="province" x-model="province" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                                    @foreach(['KwaZulu-Natal','Gauteng','Western Cape','Eastern Cape','Free State','Limpopo','Mpumalanga','North West','Northern Cape'] as $prov)
-                                                    <option value="{{ $prov }}">{{ $prov }}</option>
-                                                    @endforeach
-                                                </select>
-                                            </div>
-                                        </div>
+                                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Province / City / Suburb</div>
+                                    <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                                        @include('corex._partials.p24-location-picker', [
+                                            'fieldPrefix'         => 'p24',
+                                            'initialProvinceId'   => old('p24_province_id', $property->p24_province_id ?? 0),
+                                            'initialCityId'       => old('p24_city_id',     $property->p24_city_id ?? 0),
+                                            'initialSuburbId'     => old('p24_suburb_id',   $property->p24_suburb_id ?? 0),
+                                            'initialProvinceName' => old('province', $property->province ?? ''),
+                                            'initialCityName'     => old('city',     $property->city ?? ''),
+                                            'initialSuburbName'   => old('suburb',   $property->suburb ?? ''),
+                                            'denormaliseNames'    => true,
+                                        ])
                                     </div>
                                 </div>
 
