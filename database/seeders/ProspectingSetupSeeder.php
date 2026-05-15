@@ -107,13 +107,13 @@ class ProspectingSetupSeeder extends Seeder
     private function seedPropertyTypes(): void
     {
         $types = [
-            ['name' => 'House',         'slug' => 'house',          'display_order' => 1],
-            ['name' => 'Townhouse',     'slug' => 'townhouse',      'display_order' => 2],
-            ['name' => 'Apartment',     'slug' => 'apartment',      'display_order' => 3],
-            ['name' => 'Vacant Land',   'slug' => 'vacant-land',    'display_order' => 4],
-            ['name' => 'Farm',          'slug' => 'farm',           'display_order' => 5],
-            ['name' => 'Smallholding',  'slug' => 'smallholding',   'display_order' => 6],
-            ['name' => 'Commercial',    'slug' => 'commercial',     'display_order' => 7],
+            ['name' => 'House',               'slug' => 'house',                'display_order' => 1],
+            ['name' => 'Apartment / Flat',    'slug' => 'apartment-flat',       'display_order' => 2],
+            ['name' => 'Townhouse',           'slug' => 'townhouse',            'display_order' => 3],
+            ['name' => 'Vacant Land / Plot',  'slug' => 'vacant-land-plot',     'display_order' => 4],
+            ['name' => 'Farm',                'slug' => 'farm',                 'display_order' => 5],
+            ['name' => 'Commercial Property', 'slug' => 'commercial-property',  'display_order' => 6],
+            ['name' => 'Industrial Property', 'slug' => 'industrial-property',  'display_order' => 7],
         ];
 
         foreach ($types as $t) {

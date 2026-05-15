@@ -260,7 +260,7 @@
                 <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div class="corex-nav-panel {{ $activeGroup === 'command-center' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('command-center') }">
+            <div class="corex-nav-panel {{ $activeGroup === 'command-center' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('command-center') }" data-manual-order>
                 <button type="button" @click="pop()" class="corex-nav-back">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     <span>Back</span>
@@ -269,6 +269,8 @@
 
                 <a href="{{ route('corex.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard', 'command-center.today') ? 'active' : '' }}">Today</a>
                 <a href="{{ route('command-center.calendar') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar') ? 'active' : '' }}">Calendar</a>
+                <a href="{{ route('command-center.tasks') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.tasks*') ? 'active' : '' }}">Tasks</a>
+                <a href="{{ route('command-center.reporting.agent') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.agent') ? 'active' : '' }}">My Performance</a>
                 @php $pendingInvites = auth()->check() ? \App\Models\CommandCenter\CalendarEventInvitation::forUser(auth()->id())->pending()->count() : 0; @endphp
                 <a href="{{ route('command-center.calendar.invitations') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar.invitations*') ? 'active' : '' }}">
                     Invitations @if($pendingInvites > 0) <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420; color:#ef4444;">{{ $pendingInvites }}</span> @endif
@@ -276,8 +278,6 @@
                 @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
                     <a href="{{ route('command-center.settings.event-classes') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.settings.event-classes*') ? 'active' : '' }}">Event Classes</a>
                 @endif
-                <a href="{{ route('command-center.tasks') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.tasks*') ? 'active' : '' }}">Tasks</a>
-                <a href="{{ route('command-center.reporting.agent') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.agent') ? 'active' : '' }}">My Performance</a>
                 @permission('dashboard.oversight.view')
                 <a href="{{ route('command-center.reporting.branch') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.branch') ? 'active' : '' }}">Branch Report</a>
                 @endpermission
@@ -1196,17 +1196,15 @@
             <span>API</span>
         </a>
 
-        {{-- Client App Activity --}}
-        @permission('client_app.view_logs')
-        <a href="{{ route('admin.client-app-activity') }}" class="corex-nav-item {{ request()->routeIs('admin.client-app-activity') ? 'active' : '' }}">
+        {{-- Dev Settings --}}
+        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" />
             </svg>
-            <span>Client App Activity</span>
+            <span>Dev Settings</span>
         </a>
-        @endpermission
 
-        {{-- Feedback Reports --}}
+{{-- Feedback Reports --}}
         @php $feedbackCount = DB::table('feedback_reports')->where('agency_id', auth()->user()->effectiveAgencyId() ?? 1)->where('status', 'new')->count(); @endphp
         <a href="{{ route('command-center.feedback-reports') }}" class="corex-nav-item {{ request()->routeIs('command-center.feedback-reports*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.282 48.282 0 0 0 5.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
@@ -1233,6 +1231,7 @@
                 <div class="corex-nav-panel-title">Importer</div>
                 <a href="{{ route('admin.importer.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.index') ? 'active' : '' }}">P24 Importer</a>
                 <a href="{{ route('admin.importer.review') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.review') ? 'active' : '' }}">Property Review</a>
+                <a href="{{ route('admin.importer.p24-locations') }}" class="corex-nav-subitem {{ request()->routeIs('admin.importer.p24-locations') ? 'active' : '' }}">P24 Locations</a>
             </div>
         </div>
 
@@ -1363,4 +1362,52 @@
     </div>
     @endauth
 </div>
+
+<script>
+(function () {
+    function sortKey(el) {
+        // Use the first text node's content so a trailing badge (e.g. "Invitations [3]")
+        // doesn't poison the sort key. Fall back to trimmed textContent.
+        for (const node of el.childNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const t = node.textContent.trim();
+                if (t) return t.toLowerCase();
+            }
+        }
+        return (el.textContent || '').trim().toLowerCase();
+    }
+
+    function sortPanels() {
+        document.querySelectorAll('.corex-sidebar .corex-nav-panel').forEach(panel => {
+            if (panel.hasAttribute('data-manual-order')) return;
+            // Sort runs of .corex-nav-subitem siblings, treating .corex-nav-sublabel
+            // (and any other element type) as a section boundary so grouped items
+            // remain under their heading.
+            const children = Array.from(panel.children);
+            let group = [];
+            const flush = () => {
+                if (group.length < 2) { group = []; return; }
+                const sorted = group.slice().sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+                const anchor = group[group.length - 1].nextSibling;
+                sorted.forEach(el => panel.insertBefore(el, anchor));
+                group = [];
+            };
+            for (const child of children) {
+                if (child.classList && child.classList.contains('corex-nav-subitem')) {
+                    group.push(child);
+                } else {
+                    flush();
+                }
+            }
+            flush();
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', sortPanels);
+    } else {
+        sortPanels();
+    }
+})();
+</script>
 

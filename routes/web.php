@@ -61,22 +61,19 @@ Route::get('/dashboard', function () {
 
 Route::middleware('auth')->group(function () {
 
-    // Notification API
-    Route::get('/api/notifications', [\App\Http\Controllers\Api\NotificationController::class, 'index']);
-    Route::post('/api/notifications/{id}/read', [\App\Http\Controllers\Api\NotificationController::class, 'markRead']);
-    Route::post('/api/notifications/mark-all-read', [\App\Http\Controllers\Api\NotificationController::class, 'markAllRead']);
+    // P24 location tree read-API (called from Blade pages over fetch with
+    // session cookies — must live in web.php so the `web` middleware group
+    // applies, not in routes/api.php where session isn't set up).
+    Route::get('/api/v1/p24/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces'])->name('api.v1.p24.provinces');
+    Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
+    Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
     // ── Admin: API Catalog (auto-generated from route table) ──
     Route::get('/admin/api', [\App\Http\Controllers\Admin\ApiCatalogController::class, 'index'])
         ->middleware('permission:manage_users')
         ->name('admin.api.catalog');
 
-    // ── Admin: Client App Activity ── Spec: .ai/specs/client-auth.md
-    Route::get('/admin/client-app-activity', [\App\Http\Controllers\Admin\ClientAppActivityController::class, 'index'])
-        ->middleware('permission:client_app.view_logs')
-        ->name('admin.client-app-activity');
-
-    // ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
+// ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
     Route::prefix('api/v1')->name('api.v1.')->group(function () {
         Route::get('/logged-user', [\App\Http\Controllers\Api\V1\MeController::class, 'show'])->name('logged-user');
 
@@ -271,6 +268,12 @@ Route::middleware('auth')->group(function () {
 // to an agency admin they still 403 here.
 Route::prefix('admin/importer')->middleware(['auth', 'owner_only'])->name('admin.importer.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\ImporterController::class, 'index'])->name('index');
+
+    // P24 Locations browser — view the cached Province → City → Suburb tree
+    // and re-trigger the sync command from a button.
+    Route::get('/p24-locations',           [\App\Http\Controllers\Admin\ImporterController::class, 'p24Locations'])->name('p24-locations');
+    Route::post('/p24-locations/refresh',  [\App\Http\Controllers\Admin\ImporterController::class, 'refreshP24Locations'])->name('p24-locations.refresh');
+    Route::get('/p24-locations/status',    [\App\Http\Controllers\Admin\ImporterController::class, 'p24LocationsStatus'])->name('p24-locations.status');
     Route::post('/agents/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadAgents'])->name('agents.upload');
     Route::get('/runs/{run}/preview', [\App\Http\Controllers\Admin\ImporterController::class, 'preview'])->name('preview');
     Route::post('/runs/{run}/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmAgents'])->name('confirm');
@@ -1632,6 +1635,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/role-manager/copy-permissions', [CoreXRoleManagerController::class, 'copyPermissions'])
         ->middleware('permission:edit_permissions')->name('corex.role-manager.copy');
 
+    // Dev Settings — system-wide developer overrides (owner-only).
+    Route::middleware('owner_only')->prefix('admin/dev-settings')->name('admin.dev-settings.')->group(function () {
+        Route::get('/',  [\App\Http\Controllers\Admin\DevSettingsController::class, 'index'])->name('index');
+        Route::put('/', [\App\Http\Controllers\Admin\DevSettingsController::class, 'update'])->name('update');
+    });
+
     // Agency Management — index/create/store/destroy/toggle-active are owner-only.
     Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
@@ -1646,6 +1655,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::middleware('permission:manage_performance_settings')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/{agency}/edit', [\App\Http\Controllers\Admin\AgencyController::class, 'edit'])->name('edit');
         Route::put('/{agency}',      [\App\Http\Controllers\Admin\AgencyController::class, 'update'])->name('update');
+        Route::post('/{agency}/p24/test',    [\App\Http\Controllers\Admin\AgencyController::class, 'testP24Connection'])->name('p24.test');
+        Route::post('/{agency}/p24/refresh', [\App\Http\Controllers\Admin\AgencyController::class, 'refreshP24Locations'])->name('p24.refresh');
     });
 
     // Company Settings (standalone admin page — separate from tabbed settings)

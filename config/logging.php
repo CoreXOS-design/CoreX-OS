@@ -149,9 +149,10 @@ return [
         ],
 
         'private_property' => [
-            'driver' => 'single',
+            'driver' => 'daily',
             'path' => storage_path('logs/private_property.log'),
             'level' => 'debug',
+            'days' => 30,
             'replace_placeholders' => true,
         ],
 

@@ -76,6 +76,15 @@ class PropertyContactController extends Controller
             \App\Models\PropertySellerLink::ensureExists($property->id, (int) $data['contact_id']);
         }
 
+        if ($request->expectsJson() || $request->wantsJson()) {
+            $contact = Contact::with('type')->find($data['contact_id']);
+            return response()->json([
+                'ok'      => true,
+                'count'   => $property->contacts()->count(),
+                'contact' => $this->contactPayload($property, $contact, $role),
+            ]);
+        }
+
         return back()->with('success', 'Contact linked to property.')->with('tab', 'contacts');
     }
 
@@ -111,9 +120,17 @@ class PropertyContactController extends Controller
                     }
                     $match = $service->identifyMatch($data, $existing, $agencyId);
                     $service->logAttempt($agencyId, $user->id, $mode, $match['field'], $match['value'], $existing->id, $data, 'auto_linked');
+                    if ($request->expectsJson() || $request->wantsJson()) {
+                        return response()->json([
+                            'ok'      => true,
+                            'count'   => $property->contacts()->count(),
+                            'contact' => $this->contactPayload($property, $existing->fresh('type'), $role),
+                            'info'    => 'Existing contact found and linked.',
+                        ]);
+                    }
                     return back()->with('info', 'Existing contact found and linked.')->with('tab', 'contacts');
                 }
-                return back()->withInput()->with('duplicate_detected', [
+                $duplicatesPayload = [
                     'duplicates' => $duplicates->map(fn($c) => [
                         'id' => $c->id, 'name' => $c->full_name,
                         'phone' => $mode === 'hard_block_request' ? null : $c->phone,
@@ -123,7 +140,14 @@ class PropertyContactController extends Controller
                     ])->toArray(),
                     'mode' => $mode,
                     'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
-                ])->with('tab', 'contacts');
+                ];
+                if ($request->expectsJson() || $request->wantsJson()) {
+                    return response()->json([
+                        'ok' => false,
+                        'duplicate_detected' => $duplicatesPayload,
+                    ], 409);
+                }
+                return back()->withInput()->with('duplicate_detected', $duplicatesPayload)->with('tab', 'contacts');
             }
         }
 
@@ -136,14 +160,48 @@ class PropertyContactController extends Controller
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
         }
 
+        if ($request->expectsJson() || $request->wantsJson()) {
+            return response()->json([
+                'ok'      => true,
+                'count'   => $property->contacts()->count(),
+                'contact' => $this->contactPayload($property, $contact->fresh('type'), $role),
+            ]);
+        }
+
         return back()->with('success', 'Contact created and linked.')->with('tab', 'contacts');
     }
 
     /** Unlink a contact from the property. */
-    public function unlink(Property $property, Contact $contact)
+    public function unlink(Request $request, Property $property, Contact $contact)
     {
         $property->contacts()->detach($contact->id);
 
+        if ($request->expectsJson() || $request->wantsJson()) {
+            return response()->json([
+                'ok'    => true,
+                'count' => $property->contacts()->count(),
+                'id'    => $contact->id,
+            ]);
+        }
+
         return back()->with('success', 'Contact unlinked.')->with('tab', 'contacts');
+    }
+
+    /** Shape a contact row for AJAX consumers (matches the Blade row layout). */
+    private function contactPayload(Property $property, Contact $contact, ?string $role): array
+    {
+        $initials = strtoupper(mb_substr($contact->first_name ?? '', 0, 1) . mb_substr($contact->last_name ?? '', 0, 1));
+        return [
+            'id'         => $contact->id,
+            'first_name' => $contact->first_name,
+            'last_name'  => $contact->last_name,
+            'full_name'  => trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')),
+            'initials'   => $initials !== '' ? $initials : '?',
+            'phone'      => $contact->phone,
+            'email'      => $contact->email,
+            'role'       => $role,
+            'type_color' => $contact->type?->color ?? '#334155',
+            'show_url'   => route('corex.contacts.show', $contact),
+        ];
     }
 }

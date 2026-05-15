@@ -42,7 +42,7 @@ class AgencyController extends Controller
 
     public function create()
     {
-        return view('admin.agencies.create-edit', ['agency' => null]);
+        return view('admin.agencies.create-edit', ['agency' => null, 'branches' => collect()]);
     }
 
     public function store(Request $request)
@@ -141,7 +141,11 @@ class AgencyController extends Controller
     public function edit(Agency $agency)
     {
         $this->authorizeAgencyScope($agency);
-        return view('admin.agencies.create-edit', compact('agency'));
+        $branches = \App\Models\Branch::withoutGlobalScopes()
+            ->where('agency_id', $agency->id)
+            ->orderBy('name')
+            ->get();
+        return view('admin.agencies.create-edit', compact('agency', 'branches'));
     }
 
     public function update(Request $request, Agency $agency)
@@ -167,6 +171,10 @@ class AgencyController extends Controller
             'fic_no'          => 'nullable|string|max:255',
             'p24_agency_id'   => 'nullable|string|max:32',
             'p24_agency_label' => 'nullable|string|max:100',
+            'p24_username'    => 'nullable|string|max:191',
+            'p24_password'    => 'nullable|string|max:191',
+            'p24_user_group_id' => 'nullable|string|max:64',
+            'p24_enabled'     => 'nullable|boolean',
             'logo'            => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             'remove_logo'     => 'nullable|boolean',
         ]);
@@ -176,6 +184,19 @@ class AgencyController extends Controller
         $data['default_color'] = $data['default_color'] ?? '#0b2a4a';
         $data['button_color']  = $data['button_color']  ?? '#0ea5e9';
         $data['is_active']       = (bool) ($data['is_active'] ?? false);
+        $data['p24_enabled']     = (bool) ($data['p24_enabled'] ?? false);
+
+        // Don't overwrite stored password with empty string when user leaves the
+        // (masked) password field blank — only update p24_password when supplied.
+        if (array_key_exists('p24_password', $data) && ($data['p24_password'] === null || $data['p24_password'] === '')) {
+            unset($data['p24_password']);
+        }
+
+        // Detect P24 cred changes — trigger auto-sync after save.
+        $credsChanged = ($agency->p24_username !== ($data['p24_username'] ?? null))
+            || (isset($data['p24_password']) && $data['p24_password'] !== $agency->p24_password)
+            || ($agency->p24_user_group_id !== ($data['p24_user_group_id'] ?? null))
+            || ((bool) $agency->p24_enabled !== (bool) $data['p24_enabled']);
 
         $removeLogo = $data['remove_logo'] ?? false;
         unset($data['logo'], $data['remove_logo']);
@@ -198,12 +219,75 @@ class AgencyController extends Controller
 
         $agency->update($data);
 
-        $user = auth()->user();
-        if ($user && !$user->isOwnerRole()) {
-            return redirect()->route('admin.company-settings')->with('success', "Agency \"{$agency->name}\" updated.");
+        $extraFlash = null;
+        if ($credsChanged && $agency->p24_enabled && !empty($agency->p24_username) && !empty($agency->p24_password)) {
+            try {
+                \Artisan::call('p24:sync-locations', ['--agency' => $agency->id]);
+                $extraFlash = ['key' => 'success', 'msg' => 'Property24 locations sync triggered. This may take a few minutes — refresh the page to see updated status.'];
+            } catch (\Throwable $e) {
+                $agency->forceFill(['p24_last_sync_error' => $e->getMessage()])->save();
+                $extraFlash = ['key' => 'error', 'msg' => 'P24 sync failed: ' . $e->getMessage()];
+            }
         }
 
-        return redirect()->route('agencies.index')->with('success', "Agency \"{$agency->name}\" updated.");
+        $user = auth()->user();
+        $redirect = ($user && !$user->isOwnerRole())
+            ? redirect()->route('admin.company-settings')
+            : redirect()->route('agencies.index');
+        $redirect = $redirect->with('success', "Agency \"{$agency->name}\" updated.");
+        if ($extraFlash) {
+            $redirect = $redirect->with($extraFlash['key'], $extraFlash['msg']);
+        }
+        return $redirect;
+    }
+
+    /**
+     * Test P24 credentials by hitting /echo-authenticated. JSON response.
+     */
+    public function testP24Connection(Agency $agency)
+    {
+        $this->authorizeAgencyScope($agency);
+
+        if (empty($agency->p24_username) || empty($agency->p24_password)) {
+            return response()->json(['success' => false, 'message' => 'No P24 credentials saved on this agency.'], 422);
+        }
+
+        $client = new \App\Services\Syndication\Property24\Property24ApiClient($agency);
+        $result = $client->smokeTest();
+
+        return response()->json([
+            'success' => $result['success'] ?? false,
+            'message' => $result['success'] ?? false
+                ? 'Connection OK — P24 credentials work.'
+                : ($result['message'] ?? 'Unknown error'),
+            'status'  => $result['status_code'] ?? null,
+        ]);
+    }
+
+    /**
+     * Manually trigger a P24 location refresh for this agency.
+     */
+    public function refreshP24Locations(Agency $agency)
+    {
+        $this->authorizeAgencyScope($agency);
+
+        if (empty($agency->p24_username) || empty($agency->p24_password)) {
+            return response()->json(['success' => false, 'message' => 'No P24 credentials saved on this agency.'], 422);
+        }
+
+        try {
+            \Artisan::call('p24:sync-locations', ['--agency' => $agency->id]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Sync triggered. Refresh the page in a few minutes to see the new last-synced timestamp.',
+            ]);
+        } catch (\Throwable $e) {
+            $agency->forceFill(['p24_last_sync_error' => $e->getMessage()])->save();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     private function authorizeAgencyScope(Agency $agency): void

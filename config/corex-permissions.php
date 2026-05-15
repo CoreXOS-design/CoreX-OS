@@ -346,6 +346,8 @@ return [
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
+        ['key' => 'agency.p24.configure',        'label' => 'Configure Property24 API credentials', 'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 20],
+        ['key' => 'agency.p24.sync',             'label' => 'Trigger Property24 location sync',     'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 21],
 
         // ── Role Manager ──
         ['key' => 'access_role_manager',         'label' => 'Access Role Manager',         'section' => 'role-manager',     'type' => 'access',  'module' => 'roles',            'sort_order' => 1],

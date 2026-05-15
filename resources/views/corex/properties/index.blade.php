@@ -132,12 +132,31 @@
                        style="padding-left:2.25rem;">
             </div>
 
-            {{-- Scope (agents only) --}}
-            @if($dataScope === 'own')
-            <select name="scope" onchange="this.form.submit()" class="list-header-filter">
-                <option value="my" {{ $scope === 'my' ? 'selected' : '' }}>My Listings</option>
-                <option value="branch" {{ $scope === 'branch' ? 'selected' : '' }}>Branch</option>
-            </select>
+            {{-- My / All pill toggle (role must grant Data Scope = On for properties.view) --}}
+            @if($canPickAgent)
+            @php
+                $pcuId      = (string) auth()->id();
+                $pcIsMine   = (string) $filterAgentId === $pcuId;
+                $pcIsAll    = $filterAgentId === '';
+                $pcCarry    = request()->except(['agent_id', 'page']);
+                $pcMineUrl  = route('corex.properties.index', array_merge($pcCarry, ['agent_id' => $pcuId]));
+                $pcAllUrl   = route('corex.properties.index', array_merge($pcCarry, ['agent_id' => '']));
+                $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
+            @endphp
+            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <a href="{{ $pcMineUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="{{ $pcIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show only my properties">
+                    My Properties
+                </a>
+                <a href="{{ $pcAllUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $pcIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all {{ $pcAllLabel }} properties">
+                    All Properties
+                </a>
+            </div>
             @endif
 
             {{-- Status --}}
@@ -537,7 +556,23 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
                     </svg>
                     <span class="text-xs truncate" style="color:var(--text-secondary);">
-                        {{ $property->buildDisplayAddress() }}
+                        @php
+                            $addrParts = [];
+                            if (!empty($property->unit_number)) $addrParts[] = 'Unit ' . $property->unit_number;
+                            if (!empty($property->complex_name)) $addrParts[] = $property->complex_name;
+                            if (!empty($property->street_number) && !empty($property->street_name)) {
+                                $addrParts[] = $property->street_number . ' ' . $property->street_name;
+                            } elseif (!empty($property->street_name)) {
+                                $addrParts[] = $property->street_name;
+                            } elseif (!empty($property->address)) {
+                                $addrParts[] = $property->address;
+                            }
+                            if (!empty($property->suburb)) $addrParts[] = $property->suburb;
+                            if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
+                                $addrParts[] = $property->city;
+                            }
+                        @endphp
+                        {{ count($addrParts) ? implode(', ', $addrParts) : '—' }}
                     </span>
                 </div>
 

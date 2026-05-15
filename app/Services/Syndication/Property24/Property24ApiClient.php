@@ -2,6 +2,7 @@
 
 namespace App\Services\Syndication\Property24;
 
+use App\Models\Agency;
 use App\Models\P24SyndicationLog;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -14,17 +15,47 @@ class Property24ApiClient
     private string $agencyId;
     private string $apiVersion;
     private bool $sandbox;
+    private ?string $userGroupId;
 
-    public function __construct()
+    public function __construct(?Agency $agency = null)
     {
         $config = config('services.property24_syndication');
 
         $this->baseUrl    = rtrim($config['api_url'] ?? '', '/');
-        $this->username   = $config['username'] ?? '';
-        $this->password   = $config['password'] ?? '';
-        $this->agencyId   = $config['agency_id'] ?? '';
         $this->apiVersion = $config['api_version'] ?? 'v53';
         $this->sandbox    = (bool) ($config['sandbox'] ?? true);
+
+        if ($agency && !empty($agency->p24_username) && !empty($agency->p24_password)) {
+            $this->username    = (string) $agency->p24_username;
+            $this->password    = (string) $agency->p24_password;
+            $this->agencyId    = (string) ($agency->p24_agency_id ?? '');
+            $this->userGroupId = $agency->p24_user_group_id ?: null;
+        } else {
+            $this->username    = $config['username'] ?? '';
+            $this->password   = $config['password'] ?? '';
+            $this->agencyId   = $config['agency_id'] ?? '';
+            $this->userGroupId = $config['user_group_id'] ?? null;
+        }
+    }
+
+    /** Fetch supported countries. */
+    public function getCountries(): array
+    {
+        return $this->request('GET', '/countries', [], null, 'fetch_countries');
+    }
+
+    /** Fetch supported provinces (optionally filtered by country ID). */
+    public function getProvinces(?int $countryId = null): array
+    {
+        $query = $countryId ? "?countryId={$countryId}" : '';
+        return $this->request('GET', "/provinces{$query}", [], null, 'fetch_provinces');
+    }
+
+    /** Fetch supported cities (optionally filtered by province ID). */
+    public function getCities(?int $provinceId = null): array
+    {
+        $query = $provinceId ? "?provinceId={$provinceId}" : '';
+        return $this->request('GET', "/cities{$query}", [], null, 'fetch_cities');
     }
 
     /**
@@ -172,11 +203,16 @@ class Property24ApiClient
         ]);
 
         try {
+            $headers = [
+                'Accept'       => 'application/json',
+                'Content-Type' => 'application/json',
+            ];
+            if (!empty($this->userGroupId)) {
+                $headers['P24-UserGroupId'] = $this->userGroupId;
+            }
+
             $http = Http::withBasicAuth($this->username, $this->password)
-                ->withHeaders([
-                    'Accept'       => 'application/json',
-                    'Content-Type' => 'application/json',
-                ])
+                ->withHeaders($headers)
                 ->timeout(120)
                 ->connectTimeout(15);
 

@@ -3,9 +3,30 @@
 @section('corex-content')
 @php $isNew = !$property->exists; @endphp
 <div class="w-full space-y-4"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : session('tab', $activeTab) }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), formDirty: false, wbReportOpen: false }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : session('tab', $activeTab) }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), formDirty: false, wbReportOpen: false, complianceModalOpen: false, unsavedModalOpen: false, pendingNavUrl: null, contactRequiredModalOpen: false }"
+     @corex:contact-required.window="contactRequiredModalOpen = true"
+     @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
+     @corex:clear-dirty.window="formDirty = false"
      x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')"
-     @beforeunload.window="if (formDirty) { $event.preventDefault(); $event.returnValue = ''; }">
+     @beforeunload.window="if (formDirty && !unsavedModalOpen) { $event.preventDefault(); $event.returnValue = ''; }"
+     x-init="
+        document.addEventListener('click', (e) => {
+            if (!formDirty || unsavedModalOpen) return;
+            const a = e.target.closest('a[href]');
+            if (!a) return;
+            const href = a.getAttribute('href');
+            if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
+            if (a.target === '_blank' || a.hasAttribute('download')) return;
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            const url = new URL(a.href, window.location.href);
+            if (url.origin !== window.location.origin) return;
+            if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+            e.preventDefault();
+            e.stopPropagation();
+            pendingNavUrl = a.href;
+            unsavedModalOpen = true;
+        }, true);
+     ">
 
     {{-- Top bar: back + flash --}}
     <div class="flex items-center gap-4 flex-wrap">
@@ -15,14 +36,6 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
             Back
         </a>
-        @if(!$isNew && auth()->user()->hasPermission('outreach.compose'))
-        <a href="{{ route('seller-outreach.entry.from-property', $property) }}"
-           class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md no-underline flex-shrink-0"
-           style="background:#00d4aa; color:#003a2f;"
-           title="Compose a WhatsApp/Email pitch to the seller linked to this property">
-            💬 Pitch seller
-        </a>
-        @endif
         @if(session('success'))
         <div class="flex-1 rounded-md border px-4 py-2 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border-color:color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--ds-green, #059669);">
             {{ session('success') }}
@@ -111,7 +124,26 @@
                             <span class="ds-badge ds-badge-success">Published</span>
                         @endif
                     </div>
-                    <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);">{{ $property->title ?: 'New Property' }}</div>
+                    <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</div>
+                    @php
+                        $sbAddrParts = [];
+                        if (!empty($property->unit_number)) $sbAddrParts[] = 'Unit ' . $property->unit_number;
+                        if (!empty($property->complex_name)) $sbAddrParts[] = $property->complex_name;
+                        if (!empty($property->street_number) && !empty($property->street_name)) {
+                            $sbAddrParts[] = $property->street_number . ' ' . $property->street_name;
+                        } elseif (!empty($property->street_name)) {
+                            $sbAddrParts[] = $property->street_name;
+                        } elseif (!empty($property->address)) {
+                            $sbAddrParts[] = $property->address;
+                        }
+                        if (!empty($property->suburb)) $sbAddrParts[] = $property->suburb;
+                        if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
+                            $sbAddrParts[] = $property->city;
+                        }
+                    @endphp
+                    @if(count($sbAddrParts))
+                    <div class="text-[11px] mt-0.5 leading-snug" style="color:var(--text-muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ implode(', ', $sbAddrParts) }}">{{ implode(', ', $sbAddrParts) }}</div>
+                    @endif
                 </div>
             </div>
 
@@ -127,36 +159,79 @@
                     <span x-text="formDirty ? 'Save Changes *' : 'Save Changes'"></span>
                 </button>
 
-                @php $isMarketable = ($readinessReport->snapshotAt !== null) || $readinessReport->ready; @endphp
+                @php
+                    $isMarketable = ($readinessReport->snapshotAt !== null) || $readinessReport->ready;
+                    $cmpLive    = $readinessReport->snapshotAt !== null;
+                    $cmpReady   = $readinessReport->ready && !$cmpLive;
+                    $cmpLabel   = $cmpLive ? 'LIVE' : ($cmpReady ? 'READY' : 'BLOCKED');
+                    $cmpPillBg  = $cmpLive ? '#10b981' : ($cmpReady ? 'rgba(0,212,170,.18)' : 'rgba(245,158,11,.18)');
+                    $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
+                @endphp
 
-                <button type="button" @click="synOpen=true; synStep='main'"
+                <button type="button" @click="complianceModalOpen = true"
+                        class="prop-action-btn prop-action-btn-neutral justify-between"
+                        title="View compliance gates and go-live status">
+                    <span class="flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"/></svg>
+                        Compliance Status
+                    </span>
+                    <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
+                </button>
+
+                <button type="button"
+                        @click="{{ $isMarketable ? "synOpen=true; synStep='main'" : 'complianceModalOpen = true' }}"
                         class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
-                        {{ !$isMarketable ? 'aria-disabled=true' : '' }}
-                        title="{{ !$isMarketable ? 'Marketing blocked — see Compliance Status panel' : 'Manage portal syndication' }}">
+                        title="{{ !$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Manage portal syndication' }}">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/></svg>
                     Syndication
                 </button>
 
-                <button type="button" @click="synOpen=true; synStep='preview'"
+                <button type="button"
+                        @click="{{ $isMarketable ? "synOpen=true; synStep='preview'" : 'complianceModalOpen = true' }}"
                         class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
-                        {{ !$isMarketable ? 'aria-disabled=true' : '' }}
-                        title="{{ !$isMarketable ? 'Marketing blocked — see Compliance Status panel' : 'Open public listing preview' }}">
+                        title="{{ !$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Open public listing preview' }}">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
                     Live Preview
                 </button>
 
+                @if($isMarketable)
                 <a href="{{ route('corex.properties.ad', $property) }}" class="prop-action-btn prop-action-btn-brand">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                     Ad Builder
                 </a>
+                @else
+                <button type="button" @click="complianceModalOpen = true"
+                        class="prop-action-btn prop-action-btn-brand opacity-50 cursor-not-allowed"
+                        title="Marketing blocked — open Compliance Status to resolve">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    Ad Builder
+                </button>
+                @endif
 
                 @if(\Illuminate\Support\Facades\Route::has('corex.properties.marketing.index') && \App\Models\PerformanceSetting::get('marketing_enabled', 1))
-                <a href="{{ route('corex.properties.marketing.index', $property) }}"
-                   class="prop-action-btn prop-action-btn-fb {{ !$isMarketable ? 'opacity-50 cursor-not-allowed pointer-events-none' : '' }}"
-                   {{ !$isMarketable ? 'aria-disabled=true' : '' }}
-                   title="{{ !$isMarketable ? 'Marketing blocked — see Compliance Status panel' : 'Social media marketing' }}">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
-                    Market Property
+                    @if($isMarketable)
+                    <a href="{{ route('corex.properties.marketing.index', $property) }}"
+                       class="prop-action-btn prop-action-btn-fb"
+                       title="Social media marketing">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
+                        Market Property
+                    </a>
+                    @else
+                    <button type="button" @click="complianceModalOpen = true"
+                            class="prop-action-btn prop-action-btn-fb opacity-50 cursor-not-allowed"
+                            title="Marketing blocked — open Compliance Status to resolve">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
+                        Market Property
+                    </button>
+                    @endif
+                @endif
+
+                @if(auth()->user()->hasPermission('outreach.compose'))
+                <a href="{{ route('seller-outreach.entry.from-property', $property) }}"
+                   class="prop-action-btn prop-action-btn-neutral"
+                   title="Compose a WhatsApp/Email pitch to the seller linked to this property">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg>
+                    Pitch Seller
                 </a>
                 @endif
 
@@ -976,9 +1051,27 @@
             </template>
     @endif
 
-    {{-- Compliance readiness panel --}}
+    {{-- Compliance readiness modal (triggered from Actions stack) --}}
     @if(!$isNew)
-        @include('corex.properties.partials.readiness-panel', ['report' => $readinessReport, 'property' => $property])
+        <template x-teleport="body">
+            <div x-show="complianceModalOpen" x-cloak
+                 class="fixed inset-0 z-[120] flex items-start justify-center p-4 overflow-y-auto"
+                 x-transition.opacity>
+                <div class="absolute inset-0" style="background:rgba(0,0,0,0.5);" @click="complianceModalOpen = false"></div>
+                <div class="relative w-full max-w-2xl mt-12"
+                     x-transition:enter="transition ease-out duration-150"
+                     x-transition:enter-start="opacity-0 scale-95"
+                     x-transition:enter-end="opacity-100 scale-100">
+                    <button type="button" @click="complianceModalOpen = false"
+                            class="absolute top-2 right-2 z-10 rounded p-1"
+                            style="color:var(--text-muted); background:var(--surface); border:1px solid var(--border);"
+                            title="Close">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                    </button>
+                    @include('corex.properties.partials.readiness-panel', ['report' => $readinessReport, 'property' => $property])
+                </div>
+            </div>
+        </template>
     @endif
 
     {{-- Tab bar (shared) --}}
@@ -1247,7 +1340,9 @@
                   novalidate
                   @input="formDirty = true"
                   @change="formDirty = true"
-                  @submit="formDirty = false"
+                  data-is-new="{{ $isNew ? '1' : '0' }}"
+                  data-contact-count="{{ $isNew ? 0 : $property->contacts->count() }}"
+                  @submit="if (!window.coreXPropertyContactGuard($event, $el)) { return; } formDirty = false;"
                   x-data="{
                       info: {
                           identity: true,
@@ -1966,7 +2061,7 @@
                     'unitNumber' => old('unit_number', $property->unit_number ?? ''),
                     'suburb' => old('suburb', $property->suburb ?? ''),
                     'city' => old('city', $property->city ?? ''),
-                    'province' => old('province', $property->province ?? 'KwaZulu-Natal'),
+                    'province' => old('province', $property->province ?? ''),
                     'hideStreetName' => (bool) old('pp_hide_street_name', $property->pp_hide_street_name ?? false),
                     'hideStreetNumber' => (bool) old('pp_hide_street_number', $property->pp_hide_street_number ?? false),
                     'hideComplexName' => (bool) old('pp_hide_complex_name', $property->pp_hide_complex_name ?? false),
@@ -1999,6 +2094,60 @@
                         </div>
                     </div>
 
+                    {{-- Map (collapsible) — pin for the Internal suburb.
+                         Auto-geocodes on page load and whenever the P24 picker
+                         reports a new suburb. Panel auto-collapses when an
+                         address modal opens (Leaflet tiles otherwise float
+                         over the modal due to their own stacking context). --}}
+                    <div class="mt-2 rounded-md overflow-hidden"
+                         style="border:1px solid var(--border); background:var(--surface); position:relative; z-index:0; isolation:isolate;"
+                         x-data="propertyMapWidget({
+                             initialLat:      {{ (float) old('latitude',  $property->latitude  ?? 0) }},
+                             initialLng:      {{ (float) old('longitude', $property->longitude ?? 0) }},
+                             initialSuburb:   @js(old('suburb',   $property->suburb   ?? '')),
+                             initialCity:     @js(old('city',     $property->city     ?? '')),
+                             initialProvince: @js(old('province', $property->province ?? '')),
+                         })"
+                         x-init="init()"
+                         x-effect="if (openModal && open) open = false">
+                        <input type="hidden" name="latitude"  :value="lat">
+                        <input type="hidden" name="longitude" :value="lng">
+
+                        <button type="button" @click="open = !open"
+                                class="w-full flex items-center justify-between px-3 py-2 transition-all duration-300"
+                                style="background:var(--surface-2); border-bottom:1px solid var(--border);"
+                                onmouseover="this.style.background='var(--surface-3, var(--surface-2))'"
+                                onmouseout="this.style.background='var(--surface-2)'">
+                            <div class="flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" style="color:var(--brand-icon);"
+                                     fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+                                </svg>
+                                <span class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-primary);">Map</span>
+                                <span class="text-[10px]" style="color:var(--text-muted);"
+                                      x-text="lat && lng ? ('pin: ' + (+lat).toFixed(5) + ', ' + (+lng).toFixed(5)) : 'no pin yet — click to drop'"></span>
+                            </div>
+                            <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-all duration-300" style="color:var(--text-muted);"
+                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                            </svg>
+                        </button>
+
+                        <div x-show="open" x-cloak>
+                            <div class="px-3 py-2 text-[11px]" style="background:var(--surface); color:var(--text-muted);">
+                                <span x-show="geocoding" x-cloak>Locating pin for the selected suburb…</span>
+                                <span x-show="!geocoding && (!lat || !lng)" x-cloak>
+                                    Pick a Property24 suburb in the Internal address — we'll drop a pin automatically. Drag the pin to fine-tune.
+                                </span>
+                                <span x-show="!geocoding && lat && lng" x-cloak>
+                                    Pin is at the suburb centroid. Drag it to the exact property location.
+                                </span>
+                            </div>
+                            <div id="property-map" style="width:100%; height:280px; background:var(--surface-2);"></div>
+                        </div>
+                    </div>
+
                     {{-- Hidden inputs that always submit with the form --}}
                     <input type="hidden" name="address" value="{{ old('address', $property->address) }}">
 
@@ -2007,7 +2156,7 @@
                          class="fixed inset-0 z-50 flex items-center justify-center p-4"
                          @keydown.escape.window="openModal = null">
                         <div class="absolute inset-0 bg-black/60" @click="openModal = null"></div>
-                        <div class="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg shadow-2xl"
+                        <div class="relative w-full max-w-[46rem] max-h-[85vh] overflow-y-auto rounded-lg shadow-2xl"
                              style="background:var(--surface); border:1px solid var(--border);" @click.stop>
 
                             <div class="sticky top-0 z-10 flex items-center justify-between px-5 py-3 rounded-t-lg"
@@ -2029,20 +2178,20 @@
                                         <div class="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Unit Number</label>
-                                                <input type="text" name="unit_number" x-model="unitNumber" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="unit_number" x-model="unitNumber" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Floor Number</label>
-                                                <input type="text" name="floor_number" value="{{ old('floor_number', $property->floor_number) }}" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="floor_number" value="{{ old('floor_number', $property->floor_number) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Unit, Section or Block</label>
-                                            <input type="text" name="unit_section_block" value="{{ old('unit_section_block', $property->unit_section_block) }}" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="unit_section_block" value="{{ old('unit_section_block', $property->unit_section_block) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Complex or Estate</label>
-                                            <input type="text" name="complex_name" x-model="complexName" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="complex_name" x-model="complexName" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                     </div>
                                 </div>
@@ -2053,37 +2202,30 @@
                                     <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Number</label>
-                                            <input type="text" name="street_number" x-model="streetNumber" placeholder="e.g. 1046-2" class="w-40 rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="street_number" x-model="streetNumber" placeholder="e.g. 1046-2" autocomplete="off" class="w-40 rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Name</label>
-                                            <input type="text" name="street_name" x-model="streetName" placeholder="e.g. Clarendon Road" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="street_name" x-model="streetName" placeholder="e.g. Clarendon Road" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                     </div>
                                 </div>
 
-                                {{-- City or Suburb --}}
+                                {{-- Province / City / Suburb — Property24-backed typeahead.
+                                     User must pick a suburb P24 recognises; can't save free-text. --}}
                                 <div>
-                                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">City or Suburb</div>
-                                    <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
-                                        <div>
-                                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Suburb <span class="prop-required">*</span></label>
-                                            <input type="text" name="suburb" x-model="suburb" required placeholder="e.g. Uvongo Beach" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                        </div>
-                                        <div class="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">City / Town</label>
-                                                <input type="text" name="city" x-model="city" placeholder="e.g. Margate" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                            </div>
-                                            <div>
-                                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Province</label>
-                                                <select name="province" x-model="province" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                                    @foreach(['KwaZulu-Natal','Gauteng','Western Cape','Eastern Cape','Free State','Limpopo','Mpumalanga','North West','Northern Cape'] as $prov)
-                                                    <option value="{{ $prov }}">{{ $prov }}</option>
-                                                    @endforeach
-                                                </select>
-                                            </div>
-                                        </div>
+                                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Province / City / Suburb</div>
+                                    <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                                        @include('corex._partials.p24-location-picker', [
+                                            'fieldPrefix'         => 'p24',
+                                            'initialProvinceId'   => old('p24_province_id', $property->p24_province_id ?? 0),
+                                            'initialCityId'       => old('p24_city_id',     $property->p24_city_id ?? 0),
+                                            'initialSuburbId'     => old('p24_suburb_id',   $property->p24_suburb_id ?? 0),
+                                            'initialProvinceName' => old('province', $property->province ?? ''),
+                                            'initialCityName'     => old('city',     $property->city ?? ''),
+                                            'initialSuburbName'   => old('suburb',   $property->suburb ?? ''),
+                                            'denormaliseNames'    => true,
+                                        ])
                                     </div>
                                 </div>
 
@@ -2094,17 +2236,17 @@
                                         <div class="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property / Erf Number</label>
-                                                <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Stand Number</label>
-                                                <input type="text" name="stand_number" value="{{ old('stand_number', $property->stand_number) }}" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="stand_number" value="{{ old('stand_number', $property->stand_number) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div class="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Zone Type</label>
-                                                <select name="zone_type" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <select name="zone_type" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                                     <option value="">-- None --</option>
                                                     @foreach(['Residential','Commercial','Industrial','Agricultural','Mixed Use'] as $zt)
                                                     <option value="{{ $zt }}" {{ old('zone_type', $property->zone_type) === $zt ? 'selected' : '' }}>{{ $zt }}</option>
@@ -2113,16 +2255,16 @@
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
-                                                <input type="text" name="district" value="{{ old('district', $property->district) }}" placeholder="e.g. Ray Nkonyeni" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="district" value="{{ old('district', $property->district) }}" placeholder="e.g. Ray Nkonyeni" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
-                                            <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="KZN South Coast" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Internal Note</label>
-                                            <textarea name="address_internal_note" rows="2" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('address_internal_note', $property->address_internal_note) }}</textarea>
+                                            <textarea name="address_internal_note" rows="2" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('address_internal_note', $property->address_internal_note) }}</textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -2266,13 +2408,40 @@
                                         @endforeach
                                     </select>
                                 </div>
-                                <div>
-                                    <label class="prop-label">Listed Date</label>
-                                    <input type="date" name="listed_date" value="{{ old('listed_date', $property->listed_date?->format('Y-m-d')) }}" class="prop-input prop-field-lifecycle" style="color-scheme: light dark;">
-                                </div>
-                                <div>
-                                    <label class="prop-label">Expiry Date</label>
-                                    <input type="date" name="expiry_date" value="{{ old('expiry_date', $property->expiry_date?->format('Y-m-d')) }}" class="prop-input prop-field-lifecycle" style="color-scheme: light dark;">
+                                @php
+                                    $listedDateValue = $property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d');
+                                @endphp
+                                <div x-data="{
+                                        listedDate: '{{ $listedDateValue }}',
+                                        expiryDate: '{{ old('expiry_date', $property->expiry_date?->format('Y-m-d')) }}',
+                                        addMonths(n) {
+                                            const base = this.listedDate ? new Date(this.listedDate) : new Date();
+                                            base.setMonth(base.getMonth() + n);
+                                            this.expiryDate = base.toISOString().slice(0, 10);
+                                        }
+                                     }" class="contents">
+                                    <div>
+                                        <label class="prop-label">Listed Date</label>
+                                        <input type="date" name="listed_date" :value="listedDate" readonly
+                                               class="prop-input prop-field-lifecycle"
+                                               style="color-scheme: light dark; opacity:.75; cursor:not-allowed;"
+                                               title="Listed Date is always the date the property was loaded">
+                                    </div>
+                                    <div x-data="{ qaOpen: false }" @click.outside="qaOpen = false" class="relative">
+                                        <label class="prop-label">Expiry Date</label>
+                                        <input type="date" name="expiry_date" x-model="expiryDate" :min="listedDate"
+                                               class="prop-input prop-field-lifecycle" style="color-scheme: light dark;"
+                                               @focus="qaOpen = true" @click="qaOpen = true"
+                                               @change="if (expiryDate && expiryDate < listedDate) { expiryDate = listedDate; }">
+                                        <div x-show="qaOpen" x-cloak x-transition.opacity
+                                             class="absolute left-0 right-0 z-50 rounded-md border shadow-lg p-2 flex flex-wrap items-center gap-1.5"
+                                             style="bottom:100%; margin-bottom:4px; background:var(--surface-1); border-color:var(--border);">
+                                            <span class="text-[0.6875rem]" style="color:var(--text-muted);">Quick set:</span>
+                                            <button type="button" @click="addMonths(3); qaOpen = false" class="text-[0.6875rem] px-2 py-0.5 rounded-md border" style="border-color:var(--border); color:var(--text-secondary);">+3 months</button>
+                                            <button type="button" @click="addMonths(6); qaOpen = false" class="text-[0.6875rem] px-2 py-0.5 rounded-md border" style="border-color:var(--border); color:var(--text-secondary);">+6 months</button>
+                                            <button type="button" @click="addMonths(12); qaOpen = false" class="text-[0.6875rem] px-2 py-0.5 rounded-md border" style="border-color:var(--border); color:var(--text-secondary);">+12 months</button>
+                                        </div>
+                                    </div>
                                 </div>
                                 @if(!$isNew)
                                     <div>
@@ -2685,15 +2854,11 @@
                                 </p>
                                 <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Sort order &amp; Custom tags</p>
                                 <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
-                                    Opens a popup where you drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮</span> grip to reorder tags, add a custom tag, or remove one. The order set here is the order used by <span style="color:var(--text-primary); font-weight:600;">Sort by Tag</span> and the order photos appear in portal feeds.
-                                </p>
-                                <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Sort by Tag</p>
-                                <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
-                                    Reorders the entire gallery in one click:
+                                    Opens a popup where you drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮</span> grip to reorder tags, add a custom tag, or remove one. When you click <span style="color:var(--text-primary); font-weight:600;">Done</span>, the gallery auto-sorts to match this order:
                                 </p>
                                 <ul class="text-xs leading-relaxed mb-2 pl-4 space-y-0.5" style="color:var(--text-secondary); list-style:disc;">
                                     <li>Tagged images first, grouped together by tag.</li>
-                                    <li>Tag groups follow the order set in <span style="color:var(--text-primary); font-weight:600;">Sort order &amp; Custom tags</span> (e.g. Exterior → Lounge → Kitchen → Bedrooms…).</li>
+                                    <li>Tag groups follow the order you set (e.g. Exterior → Lounge → Kitchen → Bedrooms…).</li>
                                     <li>Untagged images stay in their existing order at the very end.</li>
                                 </ul>
                                 <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
@@ -2718,11 +2883,6 @@
                                 class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
                                 :style="manageTagsOpen ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'">
                             Sort order &amp; Custom tags
-                        </button>
-                        <button type="button" @click="sortByCategory()"
-                                class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
-                                style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                            Sort by Tag
                         </button>
                         <button type="button" @click="save()" :disabled="saving"
                                 class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
@@ -2761,7 +2921,7 @@
                                 <div class="rounded-md px-3 py-2 flex items-start gap-2" style="background:color-mix(in srgb, var(--brand-icon) 6%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 20%, transparent);">
                                     <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--brand-icon);" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
                                     <p class="text-xs leading-relaxed" style="color:var(--text-secondary);">
-                                        Drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮ grip</span> on each tag chip to reorder. The order here drives <span style="color:var(--text-primary); font-weight:600;">Sort by Tag</span> on the gallery and the order photos appear in portal feeds.
+                                        Drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮ grip</span> on each tag chip to reorder. When you click <span style="color:var(--text-primary); font-weight:600;">Done</span>, the gallery auto-sorts to this order — which is also the order photos appear in portal feeds.
                                     </p>
                                 </div>
 
@@ -2816,7 +2976,7 @@
                                 <span class="text-xs" style="color:var(--text-muted);">
                                     <span x-text="availableTags.length"></span> tag<span x-show="availableTags.length !== 1">s</span> in library
                                 </span>
-                                <button type="button" @click="manageTagsOpen = false"
+                                <button type="button" @click="sortByCategory(); manageTagsOpen = false"
                                         class="text-xs font-semibold px-4 py-2 rounded-md"
                                         style="background:var(--ds-green); color:#fff;">
                                     Done
@@ -3139,10 +3299,11 @@
             {{-- Linked contacts --}}
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">
-                    Linked Contacts ({{ $property->contacts->count() }})
+                    Linked Contacts (<span data-linked-count>{{ $property->contacts->count() }}</span>)
                 </h3>
+                <div id="linked-contacts-list">
                 @forelse($property->contacts as $c)
-                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);" data-contact-row="{{ $c->id }}">
                     <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
                          style="background:{{ $c->type?->color ?? '#334155' }};">
                         {{ $c->initials }}
@@ -3157,17 +3318,16 @@
                             @if($c->pivot->role)<span class="font-semibold" style="color:var(--brand-icon);">{{ ucfirst($c->pivot->role) }}</span>@endif
                         </div>
                     </div>
-                    <form method="POST" action="{{ route('corex.properties.contacts.unlink', [$property, $c]) }}"
-                          onsubmit="return confirm('Unlink {{ addslashes($c->full_name) }} from this property?')">
-                        @csrf @method('DELETE')
-                        <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
-                    </form>
+                    <button type="button"
+                            @click="unlinkContact({{ $c->id }}, @js($c->full_name))"
+                            class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
                 </div>
                 @empty
-                <div class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
+                @endforelse
+                </div>
+                <div id="linked-contacts-empty" class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover); {{ $property->contacts->count() > 0 ? 'display:none;' : '' }}">
                     <div class="text-sm" style="color:var(--text-secondary);">No contacts linked yet.</div>
                 </div>
-                @endforelse
             </div>
 
             {{-- Link existing contact --}}
@@ -3187,18 +3347,15 @@
                 <div x-show="results.length > 0" class="rounded-md overflow-hidden mb-3"
                      style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
-                        <form method="POST" action="{{ route('corex.properties.contacts.link', $property) }}">
-                            @csrf
-                            <input type="hidden" name="contact_id" :value="r.id">
-                            <button type="submit" class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
-                                    style="border-bottom:1px solid var(--border); background:var(--surface);">
-                                <div>
-                                    <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
-                                    <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[r.phone, r.email].filter(Boolean).join(' · ')"></div>
-                                </div>
-                                <span class="ml-auto text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon);">+ Link</span>
-                            </button>
-                        </form>
+                        <button type="button" @click="linkExisting(r)"
+                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
+                                style="border-bottom:1px solid var(--border); background:var(--surface); width:100%;">
+                            <div>
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[r.phone, r.email].filter(Boolean).join(' · ')"></div>
+                            </div>
+                            <span class="ml-auto text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon);">+ Link</span>
+                        </button>
                     </template>
                 </div>
 
@@ -3221,7 +3378,7 @@
                 </button>
 
                 <div x-show="open" x-cloak class="mt-5 space-y-4">
-                    <form method="POST" action="{{ route('corex.properties.contacts.createAndLink', $property) }}" class="space-y-4">
+                    <form @submit.prevent="createAndLink($el, () => { open = false; })" class="space-y-4">
                         @csrf
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
@@ -3267,9 +3424,10 @@
                             </div>
                         </div>
                         <button type="submit"
+                                :disabled="submitting"
                                 class="px-5 py-2 rounded-md text-sm font-semibold text-white"
                                 style="background:var(--brand-button,#0ea5e9);">
-                            Create Contact &amp; Link
+                            <span x-text="submitting ? 'Saving…' : 'Create Contact & Link'"></span>
                         </button>
                     </form>
                 </div>
@@ -4117,10 +4275,134 @@
 
     </div>{{-- /two-column layout --}}
 
+    {{-- Unsaved changes modal (in-app navigation only — browser still shows native dialog on F5/close) --}}
+    {{-- Contact required modal --}}
+    <div x-show="contactRequiredModalOpen" x-cloak
+         class="fixed inset-0 z-[9999] flex items-center justify-center"
+         style="background: rgba(0,0,0,0.6);"
+         @keydown.escape.window="contactRequiredModalOpen = false"
+         @click.self="contactRequiredModalOpen = false">
+        <div class="rounded-md shadow-2xl w-full max-w-md mx-4 p-6"
+             style="background: var(--surface); border: 1px solid var(--border);"
+             @click.stop>
+            <div class="flex items-start gap-3 mb-3">
+                <div class="flex-shrink-0 rounded-full p-2"
+                     style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent);">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color: var(--brand-icon);"
+                         fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Contact required</h3>
+                    <p class="text-sm mt-1" style="color: var(--text-secondary);">
+                        A contact must be linked to this property before it can be saved.
+                    </p>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2 justify-end mt-4">
+                <button type="button"
+                        class="px-4 py-2 text-sm rounded-md"
+                        style="background: transparent; color: var(--text-secondary); border: 1px solid var(--border);"
+                        @click="contactRequiredModalOpen = false">
+                    Cancel
+                </button>
+                <button type="button"
+                        class="px-4 py-2 text-sm rounded-md font-medium text-white"
+                        style="background: var(--brand-button, #0ea5e9);"
+                        @click="activeTab = 'contacts'; contactRequiredModalOpen = false;">
+                    Add Contact
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="unsavedModalOpen" x-cloak
+         class="fixed inset-0 z-[9999] flex items-center justify-center"
+         style="background: rgba(0,0,0,0.6);"
+         @keydown.escape.window="unsavedModalOpen = false; pendingNavUrl = null;">
+        <div class="rounded-md shadow-2xl w-full max-w-md mx-4 p-6"
+             style="background: var(--surface); border: 1px solid var(--border);"
+             @click.stop>
+            <h3 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">Unsaved changes</h3>
+            <p class="text-sm mb-5" style="color: var(--text-secondary);">
+                You have unsaved changes on this property. What would you like to do?
+            </p>
+            <div class="flex flex-wrap gap-2 justify-end">
+                <button type="button"
+                        class="px-4 py-2 text-sm rounded-md"
+                        style="background: transparent; color: var(--text-secondary); border: 1px solid var(--border);"
+                        @click="unsavedModalOpen = false; pendingNavUrl = null;">
+                    Cancel
+                </button>
+                <button type="button"
+                        class="px-4 py-2 text-sm rounded-md font-medium"
+                        style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);"
+                        @click="formDirty = false; const url = pendingNavUrl; unsavedModalOpen = false; pendingNavUrl = null; if (url) window.location.href = url;">
+                    Discard changes
+                </button>
+                <button type="button"
+                        class="px-4 py-2 text-sm rounded-md font-medium text-white"
+                        style="background: var(--brand-button, #0ea5e9);"
+                        @click="
+                            const form = document.getElementById('prop-update-form');
+                            if (form && !window.coreXPropertyContactGuard(null, form)) {
+                                unsavedModalOpen = false;
+                                return;
+                            }
+                            formDirty = false;
+                            unsavedModalOpen = false;
+                            pendingNavUrl = null;
+                            if (form) form.submit();
+                        ">
+                    Save changes
+                </button>
+            </div>
+        </div>
+    </div>
+
 </div>{{-- /w-full --}}
 
 @push('scripts')
 <script>
+// Returns true if the form may submit, false if a contact is missing.
+// When false, the submit event (if provided) is preventDefault'ed and a
+// confirm() is shown. On OK, the Contacts tab is opened.
+// Any non-main form submitting from this page (e.g. link/unlink contact)
+// causes a full navigation. Clear the main form's dirty flag so the
+// browser's beforeunload prompt doesn't fire on intentional navigation.
+document.addEventListener('submit', function (e) {
+    if (!e.target || e.target.id === 'prop-update-form') return;
+    window.dispatchEvent(new CustomEvent('corex:clear-dirty'));
+}, true);
+// Same for plain link navigation inside the page (e.g. anchor clicks
+// that the user explicitly initiates) — let them go through.
+document.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest && e.target.closest('a[href]');
+    if (!a) return;
+    var href = a.getAttribute('href') || '';
+    if (href.startsWith('#') || a.target === '_blank') return;
+    window.dispatchEvent(new CustomEvent('corex:clear-dirty'));
+}, true);
+
+window.coreXPropertyContactGuard = function (event, form) {
+    if (!form) return true;
+    var isNew = form.getAttribute('data-is-new') === '1';
+    var hasContact;
+    if (isNew) {
+        hasContact = document.querySelectorAll(
+            "input[name^='pending_contact_ids'], input[name^='pending_new_contacts']"
+        ).length > 0;
+    } else {
+        hasContact = parseInt(form.getAttribute('data-contact-count') || '0', 10) > 0;
+    }
+    if (hasContact) return true;
+    if (event) event.preventDefault();
+    window.dispatchEvent(new CustomEvent('corex:contact-required'));
+    return false;
+};
+
 // Pending contacts manager (create form — no property ID yet)
 function pendingContactsManager(searchUrl) {
     return {
@@ -4194,6 +4476,7 @@ function propertyContactsManager(searchUrl) {
         results: [],
         loading: false,
         searched: false,
+        submitting: false,
         async search() {
             if (this.query.length < 1) { this.results = []; this.searched = false; return; }
             this.loading = true;
@@ -4206,8 +4489,182 @@ function propertyContactsManager(searchUrl) {
             } finally {
                 this.loading = false;
             }
-        }
+        },
+        _csrf() {
+            const m = document.querySelector('meta[name="csrf-token"]');
+            return m ? m.getAttribute('content') : '';
+        },
+        _afterAdd(contact) {
+            window.coreXAppendLinkedContact(contact);
+            // Drop this contact from current search results
+            this.results = this.results.filter(r => r.id !== contact.id);
+            // Dismiss contact-required modal and return to info tab so user can save
+            window.dispatchEvent(new CustomEvent('corex:contact-added'));
+        },
+        async linkExisting(r) {
+            if (this.submitting) return;
+            this.submitting = true;
+            try {
+                const res = await fetch(@js(route('corex.properties.contacts.link', $property)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify({ contact_id: r.id })
+                });
+                if (!res.ok) { alert('Failed to link contact.'); return; }
+                const data = await res.json();
+                if (data.ok && data.contact) this._afterAdd(data.contact);
+            } catch (e) {
+                alert('Network error while linking contact.');
+            } finally {
+                this.submitting = false;
+            }
+        },
+        async createAndLink(formEl, onDone) {
+            if (this.submitting) return;
+            this.submitting = true;
+            try {
+                const fd = new FormData(formEl);
+                const payload = {};
+                for (const [k, v] of fd.entries()) { if (k !== '_token') payload[k] = v; }
+                let res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (res.status === 409) {
+                    const data = await res.json();
+                    const dup = data.duplicate_detected || {};
+                    const names = (dup.duplicates || []).map(d => '• ' + d.name + (d.phone ? ' (' + d.phone + ')' : '')).join('\n');
+                    if (dup.mode === 'hard_block_request') {
+                        alert('A possible duplicate contact exists. Please ask an admin to review:\n\n' + names);
+                        return;
+                    }
+                    if (dup.can_override || dup.mode === 'soft_warn') {
+                        if (!confirm('Possible duplicate contact(s) found:\n\n' + names + '\n\nCreate anyway?')) return;
+                        payload.bypass_duplicate_check = 1;
+                        res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRF-TOKEN': this._csrf(),
+                            },
+                            body: JSON.stringify(payload)
+                        });
+                    } else {
+                        alert('Duplicate contact exists:\n\n' + names);
+                        return;
+                    }
+                }
+                if (!res.ok) {
+                    if (res.status === 422) {
+                        const data = await res.json().catch(() => ({}));
+                        const msgs = Object.values(data.errors || {}).flat().join('\n');
+                        alert('Please fix the following:\n' + (msgs || 'Validation failed.'));
+                    } else {
+                        alert('Failed to create contact.');
+                    }
+                    return;
+                }
+                const data = await res.json();
+                if (data.ok && data.contact) {
+                    this._afterAdd(data.contact);
+                    formEl.reset();
+                    if (typeof onDone === 'function') onDone();
+                }
+            } catch (e) {
+                alert('Network error while creating contact.');
+            } finally {
+                this.submitting = false;
+            }
+        },
+        async unlinkContact(id, name) {
+            if (!confirm('Unlink ' + name + ' from this property?')) return;
+            try {
+                const urlTpl = @js(route('corex.properties.contacts.unlink', [$property->id, 0]));
+                const res = await fetch(urlTpl.replace(/\/0$/, '/' + id), {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                });
+                if (!res.ok) { alert('Failed to unlink contact.'); return; }
+                const data = await res.json();
+                window.coreXRemoveLinkedContact(id, data.count);
+            } catch (e) {
+                alert('Network error while unlinking contact.');
+            }
+        },
     };
+}
+
+// DOM helpers — keep the linked-contacts list in sync with AJAX results,
+// update the data-contact-count on the main form, and toggle empty state.
+window.coreXAppendLinkedContact = function (c) {
+    const list = document.getElementById('linked-contacts-list');
+    const empty = document.getElementById('linked-contacts-empty');
+    if (!list) return;
+    if (list.querySelector('[data-contact-row="' + c.id + '"]')) return; // already present
+    const meta = [];
+    if (c.phone) meta.push('<span>' + escapeHtml(c.phone) + '</span>');
+    if (c.email) meta.push('<span>' + escapeHtml(c.email) + '</span>');
+    if (c.role)  meta.push('<span class="font-semibold" style="color:var(--brand-icon);">' + escapeHtml(c.role.charAt(0).toUpperCase() + c.role.slice(1)) + '</span>');
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-3 px-4 py-3 rounded-md mb-2';
+    row.setAttribute('style', 'background:var(--surface-2); border:1px solid var(--border);');
+    row.setAttribute('data-contact-row', c.id);
+    row.innerHTML =
+        '<div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white" style="background:' + escapeHtml(c.type_color || '#334155') + ';">' + escapeHtml(c.initials || '?') + '</div>' +
+        '<div class="flex-1 min-w-0">' +
+            '<a href="' + escapeHtml(c.show_url) + '" class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">' + escapeHtml(c.full_name) + '</a>' +
+            '<div class="text-xs mt-0.5 flex gap-3" style="color:var(--text-muted);">' + meta.join('') + '</div>' +
+        '</div>' +
+        '<button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>';
+    row.querySelector('button').addEventListener('click', function () {
+        // Defer to Alpine manager so we go through the same unlink flow.
+        const wrap = document.querySelector('[x-data^="propertyContactsManager"]');
+        if (wrap && wrap._x_dataStack && wrap._x_dataStack[0]) {
+            wrap._x_dataStack[0].unlinkContact(c.id, c.full_name);
+        }
+    });
+    list.appendChild(row);
+    if (empty) empty.style.display = 'none';
+    // Update count badge + main-form data-contact-count
+    document.querySelectorAll('[data-linked-count]').forEach(el => el.textContent = list.children.length);
+    const form = document.getElementById('prop-update-form');
+    if (form) form.setAttribute('data-contact-count', String(list.children.length));
+};
+
+window.coreXRemoveLinkedContact = function (id, serverCount) {
+    const list = document.getElementById('linked-contacts-list');
+    const empty = document.getElementById('linked-contacts-empty');
+    if (!list) return;
+    const row = list.querySelector('[data-contact-row="' + id + '"]');
+    if (row) row.remove();
+    const count = typeof serverCount === 'number' ? serverCount : list.children.length;
+    document.querySelectorAll('[data-linked-count]').forEach(el => el.textContent = count);
+    const form = document.getElementById('prop-update-form');
+    if (form) form.setAttribute('data-contact-count', String(count));
+    if (empty) empty.style.display = count > 0 ? 'none' : '';
+};
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
 // ── Spaces & Features Manager ─────────────────────────────────────────────
@@ -4743,7 +5200,7 @@ function propertyAddress(config) {
         unitNumber: config.unitNumber || '',
         suburb: config.suburb || '',
         city: config.city || '',
-        province: config.province || 'KwaZulu-Natal',
+        province: config.province || '',
         hideStreetName: config.hideStreetName || false,
         hideStreetNumber: config.hideStreetNumber || false,
         hideComplexName: config.hideComplexName || false,
@@ -5285,6 +5742,126 @@ function p24Syndication(config) {
         if (e.key === 'Escape' && !modal.classList.contains('hidden')) hideModal();
     });
 })();
+</script>
+
+{{-- Leaflet (OpenStreetMap) — pin map for the Internal address. --}}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+/**
+ * Map widget under the Public/Internal address card. Reads address fields
+ * from the surrounding propertyAddress Alpine scope and drops a Leaflet/OSM
+ * pin via Nominatim geocoding. Drag-to-adjust. lat/lng saved on form submit.
+ */
+function propertyMapWidget(cfg) {
+    return {
+        open: false,
+        lat: cfg.initialLat || 0,
+        lng: cfg.initialLng || 0,
+        geocoding: false,
+        _map: null, _marker: null,
+        _initialSuburb:   cfg.initialSuburb   || '',
+        _initialCity:     cfg.initialCity     || '',
+        _initialProvince: cfg.initialProvince || '',
+
+        init() {
+            // Panel starts CLOSED — user opens it to see the map.
+            this.open = false;
+
+            // Auto-geocode every time the P24 picker reports a new suburb.
+            window.addEventListener('p24-location-changed', (e) => {
+                if (e.detail && e.detail.suburbId) this.geocodeSuburb(e.detail);
+            });
+
+            // Render the map only after the user expands the panel.
+            this.$watch('open', (val) => { if (val) this.$nextTick(() => this._renderMap()); });
+
+            // On initial load: if no saved coords but property already has
+            // a suburb, geocode it now so the pin is ready when the user
+            // expands, and so submit saves real coords.
+            if ((!this.lat || !this.lng) && this._initialSuburb) {
+                this.geocodeSuburb({
+                    suburbName:   this._initialSuburb,
+                    cityName:     this._initialCity,
+                    provinceName: this._initialProvince,
+                });
+            }
+        },
+
+        /**
+         * Geocode the suburb centroid using Nominatim's STRUCTURED query
+         * (suburb / city / state) — much more accurate than free-text,
+         * which previously matched the wrong "Port Edward" and dropped
+         * the pin in Kimberley.
+         */
+        async geocodeSuburb(detail) {
+            const params = new URLSearchParams({
+                format: 'json',
+                limit: '1',
+                countrycodes: 'za',
+            });
+            if (detail.suburbName)   params.set('suburb', detail.suburbName);
+            if (detail.cityName)     params.set('city',   detail.cityName);
+            if (detail.provinceName) params.set('state',  detail.provinceName);
+            this.geocoding = true;
+            try {
+                const r = await fetch('https://nominatim.openstreetmap.org/search?' + params.toString(),
+                                      { headers: { 'Accept': 'application/json' } });
+                const arr = await r.json();
+                let hit = Array.isArray(arr) && arr[0];
+                if (!hit) {
+                    // Fallback: looser free-text query with suburb+state.
+                    const q = [detail.suburbName, detail.provinceName, 'South Africa'].filter(Boolean).join(', ');
+                    const r2 = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=za&q=' + encodeURIComponent(q),
+                                           { headers: { 'Accept': 'application/json' } });
+                    const arr2 = await r2.json();
+                    hit = Array.isArray(arr2) && arr2[0];
+                }
+                if (hit) {
+                    this.lat = (+hit.lat).toFixed(7);
+                    this.lng = (+hit.lon).toFixed(7);
+                    // Don't force the panel open — the pin is saved silently;
+                    // user can expand the Map strip whenever they want.
+                    if (this.open) this.$nextTick(() => this._placeMarker(+hit.lat, +hit.lon));
+                }
+            } catch (e) { /* silent */ }
+            finally { this.geocoding = false; }
+        },
+
+        _renderMap() {
+            const el = document.getElementById('property-map');
+            if (!el || !window.L) return;
+            // Avoid re-initialising on second open.
+            if (this._map) { setTimeout(() => this._map.invalidateSize(), 50); return; }
+
+            const center = (this.lat && this.lng) ? [+this.lat, +this.lng] : [-30.5, 30.5];
+            this._map = L.map(el).setView(center, (this.lat && this.lng) ? 16 : 6);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors',
+            }).addTo(this._map);
+            if (this.lat && this.lng) this._placeMarker(+this.lat, +this.lng);
+        },
+
+        _placeMarker(lat, lng) {
+            if (!this._map) return;
+            if (this._marker) {
+                this._marker.setLatLng([lat, lng]);
+            } else {
+                this._marker = L.marker([lat, lng], { draggable: true }).addTo(this._map);
+                this._marker.on('dragend', (e) => {
+                    const p = e.target.getLatLng();
+                    this.lat = p.lat.toFixed(7);
+                    this.lng = p.lng.toFixed(7);
+                });
+            }
+            this._map.setView([lat, lng], 16);
+        },
+
+    };
+}
 </script>
 @endpush
 

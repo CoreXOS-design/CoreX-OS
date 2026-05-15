@@ -68,6 +68,11 @@ Route::post('/pp/webhook', [\App\Http\Controllers\PrivateProperty\PpWebhookContr
 // API v1 — Client Auth (mobile client portal)
 // Spec: .ai/specs/client-auth.md
 // ════════════════════════════════════════════════════════════════
+// NB: The /api/v1/p24/* location-tree endpoints live in routes/web.php so
+// they get the full `web` middleware group (cookie + session). Calling them
+// from a Blade-rendered page over fetch needs session-cookie auth, which
+// isn't applied to routes registered here in api.php.
+
 Route::prefix('v1/client-auth')->group(function () {
     Route::post('/lookup',          [ClientAuthController::class, 'lookup'])->name('client-auth.lookup');
     Route::post('/otp/send',        [ClientAuthController::class, 'sendOtp'])->name('client-auth.otp.send');
@@ -198,11 +203,20 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Command Center ────────────────────────────────────────────
     Route::prefix('command-center')->group(function () {
         Route::get('/dashboard', [CommandCenterApiController::class, 'dashboard']);
+        Route::get('/today', [CommandCenterApiController::class, 'today']);
+        Route::post('/today/refresh', [CommandCenterApiController::class, 'todayRefresh']);
 
         Route::get('/calendar', [CommandCenterApiController::class, 'calendarIndex']);
         Route::post('/calendar', [CommandCenterApiController::class, 'calendarStore']);
+        // Conflict + invitations MUST be declared before /calendar/{calendarEvent} wildcard
+        Route::get('/calendar/conflicts', [CommandCenterApiController::class, 'calendarConflicts']);
+        Route::get('/calendar/invitations', [CommandCenterApiController::class, 'invitationsIndex']);
+        Route::post('/calendar/invitations/{invitation}/respond', [CommandCenterApiController::class, 'invitationRespond']);
+        Route::post('/calendar/invitations/{invitation}/acknowledge', [CommandCenterApiController::class, 'invitationAcknowledge']);
         Route::post('/calendar/{calendarEvent}/complete', [CommandCenterApiController::class, 'calendarComplete']);
         Route::post('/calendar/{calendarEvent}/dismiss', [CommandCenterApiController::class, 'calendarDismiss']);
+        Route::put('/calendar/{calendarEvent}', [CommandCenterApiController::class, 'calendarUpdate']);
+        Route::delete('/calendar/{calendarEvent}', [CommandCenterApiController::class, 'calendarDestroy']);
 
         Route::get('/tasks', [CommandCenterApiController::class, 'tasksIndex']);
         Route::get('/tasks/archived', [CommandCenterApiController::class, 'tasksArchived']);
@@ -211,6 +225,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/tasks', [CommandCenterApiController::class, 'tasksStore']);
         Route::post('/tasks/{task}/complete', [CommandCenterApiController::class, 'tasksComplete']);
         Route::patch('/tasks/{task}/status', [CommandCenterApiController::class, 'tasksUpdateStatus']);
+        Route::put('/tasks/{task}', [CommandCenterApiController::class, 'tasksUpdate']);
         Route::delete('/tasks/{task}', [CommandCenterApiController::class, 'tasksDestroy']);
 
         // ── Task Notes (threaded) ──

@@ -21,7 +21,7 @@
     })">
 
     {{-- Header --}}
-    <div class="rounded-md px-6 py-5 mb-5" style="background:linear-gradient(135deg,var(--brand-default,#0b2a4a) 0%,#163a5c 100%);">
+    <div class="rounded-md px-6 py-5 mb-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex items-start justify-between">
             <div>
                 <h2 class="text-xl font-bold text-white tracking-tight">New Property</h2>
@@ -47,16 +47,16 @@
                             :disabled="!canJumpTo({{ $n }})"
                             class="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
                             :style="step === {{ $n }}
-                                ? 'background:#fff;color:var(--brand-default,#0b2a4a);'
+                                ? 'background:var(--brand-icon,#0ea5e9);color:#fff;'
                                 : step > {{ $n }}
-                                    ? 'background:rgba(255,255,255,0.12);color:#fff;cursor:pointer;'
-                                    : 'background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.55);cursor:not-allowed;'">
+                                    ? 'background:rgba(255,255,255,0.18);color:#fff;cursor:pointer;'
+                                    : 'background:rgba(255,255,255,0.10);color:rgba(255,255,255,0.85);cursor:not-allowed;'">
                         <span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold"
                               :style="step === {{ $n }}
-                                ? 'background:var(--brand-default,#0b2a4a);color:#fff;'
+                                ? 'background:#fff !important;color:#0b2a4a !important;'
                                 : step > {{ $n }}
                                     ? 'background:var(--brand-icon,#0ea5e9);color:#fff;'
-                                    : 'background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.55);'">
+                                    : 'background:rgba(255,255,255,0.25);color:#fff;'">
                             <template x-if="step > {{ $n }}">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="4"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                             </template>
@@ -75,11 +75,11 @@
     @if($draft)
     <div x-show="step === 1 && !resumedDraft"
          class="rounded-md px-4 py-3 mb-5 flex items-center justify-between"
-         style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;">
+         style="background:color-mix(in srgb,#f59e0b 12%,var(--surface));border:1px solid color-mix(in srgb,#f59e0b 35%,transparent);color:var(--text-primary);">
         <div class="text-sm">
             <strong>You have an unfinished draft:</strong>
             <span class="font-medium">{{ $draft->title ?: 'Untitled draft' }}</span>
-            <span class="text-xs" style="color:#b45309;">&middot; {{ $draft->updated_at->diffForHumans() }}</span>
+            <span class="text-xs" style="color:var(--text-secondary);">&middot; {{ $draft->updated_at->diffForHumans() }}</span>
         </div>
         <div class="flex items-center gap-2">
             <button type="button" @click="resumeDraft()"
@@ -91,7 +91,7 @@
                 <button type="submit"
                         onclick="return confirm('Discard this draft? It will be archived.');"
                         class="text-xs font-medium px-3 py-1.5 rounded-md"
-                        style="background:#fff;color:#92400e;border:1px solid #fde68a;">Start fresh</button>
+                        style="background:var(--surface);color:var(--text-primary);border:1px solid var(--border);">Start fresh</button>
             </form>
         </div>
     </div>
@@ -187,30 +187,23 @@
                 </div>
             </div>
 
-            {{-- Suburb with autocomplete --}}
-            <div class="relative" x-data @click.outside="showSuburbs = false">
-                <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Suburb <span class="text-red-500">*</span></label>
-                <input type="text" x-model="s1.suburb"
-                       @focus="showSuburbs = true"
-                       @input="showSuburbs = true"
-                       placeholder="Start typing… e.g. Uvongo Beach"
-                       autocomplete="off"
-                       class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                <div x-show="showSuburbs && filteredSuburbs.length" x-cloak
-                     class="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-md"
-                     style="background:var(--surface);border:1px solid var(--border);box-shadow:0 8px 30px rgba(0,0,0,0.12);">
-                    <template x-for="sub in filteredSuburbs" :key="sub">
-                        <button type="button"
-                                @click="s1.suburb = sub; showSuburbs = false;"
-                                class="w-full text-left px-3 py-2 text-sm transition-all duration-150"
-                                style="color:var(--text-primary);"
-                                onmouseover="this.style.background='var(--surface-2)'"
-                                onmouseout="this.style.background=''"
-                                x-text="sub"></button>
-                    </template>
-                </div>
-                <div class="text-[11px] mt-1" style="color:var(--text-muted);">We'll use this for Property24 / Private Property sync.</div>
+            {{-- Property24-backed cascading Province → City → Suburb.
+                 Type to filter; can only save if all three are picked from
+                 the list. See _partials/p24-location-picker.blade.php. --}}
+            <div x-ref="p24Picker">
+                @include('corex._partials.p24-location-picker', [
+                    'fieldPrefix'        => 'p24',
+                    'initialProvinceId'  => 0,
+                    'initialCityId'      => 0,
+                    'initialSuburbId'    => 0,
+                    'initialProvinceName'=> '',
+                    'initialCityName'    => '',
+                    'initialSuburbName'  => '',
+                    'denormaliseNames'   => false,
+                ])
+            </div>
+            <div class="text-[11px]" style="color:var(--text-muted);">
+                Start typing a province, city, or suburb — pick from the list. You can't save unless Property24 recognises the suburb.
             </div>
 
             {{-- Beds / Baths / Garages as steppers --}}
@@ -237,7 +230,7 @@
             {{-- Error banner --}}
             <div x-show="error" x-cloak
                  class="rounded-md px-4 py-3 text-sm"
-                 style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;"
+                 style="background:color-mix(in srgb,#ef4444 10%,var(--surface));border:1px solid color-mix(in srgb,#ef4444 35%,transparent);color:var(--text-primary);"
                  x-text="error"></div>
 
         </div>
@@ -246,9 +239,8 @@
             <div class="text-[11px]" style="color:var(--text-muted);">Your work saves as a draft when you continue.</div>
             <button type="button" @click="submitStep1()"
                     :disabled="!step1Valid() || loading"
-                    :style="!step1Valid() || loading ? 'opacity:0.5;cursor:not-allowed;' : ''"
-                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-md text-sm font-semibold text-white transition-all duration-200"
-                    style="background:var(--brand-button,#0ea5e9);">
+                    :style="'background:var(--brand-button,#0ea5e9);' + (!step1Valid() || loading ? 'opacity:0.5;cursor:not-allowed;' : '')"
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300">
                 <span x-show="!loading">Continue to photos</span>
                 <span x-show="loading">Saving…</span>
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
@@ -333,7 +325,7 @@
                         class="text-sm font-medium px-4 py-2 rounded-md"
                         style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);">Skip for now</button>
                 <button type="button" @click="step = 3"
-                        class="inline-flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white"
+                        class="inline-flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300"
                         style="background:var(--brand-button,#0ea5e9);">
                     Continue
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
@@ -360,30 +352,17 @@
                 <div class="text-[11px] mt-1" style="color:var(--text-muted);" x-text="(s3.description?.length || 0) + ' characters'"></div>
             </div>
 
-            {{-- Mandate & Branch --}}
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Mandate</label>
-                    <select x-model="s3.mandate_type"
-                            class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                            style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                        <option value="">Not set</option>
-                        @foreach($settingItems['mandateTypes'] as $m)
-                        <option value="{{ $m->name }}">{{ $m->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Branch</label>
-                    <select x-model="s3.branch_id"
-                            class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
-                            style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                        <option value="">Not set</option>
-                        @foreach($branches as $b)
-                        <option value="{{ $b->id }}">{{ $b->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
+            {{-- Mandate (branch is auto-assigned to the creating user's branch) --}}
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Mandate</label>
+                <select x-model="s3.mandate_type"
+                        class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
+                        style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
+                    <option value="">Not set</option>
+                    @foreach($settingItems['mandateTypes'] as $m)
+                    <option value="{{ $m->name }}">{{ $m->name }}</option>
+                    @endforeach
+                </select>
             </div>
 
             {{-- Agent picker (admin/BM only) --}}
@@ -443,7 +422,7 @@
                     style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);">&larr; Back</button>
             <button type="button" @click="submitStep3()"
                     :disabled="loading"
-                    class="inline-flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white"
+                    class="inline-flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300"
                     style="background:var(--brand-button,#0ea5e9);">
                 <span x-show="!loading">Continue to review</span>
                 <span x-show="loading">Saving…</span>
@@ -468,8 +447,8 @@
                         <button type="button" @click="goToStep(item.step)"
                                 class="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium text-left transition-all duration-200"
                                 :style="item.ok
-                                    ? 'background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;'
-                                    : 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;'">
+                                    ? 'background:color-mix(in srgb,#22c55e 10%,var(--surface));color:var(--text-primary);border:1px solid color-mix(in srgb,#22c55e 35%,transparent);'
+                                    : 'background:color-mix(in srgb,#f59e0b 10%,var(--surface));color:var(--text-primary);border:1px solid color-mix(in srgb,#f59e0b 35%,transparent);'">
                             <svg x-show="item.ok" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                             <svg x-show="!item.ok" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
                             <span x-text="item.label"></span>
@@ -507,7 +486,7 @@
             </div>
 
             {{-- Publish warning --}}
-            <div x-show="!allReady" x-cloak class="rounded-md px-4 py-3 text-xs" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;">
+            <div x-show="!allReady" x-cloak class="rounded-md px-4 py-3 text-xs" style="background:color-mix(in srgb,#f59e0b 10%,var(--surface));border:1px solid color-mix(in srgb,#f59e0b 35%,transparent);color:var(--text-primary);">
                 Some items are missing. You can still save as a draft now and finish later, or go back and complete them to publish live.
             </div>
         </div>
@@ -522,9 +501,8 @@
                         style="background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);">Save as draft</button>
                 <button type="button" @click="finalize(true)"
                         :disabled="!allReady || loading"
-                        :style="!allReady || loading ? 'opacity:0.5;cursor:not-allowed;' : ''"
-                        class="inline-flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white"
-                        style="background:#16a34a;">
+                        :style="'background:var(--brand-button,#0ea5e9);' + (!allReady || loading ? 'opacity:0.5;cursor:not-allowed;' : '')"
+                        class="inline-flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                     <span x-show="!loading">Save &amp; publish</span>
                     <span x-show="loading">Publishing…</span>
@@ -546,9 +524,9 @@ function propertyWizard(config) {
         csrf: config.csrf,
         routes: config.routes,
 
-        // Suburb autocomplete
-        showSuburbs: false,
-        suburbs: config.suburbs || [],
+        // P24 picker state is owned by the included partial component.
+        // We mirror only the final IDs into s1 via the p24-location-changed
+        // event so submitStep1 can ship them.
 
         // Photos
         photos: config.existingImages || [],
@@ -559,20 +537,30 @@ function propertyWizard(config) {
         uploadTotal: 0,
 
         // Step data — agent_id defaults to current user; the server enforces who can change it.
-        s1: { listing_type: 'sale', title: '', property_type: '', suburb: '', street_number: '', street_name: '', price: null, beds: 0, baths: 0, garages: 0 },
+        s1: { listing_type: 'sale', title: '', property_type: '', suburb: '', city: '', province: '',
+              p24_province_id: 0, p24_city_id: 0, p24_suburb_id: 0,
+              street_number: '', street_name: '', price: null, beds: 0, baths: 0, garages: 0 },
         s3: { description: '', mandate_type: '', branch_id: '{{ auth()->user()->effectiveBranchId() ?? '' }}', agent_id: '{{ auth()->id() }}', size_m2: null, erf_size_m2: null, deposit_amount: null, lease_start_date: '', lease_end_date: '', rental_amount: null },
 
-        get filteredSuburbs() {
-            const q = (this.s1.suburb || '').toLowerCase();
-            if (!q) return this.suburbs.slice(0, 10);
-            return this.suburbs.filter(s => s.toLowerCase().includes(q)).slice(0, 10);
+        init() {
+            // Sync P24 picker state into s1 so submitStep1 picks it up.
+            window.addEventListener('p24-location-changed', (e) => {
+                if (!e.detail) return;
+                this.s1.p24_province_id = e.detail.provinceId || 0;
+                this.s1.p24_city_id     = e.detail.cityId || 0;
+                this.s1.p24_suburb_id   = e.detail.suburbId || 0;
+                this.s1.province        = e.detail.provinceName || '';
+                this.s1.city            = e.detail.cityName || '';
+                this.s1.suburb          = e.detail.suburbName || '';
+            });
         },
+
         get checklist() {
             return [
                 { key: 'title',   label: 'Headline',      ok: !!this.s1.title, step: 1 },
                 { key: 'price',   label: 'Price',         ok: !!this.s1.price, step: 1 },
                 { key: 'type',    label: 'Property type', ok: !!this.s1.property_type, step: 1 },
-                { key: 'suburb',  label: 'Suburb',        ok: !!this.s1.suburb, step: 1 },
+                { key: 'suburb',  label: 'Suburb',        ok: !!this.s1.p24_suburb_id && this.s1.p24_suburb_id != 0, step: 1 },
                 { key: 'photos',  label: 'Photos',        ok: this.photos.length >= 1, step: 2 },
                 { key: 'desc',    label: 'Description',   ok: (this.s3.description || '').length >= 30, step: 3 },
             ];
@@ -582,7 +570,13 @@ function propertyWizard(config) {
         formatZAR(n) { return 'R ' + Number(n || 0).toLocaleString('en-ZA').replace(/,/g, ' '); },
 
         step1Valid() {
-            return this.s1.listing_type && this.s1.title.trim() && this.s1.property_type && this.s1.suburb.trim() && (this.s1.price > 0);
+            return this.s1.listing_type
+                && this.s1.title.trim()
+                && this.s1.property_type
+                && this.s1.p24_province_id && this.s1.p24_province_id != 0
+                && this.s1.p24_city_id     && this.s1.p24_city_id     != 0
+                && this.s1.p24_suburb_id   && this.s1.p24_suburb_id   != 0
+                && (this.s1.price > 0);
         },
         canJumpTo(n) { return this.propertyId !== null && n <= Math.max(this.step, this.highestReachedStep || 1); },
 

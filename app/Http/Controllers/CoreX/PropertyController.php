@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Storage;
 class PropertyController extends Controller
 {
     use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+    use \App\Http\Concerns\AppliesP24Location;
 
     public function index(Request $request)
     {
@@ -46,15 +47,26 @@ class PropertyController extends Controller
 
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        // Agent filter (admin/BM only) — defaults to self on fresh load UNLESS
-        // a compliance filter is active (card click-through shows full scope).
+        // Agent filter with session persistence (mirrors ContactController).
+        // Defaults to self on fresh load UNLESS a compliance filter is active
+        // (card click-through shows full scope).
         if ($canPickAgent) {
             if ($request->has('agent_id')) {
-                $filterAgentId = $request->query('agent_id', '');
+                $raw           = $request->query('agent_id', '');
+                $filterAgentId = $raw;
+                session(['corex_properties_agent_id' => $raw === '' ? 'all' : $raw]);
             } elseif ($request->query('filter') === 'marketing_pending') {
                 $filterAgentId = '';
             } else {
-                $filterAgentId = (string) $user->id;
+                $saved = session('corex_properties_agent_id');
+                if ($saved === null) {
+                    $filterAgentId = (string) $user->id;
+                    session(['corex_properties_agent_id' => $filterAgentId]);
+                } elseif ($saved === 'all') {
+                    $filterAgentId = '';
+                } else {
+                    $filterAgentId = $saved;
+                }
             }
         }
 
@@ -334,7 +346,8 @@ class PropertyController extends Controller
         $property           = new Property();
         $property->status   = 'for_sale';
         $property->listing_type = 'Sale';
-        $property->province = 'KwaZulu-Natal';
+        // Province intentionally not pre-filled — user must pick from the
+        // P24 cascading picker so the suburb/city/province chain is real.
         $property->agent_id = $user->id;
         $property->branch_id = $user->effectiveBranchId();
         $property->agency_id = $user->agency_id ?? null;
@@ -397,6 +410,11 @@ class PropertyController extends Controller
             'suburb'           => 'required|string|max:100',
             'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
+            'latitude'         => 'nullable|numeric|between:-90,90',
+            'longitude'        => 'nullable|numeric|between:-180,180',
+            'p24_province_id'  => 'nullable|integer|exists:p24_provinces,id',
+            'p24_city_id'      => 'nullable|integer|exists:p24_cities,id',
+            'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
@@ -428,7 +446,7 @@ class PropertyController extends Controller
             'admin_fee'        => 'nullable|numeric|min:0',
             'marketing_fee'    => 'nullable|numeric|min:0',
             'listed_date'      => 'nullable|date',
-            'expiry_date'      => 'nullable|date',
+            'expiry_date'      => 'nullable|date|after_or_equal:listed_date',
             'lease_start_date' => 'nullable|date',
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
@@ -462,7 +480,18 @@ class PropertyController extends Controller
             'pending_new_contacts'      => 'nullable|array',
         ]);
 
+        // A property must have at least one contact linked on creation.
+        $hasContact = !empty(array_filter((array) $request->input('pending_contact_ids', [])))
+            || collect((array) $request->input('pending_new_contacts', []))
+                ->contains(fn ($nc) => !empty($nc['first_name']) && !empty($nc['last_name']) && !empty($nc['phone']));
+        if (! $hasContact) {
+            return back()
+                ->withInput()
+                ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
+        }
+
         $data = $this->processSpacesJson($data);
+        $data = $this->applyP24Location($data);
 
         // Extract YouTube video ID from full URL if pasted
         if (!empty($data['youtube_video_id'])) {
@@ -491,6 +520,15 @@ class PropertyController extends Controller
 
         // Create to get ID, then attach images
         $property = Property::create($data);
+
+        if ($property->p24_suburb_id) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property,
+                previousP24SuburbId: null,
+                newP24SuburbId: (int) $property->p24_suburb_id,
+                actorUserId: auth()->id(),
+            ));
+        }
 
         $property->dawn_images_json    = $this->storeImages($request, 'dawn_images',    $property->id);
         $property->noon_images_json    = $this->storeImages($request, 'noon_images',    $property->id);
@@ -583,6 +621,12 @@ class PropertyController extends Controller
     {
         $this->authorizeProperty($property);
 
+        if ($property->contacts()->count() === 0) {
+            return back()
+                ->withInput()
+                ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
+        }
+
         $data = $request->validate([
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
@@ -606,6 +650,11 @@ class PropertyController extends Controller
             'suburb'           => 'required|string|max:100',
             'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
+            'latitude'         => 'nullable|numeric|between:-90,90',
+            'longitude'        => 'nullable|numeric|between:-180,180',
+            'p24_province_id'  => 'nullable|integer|exists:p24_provinces,id',
+            'p24_city_id'      => 'nullable|integer|exists:p24_cities,id',
+            'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
@@ -637,7 +686,7 @@ class PropertyController extends Controller
             'admin_fee'        => 'nullable|numeric|min:0',
             'marketing_fee'    => 'nullable|numeric|min:0',
             'listed_date'      => 'nullable|date',
-            'expiry_date'      => 'nullable|date',
+            'expiry_date'      => 'nullable|date|after_or_equal:listed_date',
             'lease_start_date' => 'nullable|date',
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
@@ -703,6 +752,7 @@ class PropertyController extends Controller
         $data['pp_hide_unit_number']   = $request->boolean('pp_hide_unit_number');
 
         $data = $this->processSpacesJson($data);
+        $data = $this->applyP24Location($data);
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
@@ -742,7 +792,18 @@ class PropertyController extends Controller
             }
         }
 
+        $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
+        if (isset($data['p24_suburb_id'])
+            && (int) $data['p24_suburb_id'] > 0
+            && (int) $previousP24SuburbId !== (int) $data['p24_suburb_id']) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property->fresh(),
+                previousP24SuburbId: $previousP24SuburbId ? (int) $previousP24SuburbId : null,
+                newP24SuburbId: (int) $data['p24_suburb_id'],
+                actorUserId: auth()->id(),
+            ));
+        }
         // Force-touch updated_at even when no fillable attribute changed (e.g. only photos uploaded),
         // so the Modified column always reflects the latest save action.
         if (! $property->wasChanged()) {

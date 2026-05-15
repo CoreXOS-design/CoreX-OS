@@ -445,16 +445,22 @@
                               enctype="multipart/form-data"
                               class="rounded-md p-4 space-y-4"
                               style="background: var(--surface-2); border: 1px solid var(--border);"
-                              x-data="{ removelogo: false }">
+                              x-data="{ removelogo: false, open: false }">
                             @csrf
 
-                            <div class="flex items-center justify-between gap-4">
-                                <div class="font-semibold" style="color: var(--text-primary);">
+                            <div class="flex items-center justify-between gap-4 cursor-pointer select-none" @click="open = !open">
+                                <div class="flex items-center gap-2 font-semibold" style="color: var(--text-primary);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 transition-transform"
+                                         :class="open ? 'rotate-90' : ''"
+                                         fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                                    </svg>
                                     {{ $branch->name }} <span style="color: var(--text-muted);">({{ $branch->code }})</span>
                                 </div>
-                                <button type="submit" class="corex-btn-primary text-sm">Save</button>
+                                <button type="submit" x-show="open" @click.stop class="corex-btn-primary text-sm">Save</button>
                             </div>
 
+                            <div x-show="open" x-cloak class="space-y-4">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Trading Name Override</label>
@@ -545,28 +551,6 @@
                                 </div>
                             </div>
 
-                            {{-- Property24 Agency ID Override --}}
-                            @php $parentP24 = $branch->agency?->p24_agency_id; @endphp
-                            <div class="pt-4" style="border-top: 1px solid var(--border);">
-                                <div class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-secondary);">Property24 Syndication</div>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">P24 Agency ID Override</label>
-                                        <input class="w-full rounded-md px-3 py-2 text-sm font-mono"
-                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                               name="p24_agency_id" value="{{ old('p24_agency_id', $branch->p24_agency_id) }}"
-                                               placeholder="{{ $parentP24 ? 'inherits ' . $parentP24 : 'e.g. 12345' }}">
-                                        <p class="mt-1 text-xs" style="color: var(--text-muted);">
-                                            @if($parentP24)
-                                                Leave blank to use agency default: <span class="font-mono">{{ $parentP24 }}</span>.
-                                            @else
-                                                Agency has no default set. Enter this branch's P24 agency ID.
-                                            @endif
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
                             {{-- Logo --}}
                             <div class="pt-4 space-y-3" style="border-top: 1px solid var(--border);">
                                 <div class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Branch Logo</div>
@@ -590,6 +574,7 @@
                                            class="w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:text-white file:cursor-pointer"
                                            style="color: var(--text-secondary);">
                                 </div>
+                            </div>
                             </div>
                         </form>
                     @endforeach

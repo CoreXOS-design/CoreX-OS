@@ -62,9 +62,21 @@ class BranchAssignmentController extends Controller
         $this->authorizeAdmin();
 
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'code' => ['required', 'string', 'max:50'],
+            'name'      => ['required', 'string', 'max:255'],
+            'code'      => ['required', 'string', 'max:50'],
+            'agency_id' => ['nullable', 'integer', 'exists:agencies,id'],
         ]);
+
+        // Owners may target any agency; non-owners are pinned to their own.
+        $user = auth()->user();
+        if (!empty($data['agency_id']) && $user && !$user->isOwnerRole()) {
+            if ((int) $data['agency_id'] !== (int) $user->effectiveAgencyId()) {
+                abort(403, 'You can only add branches to your own agency.');
+            }
+        }
+        if (empty($data['agency_id'])) {
+            unset($data['agency_id']);
+        }
 
         Branch::create($data);
 

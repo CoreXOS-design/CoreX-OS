@@ -15,9 +15,13 @@ return new class extends Migration
         });
 
         $defaults = [
-            'Apartment', 'Cluster', 'Cottage', 'Development', 'Dual Living',
-            'Duet', 'Duplex', 'Garage', 'House', 'Penthouse', 'Plot', 'Room',
-            'Small Holding', 'Studio Apartment', 'Townhouse', 'Vacant Land', 'Villa',
+            'House',
+            'Apartment / Flat',
+            'Townhouse',
+            'Vacant Land / Plot',
+            'Farm',
+            'Commercial Property',
+            'Industrial Property',
         ];
 
         foreach ($defaults as $i => $name) {

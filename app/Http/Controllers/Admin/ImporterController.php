@@ -475,4 +475,134 @@ class ImporterController extends Controller
         }
         return back()->with('status', 'Invites sent to ' . count($userIds) . ' agents.');
     }
+
+    /**
+     * Browse the cached Property24 location tree (Province → City → Suburb).
+     * The tree is rendered as nested collapsible accordions. Cities + suburbs
+     * are loaded on demand via /api/v1/p24/* so this page renders instantly
+     * regardless of how many suburbs are cached (~27k as of EXDEV).
+     */
+    public function p24Locations()
+    {
+        $provinces = \App\Models\P24Province::query()
+            ->withCount(['cities'])
+            ->orderBy('name')
+            ->get();
+
+        $totals = [
+            'provinces' => $provinces->count(),
+            'cities'    => \App\Models\P24City::count(),
+            'suburbs'   => \App\Models\P24Suburb::whereNotNull('p24_city_id')->count(),
+        ];
+
+        $lastSyncedAgency = \App\Models\Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->whereNotNull('p24_locations_synced_at')
+            ->orderByDesc('p24_locations_synced_at')
+            ->first();
+
+        return view('admin.importer.p24-locations', [
+            'provinces'     => $provinces,
+            'totals'        => $totals,
+            'lastSyncedAt'  => $lastSyncedAgency?->p24_locations_synced_at,
+            'lastSyncError' => $lastSyncedAgency?->p24_last_sync_error
+                ?? \App\Models\Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                    ->whereNotNull('p24_last_sync_error')->value('p24_last_sync_error'),
+        ]);
+    }
+
+    public function refreshP24Locations(\Illuminate\Http\Request $request)
+    {
+        $current = \Illuminate\Support\Facades\Cache::get(
+            \App\Console\Commands\SyncP24Locations::PROGRESS_KEY
+        );
+        if (is_array($current) && ($current['status'] ?? null) === 'running') {
+            $msg = 'Sync already running — watch the progress bar.';
+            return $request->expectsJson()
+                ? response()->json(['success' => true, 'already_running' => true, 'message' => $msg])
+                : back()->with('success', $msg);
+        }
+
+        // Seed cache with a running stub so the UI's poller immediately sees
+        // a running state (otherwise there's a 1–2s window before the queue
+        // worker picks up the job).
+        \Illuminate\Support\Facades\Cache::put(
+            \App\Console\Commands\SyncP24Locations::PROGRESS_KEY,
+            [
+                'status'          => 'running',
+                'provinces_total' => 0,
+                'provinces_done'  => 0,
+                'cities_done'     => 0,
+                'suburbs_done'    => 0,
+                'current'         => 'Queuing sync…',
+                'error'           => null,
+                'started_at'      => now()->toIso8601String(),
+                'finished_at'     => null,
+            ],
+            \App\Console\Commands\SyncP24Locations::PROGRESS_TTL
+        );
+
+        // Prefer detached shell over queue: independent of worker config and
+        // works on any host with PHP CLI. The artisan command writes progress
+        // to cache so the UI poller picks it up the same way either path.
+        //
+        // PHP_BINARY in a web request points at php-fpm (which can't run CLI
+        // scripts) — explicitly resolve a real CLI binary instead.
+        $php = $this->resolvePhpCliBinary();
+        $base      = base_path();
+        $logFile   = storage_path('logs/p24-sync.log');
+        $cmd       = sprintf('%s %s/artisan p24:sync-locations', escapeshellarg($php), escapeshellarg($base));
+
+        try {
+            if (DIRECTORY_SEPARATOR === '\\') {
+                // Windows — start /B keeps the child detached from the request.
+                pclose(popen('start /B "" ' . $cmd . ' > ' . escapeshellarg($logFile) . ' 2>&1', 'r'));
+            } else {
+                // POSIX — nohup + & detaches; disown via shell builtin not needed when stdin/out/err redirected.
+                exec('nohup ' . $cmd . ' >> ' . escapeshellarg($logFile) . ' 2>&1 &');
+            }
+        } catch (\Throwable $e) {
+            // Fall back to the queue if exec is disabled or fails.
+            \App\Jobs\SyncP24LocationsJob::dispatch();
+        }
+
+        $msg = 'Property24 location sync started. Progress will update below.';
+        return $request->expectsJson()
+            ? response()->json(['success' => true, 'message' => $msg])
+            : back()->with('success', $msg);
+    }
+
+    /**
+     * Find a PHP CLI binary on the host. PHP_BINARY in a web request resolves
+     * to whatever SAPI is serving the request — under FPM that's php-fpm,
+     * which can't run artisan. We try CLI-only paths first and fall back to
+     * the unqualified `php` on PATH.
+     */
+    private function resolvePhpCliBinary(): string
+    {
+        $candidates = [
+            '/usr/bin/php',
+            '/usr/local/bin/php',
+            '/opt/homebrew/bin/php',
+        ];
+        // If PHP_BINARY isn't php-fpm/php-cgi, use it.
+        if (defined('PHP_BINARY') && PHP_BINARY) {
+            $name = strtolower(basename(PHP_BINARY));
+            if (!str_contains($name, 'fpm') && !str_contains($name, 'cgi')) {
+                return PHP_BINARY;
+            }
+        }
+        foreach ($candidates as $path) {
+            if (is_executable($path)) return $path;
+        }
+        return 'php'; // Last-resort PATH lookup.
+    }
+
+    public function p24LocationsStatus()
+    {
+        $progress = \Illuminate\Support\Facades\Cache::get(
+            \App\Console\Commands\SyncP24Locations::PROGRESS_KEY
+        ) ?: ['status' => 'idle'];
+
+        return response()->json($progress);
+    }
 }

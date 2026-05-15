@@ -125,3 +125,6 @@ Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->without
 // ── Prospecting Intelligence (M13) ──
 Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
+
+// P24 location tree sync — monthly on the 1st at 02:00
+Schedule::command('p24:sync-locations')->monthlyOn(1, '02:00')->withoutOverlapping();

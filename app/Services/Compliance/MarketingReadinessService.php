@@ -2,6 +2,7 @@
 
 namespace App\Services\Compliance;
 
+use App\Models\DevSetting;
 use App\Models\Property;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,19 @@ class MarketingReadinessService
      */
     public function statusFor(Property $property): ReadinessReport
     {
+        // Dev override: compliance checks globally disabled — treat as ready
+        if (DevSetting::bool('compliance_checks_disabled')) {
+            return new ReadinessReport(
+                ready: true,
+                snapshotAt: $property->compliance_snapshot_at,
+                blockedBy: [],
+                nextActions: [],
+                checklist: [
+                    'dev_override' => ['passed' => true, 'detail' => 'Compliance checks disabled in Dev Settings'],
+                ],
+            );
+        }
+
         // Short-circuit: if snapshot exists, property is already cleared
         if ($property->compliance_snapshot_at !== null) {
             return new ReadinessReport(
@@ -144,6 +158,10 @@ class MarketingReadinessService
      */
     public function isMarketable(Property $property): bool
     {
+        if (DevSetting::bool('compliance_checks_disabled')) {
+            return true;
+        }
+
         if ($property->compliance_snapshot_at !== null) {
             return true;
         }

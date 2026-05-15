@@ -16,6 +16,7 @@ class P24Suburb extends Model
         'name',
         'slug',
         'p24_id',
+        'p24_city_id',
         'region',
         'surrounding_ids',
         'confirmed',
@@ -23,9 +24,15 @@ class P24Suburb extends Model
 
     protected $casts = [
         'p24_id'          => 'integer',
+        'p24_city_id'     => 'integer',
         'surrounding_ids' => 'array',
         'confirmed'       => 'boolean',
     ];
+
+    public function city(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(P24City::class, 'p24_city_id');
+    }
 
     /**
      * Look up a suburb by name (case-insensitive) or slug.

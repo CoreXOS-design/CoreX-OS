@@ -228,7 +228,43 @@
                                         @if(count($moduleData['actions']) > 0)
 
                                             {{-- Data Scope --}}
-                                            @if($fViewKey)
+                                            @if($fViewKey && in_array($moduleKey, ['properties', 'contacts']))
+                                            {{-- Simplified on/off toggle. OFF stores scope='own' (user sees only their own records, no agent picker, no My/All toggle). ON stores scope='all'; the effective breadth (branch vs agency) is dictated at request time by the agency's Data Isolation setting in Company Settings. --}}
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
+                                                <div>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">Data Scope</p>
+                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Off: user sees only their own records — no agent picker, no My/All toggle. On: user can see other agents' records (limited to their branch when Data Isolation is enabled in Company Settings, otherwise agency-wide).</p>
+                                                </div>
+                                                <div class="flex-shrink-0">
+                                                    @foreach($roles as $role)
+                                                    <template x-if="selectedRole === '{{ $role->name }}'">
+                                                        <div>
+                                                            @if($role->is_owner)
+                                                                <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold" style="background:var(--surface-2); color:var(--text-muted);">On (Owner)</span>
+                                                            @elseif($fIsShared)
+                                                                <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold"
+                                                                      style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">Shared — all users</span>
+                                                            @else
+                                                                <label class="inline-flex items-center gap-2 cursor-pointer">
+                                                                    <input type="checkbox"
+                                                                           :checked="['branch','all'].includes(scopeMatrix['{{ $fViewKey }}']?.['{{ $role->name }}'])"
+                                                                           @change="
+                                                                               const next = $event.target.checked ? 'all' : 'own';
+                                                                               scopeMatrix['{{ $fViewKey }}']['{{ $role->name }}'] = next;
+                                                                               handleScopeChange('{{ $moduleKey }}', '{{ $role->name }}', next);
+                                                                           "
+                                                                           class="w-5 h-5 rounded-md cursor-pointer"
+                                                                           style="accent-color:var(--brand-button,#0ea5e9); border-color:var(--border);">
+                                                                    <span class="text-xs" style="color:var(--text-muted);"
+                                                                          x-text="['branch','all'].includes(scopeMatrix['{{ $fViewKey }}']?.['{{ $role->name }}']) ? 'On' : 'Off'"></span>
+                                                                </label>
+                                                            @endif
+                                                        </div>
+                                                    </template>
+                                                    @endforeach
+                                                </div>
+                                            </div>
+                                            @elseif($fViewKey)
                                             <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
                                                 <div>
                                                     <p class="text-sm font-medium" style="color:var(--text-primary);">Data Scope</p>

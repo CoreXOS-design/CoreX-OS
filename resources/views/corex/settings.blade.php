@@ -1389,8 +1389,7 @@
                                         <form method="POST" action="{{ route('corex.settings.contact-sources.destroy', $cSource) }}"
                                               onsubmit="return confirm('Delete this contact source?');">
                                             @csrf @method('DELETE')
-                                            <button class="text-xs font-semibold" style="color: var(--ds-crimson);"
-                                                    {{ $cSource->contacts()->count() > 0 ? 'disabled title=Cannot delete — contacts assigned' : '' }}>
+                                            <button class="text-xs font-semibold" style="color: var(--ds-crimson);">
                                                 Delete
                                             </button>
                                         </form>
@@ -1506,8 +1505,7 @@
                                         <form method="POST" action="{{ route('corex.settings.contact-tags.destroy', $cTag) }}"
                                               onsubmit="return confirm('Delete this contact tag?');">
                                             @csrf @method('DELETE')
-                                            <button class="text-xs font-semibold" style="color: var(--ds-crimson);"
-                                                    {{ $cTag->contacts()->count() > 0 ? 'disabled title=Cannot delete — contacts assigned' : '' }}>
+                                            <button class="text-xs font-semibold" style="color: var(--ds-crimson);">
                                                 Delete
                                             </button>
                                         </form>
