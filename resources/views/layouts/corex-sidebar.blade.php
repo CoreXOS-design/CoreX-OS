@@ -150,9 +150,19 @@
     {{-- Logo + Help icon --}}
     <div class="corex-sidebar-logo" style="display:flex; align-items:center; justify-content:space-between;">
         <span>CoreX <span>Os</span></span>
-        @auth
-        <div id="help-widget-slot" style="flex-shrink:0;"></div>
-        @endauth
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+            @auth
+            <div id="help-widget-slot" style="flex-shrink:0;"></div>
+            @endauth
+            {{-- Mobile-only: close sidebar for a full-screen page --}}
+            <button type="button" @click="sidebarOpen = false" class="lg:hidden"
+                    aria-label="Close menu" title="Close menu"
+                    style="display:flex; align-items:center; justify-content:center; width:2rem; height:2rem; border-radius:6px; color:var(--text-secondary); background:transparent;">
+                <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
     </div>
     @if($_userAgency)
     <div class="px-4 -mt-1 pb-2">
