@@ -899,6 +899,23 @@
         </a>
         @endif
 
+        {{-- Flow Map --}}
+        @permission('access_flow_map')
+        @if(\Illuminate\Support\Facades\Route::has('tools.flow-map'))
+        <a href="{{ route('tools.flow-map') }}" class="corex-nav-item {{ request()->routeIs('tools.flow-map') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="5" cy="6" r="2"/>
+                <circle cx="19" cy="6" r="2"/>
+                <circle cx="12" cy="18" r="2"/>
+                <path d="M7 6h10"/>
+                <path d="M6.5 8 11 16"/>
+                <path d="M17.5 8 13 16"/>
+            </svg>
+            <span>Flow Map</span>
+        </a>
+        @endif
+        @endpermission
+
         {{-- Ellie AI --}}
         @permission('access_ellie')
         @if(\Illuminate\Support\Facades\Route::has('ellie.index'))

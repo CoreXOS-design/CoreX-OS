@@ -12,6 +12,11 @@ use Illuminate\Support\Facades\Storage;
 
 class MobilePropertyController extends Controller
 {
+    // Same chain-verifier the web create/edit form + quick-setup wizard use.
+    // Verifies suburb → city → province and overwrites the denormalised
+    // suburb/city/province text columns with canonical P24 names.
+    use \App\Http\Concerns\AppliesP24Location;
+
     // ── GET /api/mobile/properties ───────────────────────────────
     public function index(Request $request): JsonResponse
     {
@@ -81,9 +86,24 @@ class MobilePropertyController extends Controller
         $data['branch_id'] = $user->effectiveBranchId();
         $data['agency_id'] = $user->agency_id ?? null;
 
+        // Verify the P24 chain and canonicalise suburb/city/province.
+        // Required on create — same rule the web form enforces.
+        $data = $this->applyP24Location($data, required: true);
+
         $data = $this->mapPayloadToColumns($data);
 
         $property = Property::create($data);
+
+        // Cross-pillar reactivity — emit the same domain event the web
+        // create path emits so suburb-linked listeners stay in sync.
+        if ($property->p24_suburb_id) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property,
+                previousP24SuburbId: null,
+                newP24SuburbId: (int) $property->p24_suburb_id,
+                actorUserId: $user->id,
+            ));
+        }
 
         if ($linkContactId) {
             $contact = \App\Models\Contact::find($linkContactId);
@@ -107,9 +127,33 @@ class MobilePropertyController extends Controller
         $this->authorizeProperty($request->user(), $property);
 
         $data = $request->validate($this->propertyRules(isCreate: false));
+
+        // Only re-verify the P24 chain if the client actually sent a new
+        // suburb selection (PATCH-style — untouched location stays as-is).
+        $previousP24SuburbId = $property->p24_suburb_id;
+        if (array_key_exists('p24_suburb_id', $data) && (int) $data['p24_suburb_id'] > 0) {
+            $data = $this->applyP24Location($data, required: true);
+        } else {
+            // Don't let a partial update wipe the canonical location.
+            unset($data['p24_suburb_id'], $data['p24_city_id'], $data['p24_province_id'],
+                  $data['suburb'], $data['city'], $data['province']);
+        }
+
         $data = $this->mapPayloadToColumns($data);
 
         $property->update($data);
+
+        if (isset($data['p24_suburb_id'])
+            && (int) $data['p24_suburb_id'] > 0
+            && (int) $previousP24SuburbId !== (int) $data['p24_suburb_id']) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property,
+                previousP24SuburbId: $previousP24SuburbId ? (int) $previousP24SuburbId : null,
+                newP24SuburbId: (int) $data['p24_suburb_id'],
+                actorUserId: $request->user()->id,
+            ));
+        }
+
         $property->refresh();
 
         return response()->json([
@@ -135,8 +179,23 @@ class MobilePropertyController extends Controller
             'property_type' => "{$req}|string|max:100",
             'listing_type'  => "{$req}|string|in:sale,rental",
             'status'        => "{$req}|string|max:50",
-            'suburb'        => "{$req}|string|max:255",
             'price'         => "{$req}|integer|min:0",
+
+            // ── Property24 location (the spine of suburb/city/province) ──
+            // Mirrors the web create/edit form: the property MUST land on a
+            // P24-recognised suburb. The client picks province → city →
+            // suburb from GET /api/mobile/p24/{provinces,cities,suburbs}
+            // and sends back the IDs. The applyP24Location() trait then
+            // verifies the chain and OVERWRITES suburb/city/province with
+            // the canonical P24 names — the client never sets those as
+            // free text any more.
+            'p24_province_id' => 'nullable|integer|exists:p24_provinces,id',
+            'p24_city_id'     => 'nullable|integer|exists:p24_cities,id',
+            'p24_suburb_id'   => "{$req}|integer|exists:p24_suburbs,id",
+
+            // Derived from the P24 chain — accepted but always overwritten
+            // by applyP24Location(). Kept nullable so old clients don't 422.
+            'suburb'        => 'nullable|string|max:255',
 
             // Address & location
             'street_number' => 'nullable|string|max:20',
@@ -794,6 +853,14 @@ class MobilePropertyController extends Controller
             'suburb'          => $property->suburb,
             'city'            => $property->city,
             'province'        => $property->province,
+
+            // P24 chain IDs — let the mobile edit form pre-select the
+            // Province → City → Suburb pickers without a name lookup.
+            'p24_province_id' => $property->p24_province_id,
+            'p24_city_id'     => $property->p24_city_id,
+            'p24_suburb_id'   => $property->p24_suburb_id,
+            'p24_suburb_mismatch' => (bool) $property->p24_suburb_mismatch,
+
             'region'          => $property->region,
             'district'        => $property->district,
             'complex_name'    => $property->complex_name,

@@ -148,6 +148,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/properties/pull-from-portal', [PropertyPullController::class, 'pullFromPortal']);
     Route::get('/properties/{propertyId}/pull-status', [PropertyPullController::class, 'pullStatus']);
 
+    // ── Mobile P24 location tree (token-authed) ──────────────────
+    // Token-auth twins of the session-only /api/v1/p24/* endpoints in
+    // routes/web.php. The mobile create/edit property screen calls these
+    // to drive the cascading Province → City → Suburb pickers, then sends
+    // the chosen IDs back as p24_province_id / p24_city_id / p24_suburb_id.
+    Route::prefix('mobile/p24')->group(function () {
+        Route::get('/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces']);
+        Route::get('/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities']);
+        Route::get('/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs']);
+    });
+
     // ── Mobile Properties ────────────────────────────────────────
     Route::prefix('mobile/properties')->group(function () {
         Route::get('/',         [MobilePropertyController::class, 'index']);

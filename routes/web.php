@@ -473,9 +473,13 @@ use App\Http\Controllers\Admin\TargetController;
 use App\Http\Controllers\ToolsController;
 use App\Http\Controllers\Tools\PdfSplitterController;
 use App\Http\Controllers\Tools\PdfSuiteController;
+use App\Http\Controllers\Tools\FlowMapController;
 
 Route::middleware(['auth'])->group(function () {
 
+
+    // Flow Map — read-only guide to how CoreX interconnects (spec: .ai/specs/flows-map.md)
+    Route::get('/tools/flow-map', [FlowMapController::class, 'index'])->middleware('permission:access_flow_map')->name('tools.flow-map');
 
     // Tools
     Route::get('/tools/commission', [ToolsController::class, 'commission'])->middleware('permission:access_calculators')->name('tools.commission');
