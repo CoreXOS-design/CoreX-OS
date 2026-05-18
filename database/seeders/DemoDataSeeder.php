@@ -248,6 +248,8 @@ class DemoDataSeeder extends Seeder
             SuggestedActionThresholdsSeeder::class,
             SellerOutreachTemplatesSeeder::class,
             AgencyDocumentTypeConfigSeeder::class,
+            WebTemplateSeeder::class,            // 6 e-sign web templates
+            MarketingPermissionV6Seeder::class,  // + Marketing Permission V6 (sales)
         ] as $seeder) {
             $this->safeSeed(class_basename($seeder), fn () => $this->call([$seeder]));
         }
@@ -351,6 +353,9 @@ class DemoDataSeeder extends Seeder
 
         // DealPipelineTemplateSeeder needs ≥1 user — run it now.
         $this->safeSeed('DealPipelineTemplateSeeder', fn () => $this->call([DealPipelineTemplateSeeder::class]));
+        // Web pack needs ≥1 user (web_packs.created_by NOT NULL) + the
+        // templates from Stage 0 — runs here, after both exist.
+        $this->safeSeed('SellerOnboardingPackSeeder', fn () => $this->call([SellerOnboardingPackSeeder::class]));
 
         $this->command->info('  Stage 1: 1 agency + ' . count($this->branchIds)
             . ' branches + ' . (count($this->agentIds) + count($this->bmIds) + 2) . ' users');
