@@ -106,7 +106,19 @@ class SigningController extends Controller
                         ->first();
 
                 $signingUrl = route('signatures.external', $token);
-                $ficaUrl = $ficaSub
+
+                // Defensive: fica_submissions.token is nullable; tokenless
+                // submissions exist (reused drafts, seeder/wet-ink/legacy).
+                // route('fica.form', null) throws UrlGenerationException and
+                // 500s the signing page. Mint a token if one is missing so
+                // the FICA link always works — the page must never 500 here.
+                if ($ficaSub && empty($ficaSub->token)) {
+                    $ficaSub->token = \Illuminate\Support\Str::random(64);
+                    $ficaSub->token_expires_at = now()->addDays(14);
+                    $ficaSub->save();
+                }
+
+                $ficaUrl = ($ficaSub && $ficaSub->token)
                     ? route('fica.form', $ficaSub->token) . '?return_url=' . urlencode($signingUrl)
                     : null;
 

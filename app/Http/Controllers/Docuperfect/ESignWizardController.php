@@ -1828,6 +1828,15 @@ class ESignWizardController extends Controller
                             ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved'])
                             ->first();
                         if ($existingDraft) {
+                            // Reused FICA submissions (seeder/wet-ink/legacy)
+                            // may have a NULL token. The signing-page FICA gate
+                            // builds route('fica.form', token); a null token
+                            // 500s the page. Ensure a usable token before use.
+                            if (empty($existingDraft->token)) {
+                                $existingDraft->token = Str::random(64);
+                                $existingDraft->token_expires_at = now()->addDays(14);
+                                $existingDraft->save();
+                            }
                             $ficaSubId = $existingDraft->id;
                         } else {
                             $ficaSub = FicaSubmission::create([
