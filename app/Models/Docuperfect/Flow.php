@@ -101,22 +101,6 @@ class Flow extends Model
     }
 
     /**
-     * Get the next flow in the pack chain.
-     */
-    public function nextPackFlow(): ?self
-    {
-        if (!$this->isPackFlow()) {
-            return null;
-        }
-
-        return self::where('pack_id', $this->pack_id)
-            ->where('pack_type', $this->pack_type)
-            ->where('flow_sequence', '>', $this->flow_sequence)
-            ->orderBy('flow_sequence')
-            ->first();
-    }
-
-    /**
      * Get shared data from the parent (first) flow in the pack.
      */
     public function getSharedPackData(): array

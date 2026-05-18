@@ -18,6 +18,7 @@ use App\Models\Property;
 use App\Models\Rental\RentalProperty;
 use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignatureService;
+use App\Services\Docuperfect\SignatureSurfaceNormalizer;
 
 use App\Models\FicaSubmission;
 use App\Services\WebTemplateDataService;
@@ -533,6 +534,44 @@ class ESignWizardController extends Controller
                             'bank_branch_name'    => $contact->bank_branch_name ?? '',
                             'bank_branch_code'    => $contact->bank_branch_code ?? '',
                             'bank_account_type'   => $contact->bank_account_type ?? '',
+                        ];
+                    }
+                }
+            }
+            // BL-3: rental/letting docs select a rental_properties row, which
+            // has NO contact_property pivot and NO contacts relationship —
+            // only the denormalised landlord_name/landlord_email/landlord_phone
+            // scalars (no tenant data exists on that table). Before this branch
+            // the block above was gated on source==='properties', so letting
+            // e-sign started with zero recipients. Synthesise the landlord
+            // recipient from those scalars, gated by the template's allowed
+            // esign roles, in the same shape as the sales branch. Tenant cannot
+            // be auto-resolved from rental_properties — manual-add covers it.
+            elseif ($propertyId && $propertySource === 'rental_properties') {
+                $rentalProp = RentalProperty::find($propertyId);
+                if ($rentalProp && (!empty($rentalProp->landlord_name) || !empty($rentalProp->landlord_email))) {
+                    $signingParties = $template->signing_parties ?? [];
+                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
+                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
+                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
+
+                    // The landlord maps to esign_role 'lessor'. Skip only if the
+                    // template explicitly restricts roles and excludes lessor.
+                    $landlordAllowed = empty($allowedEsignRoles) || in_array('lessor', $allowedEsignRoles, true);
+                    if ($landlordAllowed) {
+                        $name = trim($rentalProp->landlord_name ?? '');
+                        $nameParts = $name !== '' ? preg_split('/\s+/', $name, 2) : ['', ''];
+                        $recipients[] = [
+                            'order'       => count($recipients) + 1,
+                            'role'        => $defaultOwnerRole,
+                            'name'        => $name,
+                            'first_name'  => $nameParts[0] ?? '',
+                            'last_name'   => $nameParts[1] ?? '',
+                            'id_number'   => '',
+                            'email'       => $rentalProp->landlord_email ?? '',
+                            'cell'        => $rentalProp->landlord_phone ?? '',
+                            'address'     => $rentalProp->full_address ?? '',
+                            '_contact_id' => null,
                         ];
                     }
                 }
@@ -1370,8 +1409,12 @@ class ESignWizardController extends Controller
 
         // HARD BLOCK: Sale agreements cannot enter the e-sign pipeline (Alienation of Land Act)
         if ($template->isEsignBlocked()) {
+            $blockMsg = 'Sale agreements and OTPs must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted for this document type.';
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'error' => $blockMsg], 422);
+            }
             return redirect()->route('docuperfect.esign.step', [$flowId, 6])
-                ->with('error', 'Sale agreements and OTPs must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted for this document type.');
+                ->with('error', $blockMsg);
         }
 
         // This endpoint is exclusively for e-sign delivery mode.
@@ -1496,6 +1539,22 @@ class ESignWizardController extends Controller
                     : '';
 
                 $bodyHtml = $this->injectFieldValues($bodyHtml, $tplData);
+
+                // BL-2c: a pack template that yields no signable surface even
+                // after normalisation produces an unsignable document. Fail
+                // loud (surfaced via BL-2a/2b) rather than shipping a doc the
+                // signer can open but never complete. Normalising here also
+                // stores a guaranteed-signable fragment (idempotent — the
+                // signing engine re-normalises at read time anyway).
+                $bodyHtml = SignatureSurfaceNormalizer::normalize($bodyHtml);
+                if ($this->countSignableSurfaces($bodyHtml) === 0) {
+                    throw new \RuntimeException(
+                        "Pack template \"{$tpl->name}\" has no signable signature block "
+                        . "(no [data-marker-party][data-marker-type=\"signature\"] surface). "
+                        . "This document cannot be e-signed — fix the template before sending."
+                    );
+                }
+
                 $mergedHtml .= $styles . $bodyHtml . $pageBreak;
                 $packTemplateData[$tplId] = $tplData;
             }
@@ -1963,7 +2022,14 @@ class ESignWizardController extends Controller
 
         // All template types go to setup first — agent reviews markers and can add ad-hoc ones.
         // Web templates show embedded signature elements; PDF templates show overlay markers.
-        return redirect()->route('docuperfect.signatures.setup', ['document' => $result->id]);
+        $setupUrl = route('docuperfect.signatures.setup', ['document' => $result->id]);
+        // The wizard JS submits via fetch (Accept: application/json) so it can
+        // surface failure in the UI instead of a blind native navigation
+        // (audit BL-2b). Direct browser hits still get the redirect.
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'redirect' => $setupUrl]);
+        }
+        return redirect()->to($setupUrl);
 
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('PREPARE_SIGNING_FAILED', [
@@ -1973,8 +2039,12 @@ class ESignWizardController extends Controller
                 'trace' => $e->getTraceAsString(),
             ]);
 
+            $message = 'Failed to prepare signing: ' . $e->getMessage();
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'error' => $message], 422);
+            }
             return redirect()->route('docuperfect.esign.create')
-                ->withErrors(['error' => 'Failed to prepare signing: ' . $e->getMessage()]);
+                ->withErrors(['error' => $message]);
         }
     }
 
@@ -2162,6 +2232,28 @@ class ESignWizardController extends Controller
         }
 
         return array_unique($allowed);
+    }
+
+    /**
+     * Count signable surfaces in rendered HTML using the exact selector the
+     * signing engine uses ([data-marker-party][data-marker-type="signature"]
+     * — sign.blade.php / external/sign.blade.php / embedSignaturesIntoHtml).
+     * Used by the BL-2c pack guard. Fail-open (parse error => 0).
+     */
+    private function countSignableSurfaces(string $html): int
+    {
+        if (trim($html) === '') return 0;
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML(
+                '<?xml encoding="utf-8"?>' . $html,
+                LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR
+            );
+            $xpath = new \DOMXPath($dom);
+            return $xpath->query('//*[@data-marker-party][@data-marker-type="signature"]')->length;
+        } catch (\Throwable $e) {
+            return 0;
+        }
     }
 
     private function autoFillFields(array $fields, array $stepData): array
@@ -3281,212 +3373,6 @@ class ESignWizardController extends Controller
     private function fieldsAreSkeletal(array $fields): bool
     {
         return !empty($fields) && empty($fields[0]['id'] ?? null) && empty($fields[0]['field_name'] ?? null);
-    }
-
-    // ──────────────────────────────────────────────
-    // Pack Chaining (Multi-Document Flow)
-    // ──────────────────────────────────────────────
-
-    /**
-     * Initialize a chained pack flow: creates Flow records for each template in the pack.
-     * Called when user selects a pack and starts the wizard.
-     */
-    public function initPackChain(Request $request)
-    {
-        $user = $request->user();
-        $packId = $request->input('pack_id');
-        $packType = $request->input('pack_type', 'web'); // 'web' or 'pdf'
-        $ficaPerParty = $request->boolean('fica_per_party');
-
-        // Load templates from pack
-        if ($packType === 'web') {
-            $pack = \App\Models\Docuperfect\WebPack::with('items.template')->findOrFail($packId);
-            $templates = $pack->items->sortBy('sort_order')
-                ->map(fn($item) => $item->template)
-                ->filter()
-                ->values();
-        } else {
-            $pack = \App\Models\Docuperfect\Pack::with('templates')->findOrFail($packId);
-            $templates = $pack->templates
-                ->filter(fn($t) => $t->is_esign)
-                ->values();
-        }
-
-        if ($templates->isEmpty()) {
-            return response()->json(['error' => 'Pack has no eligible templates.'], 422);
-        }
-
-        // Create the parent flow (first template in the pack)
-        $parentFlow = Flow::create([
-            'type' => 'esign',
-            'template_id' => $templates[0]->id,
-            'user_id' => $user->id,
-            'current_step' => 2,
-            'step_data' => [
-                'template' => ['template_id' => $templates[0]->id],
-                'fields' => $templates[0]->fields_json ?? [],
-                'pack_chain' => true,
-                'pack_chain_templates' => $templates->map(fn($t) => [
-                    'id' => $t->id,
-                    'name' => $t->name,
-                    'party_mode' => $t->party_mode ?? null,
-                ])->toArray(),
-            ],
-            'status' => 'active',
-            'pack_id' => $packId,
-            'pack_type' => $packType,
-            'flow_sequence' => 0,
-            'parent_flow_id' => null,
-            'pack_status' => 'in_progress',
-        ]);
-
-        // Create child flows for remaining templates
-        foreach ($templates->slice(1) as $idx => $tpl) {
-            Flow::create([
-                'type' => 'esign',
-                'template_id' => $tpl->id,
-                'user_id' => $user->id,
-                'current_step' => 5, // Start at Fill & Review (skip property/contact/details)
-                'step_data' => [
-                    'template' => ['template_id' => $tpl->id],
-                    'fields' => $tpl->fields_json ?? [],
-                    'pack_chain' => true,
-                    'carry_forward_from' => $parentFlow->id,
-                ],
-                'status' => 'draft', // Inactive until parent flow reaches this doc
-                'pack_id' => $packId,
-                'pack_type' => $packType,
-                'flow_sequence' => $idx + 1,
-                'parent_flow_id' => $parentFlow->id,
-                'pack_status' => null,
-            ]);
-        }
-
-        return response()->json([
-            'ok' => true,
-            'flow_id' => $parentFlow->id,
-            'template_count' => $templates->count(),
-            'redirect' => route('docuperfect.esign.create') . '?flow_id=' . $parentFlow->id,
-        ]);
-    }
-
-    /**
-     * Advance to the next document in a pack chain after the current one is signed.
-     * Called after agent completes signing on a pack doc.
-     */
-    public function nextPackDocument(Request $request, $flowId)
-    {
-        $user = $request->user();
-        $currentFlow = Flow::where('user_id', $user->id)->findOrFail($flowId);
-
-        if (!$currentFlow->isPackFlow()) {
-            return response()->json(['error' => 'Not a pack flow.'], 422);
-        }
-
-        // Mark current flow as completed
-        $currentFlow->update([
-            'status' => 'completed',
-            'completed_at' => now(),
-        ]);
-
-        // Find the next flow in the pack chain
-        $nextFlow = $currentFlow->nextPackFlow();
-
-        if (!$nextFlow) {
-            // All docs in the pack are done
-            // Update parent flow pack_status
-            $parentId = $currentFlow->parent_flow_id ?? $currentFlow->id;
-            Flow::where('id', $parentId)->update(['pack_status' => 'completed']);
-
-            return response()->json([
-                'ok' => true,
-                'pack_complete' => true,
-                'message' => 'All documents in the pack have been signed.',
-            ]);
-        }
-
-        // Carry forward shared data from the parent flow
-        $sharedData = $currentFlow->getSharedPackData();
-        $nextStepData = $nextFlow->step_data ?? [];
-
-        // Merge carry-forward data into the next flow's step_data
-        $nextStepData['property'] = $sharedData['property'] ?? $nextStepData['property'] ?? [];
-        $nextStepData['recipients'] = $sharedData['recipients'] ?? $nextStepData['recipients'] ?? [];
-        $nextStepData['details'] = $sharedData['details'] ?? $nextStepData['details'] ?? [];
-        $nextStepData['rental_details'] = $sharedData['rental_details'] ?? $nextStepData['rental_details'] ?? [];
-        $nextStepData['carried_forward'] = true;
-
-        $nextFlow->update([
-            'status' => 'active',
-            'step_data' => $nextStepData,
-            'current_step' => 5, // Fill & Review (property/contacts/details pre-filled)
-            'property_id' => $currentFlow->property_id,
-        ]);
-
-        $nextTemplate = $nextFlow->template;
-
-        return response()->json([
-            'ok' => true,
-            'pack_complete' => false,
-            'next_flow_id' => $nextFlow->id,
-            'next_template_name' => $nextTemplate->name ?? 'Next Document',
-            'next_sequence' => $nextFlow->flow_sequence + 1,
-            'total_in_pack' => Flow::where('pack_id', $currentFlow->pack_id)
-                ->where('pack_type', $currentFlow->pack_type)
-                ->count(),
-            'redirect' => route('docuperfect.esign.create') . '?flow_id=' . $nextFlow->id,
-        ]);
-    }
-
-    /**
-     * Get pack chain status (how many docs done, what's next).
-     */
-    public function packStatus(Request $request, $flowId)
-    {
-        $user = $request->user();
-        $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
-
-        if (!$flow->isPackFlow()) {
-            return response()->json(['is_pack' => false]);
-        }
-
-        $parentId = $flow->parent_flow_id ?? $flow->id;
-        $allFlows = Flow::where(function ($q) use ($parentId, $flow) {
-            $q->where('id', $parentId)
-              ->orWhere('parent_flow_id', $parentId);
-        })
-            ->where('pack_id', $flow->pack_id)
-            ->orderBy('flow_sequence')
-            ->with('template')
-            ->get();
-
-        $docs = $allFlows->map(function ($f) {
-            return [
-                'flow_id' => $f->id,
-                'template_id' => $f->template_id,
-                'template_name' => $f->template->name ?? 'Unknown',
-                'sequence' => $f->flow_sequence,
-                'status' => $f->status,
-                'completed' => $f->status === 'completed',
-            ];
-        });
-
-        $completedCount = $docs->where('completed', true)->count();
-        $nextFlow = $allFlows->firstWhere('status', 'active');
-        if (!$nextFlow) {
-            $nextFlow = $allFlows->firstWhere('status', 'draft');
-        }
-
-        return response()->json([
-            'is_pack' => true,
-            'total' => $docs->count(),
-            'completed' => $completedCount,
-            'documents' => $docs,
-            'current_flow_id' => $flow->id,
-            'next_flow_id' => $nextFlow?->id,
-            'next_template_name' => $nextFlow?->template?->name,
-            'pack_complete' => $completedCount === $docs->count(),
-        ]);
     }
 
     /**

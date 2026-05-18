@@ -2205,10 +2205,9 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/esign/api/contacts', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'searchContacts'])->name('docuperfect.esign.api.contacts');
     Route::get('/esign/api/template/{templateId}/pages', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'templatePages'])->name('docuperfect.esign.api.templatePages');
 
-    // Pack chaining
-    Route::post('/esign/pack-chain/init', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'initPackChain'])->name('docuperfect.esign.initPackChain');
-    Route::post('/esign/{flow}/next-pack-doc', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'nextPackDocument'])->name('docuperfect.esign.nextPackDoc');
-    Route::get('/esign/{flow}/pack-status', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'packStatus'])->name('docuperfect.esign.packStatus');
+    // Pack FICA per-party duplication (MERGE pack model — the legacy
+    // initPackChain/nextPackDocument/packStatus CHAIN engine was removed:
+    // dead, unreferenced, no SignatureRequest<->pack linkage; audit BL-1).
     Route::post('/esign/{flow}/duplicate-fica', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'duplicateFicaPerParty'])->name('docuperfect.esign.duplicateFica');
     Route::post('/esign/documents/{signatureTemplate}/cancel', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'cancelDocument'])->name('docuperfect.esign.cancelDocument');
 
