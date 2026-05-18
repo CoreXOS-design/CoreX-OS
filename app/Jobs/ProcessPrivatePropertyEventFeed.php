@@ -41,9 +41,16 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
                 return;
             }
 
-            // PP returns the new continuation key separately from the events.
-            $newKey = $response['ContinuationKey'] ?? $response['continuationKey'] ?? null;
-            $events = $this->extractEvents($response);
+            // PP wraps the entire payload in a <GetListingEventFeedByBranchResult>
+            // envelope — ContinuationKey AND FeedData live INSIDE it, not at the
+            // top level. Reading them at the top level (the old bug) meant the
+            // continuation key was always null, processEvents() never ran, and
+            // pp_listing_feed_ref was never populated for any listing. Unwrap
+            // once, defensively falling back to the top level.
+            $result = $response['GetListingEventFeedByBranchResult'] ?? $response;
+
+            $newKey = $result['ContinuationKey'] ?? $result['continuationKey'] ?? null;
+            $events = $this->extractEvents($result);
 
             if ($newKey && $newKey !== $key) {
                 PpEventFeedSetting::setValue('continuation_key', (string) $newKey);
@@ -57,18 +64,28 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
         }
     }
 
-    private function extractEvents(array $response): array
+    private function extractEvents(array $result): array
     {
-        $feed = $response['FeedData'] ?? $response['feedData'] ?? [];
+        $feed = $result['FeedData'] ?? $result['feedData'] ?? [];
         if (!is_array($feed)) {
             return [];
         }
 
-        // SoapClient → json round-trip can wrap a single child as an associative array
-        // instead of a list. Normalise to a list of events.
-        if (isset($feed['ListingFeedEvent'])) {
-            $events = $feed['ListingFeedEvent'];
-            return is_array($events) && array_is_list($events) ? $events : [$events];
+        // PP nests the event list under a MIS-SPELLED child element:
+        //   FeedData.LisitngEventFeedData = [ {event}, {event}, ... ]
+        // ("Lisitng", not "Listing" — verified against the live sandbox feed).
+        // SoapClient→json collapses a single child to an associative array
+        // instead of a list, so normalise to a list either way. Accept the
+        // corrected spelling and the legacy key too, so this keeps working
+        // if PP ever fixes the typo.
+        foreach (['LisitngEventFeedData', 'ListingEventFeedData', 'ListingFeedEvent'] as $childKey) {
+            if (isset($feed[$childKey])) {
+                $events = $feed[$childKey];
+                if (!is_array($events)) {
+                    return [];
+                }
+                return array_is_list($events) ? $events : [$events];
+            }
         }
 
         return array_is_list($feed) ? $feed : [$feed];
@@ -140,12 +157,25 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
 
     private function findProperty(mixed $ourRef, mixed $feedRef): ?Property
     {
-        if ($ourRef !== null && $ourRef !== '' && is_numeric($ourRef)) {
-            $p = Property::find((int) $ourRef);
+        // FIELD ROLES (verified against the live sandbox feed):
+        //   ListingFeedRef ($feedRef) = the listing reference WE submitted,
+        //       i.e. our CoreX property id (e.g. "16").
+        //   OfficeFeedRef  ($ourRef)  = the PP branch GUID (NOT our id).
+        // The old code had these inverted — it looked our property up by
+        // OfficeFeedRef and never matched. Match on ListingFeedRef first.
+        if ($feedRef !== null && $feedRef !== '' && is_numeric($feedRef)) {
+            $p = Property::find((int) $feedRef);
             if ($p) return $p;
         }
         if ($feedRef) {
-            return Property::where('pp_listing_feed_ref', $feedRef)->first();
+            $p = Property::where('pp_listing_feed_ref', $feedRef)->first();
+            if ($p) return $p;
+        }
+        // Backward-compat: the legacy assumption that OfficeFeedRef carried
+        // our id. Harmless now (the branch GUID isn't numeric) but kept in
+        // case PP ever changes the contract back.
+        if ($ourRef !== null && $ourRef !== '' && is_numeric($ourRef)) {
+            return Property::find((int) $ourRef);
         }
         return null;
     }

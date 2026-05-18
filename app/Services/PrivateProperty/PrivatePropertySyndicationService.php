@@ -141,25 +141,44 @@ class PrivatePropertySyndicationService
         // PP listing UUID has not arrived via the Event Feed yet) must NOT fail
         // the listing submit itself — the video re-pushes on the next refresh
         // or when the Activated event populates pp_listing_feed_ref.
+        $videoOutcome = null; // null = nothing to push; otherwise ['success'=>bool,'message'=>string]
         try {
             $fresh = $property->fresh();
-            if ((!empty($fresh->youtube_video_id) || !empty($fresh->matterport_id))
-                && !empty($fresh->pp_listing_feed_ref)) {
-                $videoResult = $this->pushVideoOrMatterport($fresh);
+            if (!empty($fresh->youtube_video_id) || !empty($fresh->matterport_id)) {
+                $videoResult  = $this->pushVideoOrMatterport($fresh);
+                $videoOutcome = [
+                    'success' => (bool) ($videoResult['success'] ?? false),
+                    'message' => $videoResult['message'] ?? '',
+                ];
                 $this->log(
-                    $videoResult['success'] ? 'info' : 'warning',
-                    "Auto-push video/Matterport for property #{$property->id}: " . ($videoResult['message'] ?? '')
+                    $videoOutcome['success'] ? 'info' : 'warning',
+                    "Auto-push video/Matterport for property #{$property->id}: " . $videoOutcome['message']
                 );
             }
         } catch (\Throwable $e) {
+            $videoOutcome = ['success' => false, 'message' => 'Video push error: ' . $e->getMessage()];
             $this->log('warning', "Video/Matterport auto-push failed for property #{$property->id}: {$e->getMessage()}");
         }
 
+        // Surface a video-push failure to the agent instead of swallowing it.
+        // The listing itself submitted successfully, but if the agent added a
+        // video and it did NOT reach PP, the Refresh action must say so —
+        // otherwise they see a green success and the video silently never
+        // appears (the original reported symptom).
+        $message = 'Listing submitted to Private Property';
+        if ($videoOutcome !== null && !$videoOutcome['success']) {
+            $message .= ' — but the video/Matterport did NOT sync: ' . $videoOutcome['message'];
+        } elseif ($videoOutcome !== null && $videoOutcome['success']) {
+            $message .= ' (video/Matterport synced)';
+        }
+
         return [
-            'success' => true,
-            'message' => 'Listing submitted to Private Property',
-            'status'  => $updateData['pp_syndication_status'],
-            'pp_ref'  => $updateData['pp_ref'] ?? null,
+            'success'       => true,
+            'message'       => $message,
+            'status'        => $updateData['pp_syndication_status'],
+            'pp_ref'        => $updateData['pp_ref'] ?? null,
+            'video_synced'  => $videoOutcome === null ? null : $videoOutcome['success'],
+            'video_message' => $videoOutcome['message'] ?? null,
         ];
     }
 
