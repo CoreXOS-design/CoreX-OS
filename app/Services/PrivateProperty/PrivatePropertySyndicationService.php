@@ -134,6 +134,27 @@ class PrivatePropertySyndicationService
             $this->log('warning', "Agent image auto-submit failed for property #{$property->id}: {$e->getMessage()}");
         }
 
+        // Auto-push YouTube video / Matterport after a successful submit so the
+        // "Refresh to portal" button sends everything in one action. PP carries
+        // video via a separate method (UpdateListingVideoOrMatterport) that only
+        // works post-publish, so this is best-effort: a failure here (e.g. the
+        // PP listing UUID has not arrived via the Event Feed yet) must NOT fail
+        // the listing submit itself — the video re-pushes on the next refresh
+        // or when the Activated event populates pp_listing_feed_ref.
+        try {
+            $fresh = $property->fresh();
+            if ((!empty($fresh->youtube_video_id) || !empty($fresh->matterport_id))
+                && !empty($fresh->pp_listing_feed_ref)) {
+                $videoResult = $this->pushVideoOrMatterport($fresh);
+                $this->log(
+                    $videoResult['success'] ? 'info' : 'warning',
+                    "Auto-push video/Matterport for property #{$property->id}: " . ($videoResult['message'] ?? '')
+                );
+            }
+        } catch (\Throwable $e) {
+            $this->log('warning', "Video/Matterport auto-push failed for property #{$property->id}: {$e->getMessage()}");
+        }
+
         return [
             'success' => true,
             'message' => 'Listing submitted to Private Property',

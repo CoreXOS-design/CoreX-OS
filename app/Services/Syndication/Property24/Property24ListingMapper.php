@@ -672,7 +672,7 @@ class Property24ListingMapper
         if (!$input) return null;
         $input = trim($input);
         if (preg_match('/^[a-zA-Z0-9_-]{11}$/', $input)) return $input;
-        if (preg_match('/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/', $input, $m)) {
+        if (preg_match('/(?:youtube\.com\/(?:watch\?\S*?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/', $input, $m)) {
             return $m[1];
         }
         return null;

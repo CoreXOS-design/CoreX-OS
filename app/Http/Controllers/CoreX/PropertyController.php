@@ -1143,12 +1143,13 @@ class PropertyController extends Controller
             return $input;
         }
 
-        // youtube.com/watch?v=ID or youtube.com/embed/ID or youtu.be/ID
-        if (preg_match('/(?:youtube\.com\/(?:watch\?.*v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/', $input, $m)) {
+        // youtube.com/watch?v=ID, /embed/ID, /shorts/ID, /live/ID, /v/ID, youtu.be/ID
+        if (preg_match('/(?:youtube\.com\/(?:watch\?\S*?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/', $input, $m)) {
             return $m[1];
         }
 
-        // Fallback: return first 11 chars if longer, or as-is
-        return substr($input, 0, 11);
+        // Not a recognisable YouTube id/URL — return empty rather than a
+        // garbage truncation that would silently pass PP's 11-char check.
+        return '';
     }
 }
