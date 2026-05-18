@@ -25,11 +25,13 @@ class BuyerPipelineController extends Controller
 
         $query = Contact::buyers()->with('createdBy');
 
-        // Apply Layer 3 pipeline scope (admin/owner always see all)
-        $role = $user->effectiveRole();
-        if (!in_array($role, ['admin', 'super_admin', 'owner'], true)) {
-            $this->applyPipelineScope($query, $user, $pipelineScope);
-        }
+        // Layer 3 pipeline scope is driven by the explicit ?scope= param for
+        // ALL roles. Admins still see everything BY DEFAULT because
+        // defaultPipelineScope() returns 'agency' and applyPipelineScope()
+        // no-ops for 'agency' — but Mine/Branch now filter for admins too
+        // (previously this gate made the toggle a dead control for
+        // admin/super_admin/owner).
+        $this->applyPipelineScope($query, $user, $pipelineScope);
 
         if ($stateFilter) {
             $query->where('buyer_state', $stateFilter);
@@ -158,10 +160,9 @@ class BuyerPipelineController extends Controller
     {
         $query = Contact::buyers();
 
-        $role = $user->effectiveRole();
-        if (!in_array($role, ['admin', 'super_admin', 'owner'], true)) {
-            $this->applyPipelineScope($query, $user, $pipelineScope);
-        }
+        // Same rule as index(): honour the explicit scope for ALL roles so the
+        // header totals match the kanban columns under every scope.
+        $this->applyPipelineScope($query, $user, $pipelineScope);
 
         return $query->selectRaw('buyer_state, count(*) as cnt')
             ->groupBy('buyer_state')
