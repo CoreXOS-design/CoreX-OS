@@ -1727,6 +1727,19 @@ class ESignWizardController extends Controller
                 $bodyHtml = $this->insertBeforeSignatureSection($bodyHtml, $clauseHtml);
             }
 
+            // §20 — single signing-surface resolver (APPROVED). The single-doc
+            // path renders the on-disk CDS blade, which is hand-authored and
+            // can be stale relative to the persisted field config (#119: blade
+            // SIG 1 is agent-only though field_mappings holds [Agent,Buyer,
+            // Seller]). Re-keys every marker to a canonical recipient key AND
+            // injects a signature surface for any recipient the stale blade
+            // omitted — recipient-driven, so non-recipient ticks are inert.
+            // Standalone generalisation of normalizePackMarkerParties (pack-
+            // only + re-key only). The pack path is intentionally left on its
+            // existing normaliser for now (retired in a follow-up).
+            $bodyHtml = app(\App\Services\Docuperfect\SigningSurfaceResolver::class)
+                ->resolve($bodyHtml, $recipients, $user->name, $isSalesContext);
+
             // Store as merged_html so SignatureController uses it directly
             $webTemplateData['merged_html'] = $styles . $bodyHtml;
 
