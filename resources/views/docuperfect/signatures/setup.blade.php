@@ -270,7 +270,11 @@
 
         <div class="flex gap-4" style="height:calc(100vh - 240px); min-height:400px;">
             {{-- LEFT: Document pages --}}
-            <div class="flex-1 ds-status-card p-4 overflow-hidden flex flex-col">
+            {{-- min-w-0: a flex-1 item wrapping the 210mm document keeps a ~794px
+                 min-content size without it, which pushes the w-72 marker panel
+                 full-width below. Mirrors the working Fill & Review doc column
+                 (esign/wizard.blade.php — flex-1 … min-w-0). --}}
+            <div class="flex-1 min-w-0 ds-status-card p-4 overflow-hidden flex flex-col">
 
                 @if($isWebTemplate ?? false)
                 {{-- Web template: document preview — signature elements are visible in the HTML --}}
