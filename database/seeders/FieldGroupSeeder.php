@@ -77,11 +77,19 @@ class FieldGroupSeeder extends Seeder
             throw new \RuntimeException('FieldGroupSeeder: data file is invalid JSON.');
         }
 
-        // Any user for created_by (global groups). No users → nothing to do.
+        // docuperfect_field_groups.created_by is a NOT-NULL FK→users, so a
+        // user MUST exist. In the demo chain this seeder runs in Stage 1
+        // (after users); standalone it runs against a DB that already has
+        // users. A silent return here is what made a Stage-0 run produce 0
+        // groups invisibly — fail LOUD so any future misordering surfaces
+        // (safeSeed turns this into a visible "skipped" warning).
         $userId = DB::table('users')->where('is_active', 1)->value('id')
             ?? DB::table('users')->value('id');
         if (! $userId) {
-            return;
+            throw new \RuntimeException(
+                'FieldGroupSeeder needs ≥1 user (docuperfect_field_groups.created_by '
+                . 'is NOT NULL). Run it AFTER users exist (demo: Stage 1, not Stage 0).'
+            );
         }
 
         foreach ($data['groups'] as $g) {

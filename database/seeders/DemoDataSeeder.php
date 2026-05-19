@@ -298,11 +298,12 @@ class DemoDataSeeder extends Seeder
             SalesMandatoryDisclosureEsignSeeder::class, // + Sales Mandatory Disclosure (CDS #123, type 11)
             SellerMandatoryAddendumSeeder::class,       // + Seller Mandatory Addendum (CDS #120, type 13)
             ExclusiveAuthorityToSellSeeder::class,      // + Exclusive Authority to Sell (CDS #111, type 1)
-            // Field groups (8, captured from real nexus_os; named fields
-            // resolved by triple, group ids stable so template
-            // fieldGroupId=8 "Seller Name Surname ID" resolves). After the
-            // template seeders so the triples' named fields already exist.
-            FieldGroupSeeder::class,                    // + docuperfect_field_groups (8, id-stable)
+            // NOTE: FieldGroupSeeder is NOT here. docuperfect_field_groups
+            // .created_by is a NOT-NULL FK→users, but Stage 0 runs BEFORE
+            // Stage 1 creates any users — so a Stage-0 FieldGroupSeeder hit
+            // its "no user" guard and silently produced 0 groups inside the
+            // full chain (worked only standalone, once users existed). It
+            // now runs in Stage 1, after users. See stage1_agencyBranchesUsers.
         ] as $seeder) {
             $this->safeSeed(class_basename($seeder), fn () => $this->call([$seeder]));
         }
@@ -415,6 +416,12 @@ class DemoDataSeeder extends Seeder
 
         // DealPipelineTemplateSeeder needs ≥1 user — run it now.
         $this->safeSeed('DealPipelineTemplateSeeder', fn () => $this->call([DealPipelineTemplateSeeder::class]));
+        // Field groups: docuperfect_field_groups.created_by is a NOT-NULL
+        // FK→users, so this MUST run after Stage 1 users exist (in Stage 0
+        // it silently produced 0). Named fields resolved by triple; group
+        // ids stable so template fieldGroupId=8 "Seller Name Surname ID"
+        // resolves. Independent of the Stage-0 e-sign template seeders.
+        $this->safeSeed('FieldGroupSeeder', fn () => $this->call([FieldGroupSeeder::class]));
         // Web pack needs ≥1 user (web_packs.created_by NOT NULL) + the
         // templates from Stage 0 — runs here, after both exist.
         $this->safeSeed('SellerOnboardingPackSeeder', fn () => $this->call([SellerOnboardingPackSeeder::class]));
