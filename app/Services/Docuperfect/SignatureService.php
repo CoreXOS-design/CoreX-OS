@@ -1816,12 +1816,28 @@ class SignatureService
         $docTemplate = $document->template;
         $docName = ($document->name ?? 'Signed Document') . ' (Signed).pdf';
 
+        // FIX 2 — never file a Document that points at a non-existent PDF.
+        // A row with a missing storage_path 500s on download (Flysystem
+        // UnableToRetrieveMetadata). Fail loudly + recoverable instead of
+        // silently creating a broken record.
+        $absPdfPath = storage_path("app/{$pdfPath}");
+        if (!is_file($absPdfPath)) {
+            Log::error('Auto-file: refusing to create a Document for a missing PDF', [
+                'template_id'  => $template->id,
+                'document_id'  => $document->id ?? null,
+                'storage_path' => $pdfPath,
+                'abs_path'     => $absPdfPath,
+                'recoverable'  => true,
+            ]);
+            return;
+        }
+
         $filedDoc = \App\Models\Document::create([
             'original_name'    => $docName,
             'storage_path'     => $pdfPath,
             'disk'             => 'local',
             'mime_type'        => 'application/pdf',
-            'size'             => file_exists(storage_path("app/{$pdfPath}")) ? filesize(storage_path("app/{$pdfPath}")) : 0,
+            'size'             => filesize($absPdfPath),
             'document_type_id' => $docTemplate?->document_type_id,
             'source_type'      => 'esign',
             'source_id'        => $template->id,
@@ -1908,7 +1924,20 @@ class SignatureService
             }
 
             $docName = ($tpl->name ?? 'Document') . ' (Signed).pdf';
-            $fileSize = file_exists($fullStoragePath) ? filesize($fullStoragePath) : 0;
+
+            // FIX 2 — never file a Document that points at a non-existent PDF
+            // (rename above could have failed). A broken row 500s on download.
+            if (!is_file($fullStoragePath)) {
+                Log::error('Auto-file pack: refusing to create a Document for a missing PDF', [
+                    'template_id'      => $template->id,
+                    'pack_template_id' => $tplId,
+                    'template_name'    => $tpl->name,
+                    'storage_path'     => $individualPdfPath,
+                    'recoverable'      => true,
+                ]);
+                continue;
+            }
+            $fileSize = filesize($fullStoragePath);
 
             $filedDoc = \App\Models\Document::create([
                 'original_name'    => $docName,
@@ -1948,13 +1977,23 @@ class SignatureService
             $styles = implode("\n", $styleMatches[0]);
         }
 
-        // Split at .corex-document-wrapper boundaries
-        // Pattern: find each <div class="corex-document-wrapper">...</div> (outermost closing)
+        // Split at .corex-document-wrapper boundaries.
+        // §20: stampDisclosureDocKeys() (ESignWizardController) inserts
+        // data-disclosure-doc="..." BETWEEN <div and class=, so the real tag
+        // is `<div data-disclosure-doc="..." class="corex-document-wrapper"`.
+        // A literal '<div class="corex-document-wrapper"' strpos therefore
+        // matches NOTHING → 0 fragments → filePackDocuments fallback fires →
+        // the whole pack is mis-filed as one document. Detect the wrapper's
+        // opening <div> by the SAME attribute-order-independent regex that
+        // stampDisclosureDocKeys() uses to find wrappers — one shared rule,
+        // so the stamp (or any future added attribute) can never desync the
+        // split again.
         $fragments = [];
         $offset = 0;
-        $wrapperTag = '<div class="corex-document-wrapper"';
+        $wrapperRe = '/<div\b[^>]*\bclass\s*=\s*"[^"]*\bcorex-document-wrapper\b[^"]*"[^>]*>/i';
 
-        while (($pos = strpos($mergedHtml, $wrapperTag, $offset)) !== false) {
+        while (preg_match($wrapperRe, $mergedHtml, $m, PREG_OFFSET_CAPTURE, $offset)
+            && ($pos = $m[0][1]) !== false) {
             // Find the matching closing </div> — count nested divs
             $depth = 0;
             $searchPos = $pos;
