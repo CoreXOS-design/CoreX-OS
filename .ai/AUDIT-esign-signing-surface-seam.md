@@ -235,6 +235,43 @@ resolved as follows:
 `isMyWebSigBlock`'s exact-suffix rule is retained — correct given consistent
 `_n` keying end-to-end.
 
+**§20.11 RATIFIED RULE — no static single-party signature points (APPROVED,
+implemented).** No web template may contain a static single-party signature
+point. Every signature/initial location uses the looping recipient-driven
+component (`signature-block`, or `signature-line` per actual signing party);
+the party set is driven by the document's signing parties/recipients per §20,
+never hardcoded to `agent` (or any single static party). A full sweep of all
+web-template blades found exactly four templates carrying the #119
+pre-Part-B defect (a static `signature-line ['party'=>'agent']` at a
+legally-required owner/seller certification point, with the terminal
+`signature-block` already correctly looping):
+
+- `cds/template-119.blade.php:17` — SALES ADDENDUM B — fixed (Part B).
+- `cds/template-120.blade.php:17` — Seller Mandatory Addendum — fixed here →
+  `signature-line ['party'=>'seller']` + `['party'=>'agent']`.
+- `cds/template-117.blade.php:38` — Sales Mandatory (PPA s70 disclosure) —
+  fixed here. Signatory set chosen = **seller + agent** (NOT seller+buyer+
+  agent): clause 6 *Owner's certification* + clause 7 *Certification by
+  person supplying information* make the owner/seller the certifier and the
+  agent/practitioner the co-certifier; clause 9 *Buyer's acknowledgement* is
+  receipt-only and is captured by the existing terminal block which already
+  includes Buyer. A buyer surface at the certification line would be legally
+  wrong and risk a dead cell.
+- `web-templates/sales-mandatory-disclosure.blade.php:63` (template 123,
+  hand-authored) — Sales Mandatory Disclosure — fixed here → seller + agent
+  (owner-certification point).
+
+The sweep is complete: these four are the full set. `cds/template-112`
+(no template row; a no-party `signature-line` that renders nothing signable,
+terminal block already correct) is a separate minor dead-inline and is
+intentionally left untouched. Frozen `merged_html` snapshots predating a
+template's fix are NOT retroactively repaired by the blade edit (they serve
+the stored snapshot) — affected: #119 (13 frozen docs) and #123/doc#363
+(1 frozen doc, `pending_agent_approval`); 117 and 120 have zero documents.
+Root-cause guard (the CDS compiler emitting the looping component instead of
+a static per-party `signature-line` from incomplete `cds_json.parties`) is
+recorded as the durable Delivery-B follow-up, separate from this remediation.
+
 ---
 
 ## 6. Bottom line for Johan

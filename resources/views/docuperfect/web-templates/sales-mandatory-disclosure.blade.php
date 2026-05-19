@@ -60,7 +60,7 @@
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Both the owner as well as potential buyers of the property may wish to obtain professional advice and/or to undertake a professional inspection of the property. Under such circumstances adequate provisions must be contained in any agreement of sale to be concluded between the parties pertaining to the obtaining of any such professional advice and/or the conducting of required inspections and/or the disclosure of defects and/or the making of required warranties. </span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-number">9</span> <span class="corex-clause-text"><strong>Buyer’s acknowledgement </strong></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">The prospective buyer acknowledges that he/she has been informed that professional expertise and/or technical skill and knowledge may be required to detect defects in, and non-compliant aspects concerning, the property. The prospective buyer acknowledges receipt of a copy of this statement. </span></div>
-@include("docuperfect.web-templates.components.signature-line", ['party' => 'agent'])</div>
+@include("docuperfect.web-templates.components.signature-line", ['party' => 'seller'])@include("docuperfect.web-templates.components.signature-line", ['party' => 'agent'])</div>
 
 @include("docuperfect.web-templates.components.signature-block", ["parties" => ["Seller", "Agent", "Buyer"]])
 
