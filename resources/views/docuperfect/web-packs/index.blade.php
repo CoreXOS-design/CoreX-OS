@@ -92,7 +92,7 @@
                                 {{ $webPack->createdBy?->name ?? '—' }}
                             </td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">
-                                {{ $webPack->created_at->format('d M Y') }}
+                                {{ $webPack->created_at?->format('d M Y') ?? '—' }}
                             </td>
                             @if($canManage)
                             <td class="px-4 py-3 text-right">

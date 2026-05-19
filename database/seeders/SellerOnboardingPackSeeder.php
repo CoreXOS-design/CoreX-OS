@@ -53,17 +53,25 @@ class SellerOnboardingPackSeeder extends Seeder
             );
         }
 
-        DB::table('web_packs')->updateOrInsert(
-            ['agency_id' => $agencyId, 'name' => self::PACK_NAME],
-            [
-                'created_by'  => $createdBy,
-                'description' => 'Marketing Permission + Mandatory Disclosure for a new seller. FICA via the per-recipient toggle.',
-                'updated_at'  => now(),
-            ]
-        );
-
-        $packId = DB::table('web_packs')
-            ->where('agency_id', $agencyId)->where('name', self::PACK_NAME)->value('id');
+        // updateOrInsert applies its values on BOTH insert and update and
+        // never auto-sets created_at (raw query builder, no Eloquent
+        // timestamps) — a freshly-seeded pack ended up with created_at NULL
+        // and crashed the /web-packs list. Set created_at only on insert.
+        $values = [
+            'created_by'  => $createdBy,
+            'description' => 'Marketing Permission + Mandatory Disclosure for a new seller. FICA via the per-recipient toggle.',
+            'updated_at'  => now(),
+        ];
+        $existing = DB::table('web_packs')
+            ->where('agency_id', $agencyId)->where('name', self::PACK_NAME)->first();
+        if ($existing) {
+            DB::table('web_packs')->where('id', $existing->id)->update($values);
+            $packId = $existing->id;
+        } else {
+            $packId = DB::table('web_packs')->insertGetId(
+                $values + ['agency_id' => $agencyId, 'name' => self::PACK_NAME, 'created_at' => now()]
+            );
+        }
 
         $items = [
             ['template_id' => $marketingId,  'sort_order' => 0,  'slot_label' => 'Marketing Permission Esign'],

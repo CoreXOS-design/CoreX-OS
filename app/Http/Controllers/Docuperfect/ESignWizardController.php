@@ -1520,6 +1520,14 @@ class ESignWizardController extends Controller
                 $tplData = $webTemplateDataService->resolve($tplId, $stepData, $user);
                 if (!empty($tpl->signing_parties)) {
                     $tplData['signing_parties'] = $tpl->signing_parties;
+                    // Parity with the single-doc path (see ~line 1602): the
+                    // signature-block component maps owner_party→Seller/Lessor
+                    // off document_context. The pack loop never set it, so
+                    // EVERY pack template baked "Lessor" even for a sales
+                    // pack. Resolve per template (category/template_type
+                    // aware) so each segment of a mixed pack is correct.
+                    $propSrc = $stepData['property']['_property_source'] ?? null;
+                    $tplData['document_context'] = $tpl->isSalesDocument($propSrc) ? 'sales' : 'rental';
                 }
 
                 // Render the template and extract styles + body
