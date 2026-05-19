@@ -1668,12 +1668,35 @@ class ESignWizardController extends Controller
             $partyNames[] = $user->name;
             $viewData['party_names'] = $partyNames;
 
-            // Build recipients_by_role for signature-line component (inline sigs)
+            // Build recipients_by_role for the signature-line / signature-block
+            // component loop (inline + terminal sigs). The component looks up
+            // the CONCRETE role it derives from signing_parties+document_context
+            // (seller/buyer or landlord/tenant) — NOT the generic owner_party.
+            // Key by that concrete role FIRST so the EXISTING per-recipient
+            // loop fires: two sellers => recipients_by_role['seller'] has 2 =>
+            // loop emits seller + seller_2 (keyed identically to
+            // signature_requests.party_role). Without this the lookup misses
+            // and the loop collapses N sellers into one cell. Sales vs rental
+            // follows the SAME classifier that sets document_context above.
+            $isSalesForKeying = $template->isSalesDocument($propSource);
+            $ownerCanon = $isSalesForKeying ? 'seller' : 'landlord';
+            $acqCanon   = $isSalesForKeying ? 'buyer'  : 'tenant';
+            $ownerTerms = ['owner_party', 'owner', 'lessor', 'landlord', 'seller'];
+            $acqTerms   = ['acquiring_party', 'lessee', 'tenant', 'buyer', 'purchaser'];
+            $agentTerms = ['agent', 'property_practitioner'];
             $recipientsByRole = [];
             foreach ($recipients as $r) {
-                $role = $r['role'] ?? '';
-                $baseRole = preg_replace('/_\d+$/', '', $role);
-                $recipientsByRole[$baseRole][] = $r;
+                $base = strtolower(preg_replace('/_\d+$/', '', $r['role'] ?? ''));
+                if (in_array($base, $ownerTerms, true)) {
+                    $key = $ownerCanon;
+                } elseif (in_array($base, $acqTerms, true)) {
+                    $key = $acqCanon;
+                } elseif (in_array($base, $agentTerms, true)) {
+                    $key = 'agent';
+                } else {
+                    $key = $base !== '' ? $base : 'other';
+                }
+                $recipientsByRole[$key][] = $r;
             }
             // Always include agent from authenticated user — recipients step doesn't have an agent entry
             $recipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];

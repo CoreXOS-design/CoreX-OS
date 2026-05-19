@@ -197,6 +197,44 @@ rows or keys.
 is built; the fix is built to §20, not to the symptom list; the four sites
 are reconciled to one resolver in a single structural change, not N patches.
 
+**§20.10 AMENDMENT — surfaces are placed PER RECIPIENT by the existing
+render-time component loop (APPROVED, implemented).** Investigation confirmed
+CoreX's render-time per-recipient loop
+(`signature-block.blade.php:45-75`, `signature-line.blade.php:21-31`) ALREADY
+places N blocks for N same-role recipients — it works for exclusive web
+docs. It did not fire for #119 because `recipients_by_role` was keyed by the
+GENERIC role (`owner_party`) at `ESignWizardController.php:1672-1677` while
+the component loop looks up the CONCRETE role (`seller`/`landlord`) → lookup
+miss → `else`-branch collapsed N sellers into ONE cell. The contradictory
+"one canonical recipient role key" vs "one surface per recipient" clause is
+resolved as follows:
+
+- The single consistent path is: at `prepareSigning`, resolve each
+  recipient's generic role to the CONCRETE key the component derives from
+  `signing_parties`+`document_context` (sales: `owner_party`→`seller`,
+  `acquiring_party`→`buyer`; rental: `landlord`/`tenant`) BEFORE building
+  `recipients_by_role`. The EXISTING component loop then emits one block per
+  recipient keyed `seller`, `seller_2`, … — byte-identical to
+  `signature_requests.party_role` (`:1837-1844`) and to
+  `normalizePackMarkerParties`/`buildCanonicalRecipients`. The component
+  loop is NOT modified — it was always correct; it was starved of the right
+  key.
+- #119's hand-authored inline (`template-119.blade.php:17`,
+  static `signature-line ['party'=>'agent']`) is re-authored (non-
+  destructive, Approach A — NOT a CDS recompile, which would destroy the
+  approved Part B disclosure grid) to the looping
+  `signature-line ['party'=>'seller']` + `['party'=>'agent']` so the inline
+  SIG rejoins the same recipient loop.
+- The `SigningSurfaceResolver` (§20.1–20.6) is DEMOTED — not deleted — to:
+  (i) a re-key guard for legacy/mismatched markers, and (ii) a fail-safe
+  inject only if a recipient STILL has no surface. It is idempotent against
+  the loop's output: verified it does NOT inject when the loop already
+  emitted correctly-keyed `seller`/`seller_2` surfaces. It is no longer the
+  placement mechanism.
+
+`isMyWebSigBlock`'s exact-suffix rule is retained — correct given consistent
+`_n` keying end-to-end.
+
 ---
 
 ## 6. Bottom line for Johan
