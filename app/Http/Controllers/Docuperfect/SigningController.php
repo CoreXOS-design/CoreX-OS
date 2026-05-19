@@ -1940,8 +1940,28 @@ class SigningController extends Controller
         }
 
         $cleanupCss = $this->getPdfCleanupCss();
+        $brandFontCss = $this->embeddedBrandFontFaces();
+
+        // Zero external requests during PDF render: strip any remote Google
+        // Fonts <link>/@import the stored merged_html may carry. Chromium
+        // loading these over a network it cannot reach is what hung
+        // page.goto(networkidle0) for the full timeout. Fonts are now
+        // self-hosted via $brandFontCss (embedded below).
+        $mergedHtml = preg_replace(
+            '#<link\b[^>]*href=["\']https?://fonts\.(?:googleapis|gstatic)\.com[^"\']*["\'][^>]*>#i',
+            '',
+            $mergedHtml
+        );
+        $mergedHtml = preg_replace(
+            '#@import\s+(?:url\()?["\']?https?://fonts\.(?:googleapis|gstatic)\.com[^;]*;#i',
+            '',
+            $mergedHtml
+        );
 
         $pdfStyles = <<<CSS
+/* === Self-hosted brand fonts (embedded — NO external network) === */
+{$brandFontCss}
+
 /* === CDS Document Stylesheet (inlined from corex-document.css) === */
 {$cdsStylesheet}
 
@@ -2027,7 +2047,6 @@ CSS;
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
     <style>
         {$pdfStyles}
     </style>
@@ -2037,6 +2056,54 @@ CSS;
 </body>
 </html>
 HTML;
+    }
+
+    /**
+     * Self-hosted @font-face rules for the document's brand families,
+     * embedded as base64 data: URIs so PDF rendering makes ZERO external
+     * network requests (the remote Google Fonts <link> previously hung
+     * Puppeteer's networkidle0 for the full timeout when the server could
+     * not reach fonts.googleapis.com).
+     *
+     * The brand woff2 (Plus Jakarta Sans / Dancing Script) are not bundled
+     * in the repo and cannot be fetched offline; the bundled DejaVu faces
+     * (already shipped with dompdf) are mapped under the brand family names
+     * so every signed PDF renders deterministically and identically in any
+     * environment. Pixel-exact brand typeface is a follow-up asset task —
+     * it does not block correctness, determinism, or the legal record.
+     * Fail-open: if a face file is unreadable, that face is skipped and
+     * Chromium's default sans is used (still zero external requests).
+     */
+    private function embeddedBrandFontFaces(): string
+    {
+        $fontDir = base_path('vendor/dompdf/dompdf/lib/fonts');
+        $faces = [
+            ['family' => 'Plus Jakarta Sans', 'weight' => 400, 'style' => 'normal', 'file' => 'DejaVuSans.ttf'],
+            ['family' => 'Plus Jakarta Sans', 'weight' => 700, 'style' => 'normal', 'file' => 'DejaVuSans-Bold.ttf'],
+            ['family' => 'Plus Jakarta Sans', 'weight' => 400, 'style' => 'italic', 'file' => 'DejaVuSans-Oblique.ttf'],
+            ['family' => 'Dancing Script',    'weight' => 400, 'style' => 'normal', 'file' => 'DejaVuSans.ttf'],
+            ['family' => 'Dancing Script',    'weight' => 700, 'style' => 'normal', 'file' => 'DejaVuSans-Bold.ttf'],
+        ];
+
+        $css = '';
+        $cache = [];
+        foreach ($faces as $f) {
+            $path = $fontDir . DIRECTORY_SEPARATOR . $f['file'];
+            if (!array_key_exists($f['file'], $cache)) {
+                $cache[$f['file']] = is_readable($path)
+                    ? base64_encode((string) file_get_contents($path))
+                    : null;
+            }
+            $b64 = $cache[$f['file']];
+            if ($b64 === null) {
+                continue; // fail-open — skip this face, no external fallback
+            }
+            $css .= "@font-face{font-family:'{$f['family']}';font-style:{$f['style']};"
+                  . "font-weight:{$f['weight']};font-display:block;"
+                  . "src:url(data:font/ttf;base64,{$b64}) format('truetype');}\n";
+        }
+
+        return $css;
     }
 
     /**

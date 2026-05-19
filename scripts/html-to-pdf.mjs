@@ -61,9 +61,23 @@ try {
 
     const page = await browser.newPage();
 
-    // Navigate to the local HTML file
+    // Navigate to the local HTML file. A self-contained local file:// page
+    // must render in seconds — 'load' fires when the document + its
+    // (embedded, local) resources are parsed. 'networkidle0' is deliberately
+    // NOT used: any single stalled request (e.g. an unreachable remote font)
+    // makes it never settle and blocks the full timeout. Fonts are embedded
+    // (data: URIs) so there are no network requests to wait on. Short
+    // timeout = fail fast, never a multi-minute hang.
     const fileUrl = pathToFileURL(inputPath).href;
-    await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 120000 });
+    await page.goto(fileUrl, { waitUntil: 'load', timeout: 20000 });
+
+    // Ensure embedded @font-face faces are parsed/applied before capture so
+    // glyphs are not rendered with a fallback. Guarded so a stuck/older
+    // engine cannot hang here either.
+    await Promise.race([
+        page.evaluate(async () => { try { await document.fonts.ready; } catch (e) {} }),
+        new Promise(r => setTimeout(r, 5000)),
+    ]);
 
     // Emulate print media for @media print styles
     await page.emulateMediaType('print');

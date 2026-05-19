@@ -1646,51 +1646,76 @@ class SignatureService
             documentHash: $template->document_hash,
         );
 
-        // 2. Generate both signed PDF versions (internal + client)
-        $pdfPaths = $this->pdfService->generate($template);
+        // Steps 2-6 run AFTER the completion commits. Completion (status +
+        // audit above) is the legal record and must be durable on its own.
+        // PDF generation (Puppeteer) is slow/external-failure-prone and was
+        // previously executed INSIDE approveAndAdvance's DB::transaction, so
+        // a 2-minute Puppeteer hang + force-close rolled back a legally
+        // completed signing and made retries hang identically. Deferring via
+        // DB::afterCommit guarantees: completion is committed first; a slow
+        // or failing PDF/file/email NEVER undoes completion; failures are
+        // logged and recoverable. (No active transaction => runs inline,
+        // same effect, still after the status write.)
+        DB::afterCommit(function () use ($template) {
+            try {
+                // 2. Generate both signed PDF versions (internal + client)
+                $pdfPaths = $this->pdfService->generate($template);
 
-        if ($pdfPaths) {
-            $template->update([
-                'signed_pdf_path' => $pdfPaths['internal'],
-                'signed_pdf_client_path' => $pdfPaths['client'],
-            ]);
+                if ($pdfPaths) {
+                    $template->update([
+                        'signed_pdf_path' => $pdfPaths['internal'],
+                        'signed_pdf_client_path' => $pdfPaths['client'],
+                    ]);
 
-            SignatureAuditLog::log(
-                $template,
-                SignatureAuditLog::ACTION_DOCUMENT_COMPLETED,
-                SignatureAuditLog::ACTOR_SYSTEM,
-                'System',
-                metadata: [
-                    'signed_pdf_path' => $pdfPaths['internal'],
-                    'signed_pdf_client_path' => $pdfPaths['client'],
-                    'total_signatures' => $template->signatures()->count(),
-                    'parties_completed' => $template->partyProgress(),
-                ],
-                documentHash: $template->document_hash,
-            );
-        } else {
-            Log::error('SignatureService: Signed PDF generation failed, emails will NOT include PDF attachment', [
-                'template_id' => $template->id,
-                'document_id' => $template->document_id,
-                'document_name' => $template->document->name ?? 'unknown',
-                'has_flattened_pages' => !empty($template->flattened_pages_json),
-                'page_count' => $template->document->template?->page_count ?? 0,
-            ]);
-        }
+                    SignatureAuditLog::log(
+                        $template,
+                        SignatureAuditLog::ACTION_DOCUMENT_COMPLETED,
+                        SignatureAuditLog::ACTOR_SYSTEM,
+                        'System',
+                        metadata: [
+                            'signed_pdf_path' => $pdfPaths['internal'],
+                            'signed_pdf_client_path' => $pdfPaths['client'],
+                            'total_signatures' => $template->signatures()->count(),
+                            'parties_completed' => $template->partyProgress(),
+                        ],
+                        documentHash: $template->document_hash,
+                    );
+                } else {
+                    Log::error('SignatureService: Signed PDF generation failed, emails will NOT include PDF attachment', [
+                        'template_id' => $template->id,
+                        'document_id' => $template->document_id,
+                        'document_name' => $template->document->name ?? 'unknown',
+                        'has_flattened_pages' => !empty($template->flattened_pages_json),
+                        'page_count' => $template->document->template?->page_count ?? 0,
+                    ]);
+                }
 
-        // 3. Email signed copies — client copy to signers, internal copy to agent
-        $this->sendCompletionEmails($template, $pdfPaths);
+                // 3. Email signed copies — client to signers, internal to agent
+                $this->sendCompletionEmails($template, $pdfPaths);
 
-        // 4. Link document to contacts via pivot (for FICA tracking / compliance)
-        $this->linkDocumentToContacts($template, $pdfPaths);
+                // 4. Link document to contacts via pivot (FICA / compliance)
+                $this->linkDocumentToContacts($template, $pdfPaths);
 
-        // 5. Auto-file signed document to Contact Drive and Property Drive
-        $this->autoFileSignedDocument($template, $pdfPaths);
+                // 5. Auto-file signed document to Contact + Property Drive
+                $this->autoFileSignedDocument($template, $pdfPaths);
 
-        // 6. Extract lease data if this is a lease/rental document
-        if ($this->isLeaseDocument($template)) {
-            $this->createLeaseRecord($template);
-        }
+                // 6. Extract lease data if this is a lease/rental document
+                if ($this->isLeaseDocument($template)) {
+                    $this->createLeaseRecord($template);
+                }
+            } catch (\Throwable $e) {
+                // The signing is already COMPLETED and committed. Post-
+                // completion delivery/filing failure is logged and
+                // recoverable — it must NOT surface as a rollback or a
+                // 500 that implies the signing failed.
+                Log::error('SignatureService: post-completion (PDF/file/email) step failed — document remains COMPLETED', [
+                    'template_id' => $template->id,
+                    'document_id' => $template->document_id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+        });
     }
 
     /**
