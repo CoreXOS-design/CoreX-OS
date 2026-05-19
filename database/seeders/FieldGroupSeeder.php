@@ -2,87 +2,121 @@
 
 namespace Database\Seeders;
 
-use App\Models\Docuperfect\FieldGroup;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Reproduces docuperfect_field_groups from a byte-for-byte capture of the
+ * real nexus_os groups (database/seeders/data/field-groups.json) so
+ * demo:seed builds them on a fresh nexus_os_demo identically.
+ *
+ * Two hard-coded-id hazards are removed:
+ *  1. Named fields are resolved by the (source_type, source_column,
+ *     source_contact_type) TRIPLE via nf() — find-or-create, never a
+ *     hard-coded named_field_id. (Identical to MarketingPermissionEsignSeeder.)
+ *  2. The group `id` is PRESERVED from the fixture. e-sign template
+ *     fixtures reference a group by fieldGroupId (e.g. Marketing Permission
+ *     + Exclusive Authority use fieldGroupId=8 → "Seller Name Surname ID").
+ *     Keeping the id stable means those references resolve on any fresh DB
+ *     without rewriting the template captures.
+ *
+ * Idempotent: each group is upserted by its stable id (find-or-create, NO
+ * truncate — re-run never duplicates, never wipes user-created groups).
+ * created_at is set only on insert (raw query builder has no timestamp
+ * magic; a NULL created_at breaks the Field Groups screen).
+ */
 class FieldGroupSeeder extends Seeder
 {
+    private const DATA_FILE = 'database/seeders/data/field-groups.json';
+
+    /**
+     * Find-or-create a docuperfect_named_fields row by its source triple,
+     * returning its id. Mirrors MarketingPermissionEsignSeeder::nf so
+     * resolution is stable across environments without hard-coded ids.
+     */
+    private function nf(array $ref): int
+    {
+        $sourceType   = $ref['source_type'];
+        $sourceColumn = $ref['source_column'];
+        $contactType  = $ref['source_contact_type'] ?? null;
+
+        $q = DB::table('docuperfect_named_fields')
+            ->where('source_type', $sourceType)
+            ->where('source_column', $sourceColumn)
+            ->whereNull('deleted_at');
+        $q = $contactType === null
+            ? $q->whereNull('source_contact_type')
+            : $q->where('source_contact_type', $contactType);
+
+        $id = $q->value('id');
+        if ($id) {
+            return (int) $id;
+        }
+
+        return (int) DB::table('docuperfect_named_fields')->insertGetId([
+            'name'                => $ref['name'] ?? ($sourceType . '.' . $sourceColumn),
+            'field_type'          => $ref['field_type'] ?? 'text',
+            'source_type'         => $sourceType,
+            'source_column'       => $sourceColumn,
+            'source_contact_type' => $contactType,
+            'sort_order'          => 900,
+            'created_at'          => now(),
+            'updated_at'          => now(),
+        ]);
+    }
+
     public function run(): void
     {
-        // Truncate existing default groups before re-seeding
-        DB::table('docuperfect_field_groups')->truncate();
+        $path = base_path(self::DATA_FILE);
+        if (! is_file($path)) {
+            throw new \RuntimeException('FieldGroupSeeder: missing data file ' . self::DATA_FILE);
+        }
 
-        // Get any user as created_by for global groups
+        $data = json_decode((string) file_get_contents($path), true);
+        if (! is_array($data) || empty($data['groups'])) {
+            throw new \RuntimeException('FieldGroupSeeder: data file is invalid JSON.');
+        }
+
+        // Any user for created_by (global groups). No users → nothing to do.
         $userId = DB::table('users')->where('is_active', 1)->value('id')
             ?? DB::table('users')->value('id');
-
-        if (!$userId) {
+        if (! $userId) {
             return;
         }
 
-        // Define the 6 default global groups with confirmed named_field IDs
-        $groupDefs = [
-            [
-                'name' => 'Lessor — Name only',
-                'fields' => [
-                    ['named_field_id' => 1, 'label_override' => null],  // Rental - Lessor
-                ],
-            ],
-            [
-                'name' => 'Lessor — Name + ID',
-                'fields' => [
-                    ['named_field_id' => 1, 'label_override' => null],  // Rental - Lessor
-                    ['named_field_id' => 3, 'label_override' => null],  // Lessor ID
-                ],
-            ],
-            [
-                'name' => 'Lessor — Full',
-                'fields' => [
-                    ['named_field_id' => 1, 'label_override' => null],   // Rental - Lessor
-                    ['named_field_id' => 3, 'label_override' => null],   // Lessor ID
-                    ['named_field_id' => 2, 'label_override' => null],   // Lessor Address
-                    ['named_field_id' => 34, 'label_override' => null],  // Lessor Contact Number
-                    ['named_field_id' => 35, 'label_override' => null],  // Lessor email
-                ],
-            ],
-            [
-                'name' => 'Lessee — Name + ID',
-                'fields' => [
-                    ['named_field_id' => 4, 'label_override' => null],  // Lessee Name
-                    ['named_field_id' => 6, 'label_override' => null],  // Lessee ID
-                ],
-            ],
-            [
-                'name' => 'Property — Address',
-                'fields' => [
-                    ['named_field_id' => 19, 'label_override' => null],  // Property Address
-                    ['named_field_id' => 24, 'label_override' => null],  // Suburb
-                ],
-            ],
-            [
-                'name' => 'Property — Full',
-                'fields' => [
-                    ['named_field_id' => 19, 'label_override' => null],  // Property Address
-                    ['named_field_id' => 10, 'label_override' => null],  // Property Number
-                    ['named_field_id' => 11, 'label_override' => null],  // Complex
-                    ['named_field_id' => 24, 'label_override' => null],  // Suburb
-                    ['named_field_id' => 25, 'label_override' => null],  // District
-                ],
-            ],
-        ];
+        foreach ($data['groups'] as $g) {
+            // Resolve each member field by its stable triple → this DB's id.
+            $resolvedFields = [];
+            foreach (($g['fields'] ?? []) as $f) {
+                $resolvedFields[] = [
+                    'named_field_id' => $this->nf($f['nf']),
+                    'label_override' => $f['label_override'] ?? null,
+                ];
+            }
 
-        foreach ($groupDefs as $sortOrder => $def) {
-            FieldGroup::create([
-                'agency_id' => null,
-                'created_by' => $userId,
-                'name' => $def['name'],
-                'description' => null,
-                'fields' => $def['fields'],
-                'layout' => 'vertical',
-                'is_global' => true,
-                'sort_order' => ($sortOrder + 1) * 10,
-            ]);
+            $values = [
+                'name'        => $g['name'],
+                'description' => $g['description'] ?? null,
+                'fields'      => json_encode($resolvedFields, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                'layout'      => $g['layout'] ?? 'horizontal',
+                'is_global'   => ! empty($g['is_global']),
+                'agency_id'   => $g['agency_id'] ?? null,
+                'sort_order'  => (int) ($g['sort_order'] ?? 0),
+                'created_by'  => $userId,
+                'updated_at'  => now(),
+            ];
+
+            // Idempotent + id-stable: key by the fixture id so e-sign
+            // template fieldGroupId references stay valid. created_at only
+            // on insert (NULL created_at breaks the Field Groups screen).
+            $exists = DB::table('docuperfect_field_groups')->where('id', $g['id'])->exists();
+            if ($exists) {
+                DB::table('docuperfect_field_groups')->where('id', $g['id'])->update($values);
+            } else {
+                DB::table('docuperfect_field_groups')->insert(
+                    $values + ['id' => $g['id'], 'created_at' => now()]
+                );
+            }
         }
     }
 }

@@ -298,6 +298,11 @@ class DemoDataSeeder extends Seeder
             SalesMandatoryDisclosureEsignSeeder::class, // + Sales Mandatory Disclosure (CDS #123, type 11)
             SellerMandatoryAddendumSeeder::class,       // + Seller Mandatory Addendum (CDS #120, type 13)
             ExclusiveAuthorityToSellSeeder::class,      // + Exclusive Authority to Sell (CDS #111, type 1)
+            // Field groups (8, captured from real nexus_os; named fields
+            // resolved by triple, group ids stable so template
+            // fieldGroupId=8 "Seller Name Surname ID" resolves). After the
+            // template seeders so the triples' named fields already exist.
+            FieldGroupSeeder::class,                    // + docuperfect_field_groups (8, id-stable)
         ] as $seeder) {
             $this->safeSeed(class_basename($seeder), fn () => $this->call([$seeder]));
         }

@@ -1,0 +1,303 @@
+{
+    "_comment": "Captured READ-ONLY from nexus_os docuperfect_field_groups on 2026-05-19. Group `id` is preserved (e-sign template fixtures reference fieldGroupId by id, e.g. MP \"Seller Name Surname ID\"=8). Each field resolves its named field by the (source_type,source_column,source_contact_type) triple via FieldGroupSeeder::nf() — NO hard-coded ids.",
+    "groups": [
+        {
+            "id": 1,
+            "name": "Lessor â€” Name only",
+            "description": null,
+            "layout": "horizontal",
+            "is_global": true,
+            "agency_id": null,
+            "sort_order": 10,
+            "fields": [
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Rental - Lessor",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "first_name+last_name",
+                        "source_contact_type": "Lessor"
+                    }
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "name": "Lessor â€” Name + ID",
+            "description": null,
+            "layout": "horizontal",
+            "is_global": true,
+            "agency_id": null,
+            "sort_order": 20,
+            "fields": [
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Rental - Lessor",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "first_name+last_name",
+                        "source_contact_type": "Lessor"
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Lessor ID",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "id_number",
+                        "source_contact_type": "Lessor"
+                    }
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "name": "Lessor â€” Full",
+            "description": null,
+            "layout": "horizontal",
+            "is_global": true,
+            "agency_id": null,
+            "sort_order": 30,
+            "fields": [
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Lessor First Name",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "first_name",
+                        "source_contact_type": "Lessor"
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Lessor Last Name",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "last_name",
+                        "source_contact_type": "Lessor"
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Lessor ID",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "id_number",
+                        "source_contact_type": "Lessor"
+                    }
+                }
+            ]
+        },
+        {
+            "id": 4,
+            "name": "Lessee â€” Name + ID",
+            "description": null,
+            "layout": "horizontal",
+            "is_global": true,
+            "agency_id": null,
+            "sort_order": 40,
+            "fields": [
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Lessee First Name",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "first_name",
+                        "source_contact_type": "Lessee"
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Lessee Last Name",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "last_name",
+                        "source_contact_type": "Lessee"
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Lessee ID",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "id_number",
+                        "source_contact_type": "Lessee"
+                    }
+                }
+            ]
+        },
+        {
+            "id": 5,
+            "name": "Property â€” Address",
+            "description": null,
+            "layout": "horizontal",
+            "is_global": true,
+            "agency_id": null,
+            "sort_order": 50,
+            "fields": [
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Property Address",
+                        "field_type": "text",
+                        "source_type": "property",
+                        "source_column": "address+suburb",
+                        "source_contact_type": null
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Suburb",
+                        "field_type": "text",
+                        "source_type": "property",
+                        "source_column": "suburb",
+                        "source_contact_type": null
+                    }
+                }
+            ]
+        },
+        {
+            "id": 6,
+            "name": "Property â€” Full",
+            "description": null,
+            "layout": "horizontal",
+            "is_global": true,
+            "agency_id": null,
+            "sort_order": 60,
+            "fields": [
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Property Address",
+                        "field_type": "text",
+                        "source_type": "property",
+                        "source_column": "address+suburb",
+                        "source_contact_type": null
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Property Number",
+                        "field_type": "text",
+                        "source_type": "property",
+                        "source_column": "property_number",
+                        "source_contact_type": null
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Complex",
+                        "field_type": "text",
+                        "source_type": "property",
+                        "source_column": "complex_name",
+                        "source_contact_type": null
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Suburb",
+                        "field_type": "text",
+                        "source_type": "property",
+                        "source_column": "suburb",
+                        "source_contact_type": null
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "District",
+                        "field_type": "text",
+                        "source_type": "property",
+                        "source_column": "district",
+                        "source_contact_type": null
+                    }
+                }
+            ]
+        },
+        {
+            "id": 7,
+            "name": "Seller Name and Surname",
+            "description": null,
+            "layout": "horizontal",
+            "is_global": true,
+            "agency_id": null,
+            "sort_order": 70,
+            "fields": [
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Seller First Name",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "first_name",
+                        "source_contact_type": "Seller"
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Seller Last Name",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "last_name",
+                        "source_contact_type": "Seller"
+                    }
+                }
+            ]
+        },
+        {
+            "id": 8,
+            "name": "Seller Name Surname ID",
+            "description": null,
+            "layout": "horizontal",
+            "is_global": true,
+            "agency_id": null,
+            "sort_order": 80,
+            "fields": [
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Seller First Name",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "first_name",
+                        "source_contact_type": "Seller"
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Seller Last Name",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "last_name",
+                        "source_contact_type": "Seller"
+                    }
+                },
+                {
+                    "label_override": null,
+                    "nf": {
+                        "name": "Seller Id Number",
+                        "field_type": "text",
+                        "source_type": "contact",
+                        "source_column": "id_number",
+                        "source_contact_type": "Seller"
+                    }
+                }
+            ]
+        }
+    ]
+}
