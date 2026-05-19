@@ -1394,6 +1394,17 @@ class SignatureController extends Controller
                 $webData['ceremony_values'] = array_merge($webData['ceremony_values'] ?? [], $ceremonyValues);
             }
 
+            // §19.7 — adopt the agent's EXACT signed-and-paginated DOM as the
+            // merged_html base (per-document .corex-a4-page + per-page initial
+            // slots) so the next signer + the filed PDF/split see exactly what
+            // the agent saw. The server MUST NOT re-paginate.
+            $paginatedHtml = (string) $request->input('paginated_html', '');
+            if (trim($paginatedHtml) !== '' && (
+                    str_contains($paginatedHtml, 'corex-a4-page') ||
+                    str_contains($paginatedHtml, 'corex-document-wrapper'))) {
+                $webData['merged_html'] = $paginatedHtml;
+            }
+
             // Embed agent signature images and initials into merged_html so next signer sees them
             if (!empty($webData['merged_html'])) {
                 $html = $webData['merged_html'];

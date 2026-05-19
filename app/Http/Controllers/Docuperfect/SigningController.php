@@ -1119,6 +1119,20 @@ class SigningController extends Controller
             $webData['signed_initials'] = $existingInitials;
         }
 
+        // §19.7 — adopt the client's EXACT signed-and-paginated DOM as the
+        // merged_html base. It already carries the per-document
+        // .corex-document-wrapper > .corex-a4-page structure and per-page
+        // initial slots the signer saw, so the embed step below finds every
+        // initial/signature target, splitMergedHtml() splits the already-
+        // paginated DOM per document, and the PDF is generated from exactly
+        // what the signer signed. The server MUST NOT re-paginate.
+        $paginatedHtml = (string) $request->input('paginated_html', '');
+        if (trim($paginatedHtml) !== '' && (
+                str_contains($paginatedHtml, 'corex-a4-page') ||
+                str_contains($paginatedHtml, 'corex-document-wrapper'))) {
+            $webData['merged_html'] = $paginatedHtml;
+        }
+
         // Embed this signer's signatures, initials, and ceremony values into merged_html
         if (!empty($webData['merged_html']) && (!empty($signatures) || !empty($pageBreakInitials) || !empty($ceremonyValues))) {
             $sigController = app(SignatureController::class);

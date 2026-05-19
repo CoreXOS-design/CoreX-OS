@@ -1991,11 +1991,44 @@ function externalSign() {
         _syncTotalPagesFromPagination(container) {
             const root = container || this.$refs.webDocContent;
             if (!root) return;
-            const pages = root.querySelectorAll('.corex-a4-page');
-            if (pages.length > 0) {
-                this.totalPages = pages.length;
-                if (this.currentPage > this.totalPages) this.currentPage = this.totalPages;
-                if (this.currentPage < 1) this.currentPage = 1;
+            // §19.2 — per-DOCUMENT numbering. A pack is N documents; "Page X
+            // of N" reflects the document the signer is currently viewing
+            // (the .corex-a4-page nearest the viewport top), N = THAT
+            // document's page count (data-doc-total), restarting at 1 per
+            // document. Single docs: all pages share one docTotal → 1..N as
+            // before. Stays live as the signer scrolls through the pack.
+            const recompute = () => {
+                const pages = Array.from(root.querySelectorAll('.corex-a4-page'));
+                if (pages.length === 0) return;
+                let ref = pages[0], best = Infinity;
+                pages.forEach(p => {
+                    const top = p.getBoundingClientRect().top;
+                    const d = top >= -2 ? top : (Math.abs(top) + 1e6);
+                    if (d < best) { best = d; ref = p; }
+                });
+                const docTotal = parseInt(ref.getAttribute('data-doc-total') || '0', 10);
+                const pageIdx = parseInt(ref.getAttribute('data-page-index') || '0', 10);
+                if (docTotal > 0) {
+                    this.totalPages = docTotal;
+                    this.currentPage = Math.min(Math.max(pageIdx + 1, 1), docTotal);
+                } else {
+                    this.totalPages = pages.length;
+                    if (this.currentPage > this.totalPages) this.currentPage = this.totalPages;
+                    if (this.currentPage < 1) this.currentPage = 1;
+                }
+            };
+            recompute();
+            if (!this._cxPageScrollBound) {
+                this._cxPageScrollBound = true;
+                let raf = null;
+                const onScroll = () => {
+                    if (raf) return;
+                    raf = requestAnimationFrame(() => { raf = null; recompute(); });
+                };
+                let sc = root.parentElement;
+                while (sc && sc.scrollHeight <= sc.clientHeight && sc !== document.body) sc = sc.parentElement;
+                (sc || window).addEventListener('scroll', onScroll, { passive: true });
+                window.addEventListener('scroll', onScroll, { passive: true });
             }
         },
 
@@ -3131,6 +3164,12 @@ function externalSign() {
                                 .filter(e => e.isMine && e.signed && e.sigData)
                                 .map(e => [e.initKey, e.sigData])
                         ),
+                        // §19.7 — exact signed-and-paginated DOM (per-doc
+                        // .corex-a4-page + per-page initial slots). Server uses
+                        // it verbatim as merged_html (no server re-pagination)
+                        // so the filed PDF/split carry per-page initials
+                        // exactly as the signer saw them.
+                        paginated_html: this.$refs.webDocContent ? this.$refs.webDocContent.innerHTML : null,
                     }),
                 });
                 const data = await resp.json();
