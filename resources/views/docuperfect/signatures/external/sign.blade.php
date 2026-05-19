@@ -2650,8 +2650,8 @@ function externalSign() {
          * Process disclosure tables (corex-table with YES/NO/N/A headers)
          * and inject radio button inputs into each data row.
          */
-        _processDisclosureTable() {
-            const container = this.$refs.webDocContent || null;
+        _processDisclosureTable(root) {
+            const container = root || this.$refs.webDocContent || null;
             if (!container) return;
 
             const self = this;
@@ -2659,13 +2659,16 @@ function externalSign() {
             let totalRows = 0;
 
             tables.forEach(table => {
-                // §19 — a <table> wrapped in .corex-disclosure-checklist is
-                // owned SOLELY by processWebDisclosureChecklists(). Never
-                // double-process it here: doing so double-counts
-                // totalDisclosureRows (required=2x, satisfied=1x → the gate
-                // can never clear) and destroys the .corex-radio-placeholder
-                // controls the checklist converter needs.
-                if (table.closest('.corex-disclosure-checklist')) return;
+                // §19/§20 — a checklist-owned table is processed SOLELY by
+                // processWebDisclosureChecklists(). Double-processing here
+                // double-counts totalDisclosureRows (required=2x,
+                // satisfied=1x → gate never clears) and destroys the
+                // .corex-radio-placeholder controls. Pagination-safe: the
+                // primary check is the table's OWN class (survives §19
+                // per-wrapper pagination moving the node); closest() is a
+                // fallback (ancestry can be broken by reflow in a pack —
+                // that was the "6 items remaining" pack bug).
+                if (table.classList.contains('corex-disclosure-table') || table.closest('.corex-disclosure-checklist')) return;
 
                 // Check if this table has YES/NO/N/A headers
                 const headers = table.querySelectorAll('thead th');
@@ -2743,7 +2746,10 @@ function externalSign() {
                 self._processAdditionalInfoSection(table);
             });
 
-            this.totalDisclosureRows = totalRows;
+            // += (not =): _processAllDisclosures resets to 0 then invokes
+            // this once PER .corex-document-wrapper — accumulate the
+            // genuine bare-table rows across all pack segments.
+            this.totalDisclosureRows = (this.totalDisclosureRows || 0) + totalRows;
         },
 
         /**

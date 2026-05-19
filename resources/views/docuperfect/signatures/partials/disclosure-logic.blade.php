@@ -83,12 +83,18 @@
         // completion gate counts it identically to the bare-table path in
         // BOTH views (pre-existing bug fixed here). Editable only for
         // owner_party; read-only (visible, non-interactive) otherwise.
-        processWebDisclosureChecklists() {
-            const container = this.$refs.webDocContent || null;
+        processWebDisclosureChecklists(root) {
+            const container = root || this.$refs.webDocContent || null;
             if (!container) return;
             const self = this;
+            // Shared, document-ordered cursor (set/reset by
+            // _processAllDisclosures). Wrapper-scoped: a pack calls this
+            // once per .corex-document-wrapper; the cursor carries across
+            // wrappers so every row gets a stable, globally-unique
+            // disclosure_row_<n> key. Single doc (one scope, cursor 0) =>
+            // byte-identical keys to the prior global pass.
+            if (typeof this._disclosureRowCursor !== 'number') this._disclosureRowCursor = 0;
             const checklists = container.querySelectorAll('.corex-disclosure-checklist');
-            let globalIdx = 0;
             let gatedIdx = 0;
 
             checklists.forEach(checklist => {
@@ -96,7 +102,7 @@
                 const editable = self._disclosureEditable(disclosureParty);
 
                 checklist.querySelectorAll('.corex-disclosure-row').forEach(row => {
-                    const rowKey = 'disclosure_row_' + globalIdx;
+                    const rowKey = 'disclosure_row_' + self._disclosureRowCursor;
                     row.setAttribute('data-disclosure-key', rowKey);
                     row.setAttribute('data-editable', editable ? 'true' : 'false');
 
@@ -130,7 +136,7 @@
                     // Non-disclosing signers (agent, buyer) see the grid
                     // read-only and must NOT be gated on it (PPA s70).
                     if (editable) gatedIdx++;
-                    globalIdx++;
+                    self._disclosureRowCursor++;
                 });
             });
 
@@ -142,10 +148,23 @@
         // across §19 re-pagination. Replaces the prior pair of direct calls.
         _processAllDisclosures() {
             this.totalDisclosureRows = 0;
+            this._disclosureRowCursor = 0;
             this._seedDisclosureFromStore();
-            if (typeof this._processDisclosureTable === 'function') {
-                this._processDisclosureTable();
-            }
-            this.processWebDisclosureChecklists();
+            const container = this.$refs.webDocContent || null;
+            if (!container) { this._restoreDisclosureAnswers(); return; }
+            // Wrapper-scoped: a pack merges one .corex-document-wrapper per
+            // document. Process disclosures PER wrapper so §19 per-wrapper
+            // pagination cannot bleed one document's rows into another and
+            // every row gets a stable, document-ordered, globally-unique
+            // disclosure_row_<n> key. Single docs (0/1 wrapper) => whole
+            // container, cursor 0 => byte-identical to the prior behaviour.
+            const wrappers = container.querySelectorAll('.corex-document-wrapper');
+            const scopes = wrappers.length >= 2 ? Array.from(wrappers) : [container];
+            scopes.forEach(scope => {
+                if (typeof this._processDisclosureTable === 'function') {
+                    this._processDisclosureTable(scope);
+                }
+                this.processWebDisclosureChecklists(scope);
+            });
             this._restoreDisclosureAnswers();
         },

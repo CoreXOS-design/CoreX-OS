@@ -1548,10 +1548,32 @@ class ESignWizardController extends Controller
                 $segPartyNames[] = $user->name;
                 $tplData['party_names'] = $segPartyNames;
 
+                // §20 pack parity (mirror single-doc :1681-1700): key
+                // recipients_by_role by the CONCRETE role the signature
+                // component looks up (seller/buyer or landlord/tenant per
+                // THIS segment's sales context) — NOT the generic
+                // owner_party — so the per-recipient signature loop fires
+                // in the pack exactly as single-doc (two sellers => seller
+                // + seller_2). Raw-role keying made the lookup miss and
+                // collapse N sellers into one cell.
+                $segOwnerCanon = $segIsSales ? 'seller' : 'landlord';
+                $segAcqCanon   = $segIsSales ? 'buyer'  : 'tenant';
+                $segOwnerTerms = ['owner_party', 'owner', 'lessor', 'landlord', 'seller'];
+                $segAcqTerms   = ['acquiring_party', 'lessee', 'tenant', 'buyer', 'purchaser'];
+                $segAgentTerms = ['agent', 'property_practitioner'];
                 $segRecipientsByRole = [];
                 foreach ($recipients as $r) {
-                    $rBase = preg_replace('/_\d+$/', '', $r['role'] ?? '');
-                    $segRecipientsByRole[$rBase][] = $r;
+                    $rb = strtolower(preg_replace('/_\d+$/', '', $r['role'] ?? ''));
+                    if (in_array($rb, $segOwnerTerms, true)) {
+                        $rk = $segOwnerCanon;
+                    } elseif (in_array($rb, $segAcqTerms, true)) {
+                        $rk = $segAcqCanon;
+                    } elseif (in_array($rb, $segAgentTerms, true)) {
+                        $rk = 'agent';
+                    } else {
+                        $rk = $rb !== '' ? $rb : 'other';
+                    }
+                    $segRecipientsByRole[$rk][] = $r;
                 }
                 $segRecipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
                 $tplData['recipients_by_role'] = $segRecipientsByRole;
@@ -1593,6 +1615,18 @@ class ESignWizardController extends Controller
                 // stores a guaranteed-signable fragment (idempotent — the
                 // signing engine re-normalises at read time anyway).
                 $bodyHtml = SignatureSurfaceNormalizer::normalize($bodyHtml);
+
+                // §20 pack parity (mirror single-doc :1763): run the
+                // SigningSurfaceResolver PER segment — re-key every marker
+                // to a canonical recipient key AND inject a signature
+                // surface for any recipient this segment's (possibly
+                // stale/hand-authored) blade omitted. Runs BEFORE the
+                // no-surface guard so an injected surface counts.
+                // normalizePackMarkerParties (after the loop) remains an
+                // idempotent whole-merge safety re-key.
+                $bodyHtml = app(\App\Services\Docuperfect\SigningSurfaceResolver::class)
+                    ->resolve($bodyHtml, $recipients, $user->name, $segIsSales);
+
                 if ($this->countSignableSurfaces($bodyHtml) === 0) {
                     throw new \RuntimeException(
                         "Pack template \"{$tpl->name}\" has no signable signature block "
