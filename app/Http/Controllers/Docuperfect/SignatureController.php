@@ -1567,6 +1567,26 @@ class SignatureController extends Controller
                 }
             }
 
+            // Strategy 3 (§20 identity-driven — the pack-embed fix): a
+            // signer's captured signature must appear on EVERY surface
+            // bearing that signer's party key, across ALL pack segments —
+            // not just the first N matched positionally (which left e.g.
+            // Addendum B's trailing seller surfaces blank). Fill any
+            // STILL-unsigned same-party surface with a representative
+            // capture (apply-to-all => all of a signer's captures are the
+            // same image). Idempotent (skips data-signed="true"), strictly
+            // party-scoped (never touches another recipient's surfaces).
+            $rep = !empty($signatures) ? reset($signatures) : null;
+            if ($rep !== null) {
+                foreach ($xpath->query('//*[@data-marker-party][@data-marker-type="signature"]') as $el) {
+                    if ($el->getAttribute('data-signed') === 'true') continue;
+                    $elParty = strtolower($el->getAttribute('data-marker-party'));
+                    if (in_array($elParty, $partyAliases) || $elParty === $partyRole) {
+                        $this->embedSigIntoElement($dom, $el, $rep, $partyRole, $signerName);
+                    }
+                }
+            }
+
             $result = $dom->saveHTML();
             $result = preg_replace('/^<\?xml encoding="utf-8"\?>/', '', $result);
             return trim($result);
@@ -1663,7 +1683,29 @@ class SignatureController extends Controller
                 $img->setAttribute('style', 'display:block;max-height:28px;margin:1px auto;object-fit:contain;');
                 $el->appendChild($img);
                 $el->setAttribute('data-signed', 'true');
-                $el->classList !== null && $el->setAttribute('class', ($el->getAttribute('class') ?: '') . ' initial-signed');
+                $el->setAttribute('class', ($el->getAttribute('class') ?: '') . ' initial-signed');
+            }
+
+            // §20 identity-driven (same fix as signatures): every initial
+            // surface for this signer, across ALL pack segments, gets their
+            // initial — not just the first N keyed positionally. Idempotent;
+            // strictly party-scoped (no cross-recipient contamination).
+            $repInit = !empty($initials) ? reset($initials) : null;
+            if ($repInit !== null) {
+                foreach ($xpath->query('//*[@data-marker-type="initial"][@data-marker-party]') as $el) {
+                    if ($el->getAttribute('data-signed') === 'true') continue;
+                    $elParty = strtolower($el->getAttribute('data-marker-party'));
+                    if (!in_array($elParty, $partyAliases) && $elParty !== $partyRole) continue;
+                    while ($el->firstChild) { $el->removeChild($el->firstChild); }
+                    $img = $dom->createElement('img');
+                    $img->setAttribute('src', $repInit);
+                    $img->setAttribute('class', 'web-sig-signed-img');
+                    $img->setAttribute('alt', 'Initial');
+                    $img->setAttribute('style', 'display:block;max-height:28px;margin:1px auto;object-fit:contain;');
+                    $el->appendChild($img);
+                    $el->setAttribute('data-signed', 'true');
+                    $el->setAttribute('class', ($el->getAttribute('class') ?: '') . ' initial-signed');
+                }
             }
 
             $result = $dom->saveHTML();
