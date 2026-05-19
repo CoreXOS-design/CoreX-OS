@@ -49,7 +49,13 @@
                 $stages = [
                     ['label' => 'Awaiting Client',        'count' => $counts['draft'],          'color' => 'var(--text-muted)'],
                     ['label' => 'Awaiting Agent Review',  'count' => $counts['submitted'],      'color' => 'var(--brand-icon)'],
-                    ['label' => 'Awaiting CO Approval',   'count' => $coQueueCount,             'color' => 'var(--ds-amber)'],
+                    {{-- Single source of truth: every stage counter reads the SAME
+                         $counts array the tabs use (same query + scoping), so the
+                         top counter and the tab always agree. Was $coQueueCount,
+                         which is 0 for non-CO viewers and scoped differently for
+                         a CO — making "Awaiting CO Approval" show 0 vs the tab's
+                         real agent_approved count. --}}
+                    ['label' => 'Awaiting CO Approval',   'count' => $counts['agent_approved'], 'color' => 'var(--ds-amber)'],
                     ['label' => 'Complete',               'count' => $counts['approved'],       'color' => 'var(--ds-green)'],
                 ];
             @endphp
