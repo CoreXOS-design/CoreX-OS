@@ -286,6 +286,13 @@ class DemoDataSeeder extends Seeder
             ProspectingSetupSeeder::class,
             BuyerMatchTiersSeeder::class,
             CalendarEventClassSeeder::class,
+            // Global feedback options (concerns / outcomes / lost reasons)
+            // — drives the Capture Feedback modal's Outcome dropdown and
+            // Concerns checkboxes (CalendarController::showFeedback reads
+            // agency_feedback_options for category=outcome|concern,
+            // agency_id NULL ⋃ agency_id=$id). Idempotent: updateOrInsert
+            // keyed (agency_id, category, label).
+            AgencyFeedbackOptionsSeeder::class,
             SuggestedActionThresholdsSeeder::class,
             SellerOutreachTemplatesSeeder::class,
             AgencyDocumentTypeConfigSeeder::class,
