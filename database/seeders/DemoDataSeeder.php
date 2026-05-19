@@ -300,6 +300,22 @@ class DemoDataSeeder extends Seeder
             // Knowledge base categories — Admin → Knowledge / Ellie KB
             // category dropdown. Idempotent: updateOrInsert by slug.
             KnowledgeCategorySeeder::class,
+            // Public holidays (ZA 2026-28) — Leave module + calendar.
+            // Idempotent via PublicHolidayService::ensureYearSeeded().
+            PublicHolidaySeeder::class,
+            // SARS 2026/27 tax rebates + PAYE brackets — Payroll module.
+            // Idempotent: updateOrCreate keyed on tax_year_start (+ bracket).
+            PayrollTaxRebateSeeder::class,
+            PayrollTaxTableSeeder::class,
+            // Command-Center automation rules (global; no agency_id).
+            // Idempotent: updateOrCreate by name.
+            CommandCenterAutomationSeeder::class,
+            // performance_settings key/value pairs (vat_rate, company_*,
+            // listings_per_sale, marketing_enabled, …). Read by Deal,
+            // WorksheetController, MatchPropertyJob via
+            // PerformanceSetting::get($key,$default). Admin → Performance
+            // Settings renders blank without these. Idempotent by key.
+            PerformanceSettingsSeeder::class,
             SuggestedActionThresholdsSeeder::class,
             SellerOutreachTemplatesSeeder::class,
             AgencyDocumentTypeConfigSeeder::class,
@@ -329,8 +345,48 @@ class DemoDataSeeder extends Seeder
         // do NOT invent. Idempotent: find-or-create by natural key.
         $this->backfillContactTypes();
         $this->backfillPropertyStatusItems();
+        $this->backfillDocumentLibraryTypes();
+        $this->backfillPropertyTypeOptions();
 
         $this->command->info('  Stage 0: reference data + permissions seeded');
+    }
+
+    /**
+     * Add the 1 document_library_types row missing from a fresh demo:
+     * 'gaw_reports'. Captured verbatim from local nexus_os.
+     * Idempotent keyed on `key`.
+     */
+    private function backfillDocumentLibraryTypes(): void
+    {
+        DB::table('document_library_types')->updateOrInsert(
+            ['key' => 'gaw_reports'],
+            [
+                'label'      => 'Gaw Reports',
+                'sort_order' => 8,
+                'is_active'  => 1,
+                'updated_at' => now(),
+                'created_at' => now(),
+            ]
+        );
+    }
+
+    /**
+     * Add the 1 property_type_options row missing from a fresh demo:
+     * 'smallholding'. Captured verbatim from local (is_active=0, matching
+     * local). Idempotent keyed on (agency_id, slug).
+     */
+    private function backfillPropertyTypeOptions(): void
+    {
+        DB::table('property_type_options')->updateOrInsert(
+            ['agency_id' => self::AGENCY_ID, 'slug' => 'smallholding'],
+            [
+                'name'          => 'Smallholding',
+                'display_order' => 6,
+                'is_active'     => 0,
+                'updated_at'    => now(),
+                'created_at'    => now(),
+            ]
+        );
     }
 
     /**
@@ -526,6 +582,24 @@ class DemoDataSeeder extends Seeder
         // tuple for the matrix]).
         $this->safeSeed('AgencyContactSettingsSeeder', fn () => $this->call([AgencyContactSettingsSeeder::class]));
         $this->safeSeed('AgencyLeaveVisibilityMatrixSeeder', fn () => $this->call([AgencyLeaveVisibilityMatrixSeeder::class]));
+
+        // BCEA-compliant leave types (annual / sick / family-resp / parental
+        // / study / unpaid / special) — agency-scoped, firstOrCreate by
+        // (agency_id, code).
+        $this->safeSeed('LeaveTypeSeeder', fn () => $this->call([LeaveTypeSeeder::class]));
+        // SARS earning / deduction types — agency-scoped per Payroll spec
+        // §10.3 / §10.4. firstOrCreate by (agency_id, code).
+        $this->safeSeed('PayrollEarningTypeSeeder', fn () => $this->call([PayrollEarningTypeSeeder::class]));
+        $this->safeSeed('PayrollDeductionTypeSeeder', fn () => $this->call([PayrollDeductionTypeSeeder::class]));
+        // Per-branch letterhead values (branch_settings table).
+        // Requires branches to exist — runs after the stage-1 branch
+        // creation block. Idempotent keyed (branch_id, key).
+        $this->safeSeed('BranchSettingsSeeder', fn () => $this->call([BranchSettingsSeeder::class]));
+        // HFC RMCP master (rmcp_versions + sections + variables + officer
+        // appointment if missing). Resolves the agency by slug='hfc-coastal'
+        // (set by base migration on agency 1). Self-skipping if already
+        // seeded; safeSeed-wrapped so any future schema drift is contained.
+        $this->safeSeed('HfcRmcpMasterSeeder', fn () => $this->call([HfcRmcpMasterSeeder::class]));
 
         $this->command->info('  Stage 1: 1 agency + ' . count($this->branchIds)
             . ' branches + ' . (count($this->agentIds) + count($this->bmIds) + 2) . ' users');
