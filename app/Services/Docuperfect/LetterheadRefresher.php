@@ -69,10 +69,20 @@ class LetterheadRefresher
             }
 
             $replaced = false;
-            // Replace only the FIRST occurrence (the document letterhead).
-            $target = $nodes->item(0);
-            $parent = $target->parentNode;
-            if ($parent) {
+            // Replace EVERY company-header occurrence. A pack merges several
+            // templates, each carrying its own baked letterhead — all must
+            // show the CURRENT agency, not just the first. "No stale
+            // letterhead anywhere in the e-sign flow." Single-doc snapshots
+            // have exactly one occurrence, so behaviour is unchanged there.
+            // Snapshot the node list first (iterator_to_array) because the
+            // replacement mutates the live DOM as we go.
+            foreach (iterator_to_array($nodes) as $target) {
+                $parent = $target->parentNode;
+                if (! $parent) {
+                    continue;
+                }
+                // importNode(copy) — $freshWrap stays in $fragDom intact,
+                // so each occurrence gets its own fresh header copy.
                 foreach (iterator_to_array($freshWrap->childNodes) as $child) {
                     $imported = $dom->importNode($child, true);
                     $parent->insertBefore($imported, $target);

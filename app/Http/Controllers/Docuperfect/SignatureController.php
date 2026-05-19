@@ -289,6 +289,25 @@ class SignatureController extends Controller
                 $webTemplateHtml = $styles . $bodyHtml;
                 $pageCount = 1;
             }
+
+            // Markers/setup uniquely bypassed the signing-path normalisation
+            // that every other web-template render runs (cf. lines ~926-927,
+            // SigningController). Two consequences this fixes:
+            //   1. Stale letterhead: the stored merged_html snapshot is frozen
+            //      with whatever agency data existed at prepareSigning (old
+            //      FFC / "Mandate Company"). LetterheadRefresher swaps in the
+            //      live company-header (current HFC agency).
+            //   2. Layout regression: the snapshot can carry unbalanced <div>
+            //      tags; injected raw via {!! !!} those stray closes climb the
+            //      DOM and break the flex two-column row (panel drops below) —
+            //      min-w-0 cannot defend a broken DOM. LetterheadRefresher's
+            //      DOMDocument round-trip re-serialises BALANCED markup, so the
+            //      document can no longer over-close its column regardless of
+            //      what the template HTML contains.
+            if ($webTemplateHtml !== '') {
+                $webTemplateHtml = SignatureSurfaceNormalizer::normalize($webTemplateHtml);
+                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
+            }
         } else {
             $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
 
