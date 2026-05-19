@@ -1660,10 +1660,10 @@ function externalSign() {
 
             // 4. Unanswered disclosure rows
             if (this.totalDisclosureRows > 0) {
-                const answered = Object.keys(this.webDisclosureAnswers).filter(k => k.startsWith('disclosure_row_')).length;
+                const answered = Object.keys(this.webDisclosureAnswers).filter(k => this._isDisclosureAnswerKey(k)).length;
                 if (answered < this.totalDisclosureRows) {
                     if (container) {
-                        const allRadioGroups = container.querySelectorAll('input[type="radio"][name^="disclosure_row_"]');
+                        const allRadioGroups = container.querySelectorAll('input[type="radio"][name^="disclosure_"]');
                         const answeredNames = new Set();
                         allRadioGroups.forEach(r => { if (r.checked) answeredNames.add(r.name); });
                         allRadioGroups.forEach(r => {
@@ -1742,7 +1742,7 @@ function externalSign() {
             //    sees the grid read-only and is NOT gated on it (PPA s70).
             if (this._signerIsDisclosingParty() && this.totalDisclosureRows > 0) {
                 total += this.totalDisclosureRows;
-                const answered = Object.keys(this.webDisclosureAnswers).filter(k => k.startsWith('disclosure_row_')).length;
+                const answered = Object.keys(this.webDisclosureAnswers).filter(k => this._isDisclosureAnswerKey(k)).length;
                 incomplete += (this.totalDisclosureRows - answered);
             }
 
@@ -2713,7 +2713,8 @@ function externalSign() {
                         cell0Text.endsWith(':');
                     if (isSubHeader) return;
 
-                    const radioGroupName = 'disclosure_row_' + rowIdx;
+                    const radioGroupName = self._disclosureKeyFor(row);
+                    row.setAttribute('data-disclosure-key', radioGroupName);
                     totalRows++;
 
                     optionCols.forEach(opt => {
@@ -2759,7 +2760,11 @@ function externalSign() {
          */
         _processCertificateRow(row, cells, rowIdx) {
             const self = this;
-            const radioGroupName = 'disclosure_row_' + rowIdx;
+            // §20 intrinsic keys (docKey + per-doc index), identical
+            // derivation as the checklist + normal bare-table rows.
+            const radioGroupName = self._disclosureKeyFor(row);
+            const dateKey = self._disclosureDateKeyFor(row);
+            row.setAttribute('data-disclosure-key', radioGroupName);
 
             // Extract certificate name from cells[1] (everything before the dash)
             const fullText = cells[1].textContent.trim();
@@ -2802,7 +2807,7 @@ function externalSign() {
                             const dateInput = dateWrapper.querySelector('input[type="date"]');
                             if (dateInput) {
                                 dateInput.value = '';
-                                delete self.webDisclosureAnswers['disclosure_date_' + rowIdx];
+                                delete self.webDisclosureAnswers[dateKey];
                             }
                         }
                     }
@@ -2832,7 +2837,7 @@ function externalSign() {
                 dateInput.style.cssText = 'border:1px solid #cbd5e1;border-radius:4px;padding:2px 4px;font-size:11px;width:130px;';
 
                 dateInput.addEventListener('change', () => {
-                    self.webDisclosureAnswers['disclosure_date_' + rowIdx] = dateInput.value;
+                    self.webDisclosureAnswers[dateKey] = dateInput.value;
                 });
 
                 wrapper.appendChild(dateLabel);
@@ -3094,7 +3099,7 @@ function externalSign() {
                     this.showNotification('Please accept the consent checkbox to continue.', 'warning');
                     return;
                 }
-                const answeredRows = Object.keys(this.webDisclosureAnswers).filter(k => k.startsWith('disclosure_row_')).length;
+                const answeredRows = Object.keys(this.webDisclosureAnswers).filter(k => this._isDisclosureAnswerKey(k)).length;
                 if (this.totalDisclosureRows > 0 && answeredRows < this.totalDisclosureRows) {
                     this.showNotification('Please complete all disclosure items before signing. (' + answeredRows + ' of ' + this.totalDisclosureRows + ' answered)', 'warning');
                     return;

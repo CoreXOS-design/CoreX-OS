@@ -1148,7 +1148,7 @@ function signDocument() {
             if (this._signerIsDisclosingParty() && this.totalDisclosureRows > 0) {
                 total += this.totalDisclosureRows;
                 const answered = Object.keys(this.webDisclosureAnswers)
-                    .filter(k => k.startsWith('disclosure_row_')).length;
+                    .filter(k => this._isDisclosureAnswerKey(k)).length;
                 incomplete += (this.totalDisclosureRows - answered);
             }
 

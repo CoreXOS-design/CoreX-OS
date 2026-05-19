@@ -1650,6 +1650,13 @@ class ESignWizardController extends Controller
             // segment is signable by the actual recipients.
             $mergedHtml = $this->normalizePackMarkerParties($mergedHtml, $recipients);
 
+            // §20 — stamp each segment's .corex-document-wrapper with an
+            // instance-stable docKey so the client keys disclosure rows
+            // intrinsically per document (disclosure_<docKey>_<n>). One
+            // unique token per wrapper => two of the same template in a
+            // pack get distinct, stable keys; never DOM-position-derived.
+            $mergedHtml = $this->stampDisclosureDocKeys($mergedHtml);
+
             $webTemplateData = [
                 'merged_html'        => $mergedHtml,
                 'template_ids'       => $templateIds,
@@ -1796,6 +1803,12 @@ class ESignWizardController extends Controller
             // existing normaliser for now (retired in a follow-up).
             $bodyHtml = app(\App\Services\Docuperfect\SigningSurfaceResolver::class)
                 ->resolve($bodyHtml, $recipients, $user->name, $isSalesContext);
+
+            // §20 — stamp the document's .corex-document-wrapper with an
+            // instance-stable docKey (same scheme as the pack path) so a
+            // single doc keys disclosure rows identically to when it is a
+            // pack segment — full position-independence.
+            $bodyHtml = $this->stampDisclosureDocKeys($bodyHtml);
 
             // Store as merged_html so SignatureController uses it directly
             $webTemplateData['merged_html'] = $styles . $bodyHtml;
@@ -2460,6 +2473,40 @@ class ESignWizardController extends Controller
         } catch (\Throwable $e) {
             \Log::warning('PACK_MARKER_PARTY_NORMALIZE_FAILED', ['error' => $e->getMessage()]);
             return $mergedHtml;
+        }
+    }
+
+    /**
+     * §20 — stamp every .corex-document-wrapper with a unique,
+     * instance-stable data-disclosure-doc token (alnum, no underscores)
+     * so the signing client derives disclosure keys intrinsically per
+     * document (disclosure_<docKey>_<n>) — never from DOM position,
+     * wrapper order, or a cross-document cursor. Frozen into the persisted
+     * merged_html, so the token is immutable for that document instance;
+     * two of the same template in a pack get distinct, stable tokens.
+     * Idempotent (a wrapper already stamped is left unchanged). Fail-open.
+     */
+    private function stampDisclosureDocKeys(string $html): string
+    {
+        if (trim($html) === '') {
+            return $html;
+        }
+        try {
+            $out = preg_replace_callback(
+                '/<div\b[^>]*\bclass\s*=\s*"[^"]*\bcorex-document-wrapper\b[^"]*"[^>]*>/i',
+                function ($m) {
+                    if (stripos($m[0], 'data-disclosure-doc') !== false) {
+                        return $m[0];
+                    }
+                    $key = \Illuminate\Support\Str::random(10);
+                    return preg_replace('/^<div\b/i', '<div data-disclosure-doc="' . $key . '"', $m[0], 1);
+                },
+                $html
+            );
+            return $out ?? $html;
+        } catch (\Throwable $e) {
+            \Log::warning('STAMP_DISCLOSURE_DOCKEY_FAILED', ['error' => $e->getMessage()]);
+            return $html;
         }
     }
 

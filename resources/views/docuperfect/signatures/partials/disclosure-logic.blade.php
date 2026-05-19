@@ -37,6 +37,42 @@
             return ownerTerms.includes(role);
         },
 
+        // §20 — INTRINSIC disclosure key. docKey is a per-document-instance
+        // token stamped server-side on each segment's .corex-document-wrapper
+        // (data-disclosure-doc). It is instance-stable: frozen into the
+        // persisted merged_html, unique per segment (same template twice in
+        // a pack => two distinct tokens), NEVER derived from DOM position,
+        // wrapper order, or a cross-document cursor. Row index is per-docKey
+        // and reset every _processAllDisclosures run, so a document's keys
+        // are IDENTICAL whether it is alone or at any position in any pack.
+        // Legacy/unstamped frozen merged_html falls back to 'doc'.
+        _disclosureDocKey(el) {
+            const w = (el && el.closest) ? el.closest('.corex-document-wrapper') : null;
+            const k = w ? (w.getAttribute('data-disclosure-doc') || '') : '';
+            return k.trim() !== '' ? k.trim() : 'doc';
+        },
+        _disclosureKeyFor(rowEl) {
+            const dk = this._disclosureDocKey(rowEl);
+            if (!this._disclosureDocIdx) this._disclosureDocIdx = {};
+            if (typeof this._disclosureDocIdx[dk] !== 'number') this._disclosureDocIdx[dk] = 0;
+            const i = this._disclosureDocIdx[dk]++;
+            return 'disclosure_' + dk + '_' + i;
+        },
+        _disclosureDateKeyFor(rowEl) {
+            const dk = this._disclosureDocKey(rowEl);
+            if (!this._disclosureDateIdx) this._disclosureDateIdx = {};
+            if (typeof this._disclosureDateIdx[dk] !== 'number') this._disclosureDateIdx[dk] = 0;
+            const i = this._disclosureDateIdx[dk]++;
+            return 'disclosure_' + dk + '_date_' + i;
+        },
+        // The ONE satisfied/answer-key predicate. A disclosure ANSWER key
+        // starts 'disclosure_' and is NOT a conditional date key (_date_).
+        // Used identically by every required/satisfied counter so required
+        // and satisfied can never diverge again.
+        _isDisclosureAnswerKey(k) {
+            return typeof k === 'string' && k.indexOf('disclosure_') === 0 && k.indexOf('_date_') === -1;
+        },
+
         // Seed in-memory answers from the persisted store so a later signer
         // (e.g. the agent reviewing after the seller) starts from the
         // seller's actual selections, never a blank grid.
@@ -71,7 +107,7 @@
                 });
             });
             Object.keys(ans).forEach(k => {
-                if (!k.startsWith('disclosure_row_')) return;
+                if (!this._isDisclosureAnswerKey(k)) return;
                 const el = container.querySelector(
                     'input[type="radio"][name="' + k + '"][value="' + ans[k] + '"]');
                 if (el) el.checked = true;
@@ -87,13 +123,10 @@
             const container = root || this.$refs.webDocContent || null;
             if (!container) return;
             const self = this;
-            // Shared, document-ordered cursor (set/reset by
-            // _processAllDisclosures). Wrapper-scoped: a pack calls this
-            // once per .corex-document-wrapper; the cursor carries across
-            // wrappers so every row gets a stable, globally-unique
-            // disclosure_row_<n> key. Single doc (one scope, cursor 0) =>
-            // byte-identical keys to the prior global pass.
-            if (typeof this._disclosureRowCursor !== 'number') this._disclosureRowCursor = 0;
+            // Keys are INTRINSIC per document via _disclosureKeyFor (docKey
+            // + per-doc index). No cross-document cursor — a document's keys
+            // are identical at any pack position. Same derivation as the
+            // bare-table converter, so checklist + bare-table never collide.
             const checklists = container.querySelectorAll('.corex-disclosure-checklist');
             let gatedIdx = 0;
 
@@ -102,7 +135,7 @@
                 const editable = self._disclosureEditable(disclosureParty);
 
                 checklist.querySelectorAll('.corex-disclosure-row').forEach(row => {
-                    const rowKey = 'disclosure_row_' + self._disclosureRowCursor;
+                    const rowKey = self._disclosureKeyFor(row);
                     row.setAttribute('data-disclosure-key', rowKey);
                     row.setAttribute('data-editable', editable ? 'true' : 'false');
 
@@ -136,7 +169,6 @@
                     // Non-disclosing signers (agent, buyer) see the grid
                     // read-only and must NOT be gated on it (PPA s70).
                     if (editable) gatedIdx++;
-                    self._disclosureRowCursor++;
                 });
             });
 
@@ -148,7 +180,9 @@
         // across §19 re-pagination. Replaces the prior pair of direct calls.
         _processAllDisclosures() {
             this.totalDisclosureRows = 0;
-            this._disclosureRowCursor = 0;
+            // Reset per-document intrinsic counters (NOT a cross-doc cursor).
+            this._disclosureDocIdx = {};
+            this._disclosureDateIdx = {};
             this._seedDisclosureFromStore();
             const container = this.$refs.webDocContent || null;
             if (!container) { this._restoreDisclosureAnswers(); return; }
