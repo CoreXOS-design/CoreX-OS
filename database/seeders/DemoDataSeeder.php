@@ -146,6 +146,7 @@ class DemoDataSeeder extends Seeder
         $this->stage11_deals();
         $this->stage12_calendar();
         $this->stageSpine_threadFullLifecycle();
+        $this->stageZ_demoPresenterCoherence();
 
         $this->command->info('Demo dataset complete. Login: ' . self::DEMO_LOGIN_EMAIL
             . ' / ' . self::DEMO_LOGIN_PASSWORD);
@@ -1089,6 +1090,7 @@ class DemoDataSeeder extends Seeder
 
         $linked = 0;
         $fallbacks = 0;
+        $views = 0;
         foreach ($buyers as $b) {
             $propIds = DB::table('property_buyer_matches')
                 ->where('contact_id', $b->id)
@@ -1115,6 +1117,23 @@ class DemoDataSeeder extends Seeder
                     'contact_id' => $b->id, 'property_id' => $pid, 'role' => 'buyer',
                     'created_at' => now(), 'updated_at' => now(),
                 ]);
+
+                // Buyer Pipeline cards render buyerPropertyViews()->count().
+                // Seed a view per matched property so the count is non-zero
+                // and realistic (these $propIds are the buyer's in-area /
+                // price-appropriate matches from property_buyer_matches).
+                // Deterministic fields (no rand) + updateOrInsert keyed on
+                // (contact_id, property_id) => fully idempotent on re-run.
+                DB::table('buyer_property_views')->updateOrInsert(
+                    ['contact_id' => $b->id, 'property_id' => $pid],
+                    [
+                        'view_count'     => ($pid % 4) + 1,
+                        'last_viewed_at' => now()->subDays(($pid % 14) + 1),
+                        'updated_at'     => now(),
+                        'created_at'     => now(),
+                    ]
+                );
+                $views++;
             }
             if (!empty($propIds)) {
                 $linked++;
@@ -1122,7 +1141,7 @@ class DemoDataSeeder extends Seeder
         }
 
         $this->command->info("  Stage 6b: {$linked} buyers linked to matched properties "
-            . "({$fallbacks} via branch fallback)");
+            . "({$fallbacks} via branch fallback); {$views} buyer property views seeded");
     }
 
     // ───────────────────────────────────────────────────────────────────
@@ -1778,5 +1797,43 @@ class DemoDataSeeder extends Seeder
             }
         }
         $this->command->info("  Spine: {$threaded} properties threaded prospect → registered");
+    }
+
+    /**
+     * Demo-presenter coherence (runs LAST — after EVERY ContactMatch is
+     * created, incl. the spine). The Core Matches screen
+     * (ContactMatchController::index) is scoped to
+     * created_by_user_id = the logged-in user. All seeded matches are
+     * attributed to agents, so the demo login (Demo Administrator,
+     * $this->adminId) sees "No Core Matches saved yet". Re-attribute a
+     * deterministic handful to the demo login so the screen is populated
+     * for the presenter; the rest stay with their agents (per-agent scope
+     * kept realistic). Idempotent: fixed ids by order → re-run re-sets the
+     * same value, no duplicates, no new matches. NO controller/scope change.
+     */
+    private function stageZ_demoPresenterCoherence(): void
+    {
+        if (! $this->adminId) {
+            return;
+        }
+        $ids = DB::table('contact_matches')
+            ->where('agency_id', self::AGENCY_ID)
+            ->whereNull('deleted_at')
+            ->orderBy('id')
+            ->limit(10)
+            ->pluck('id')
+            ->all();
+        if (empty($ids)) {
+            return;
+        }
+        DB::table('contact_matches')
+            ->whereIn('id', $ids)
+            ->update([
+                'created_by_user_id' => $this->adminId,
+                'updated_by_user_id' => $this->adminId,
+                'updated_at'         => now(),
+            ]);
+        $this->command->info('  Stage Z: ' . count($ids)
+            . ' Core Matches attributed to the demo login (Core Matches screen populated)');
     }
 }
