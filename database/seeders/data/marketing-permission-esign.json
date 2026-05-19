@@ -1,0 +1,330 @@
+{
+    "_comment": "Exact capture of local docuperfect_templates#125 \"Marketing Permission Esign\". namedFieldId values are LOCAL ids; the seeder remaps them by source triple via named_field_refs.",
+    "columns": {
+        "name": "Marketing Permission Esign",
+        "template_type": "cds",
+        "render_type": "web",
+        "blade_view": "docuperfect.web-templates.cds.template-125",
+        "document_type_id": null,
+        "category": "sales",
+        "page_count": 0,
+        "allowed_delivery_modes": "esign,wet_ink,download",
+        "security_tier": "enhanced",
+        "is_global": 1,
+        "is_esign": 1,
+        "party_mode": "shared",
+        "header_display": "first_page"
+    },
+    "cds_json": "{\"title\": \"[COMPANY HEADER]\", \"version\": \"1.0\", \"sections\": [{\"text\": \"[COMPANY HEADER]\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"[COMPANY HEADER]\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"(\", \"italic\": true}, {\"type\": \"text\", \"value\": \"CoreX\", \"italic\": true}, {\"type\": \"text\", \"value\": \" inserts the agency letterhead here automatically)\", \"italic\": true}]}, {\"text\": \"MARKETING PERMISSION\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"MARKETING PERMISSION\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"Your authority for us to market and sell your property\", \"italic\": true}]}, {\"text\": \"SELLER DETAILS\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"  SELLER DETAILS\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"Please provide the details of the registered owner(s) of the property. Where there is more than one seller, complete the second seller block; where there is one seller, leave the second block blank.\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 1 - Full name and surname:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Full name and surname\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 1 - ID number / Passport number / Entity registration number:  \"}, {\"type\": \"field_placeholder\", \"label\": \"ID Number\", \"length\": 4, \"marker\": \"input\", \"source\": \"contact\", \"confidence\": \"high\", \"field_name\": \"contact.id_number\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 1 - Marital status (Unmarried / C\"}, {\"bold\": true, \"type\": \"text\", \"value\": \"OP / \"}, {\"bold\": true, \"type\": \"text\", \"value\": \"ANC / Other):  \"}, {\"type\": \"field_placeholder\", \"label\": \"Input\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"low\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 1 - Physical address:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Physical Address\", \"length\": 4, \"marker\": \"input\", \"source\": \"contact\", \"confidence\": \"high\", \"field_name\": \"contact.address\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 1 - Telephone number:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Telephone number\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 1 - Email address:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Email\", \"length\": 4, \"marker\": \"input\", \"source\": \"contact\", \"confidence\": \"high\", \"field_name\": \"contact.email\", \"field_type\": \"email\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 2 - Full name and surname:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Full name and surname\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 2 - ID number / Passport number / Entity registration number:  \"}, {\"type\": \"field_placeholder\", \"label\": \"ID Number\", \"length\": 4, \"marker\": \"input\", \"source\": \"contact\", \"confidence\": \"high\", \"field_name\": \"contact.id_number\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 2 - \"}, {\"bold\": true, \"type\": \"text\", \"value\": \"Marital status (Unmarried / COP / ANC / Other):  \"}, {\"type\": \"field_placeholder\", \"label\": \"Input\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"low\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 2 - Physical address:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Physical Address\", \"length\": 4, \"marker\": \"input\", \"source\": \"contact\", \"confidence\": \"high\", \"field_name\": \"contact.address\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 2 - Telephone number:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Telephone number\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 2 - Email address:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Email\", \"length\": 4, \"marker\": \"input\", \"source\": \"contact\", \"confidence\": \"high\", \"field_name\": \"contact.email\", \"field_type\": \"email\"}]}, {\"text\": \"PROPERTY DETAILS\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"  PROPERTY DETAILS\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Street address:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Street address\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Erf / Sectional Scheme / Unit number:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Erf/Unit No.\", \"length\": 4, \"marker\": \"input\", \"source\": \"property\", \"confidence\": \"high\", \"field_name\": \"property.erf_number\", \"field_type\": \"text\"}, {\"type\": \"text\", \"value\": \" \"}, {\"bold\": true, \"type\": \"text\", \"value\": \"Complex / Estate name:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Estate name\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}, {\"type\": \"text\", \"value\": \"  \"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Township / Suburb:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Suburb\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}, {\"type\": \"text\", \"value\": \"  \"}, {\"bold\": true, \"type\": \"text\", \"value\": \"Property - District:  \"}, {\"type\": \"field_placeholder\", \"label\": \"District\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"text\": \"GRANT OF MARKETING PERMISSION\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"  GRANT OF MARKETING PERMISSION\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"I / We, the seller(s) identified above, being the registered owner(s) or duly authorised representative(s) of the owner(s) of the property described above, together with all fixtures and fittings of a permanent nature pertaining to the property, do hereby grant to Home Finders Coastal the marketing permission, right and authority to market and sell the abovementioned property.\"}]}, {\"text\": \"PRICE AND PROFESSIONAL FEE\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"  PRICE AND PROFESSIONAL FEE\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Asking price (Rand):  \"}, {\"type\": \"field_placeholder\", \"label\": \"Input\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"low\", \"field_name\": \"\", \"field_type\": \"text\"}, {\"type\": \"text\", \"value\": \"      \"}, {\"bold\": true, \"type\": \"text\", \"value\": \"Asking price in words:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Asking price in words\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"The asking price is the price at which the property will be advertised, or such other price as may be agreed upon by the Seller.\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Professional fee percentage (%):  \"}, {\"type\": \"field_placeholder\", \"label\": \"Input\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"low\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"The Seller shall pay Home Finders Coastal the professional fee stated above, plus VAT where applicable, of the price at which the property is sold. The professional fee is payable on registration of transfer.\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"The Seller consents to Home Finders Coastal placing a \\\"For Sale\\\" board on the property.\"}]}, {\"text\": \"FICA AND POPIA\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"  FICA AND POPIA\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"Before marketing begins, the Seller will complete the Mandatory Disclosure Form and provide the FICA documents required to verify the Seller’s identity. Home Finders Coastal will handle the Seller’s personal information in line with the Protection of Personal Information Act (POPIA).\"}]}, {\"text\": \"FIDELITY FUND CERTIFICATE WARRANTY\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"  FIDELITY FUND CERTIFICATE WARRANTY\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"[ FFC WARRANTY CLAUSE - INSERT THE EXACT, VERBATIM STATUTORY WORDING HERE. This clause is prescribed and must be reproduced word-for-word. Johan to insert the approved text from the attorney source before this template is used. ]\", \"italic\": true}]}, {\"text\": \"SIGNING\", \"type\": \"heading\", \"level\": 1, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"  SIGNING\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Signed at (place):  \"}, {\"type\": \"field_placeholder\", \"label\": \"Input\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"low\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"type\": \"paragraph\", \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Date signed:  \"}, {\"type\": \"field_placeholder\", \"label\": \"Date signed\", \"length\": 4, \"marker\": \"input\", \"source\": \"manual\", \"confidence\": \"medium\", \"field_name\": \"\", \"field_type\": \"text\"}]}, {\"text\": \"Seller 1\", \"type\": \"heading\", \"level\": 2, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 1\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"signature_placeholder\", \"marker\": \"signature\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"Signature of Seller 1 (Registered Owner or Duly Authorised Representative)\"}]}, {\"text\": \"Seller 2\", \"type\": \"heading\", \"level\": 2, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Seller 2\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"signature_placeholder\", \"marker\": \"signature\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"Signature of Seller 2 (Registered Owner or Duly Authorised Representative)\"}]}, {\"text\": \"Witness\", \"type\": \"heading\", \"level\": 2, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Witness\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"signature_placeholder\", \"marker\": \"signature\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"text\", \"value\": \"Signature of Witness\"}]}, {\"text\": \"Marketing Permission Agent - Home Finders Coastal\", \"type\": \"heading\", \"level\": 2, \"content\": [{\"bold\": true, \"type\": \"text\", \"value\": \"Marketing Permission Agent - Home Finders Coastal\"}]}, {\"type\": \"paragraph\", \"content\": [{\"type\": \"signature_placeholder\", \"marker\": \"signature\"}]}, {\"type\": \"signature_section\", \"parties\": [{\"role\": \"agent\", \"label\": \"Agent\"}], \"preamble\": \"Signature of Listing and Marketing Permission Agent Marketing Permission V6\"}], \"extracted_at\": \"2026-05-19T05:58:33+02:00\", \"original_text\": \"[COMPANY HEADER]\\n[COMPANY HEADER]\\n(CoreX inserts the agency letterhead here automatically)\\nMARKETING PERMISSION\\nMARKETING PERMISSION\\nYour authority for us to market and sell your property\\n  SELLER DETAILS\\nSELLER DETAILS\\nPlease provide the details of the registered owner(s) of the property. Where there is more than one seller, complete the second seller block; where there is one seller, leave the second block blank.\\nSeller 1 - Full name and surname:  \\nSeller 1 - ID number / Passport number / Entity registration number:  \\nSeller 1 - Marital status (Unmarried / COP / ANC / Other):  \\nSeller 1 - Physical address:  \\nSeller 1 - Telephone number:  \\nSeller 1 - Email address:  \\nSeller 2 - Full name and surname:  \\nSeller 2 - ID number / Passport number / Entity registration number:  \\nSeller 2 - Marital status (Unmarried / COP / ANC / Other):  \\nSeller 2 - Physical address:  \\nSeller 2 - Telephone number:  \\nSeller 2 - Email address:  \\n  PROPERTY DETAILS\\nPROPERTY DETAILS\\nStreet address:  \\nErf / Sectional Scheme / Unit number:   Complex / Estate name:    \\nTownship / Suburb:    Property - District:  \\n  GRANT OF MARKETING PERMISSION\\nGRANT OF MARKETING PERMISSION\\nI / We, the seller(s) identified above, being the registered owner(s) or duly authorised representative(s) of the owner(s) of the property described above, together with all fixtures and fittings of a permanent nature pertaining to the property, do hereby grant to Home Finders Coastal the marketing permission, right and authority to market and sell the abovementioned property.\\n  PRICE AND PROFESSIONAL FEE\\nPRICE AND PROFESSIONAL FEE\\nAsking price (Rand):        Asking price in words:  \\nThe asking price is the price at which the property will be advertised, or such other price as may be agreed upon by the Seller.\\nProfessional fee percentage (%):  \\nThe Seller shall pay Home Finders Coastal the professional fee stated above, plus VAT where applicable, of the price at which the property is sold. The professional fee is payable on registration of transfer.\\nThe Seller consents to Home Finders Coastal placing a \\\"For Sale\\\" board on the property.\\n  FICA AND POPIA\\nFICA AND POPIA\\nBefore marketing begins, the Seller will complete the Mandatory Disclosure Form and provide the FICA documents required to verify the Seller’s identity. Home Finders Coastal will handle the Seller’s personal information in line with the Protection of Personal Information Act (POPIA).\\n  FIDELITY FUND CERTIFICATE WARRANTY\\nFIDELITY FUND CERTIFICATE WARRANTY\\n[ FFC WARRANTY CLAUSE - INSERT THE EXACT, VERBATIM STATUTORY WORDING HERE. This clause is prescribed and must be reproduced word-for-word. Johan to insert the approved text from the attorney source before this template is used. ]\\n  SIGNING\\nSIGNING\\nSigned at (place):  \\nDate signed:  \\nSeller 1\\nSeller 1\\n\\nSignature of Seller 1 (Registered Owner or Duly Authorised Representative)\\nSeller 2\\nSeller 2\\n\\nSignature of Seller 2 (Registered Owner or Duly Authorised Representative)\\nWitness\\nWitness\\n\\nSignature of Witness\\nMarketing Permission Agent - Home Finders Coastal\\nMarketing Permission Agent - Home Finders Coastal\\n\\n\"}",
+    "fields_json": "[{\"key\": \"\", \"type\": \"text\", \"label\": \"Seller Name Surname ID\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Seller Id Number\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Marital Status\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Seller Phone\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Seller address\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Seller Email\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Number\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Street\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"District\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Suburb\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Complex\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Price[words]\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Commission Percent\", \"assignedTo\": \"agent\"}, {\"key\": \"\", \"type\": \"text\", \"label\": \"Price\", \"assignedTo\": \"agent\"}]",
+    "signing_parties": "[\"owner_party\", \"agent\"]",
+    "editor_state": "{\"tags\": [{\"id\": \"tag-mpc3s4lc-mxnx4n\", \"type\": \"input\", \"label\": \"[INPUT 1]\", \"number\": 1, \"parserIndex\": 0}, {\"id\": \"tag-mpc3s4lg-shivpv\", \"type\": \"input\", \"label\": \"[INPUT 2]\", \"number\": 2, \"parserIndex\": 1}, {\"id\": \"tag-mpc3s4lh-464vfq\", \"type\": \"input\", \"label\": \"[INPUT 3]\", \"number\": 3, \"parserIndex\": 2}, {\"id\": \"tag-mpc3s4li-w7u38t\", \"type\": \"input\", \"label\": \"[INPUT 4]\", \"number\": 4, \"parserIndex\": 3}, {\"id\": \"tag-mpc3s4li-uzaad0\", \"type\": \"input\", \"label\": \"[INPUT 5]\", \"number\": 5, \"parserIndex\": 4}, {\"id\": \"tag-mpc3s4lj-kqgmy3\", \"type\": \"input\", \"label\": \"[INPUT 6]\", \"number\": 6, \"parserIndex\": 5}, {\"id\": \"tag-mpc3s4ll-1jlop0\", \"type\": \"input\", \"label\": \"[INPUT 7]\", \"number\": 7, \"parserIndex\": 12}, {\"id\": \"tag-mpc3s4ll-16h17h\", \"type\": \"input\", \"label\": \"[INPUT 8]\", \"number\": 8, \"parserIndex\": 13}, {\"id\": \"tag-mpc3s4lm-tj7ywv\", \"type\": \"input\", \"label\": \"[INPUT 9]\", \"number\": 9, \"parserIndex\": 14}, {\"id\": \"tag-mpc3s4lm-jghw6s\", \"type\": \"input\", \"label\": \"[INPUT 10]\", \"number\": 10, \"parserIndex\": 15}, {\"id\": \"tag-mpc3s4lm-381vyn\", \"type\": \"input\", \"label\": \"[INPUT 11]\", \"number\": 11, \"parserIndex\": 16}, {\"id\": \"tag-mpc3s4ln-ym48f0\", \"type\": \"input\", \"label\": \"[INPUT 12]\", \"number\": 12, \"parserIndex\": 17}, {\"id\": \"tag-mpc3s4ln-3dhbm9\", \"type\": \"input\", \"label\": \"[INPUT 13]\", \"number\": 13, \"parserIndex\": 18}, {\"id\": \"tag-mpc3s4ln-k252pp\", \"type\": \"input\", \"label\": \"[INPUT 14]\", \"number\": 14, \"parserIndex\": 19}], \"mappings\": {\"tag-mpc3s4lc-mxnx4n\": {\"label\": \"Seller Name Surname ID\", \"party\": \"owner_party\", \"sigType\": \"electronic\", \"typeKey\": \"fg:8\", \"confidence\": \"medium\", \"sourceType\": null, \"editable_by\": [\"all\"], \"manualLabel\": null, \"mappingType\": \"field_group\", \"partyLocked\": true, \"fieldGroupId\": 8, \"namedFieldId\": null, \"sourceContactType\": null}, \"tag-mpc3s4lg-shivpv\": {\"label\": \"Seller Id Number\", \"party\": \"owner_party\", \"sigType\": \"electronic\", \"typeKey\": \"sf:contact_seller\", \"confidence\": \"high\", \"sourceType\": \"contact\", \"editable_by\": [\"agent\", \"owner_party\"], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 159, \"sourceContactType\": \"Seller\"}, \"tag-mpc3s4lh-464vfq\": {\"label\": \"Marital Status\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:manual\", \"confidence\": \"low\", \"sourceType\": null, \"editable_by\": [\"all\"], \"manualLabel\": \"Marital Status\", \"mappingType\": \"manual\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": null, \"sourceContactType\": null}, \"tag-mpc3s4li-uzaad0\": {\"label\": \"Seller Phone\", \"party\": \"owner_party\", \"sigType\": \"electronic\", \"typeKey\": \"sf:contact_seller\", \"confidence\": \"medium\", \"sourceType\": \"contact\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 155, \"sourceContactType\": \"Seller\"}, \"tag-mpc3s4li-w7u38t\": {\"label\": \"Seller address\", \"party\": \"owner_party\", \"sigType\": \"electronic\", \"typeKey\": \"sf:contact_seller\", \"confidence\": \"high\", \"sourceType\": \"contact\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 15, \"sourceContactType\": \"Seller\"}, \"tag-mpc3s4lj-kqgmy3\": {\"label\": \"Seller Email\", \"party\": \"owner_party\", \"sigType\": \"electronic\", \"typeKey\": \"sf:contact_seller\", \"confidence\": \"high\", \"sourceType\": \"contact\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 156, \"sourceContactType\": \"Seller\"}, \"tag-mpc3s4ll-16h17h\": {\"label\": \"Number\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:property\", \"confidence\": \"high\", \"sourceType\": \"property\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 20, \"sourceContactType\": null}, \"tag-mpc3s4ll-1jlop0\": {\"label\": \"Street\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:property\", \"confidence\": \"medium\", \"sourceType\": \"property\", \"editable_by\": [\"all\"], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 12, \"sourceContactType\": null}, \"tag-mpc3s4lm-381vyn\": {\"label\": \"District\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:property\", \"confidence\": \"medium\", \"sourceType\": \"property\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 25, \"sourceContactType\": null}, \"tag-mpc3s4lm-jghw6s\": {\"label\": \"Suburb\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:property\", \"confidence\": \"medium\", \"sourceType\": \"property\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 24, \"sourceContactType\": null}, \"tag-mpc3s4lm-tj7ywv\": {\"label\": \"Complex\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:property\", \"confidence\": \"medium\", \"sourceType\": \"property\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 11, \"sourceContactType\": null}, \"tag-mpc3s4ln-3dhbm9\": {\"label\": \"Price[words]\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:computed\", \"confidence\": \"medium\", \"sourceType\": \"computed\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 23, \"sourceContactType\": null}, \"tag-mpc3s4ln-k252pp\": {\"label\": \"Commission Percent\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:property\", \"confidence\": \"low\", \"sourceType\": \"property\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 53, \"sourceContactType\": null}, \"tag-mpc3s4ln-ym48f0\": {\"label\": \"Price\", \"party\": \"auto\", \"sigType\": \"electronic\", \"typeKey\": \"sf:property\", \"confidence\": \"low\", \"sourceType\": \"property\", \"editable_by\": [], \"manualLabel\": null, \"mappingType\": \"named_field\", \"partyLocked\": false, \"fieldGroupId\": null, \"namedFieldId\": 17, \"sourceContactType\": null}}, \"tagged_html\": \"<div class=\\\"corex-h1\\\"><span style=\\\"letter-spacing: 0.8px;\\\">MARKETING PERMISSION</span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><em>Your authority for us to market and sell your property</em></span></div>\\n<div class=\\\"corex-h1\\\">SELLER DETAILS</div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\">Please provide the details of the registered owner(s) of the property. Where there is more than one seller, complete the second seller block; where there is one seller, leave the second block blank.</span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Seller -&nbsp;</strong><span class=\\\"doc-tag doc-tag-selected doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Full name and surname\\\" data-confidence=\\\"medium\\\" style=\\\"border-color: rgb(249, 115, 22) rgb(249, 115, 22) rgb(168, 85, 247); border-bottom-width: 2px; border-bottom-style: solid;\\\" data-tag-id=\\\"tag-mpc3s4lc-mxnx4n\\\" contenteditable=\\\"false\\\" title=\\\"Editable by: all\\\">[Seller Name Surname ID]</span></span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><strong style=\\\"font-size: 10.5pt;\\\">Seller - Marital status (Unmarried / C</strong><strong style=\\\"font-size: 10.5pt;\\\">OP / </strong><strong style=\\\"font-size: 10.5pt;\\\">ANC / Other):  </strong><span class=\\\"doc-tag doc-tag-input-manual\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Input\\\" data-confidence=\\\"low\\\" data-tag-id=\\\"tag-mpc3s4lh-464vfq\\\" contenteditable=\\\"false\\\" title=\\\"Editable by: all\\\" style=\\\"border-color: rgb(239, 68, 68) rgb(239, 68, 68) rgb(168, 85, 247); border-bottom-width: 2px; border-bottom-style: solid;\\\">[Marital Status]</span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Seller - Physical address:  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"contact.address\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Physical Address\\\" data-confidence=\\\"high\\\" style=\\\"border-top-color: rgb(34, 197, 94); border-right-color: rgb(34, 197, 94); border-left-color: rgb(34, 197, 94);\\\" data-tag-id=\\\"tag-mpc3s4li-w7u38t\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Seller address]</span></span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Seller - Telephone number:  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Telephone number\\\" data-confidence=\\\"medium\\\" style=\\\"border-top-color: rgb(249, 115, 22); border-right-color: rgb(249, 115, 22); border-left-color: rgb(249, 115, 22);\\\" data-tag-id=\\\"tag-mpc3s4li-uzaad0\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Seller Phone]</span></span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Seller - Email address:  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"contact.email\\\" data-field-type=\\\"email\\\" data-field-label=\\\"Email\\\" data-confidence=\\\"high\\\" style=\\\"border-top-color: rgb(34, 197, 94); border-right-color: rgb(34, 197, 94); border-left-color: rgb(34, 197, 94);\\\" data-tag-id=\\\"tag-mpc3s4lj-kqgmy3\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Seller Email]</span></span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span style=\\\"color: rgb(15, 23, 42); font-size: 13px; font-weight: 600; letter-spacing: 0.8px; text-align: left; text-transform: uppercase;\\\">PROPERTY DETAILS</span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Street address:  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Street address\\\" data-confidence=\\\"medium\\\" style=\\\"border-color: rgb(249, 115, 22) rgb(249, 115, 22) rgb(168, 85, 247); border-bottom-width: 2px; border-bottom-style: solid;\\\" data-tag-id=\\\"tag-mpc3s4ll-1jlop0\\\" contenteditable=\\\"false\\\" title=\\\"Editable by: all\\\">[Street]</span></span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Erf / Sectional Scheme / Unit number:  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"property.erf_number\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Erf/Unit No.\\\" data-confidence=\\\"high\\\" style=\\\"border-top-color: rgb(34, 197, 94); border-right-color: rgb(34, 197, 94); border-left-color: rgb(34, 197, 94);\\\" data-tag-id=\\\"tag-mpc3s4ll-16h17h\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Number]</span> <strong>Complex / Estate name:  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Estate name\\\" data-confidence=\\\"medium\\\" style=\\\"border-top-color: rgb(249, 115, 22); border-right-color: rgb(249, 115, 22); border-left-color: rgb(249, 115, 22);\\\" data-tag-id=\\\"tag-mpc3s4lm-tj7ywv\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Complex]</span>  </span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Township / Suburb:  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Suburb\\\" data-confidence=\\\"medium\\\" style=\\\"border-top-color: rgb(249, 115, 22); border-right-color: rgb(249, 115, 22); border-left-color: rgb(249, 115, 22);\\\" data-tag-id=\\\"tag-mpc3s4lm-jghw6s\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Suburb]</span>  <strong>Property - District:  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"District\\\" data-confidence=\\\"medium\\\" style=\\\"border-top-color: rgb(249, 115, 22); border-right-color: rgb(249, 115, 22); border-left-color: rgb(249, 115, 22);\\\" data-tag-id=\\\"tag-mpc3s4lm-381vyn\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[District]</span></span></div>\\n<div class=\\\"corex-h1\\\">GRANT OF MARKETING PERMISSION</div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\">I / We, the seller(s) identified above, being the registered owner(s) or duly authorised representative(s) of the owner(s) of the property described above, together with all fixtures and fittings of a permanent nature pertaining to the property, do hereby grant to Home Finders Coastal the marketing permission, right and authority to market and sell the abovementioned property.</span></div>\\n<div class=\\\"corex-h1\\\">PRICE AND PROFESSIONAL FEE</div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Asking price (Rand):  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Input\\\" data-confidence=\\\"low\\\" style=\\\"border-top-color: rgb(239, 68, 68); border-right-color: rgb(239, 68, 68); border-left-color: rgb(239, 68, 68);\\\" data-tag-id=\\\"tag-mpc3s4ln-ym48f0\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Price]</span>      <strong>Asking price in words:  </strong><span class=\\\"doc-tag doc-tag-selected doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Asking price in words\\\" data-confidence=\\\"medium\\\" style=\\\"border-top-color: rgb(249, 115, 22); border-right-color: rgb(249, 115, 22); border-left-color: rgb(249, 115, 22);\\\" data-tag-id=\\\"tag-mpc3s4ln-3dhbm9\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Price[words]]</span></span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\">The asking price is the price at which the property will be advertised, or such other price as may be agreed upon by the Seller.</span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><strong>Professional fee percentage (%):  </strong><span class=\\\"doc-tag doc-tag-input-linked\\\" data-field-name=\\\"\\\" data-field-type=\\\"text\\\" data-field-label=\\\"Input\\\" data-confidence=\\\"low\\\" style=\\\"border-top-color: rgb(239, 68, 68); border-right-color: rgb(239, 68, 68); border-left-color: rgb(239, 68, 68);\\\" data-tag-id=\\\"tag-mpc3s4ln-k252pp\\\" contenteditable=\\\"false\\\" title=\\\"Locked after agent fills\\\">[Commission Percent]</span></span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\">The Seller shall pay Home Finders Coastal the professional fee stated above, plus VAT where applicable, of the price at which the property is sold. The professional fee is payable on registration of transfer.</span></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\">The Seller consents to Home Finders Coastal placing a \\\"For Sale\\\" board on the property.</span></div>\\n<div class=\\\"corex-h1\\\">FICA AND POPIA</div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\">Before marketing begins, the Seller will complete the Mandatory Disclosure Form and provide the FICA documents required to verify the Seller’s identity. Home Finders Coastal will handle the Seller’s personal information in line with the Protection of Personal Information Act (POPIA).</span></div>\\n<div class=\\\"corex-h1\\\">FIDELITY FUND CERTIFICATE WARRANTY</div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span class=\\\"corex-clause-text\\\"><em>[ FFC WARRANTY CLAUSE - INSERT THE EXACT, VERBATIM STATUTORY WORDING HERE. This clause is prescribed and must be reproduced word-for-word. Johan to insert the approved text from the attorney source before this template is used. ]</em></span></div>\\n<div class=\\\"corex-h1\\\">SIGNING</div><div class=\\\"corex-h1\\\"><br></div>\\n<div class=\\\"corex-clause corex-clause-indent-1\\\"><span style=\\\"color: rgb(100, 116, 139); font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;\\\">THUS DONE AND SIGNED&nbsp;</span></div><div class=\\\"corex-signature-section\\\"><div class=\\\"corex-clause\\\"><span class=\\\"corex-clause-text\\\"><br></span></div><div class=\\\"corex-clause\\\"><span class=\\\"corex-clause-text\\\">Marketing Permission Agent Marketing Permission V6</span></div></div>\"}",
+    "sections": null,
+    "field_mappings": {
+        "tag-mpc3s4lc-mxnx4n": {
+            "label": "Seller Name Surname ID",
+            "party": "owner_party",
+            "sigType": "electronic",
+            "typeKey": "fg:8",
+            "confidence": "medium",
+            "sourceType": null,
+            "editable_by": [
+                "all"
+            ],
+            "manualLabel": null,
+            "mappingType": "field_group",
+            "partyLocked": true,
+            "fieldGroupId": 8,
+            "namedFieldId": null,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4lg-shivpv": {
+            "label": "Seller Id Number",
+            "party": "owner_party",
+            "sigType": "electronic",
+            "typeKey": "sf:contact_seller",
+            "confidence": "high",
+            "sourceType": "contact",
+            "editable_by": [
+                "agent",
+                "owner_party"
+            ],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 159,
+            "sourceContactType": "Seller"
+        },
+        "tag-mpc3s4lh-464vfq": {
+            "label": "Marital Status",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:manual",
+            "confidence": "low",
+            "sourceType": null,
+            "editable_by": [
+                "all"
+            ],
+            "manualLabel": "Marital Status",
+            "mappingType": "manual",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": null,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4li-uzaad0": {
+            "label": "Seller Phone",
+            "party": "owner_party",
+            "sigType": "electronic",
+            "typeKey": "sf:contact_seller",
+            "confidence": "medium",
+            "sourceType": "contact",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 155,
+            "sourceContactType": "Seller"
+        },
+        "tag-mpc3s4li-w7u38t": {
+            "label": "Seller address",
+            "party": "owner_party",
+            "sigType": "electronic",
+            "typeKey": "sf:contact_seller",
+            "confidence": "high",
+            "sourceType": "contact",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 15,
+            "sourceContactType": "Seller"
+        },
+        "tag-mpc3s4lj-kqgmy3": {
+            "label": "Seller Email",
+            "party": "owner_party",
+            "sigType": "electronic",
+            "typeKey": "sf:contact_seller",
+            "confidence": "high",
+            "sourceType": "contact",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 156,
+            "sourceContactType": "Seller"
+        },
+        "tag-mpc3s4ll-16h17h": {
+            "label": "Number",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:property",
+            "confidence": "high",
+            "sourceType": "property",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 20,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4ll-1jlop0": {
+            "label": "Street",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:property",
+            "confidence": "medium",
+            "sourceType": "property",
+            "editable_by": [
+                "all"
+            ],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 12,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4lm-381vyn": {
+            "label": "District",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:property",
+            "confidence": "medium",
+            "sourceType": "property",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 25,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4lm-jghw6s": {
+            "label": "Suburb",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:property",
+            "confidence": "medium",
+            "sourceType": "property",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 24,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4lm-tj7ywv": {
+            "label": "Complex",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:property",
+            "confidence": "medium",
+            "sourceType": "property",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 11,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4ln-3dhbm9": {
+            "label": "Price[words]",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:computed",
+            "confidence": "medium",
+            "sourceType": "computed",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 23,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4ln-k252pp": {
+            "label": "Commission Percent",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:property",
+            "confidence": "low",
+            "sourceType": "property",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 53,
+            "sourceContactType": null
+        },
+        "tag-mpc3s4ln-ym48f0": {
+            "label": "Price",
+            "party": "auto",
+            "sigType": "electronic",
+            "typeKey": "sf:property",
+            "confidence": "low",
+            "sourceType": "property",
+            "editable_by": [],
+            "manualLabel": null,
+            "mappingType": "named_field",
+            "partyLocked": false,
+            "fieldGroupId": null,
+            "namedFieldId": 17,
+            "sourceContactType": null
+        }
+    },
+    "named_field_refs": {
+        "11": {
+            "name": "Complex",
+            "field_type": "text",
+            "source_type": "property",
+            "source_column": "complex_name",
+            "source_contact_type": null
+        },
+        "12": {
+            "name": "Street",
+            "field_type": "text",
+            "source_type": "property",
+            "source_column": "address",
+            "source_contact_type": null
+        },
+        "15": {
+            "name": "Seller address",
+            "field_type": "text",
+            "source_type": "contact",
+            "source_column": "address",
+            "source_contact_type": "Seller"
+        },
+        "17": {
+            "name": "Price",
+            "field_type": "text",
+            "source_type": "property",
+            "source_column": "price",
+            "source_contact_type": null
+        },
+        "20": {
+            "name": "Number",
+            "field_type": "text",
+            "source_type": "property",
+            "source_column": "property_number",
+            "source_contact_type": null
+        },
+        "23": {
+            "name": "Price[words]",
+            "field_type": "text",
+            "source_type": "computed",
+            "source_column": "price_in_words",
+            "source_contact_type": null
+        },
+        "24": {
+            "name": "Suburb",
+            "field_type": "text",
+            "source_type": "property",
+            "source_column": "suburb",
+            "source_contact_type": null
+        },
+        "25": {
+            "name": "District",
+            "field_type": "text",
+            "source_type": "property",
+            "source_column": "district",
+            "source_contact_type": null
+        },
+        "53": {
+            "name": "Commission Percent",
+            "field_type": "number",
+            "source_type": "property",
+            "source_column": "commission_percent",
+            "source_contact_type": null
+        },
+        "155": {
+            "name": "Seller Phone",
+            "field_type": "text",
+            "source_type": "contact",
+            "source_column": "phone",
+            "source_contact_type": "Seller"
+        },
+        "156": {
+            "name": "Seller Email",
+            "field_type": "text",
+            "source_type": "contact",
+            "source_column": "email",
+            "source_contact_type": "Seller"
+        },
+        "159": {
+            "name": "Seller Id Number",
+            "field_type": "text",
+            "source_type": "contact",
+            "source_column": "id_number",
+            "source_contact_type": "Seller"
+        }
+    }
+}

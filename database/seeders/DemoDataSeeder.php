@@ -250,6 +250,7 @@ class DemoDataSeeder extends Seeder
             AgencyDocumentTypeConfigSeeder::class,
             WebTemplateSeeder::class,                // 6 e-sign web templates
             MarketingPermissionV6Seeder::class,      // + Marketing Permission V6 (sales)
+            MarketingPermissionEsignSeeder::class,   // + Marketing Permission Esign (CDS, working)
             SalesMandatoryDisclosureSeeder::class,   // + Sales Mandatory Disclosure (PPA s70)
         ] as $seeder) {
             $this->safeSeed(class_basename($seeder), fn () => $this->call([$seeder]));

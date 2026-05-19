@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * "Seller Onboarding" web pack — bundles, for the e-sign wizard:
- *   1. Marketing Permission V6     (MarketingPermissionV6Seeder)
+ *   1. Marketing Permission Esign  (MarketingPermissionEsignSeeder — CDS)
  *   2. Sales Mandatory Disclosure  (SalesMandatoryDisclosureSeeder)
  *
  * FICA is intentionally NOT a pack item — it stays the per-recipient
@@ -35,17 +35,21 @@ class SellerOnboardingPackSeeder extends Seeder
             throw new \RuntimeException('SellerOnboardingPackSeeder needs ≥1 user (web_packs.created_by is NOT NULL).');
         }
 
-        $v6Id = DB::table('docuperfect_templates')
-            ->where('name', MarketingPermissionV6Seeder::TEMPLATE_NAME)->value('id');
+        // The working CDS Marketing Permission (Johan's builder template),
+        // NOT the old blade-based V6. Match the active, non-deleted row.
+        $marketingId = DB::table('docuperfect_templates')
+            ->where('name', MarketingPermissionEsignSeeder::TEMPLATE_NAME)
+            ->where('template_type', 'cds')
+            ->whereNull('deleted_at')->value('id');
         // Sale-context disclosure (NOT the letting one — a seller discloses
         // to a purchaser, PPA s70 / Reg 36).
         $disclosureId = DB::table('docuperfect_templates')
             ->where('name', SalesMandatoryDisclosureSeeder::TEMPLATE_NAME)->value('id');
 
-        if (! $v6Id || ! $disclosureId) {
+        if (! $marketingId || ! $disclosureId) {
             throw new \RuntimeException(
                 'SellerOnboardingPackSeeder needs both templates seeded first '
-                . '(Marketing Permission V6 + Sales Mandatory Disclosure).'
+                . '(Marketing Permission Esign + Sales Mandatory Disclosure).'
             );
         }
 
@@ -62,7 +66,7 @@ class SellerOnboardingPackSeeder extends Seeder
             ->where('agency_id', $agencyId)->where('name', self::PACK_NAME)->value('id');
 
         $items = [
-            ['template_id' => $v6Id,         'sort_order' => 0,  'slot_label' => 'Marketing Permission V6'],
+            ['template_id' => $marketingId,  'sort_order' => 0,  'slot_label' => 'Marketing Permission Esign'],
             ['template_id' => $disclosureId, 'sort_order' => 10, 'slot_label' => 'Sales Mandatory Disclosure'],
         ];
 
