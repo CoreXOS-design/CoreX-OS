@@ -653,35 +653,86 @@ class FicaController extends Controller
             'Only the requesting agent or an admin can upload documents.'
         );
 
+        // Multiple supporting documents per submission, each with its own
+        // type (ID copy, proof of address, …). fica_documents is already a
+        // one-to-many w/ SoftDeletes — every upload is a NEW row, nothing is
+        // overwritten. Arrays are index-parallel: document_type[i] ↔ file[i].
         $validated = $request->validate([
-            'file'          => 'required|file|max:10240|mimes:pdf,jpg,jpeg,png,heic',
-            'document_type' => 'required|string|in:id_copy,proof_of_address,fica_form,authority,bank_statement,tax_clearance,company_registration,trust_deed,supporting,other',
-            'notes'         => 'nullable|string|max:500',
+            'file'            => 'required|array|min:1',
+            'file.*'          => 'required|file|max:10240|mimes:pdf,jpg,jpeg,png,heic',
+            'document_type'   => 'required|array|min:1',
+            'document_type.*' => 'required|string|in:id_copy,proof_of_address,fica_form,authority,bank_statement,tax_clearance,company_registration,trust_deed,supporting,other',
         ]);
 
-        $file = $request->file('file');
-        $path = $file->store("fica/{$submission->id}", 'public');
+        $files = $request->file('file');
+        $types = $validated['document_type'];
+        abort_unless(count($files) === count($types), 422, 'Each uploaded file must have a document type.');
 
-        $doc = FicaDocument::create([
-            'fica_submission_id' => $submission->id,
-            'document_type'      => $validated['document_type'],
-            'file_path'          => $path,
-            'file_name'          => $file->getClientOriginalName(),
-            'file_size'          => $file->getSize(),
-            'mime_type'          => $file->getMimeType(),
-            'status'             => 'uploaded',
-            'uploaded_at'        => now(),
-            'uploaded_by'        => Auth::id(),
-        ]);
+        $ids = [];
+        foreach ($files as $i => $file) {
+            $type = $types[$i] ?? null;
+            if (! $type) {
+                continue;
+            }
+            $path = $file->store("fica/{$submission->id}", 'public');
 
-        Log::info('FICA agent uploaded document', [
+            $doc = FicaDocument::create([
+                'fica_submission_id' => $submission->id,
+                'document_type'      => $type,
+                'file_path'          => $path,
+                'file_name'          => $file->getClientOriginalName(),
+                'file_size'          => $file->getSize(),
+                'mime_type'          => $file->getMimeType(),
+                'status'             => 'uploaded',
+                'uploaded_at'        => now(),
+                'uploaded_by'        => Auth::id(),
+            ]);
+            $ids[] = $doc->id;
+        }
+
+        Log::info('FICA agent uploaded documents', [
             'submission_id' => $submission->id,
-            'document_id'   => $doc->id,
-            'type'          => $validated['document_type'],
+            'document_ids'  => $ids,
+            'count'         => count($ids),
             'agent_id'      => Auth::id(),
         ]);
 
-        return back()->with('success', 'Document uploaded successfully.');
+        return back()->with('success', count($ids) === 1
+            ? 'Document uploaded successfully.'
+            : count($ids) . ' documents uploaded successfully.');
+    }
+
+    /**
+     * Soft-delete (archive) a supporting document. Per CoreX no-hard-delete
+     * rule, FicaDocument uses SoftDeletes — the row is archived and remains
+     * admin-recoverable; the documents() relation excludes it thereafter.
+     */
+    public function removeDocument(Request $request, FicaSubmission $submission, FicaDocument $document)
+    {
+        $this->authorizeAgency($submission);
+        abort_unless((int) $document->fica_submission_id === (int) $submission->id, 404);
+        abort_unless(
+            in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']),
+            400,
+            'Cannot remove documents at this stage.'
+        );
+
+        $user = Auth::user();
+        abort_unless(
+            $submission->requested_by === $user->id || $user->isOwnerRole() || $user->hasPermission('manage_compliance'),
+            403,
+            'Only the requesting agent or an admin can remove documents.'
+        );
+
+        $document->delete(); // SoftDeletes — archived, admin-recoverable. Never a hard delete.
+
+        Log::info('FICA agent removed (soft-deleted) document', [
+            'submission_id' => $submission->id,
+            'document_id'   => $document->id,
+            'agent_id'      => $user->id,
+        ]);
+
+        return back()->with('success', 'Document removed (archived — an admin can recover it).');
     }
 
     /**

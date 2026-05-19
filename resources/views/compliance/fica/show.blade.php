@@ -121,6 +121,10 @@
                 {{-- Uploaded documents --}}
                 <div class="bg-white border border-slate-200 p-5">
                     <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid #d97706;">Uploaded Documents</h3>
+                    @php
+                        $canRemove = in_array($submission->status, ['submitted', 'under_review', 'corrections_requested'])
+                            && ($submission->requested_by === auth()->id() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('manage_compliance'));
+                    @endphp
                     @if($submission->documents->isEmpty())
                         <p class="text-sm text-slate-400">No documents uploaded.</p>
                     @else
@@ -132,7 +136,15 @@
                                         <span class="text-xs font-semibold text-slate-700">{{ $doc->document_type_label }}</span>
                                         <span class="text-[10px] text-slate-400">{{ $doc->file_name }}</span>
                                     </div>
-                                    <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" class="text-xs font-medium" style="color:var(--brand-icon); text-decoration:none;">Open in new tab</a>
+                                    <div class="flex items-center gap-3">
+                                        <a href="{{ asset('storage/' . $doc->file_path) }}" target="_blank" class="text-xs font-medium" style="color:var(--brand-icon); text-decoration:none;">Open in new tab</a>
+                                        @if($canRemove)
+                                        <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived — an admin can recover it.');" style="display:inline;">
+                                            @csrf
+                                            <button type="submit" class="text-xs font-medium" style="color:#dc2626; background:none; border:none; cursor:pointer; padding:0;">Remove</button>
+                                        </form>
+                                        @endif
+                                    </div>
                                 </div>
                                 @php $isImage = in_array($doc->mime_type, ['image/jpeg', 'image/png', 'image/jpg']); @endphp
                                 <div style="max-height:400px; overflow:auto;">
@@ -162,42 +174,48 @@
                     && ($submission->requested_by === auth()->id() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('manage_compliance'));
             @endphp
             @if($canUpload)
-                <div class="bg-white border border-slate-200 p-5" x-data="{ uploading: false }">
-                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid var(--brand-icon);">Upload Supporting Document</h3>
-                    <p class="text-xs text-slate-500 mb-3">Attach documents received from the client (e.g. WhatsApp photos of ID, proof of address).</p>
+                <div class="bg-white border border-slate-200 p-5" x-data="{ uploading: false, rows: [0], next: 1, addRow() { this.rows.push(this.next++); }, removeRow(r) { this.rows = this.rows.filter(x => x !== r); } }">
+                    <h3 class="text-sm font-bold text-slate-900 mb-3 pb-2" style="border-bottom:2px solid var(--brand-icon);">Upload Supporting Documents</h3>
+                    <p class="text-xs text-slate-500 mb-3">Attach one or more documents received from the client (e.g. ID copy, proof of address, bank statement). Use “Add another document” for each one — every document keeps its own type.</p>
                     <form method="POST" action="{{ route('compliance.fica.agent-upload', $submission) }}" enctype="multipart/form-data" @submit="uploading = true">
                         @csrf
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-700 mb-1">Document Type *</label>
-                                <select name="document_type" required class="w-full px-2 py-1.5 border border-slate-300 text-sm focus:outline-none focus:border-teal-500" style="border-radius:6px;">
-                                    <option value="">Select type...</option>
-                                    <option value="id_copy">ID Copy</option>
-                                    <option value="proof_of_address">Proof of Address</option>
-                                    <option value="fica_form">FICA Form</option>
-                                    <option value="authority">Authority Document</option>
-                                    <option value="bank_statement">Bank Statement</option>
-                                    <option value="tax_clearance">Tax Clearance</option>
-                                    <option value="company_registration">Company Registration</option>
-                                    <option value="trust_deed">Trust Deed</option>
-                                    <option value="supporting">Supporting Document</option>
-                                    <option value="other">Other</option>
-                                </select>
+                        <template x-for="r in rows" :key="r">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 pb-3" style="border-bottom:1px dashed var(--border,#e2e8f0);">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Document Type *</label>
+                                    <select name="document_type[]" required class="w-full px-2 py-1.5 border border-slate-300 text-sm focus:outline-none focus:border-teal-500" style="border-radius:6px;">
+                                        <option value="">Select type...</option>
+                                        <option value="id_copy">ID Copy</option>
+                                        <option value="proof_of_address">Proof of Address</option>
+                                        <option value="fica_form">FICA Form</option>
+                                        <option value="authority">Authority Document</option>
+                                        <option value="bank_statement">Bank Statement</option>
+                                        <option value="tax_clearance">Tax Clearance</option>
+                                        <option value="company_registration">Company Registration</option>
+                                        <option value="trust_deed">Trust Deed</option>
+                                        <option value="supporting">Supporting Document</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">File * <span class="text-slate-400 font-normal">(PDF, JPG, PNG — max 10 MB)</span></label>
+                                    <input type="file" name="file[]" required accept=".pdf,.jpg,.jpeg,.png,.heic" class="w-full text-sm text-slate-700 file:mr-2 file:py-1 file:px-3 file:border file:border-slate-300 file:text-xs file:font-semibold file:bg-slate-50 file:text-slate-700 hover:file:bg-slate-100">
+                                    <button type="button" x-show="rows.length > 1" @click="removeRow(r)" class="mt-1 text-xs font-medium" style="color:#dc2626; background:none; border:none; cursor:pointer; padding:0;">Remove this row</button>
+                                </div>
                             </div>
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-700 mb-1">File * <span class="text-slate-400 font-normal">(PDF, JPG, PNG â€” max 10 MB)</span></label>
-                                <input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.heic" class="w-full text-sm text-slate-700 file:mr-2 file:py-1 file:px-3 file:border file:border-slate-300 file:text-xs file:font-semibold file:bg-slate-50 file:text-slate-700 hover:file:bg-slate-100">
-                            </div>
-                        </div>
+                        </template>
                         <div class="flex items-center gap-3">
+                            <button type="button" @click="addRow()" class="px-3 py-1.5 text-xs font-semibold" style="background:var(--surface-2,#f1f5f9); border:1px solid var(--border,#e2e8f0); border-radius:6px; cursor:pointer;">+ Add another document</button>
                             <button type="submit" class="px-4 py-1.5 text-white text-xs font-semibold transition" style="background:var(--brand-icon); border-radius:6px;" :disabled="uploading" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
-                                <span x-show="!uploading">Upload Document</span>
+                                <span x-show="!uploading">Upload Documents</span>
                                 <span x-show="uploading" x-cloak>Uploading...</span>
                             </button>
                         </div>
                     </form>
                     @error('file') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    @error('file.*') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     @error('document_type') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    @error('document_type.*') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                 </div>
             @endif
         </div>

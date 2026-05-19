@@ -1258,6 +1258,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/resubmit-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'resubmitCorrections'])->name('resubmit-corrections');
         Route::post('/{submission}/reopen', [\App\Http\Controllers\Compliance\FicaController::class, 'reopenRejected'])->name('reopen');
         Route::post('/{submission}/agent-upload', [\App\Http\Controllers\Compliance\FicaController::class, 'agentUpload'])->name('agent-upload');
+        Route::post('/{submission}/documents/{document}/remove', [\App\Http\Controllers\Compliance\FicaController::class, 'removeDocument'])->name('documents.remove');
     });
 
     // ── Whistleblower Compliance Reporting ──
