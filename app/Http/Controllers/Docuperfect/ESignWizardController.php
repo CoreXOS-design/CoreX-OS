@@ -2028,25 +2028,54 @@ class ESignWizardController extends Controller
                             ->first();
                         if ($existingDraft) {
                             // Reused FICA submissions (seeder/wet-ink/legacy)
-                            // may have a NULL token. The signing-page FICA gate
-                            // builds route('fica.form', token); a null token
-                            // 500s the page. Ensure a usable token before use.
+                            // may carry a NULL token AND a foreign
+                            // requested_by / NULL agency_id — which keeps the
+                            // completed FICA OUT of this agent's compliance
+                            // pipeline (non-CO index filters requested_by;
+                            // AgencyScope is strict on NULL agency_id).
+                            // Backfill the token AND reassign ownership/scope
+                            // to the e-sign agent (parity with
+                            // FicaController::store) so the submitted FICA
+                            // lands in this agent's "Awaiting Agent Review".
                             if (empty($existingDraft->token)) {
                                 $existingDraft->token = Str::random(64);
                                 $existingDraft->token_expires_at = now()->addDays(14);
-                                $existingDraft->save();
                             }
+                            $existingDraft->requested_by = $user->id;
+                            if (empty($existingDraft->agency_id)) {
+                                $existingDraft->agency_id = $user->effectiveAgencyId()
+                                    ?? Contact::find($contactId)?->agency_id;
+                            }
+                            if (empty($existingDraft->branch_id)) {
+                                $existingDraft->branch_id = $user->effectiveBranchId();
+                            }
+                            $existingDraft->save();
                             $ficaSubId = $existingDraft->id;
                         } else {
-                            $ficaSub = FicaSubmission::create([
-                                'contact_id'       => $contactId,
-                                'agency_id'        => $user->effectiveAgencyId(),
-                                'requested_by'     => $user->id,
-                                'token'            => Str::random(64),
-                                'token_expires_at' => now()->addDays(14),
-                                'status'           => 'draft',
-                            ]);
-                            $ficaSubId = $ficaSub->id;
+                            // Parity with FicaController::store:135-139 —
+                            // resolve agency from the agent, fall back to the
+                            // contact's agency, and NEVER create a
+                            // scope-orphaned (NULL agency_id) submission the
+                            // pipeline query can't see: log loudly and skip.
+                            $ficaAgencyId = $user->effectiveAgencyId()
+                                ?? Contact::find($contactId)?->agency_id;
+                            if (! $ficaAgencyId) {
+                                \Illuminate\Support\Facades\Log::warning(
+                                    'E-sign FICA not created — unresolved agency_id (scope-orphan prevented)',
+                                    ['contact_id' => $contactId, 'user_id' => $user->id]
+                                );
+                            } else {
+                                $ficaSub = FicaSubmission::create([
+                                    'contact_id'       => $contactId,
+                                    'agency_id'        => $ficaAgencyId,
+                                    'branch_id'        => $user->effectiveBranchId(),
+                                    'requested_by'     => $user->id,
+                                    'token'            => Str::random(64),
+                                    'token_expires_at' => now()->addDays(14),
+                                    'status'           => 'draft',
+                                ]);
+                                $ficaSubId = $ficaSub->id;
+                            }
                         }
                     }
                 }

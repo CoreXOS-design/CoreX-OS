@@ -166,7 +166,20 @@ class FicaPublicController extends Controller
 
         $validated = $request->validate($rules);
 
-        $submission->update([
+        // Defensive self-heal: a legacy / e-sign-reused submission may
+        // still carry a NULL agency_id / branch_id, which would keep it
+        // out of the strictly-scoped FICA compliance pipeline even though
+        // its status is now 'submitted'. Backfill from the linked contact
+        // on completion so it becomes pipeline-visible.
+        $heal = [];
+        if (empty($submission->agency_id) && $submission->contact?->agency_id) {
+            $heal['agency_id'] = $submission->contact->agency_id;
+        }
+        if (empty($submission->branch_id) && $submission->contact?->branch_id) {
+            $heal['branch_id'] = $submission->contact->branch_id;
+        }
+
+        $submission->update($heal + [
             'entity_type'    => $validated['entity_type'],
             'form_data'      => $validated,
             'signature_data' => $validated['signature_data'],
