@@ -77,14 +77,10 @@ class ClientMatchResolver
         if ($match->baths_min)   $q->where('baths', '>=', $match->baths_min);
         if ($match->garages_min) $q->where('garages', '>=', $match->garages_min);
 
-        // Suburbs — match if any of the requested suburbs is contained in the property's suburb.
-        $suburbs = $this->suburbsFor($match);
-        if (!empty($suburbs)) {
-            $q->where(function (Builder $sub) use ($suburbs) {
-                foreach ($suburbs as $s) {
-                    $sub->orWhere('suburb', 'like', '%' . $s . '%');
-                }
-            });
+        // Suburbs — STRICT match on P24 suburb id (hard cutover from free-text).
+        $suburbIds = $match->p24SuburbIdList();
+        if (!empty($suburbIds)) {
+            $q->whereIn('p24_suburb_id', $suburbIds);
         }
 
         // Hidden by client.
@@ -127,15 +123,11 @@ class ClientMatchResolver
         $add((bool) $m->baths_min,     $p->baths !== null && $p->baths >= (int) $m->baths_min);
         $add((bool) $m->garages_min,   $p->garages !== null && $p->garages >= (int) $m->garages_min);
 
-        $suburbs = $this->suburbsFor($m);
-        if (!empty($suburbs)) {
+        $suburbIds = $m->p24SuburbIdList();
+        if (!empty($suburbIds)) {
             $weights++;
-            $needle = strtolower((string) $p->suburb);
-            foreach ($suburbs as $s) {
-                if ($needle !== '' && str_contains($needle, strtolower($s))) {
-                    $hit++;
-                    break;
-                }
+            if ($p->p24_suburb_id && in_array((int) $p->p24_suburb_id, $suburbIds, true)) {
+                $hit++;
             }
         }
 
@@ -143,22 +135,4 @@ class ClientMatchResolver
         return (int) round(($hit / $weights) * 100);
     }
 
-    /**
-     * @return array<int, string>
-     */
-    private function suburbsFor(ContactMatch $match): array
-    {
-        $raw = $match->suburbs;
-        if (is_string($raw)) {
-            $decoded = json_decode($raw, true);
-            $raw = is_array($decoded) ? $decoded : [];
-        }
-        $list = is_array($raw) ? $raw : [];
-
-        if (empty($list) && !empty($match->suburb)) {
-            $list = [$match->suburb];
-        }
-
-        return array_values(array_filter(array_map('trim', array_map('strval', $list))));
-    }
 }

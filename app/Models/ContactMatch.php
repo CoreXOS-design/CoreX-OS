@@ -48,7 +48,7 @@ class ContactMatch extends Model
         'floor_size_max',
         'erf_size_min',
         'erf_size_max',
-        'suburb',
+        'p24_suburb_ids',
         'suburbs',
         'must_have_features',
         'nice_to_have_features',
@@ -74,6 +74,7 @@ class ContactMatch extends Model
         'erf_size_min'          => 'integer',
         'erf_size_max'          => 'integer',
         'property_types'        => 'array',
+        'p24_suburb_ids'        => 'array',
         'suburbs'               => 'array',
         'must_have_features'    => 'array',
         'nice_to_have_features' => 'array',
@@ -93,6 +94,12 @@ class ContactMatch extends Model
             }
             if (empty($match->status)) {
                 $match->status = self::STATUS_ACTIVE;
+            }
+            $match->syncSuburbsFromP24Ids();
+        });
+        static::updating(function (self $match) {
+            if ($match->isDirty('p24_suburb_ids')) {
+                $match->syncSuburbsFromP24Ids();
             }
         });
         static::created(function (self $match) {
@@ -256,15 +263,44 @@ class ContactMatch extends Model
     }
 
     /**
-     * Returns the canonical list of suburbs this match cares about.
-     * Combines new `suburbs` json column with the legacy `suburb` field.
+     * Returns the canonical list of suburb NAMES this match cares about.
+     * Names are derived from p24_suburb_ids and kept in sync on save; this
+     * method just returns the cached array for display.
      */
     public function suburbList(): array
     {
         $list = is_array($this->suburbs) ? $this->suburbs : [];
-        if (!empty($this->suburb) && !in_array($this->suburb, $list, true)) {
-            $list[] = $this->suburb;
-        }
         return array_values(array_filter(array_map('trim', $list)));
+    }
+
+    /**
+     * Returns the canonical list of P24 suburb IDs this match cares about.
+     *
+     * @return int[]
+     */
+    public function p24SuburbIdList(): array
+    {
+        $list = is_array($this->p24_suburb_ids) ? $this->p24_suburb_ids : [];
+        return array_values(array_unique(array_filter(array_map('intval', $list))));
+    }
+
+    /**
+     * Looks up suburb names for the current p24_suburb_ids and writes them
+     * into the `suburbs` column. Called from creating/updating hooks so
+     * downstream display code that reads $match->suburbs keeps working
+     * without an extra join.
+     */
+    public function syncSuburbsFromP24Ids(): void
+    {
+        $ids = $this->p24SuburbIdList();
+        if (empty($ids)) {
+            $this->suburbs = [];
+            return;
+        }
+        $names = \App\Models\P24Suburb::whereIn('id', $ids)
+            ->orderBy('name')
+            ->pluck('name')
+            ->all();
+        $this->suburbs = array_values(array_filter(array_map('trim', $names)));
     }
 }

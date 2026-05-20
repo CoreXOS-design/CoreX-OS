@@ -574,26 +574,17 @@ class PropertyMatchScoringService
 
     private function scoreArea(ContactMatch $match, Property $property): array
     {
-        $preferred = is_array($match->suburbs) ? $match->suburbs : [];
-        // Legacy single-suburb fallback for older rows whose `suburbs` json is null.
-        if (empty($preferred) && !empty($match->suburb)) {
-            $preferred = [$match->suburb];
-        }
-        if (empty($preferred)) {
+        // Hard-cutover: score by P24 suburb id (exact match) — same source as
+        // the Properties picker, so wishlists line up site-wide.
+        $preferredIds = method_exists($match, 'p24SuburbIdList') ? $match->p24SuburbIdList() : [];
+        if (empty($preferredIds)) {
             return ['points' => 15, 'gap' => null]; // no-signal default (preserved)
         }
-        if (!$property->suburb) {
+        if (!$property->p24_suburb_id) {
             return ['points' => 10, 'gap' => null];
         }
-
-        if (in_array($property->suburb, $preferred, true)) {
+        if (in_array((int) $property->p24_suburb_id, $preferredIds, true)) {
             return ['points' => 20, 'gap' => null];
-        }
-        foreach ($preferred as $area) {
-            $firstWord = explode(' ', (string) $area)[0] ?? '';
-            if ($firstWord !== '' && str_starts_with((string) $property->suburb, $firstWord)) {
-                return ['points' => 12, 'gap' => "Nearby: {$property->suburb} vs preferred {$area}"];
-            }
         }
         return ['points' => 5, 'gap' => "Different area: {$property->suburb}"];
     }

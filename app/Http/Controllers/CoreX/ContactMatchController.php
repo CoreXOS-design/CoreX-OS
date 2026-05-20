@@ -190,9 +190,8 @@ class ContactMatchController extends Controller
             'floor_size_max'          => 'nullable|integer|min:0',
             'erf_size_min'            => 'nullable|integer|min:0',
             'erf_size_max'            => 'nullable|integer|min:0',
-            'suburb'                  => 'nullable|string|max:150',
-            'suburbs'                 => 'nullable|array',
-            'suburbs.*'               => 'string|max:150',
+            'p24_suburb_ids'          => 'nullable|array',
+            'p24_suburb_ids.*'        => 'integer|exists:p24_suburbs,id',
             'must_have_features'      => 'nullable|array',
             'must_have_features.*'    => 'string|max:60',
             'nice_to_have_features'   => 'nullable|array',
@@ -213,9 +212,9 @@ class ContactMatchController extends Controller
 
         $data = $validator->validate();
 
-        // Normalise multi-suburb input.
-        if (isset($data['suburbs']) && is_array($data['suburbs'])) {
-            $data['suburbs'] = array_values(array_filter(array_map('trim', $data['suburbs'])));
+        // Normalise P24 suburb id input — unique, integer, drop zeros.
+        if (isset($data['p24_suburb_ids']) && is_array($data['p24_suburb_ids'])) {
+            $data['p24_suburb_ids'] = array_values(array_unique(array_filter(array_map('intval', $data['p24_suburb_ids']))));
         }
 
         // Normalise feature arrays — trim, lowercase tokens, drop blanks.

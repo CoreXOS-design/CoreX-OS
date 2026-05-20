@@ -175,8 +175,8 @@ class BuyerDetailController extends Controller
             'category'                  => 'nullable|string|max:100',
             'property_types'            => 'nullable|array',
             'property_types.*'          => 'string|max:100',
-            'suburbs'                   => 'nullable|array',
-            'suburbs.*'                 => 'string|max:150',
+            'p24_suburb_ids'            => 'nullable|array',
+            'p24_suburb_ids.*'          => 'integer|exists:p24_suburbs,id',
             'price_min'                 => 'nullable|integer|min:0',
             'price_max'                 => 'nullable|integer|min:0',
             'beds_min'                  => 'nullable|integer|min:0|max:20',
@@ -228,9 +228,14 @@ class BuyerDetailController extends Controller
         if (isset($validated['property_types']) && !empty($validated['property_types'])) {
             $validated['property_type'] = $validated['property_types'][0] ?? null;
         }
+        if (isset($validated['p24_suburb_ids']) && is_array($validated['p24_suburb_ids'])) {
+            $validated['p24_suburb_ids'] = array_values(array_unique(array_filter(
+                array_map('intval', $validated['p24_suburb_ids'])
+            )));
+        }
         return array_intersect_key($validated, array_flip([
             'listing_type', 'category', 'property_type', 'property_types',
-            'suburbs', 'price_min', 'price_max', 'beds_min', 'bedrooms_max',
+            'p24_suburb_ids', 'price_min', 'price_max', 'beds_min', 'bedrooms_max',
             'must_have_features', 'nice_to_have_features', 'deal_breakers',
             'notes', 'is_primary', 'name',
         ]));

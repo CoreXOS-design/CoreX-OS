@@ -167,13 +167,10 @@ class MatchingService
         if ($erfMin)       $numLoose($query, 'erf_size_m2', '>=', $erfMin);
         if ($erfMax)       $numLoose($query, 'erf_size_m2', '<=', $erfMax);
 
-        $suburbs = $overrides['suburbs'] ?? $match->suburbList();
-        if (!empty($suburbs)) {
-            $query->where(function (Builder $q) use ($suburbs) {
-                foreach ($suburbs as $s) {
-                    $q->orWhere('suburb', 'like', '%' . $s . '%');
-                }
-            });
+        // Hard-cutover suburb filter: match by P24 suburb id.
+        $suburbIds = $overrides['p24_suburb_ids'] ?? $match->p24SuburbIdList();
+        if (!empty($suburbIds)) {
+            $query->whereIn('p24_suburb_id', $suburbIds);
         }
 
         return $query->with(['agent', 'branch'])
@@ -275,7 +272,7 @@ class MatchingService
         if ($match->price_min || $match->price_max) {
             $components[] = [25, $this->priceFitRatio($property, $match)];
         }
-        if (!empty($match->suburbList())) {
+        if (!empty($match->p24SuburbIdList())) {
             $components[] = [20, $this->suburbFitRatio($property, $match)];
         }
         if ($match->beds_min) {
@@ -361,22 +358,10 @@ class MatchingService
 
     protected function suburbFitRatio(Property $property, ContactMatch $match): float
     {
-        $list   = $match->suburbList();
-        $suburb = strtolower((string) $property->suburb);
-        if (empty($list))   return 1.0;
-        if ($suburb === '') return 0.0;
-
-        foreach ($list as $s) {
-            $sLower = strtolower(trim($s));
-            if ($sLower === '') continue;
-            if ($sLower === $suburb) return 1.0;
-        }
-        foreach ($list as $s) {
-            $sLower = strtolower(trim($s));
-            if ($sLower === '') continue;
-            if (str_contains($suburb, $sLower) || str_contains($sLower, $suburb)) return 0.5;
-        }
-        return 0.0;
+        $ids = $match->p24SuburbIdList();
+        if (empty($ids)) return 1.0;
+        if (!$property->p24_suburb_id) return 0.0;
+        return in_array((int) $property->p24_suburb_id, $ids, true) ? 1.0 : 0.0;
     }
 
     protected function propertyHasFeatures(Property $property, array $features): bool

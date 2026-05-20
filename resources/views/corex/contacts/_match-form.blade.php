@@ -21,7 +21,20 @@
     $val = fn (string $field, $default = '') => old($field, $isEdit ? ($match->{$field} ?? $default) : $default);
 
     $selectedPropertyTypes  = old('property_types',           $isEdit ? $match->propertyTypeList()       : []);
-    $selectedSuburbs        = old('suburbs',                  $isEdit ? ($match->suburbs ?? [])           : []);
+    // P24 suburb pre-population: hydrate id+name+city+province for chip display.
+    $initialP24Suburbs = [];
+    if ($isEdit && !empty($match->p24_suburb_ids)) {
+        $initialP24Suburbs = \App\Models\P24Suburb::with(['city.province'])
+            ->whereIn('id', $match->p24_suburb_ids)
+            ->get()
+            ->map(fn ($s) => [
+                'id'          => $s->id,
+                'name'        => $s->name,
+                'city_id'     => $s->city?->id,
+                'city_name'   => $s->city?->name,
+                'province_id' => $s->city?->province?->id,
+            ])->all();
+    }
     $selectedMustHaves      = old('must_have_features',       $isEdit ? ($match->must_have_features ?? []) : []);
     $selectedNiceToHaves    = old('nice_to_have_features',    $isEdit ? ($match->nice_to_have_features ?? []) : []);
     $selectedDealBreakers   = old('deal_breakers',            $isEdit ? ($match->deal_breakers ?? [])     : []);
@@ -87,8 +100,8 @@
                     </div>
                     @endif
 
-                    {{-- Row 1: Category + Property Types (multi-chip) + Suburbs (multi-chip) --}}
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {{-- Row 1: Category + Property Types (multi-chip) --}}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Category</label>
                             <select name="category" class="w-full rounded-md px-3 py-2 text-sm"
@@ -121,28 +134,16 @@
                             <input type="hidden" name="property_type" :value="selected[0] || ''">
                         </div>
 
-                        {{-- Suburbs: chip selector (free-entry) --}}
-                        <div x-data="{ selected: @js(array_values($selectedSuburbs)), draft: '' }">
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Suburbs <span class="font-normal" style="color:var(--text-muted);">(comma or enter)</span></label>
-                            <div class="flex flex-wrap gap-1.5 mb-1.5">
-                                <template x-for="(s, i) in selected" :key="i + '-' + s">
-                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold"
-                                          style="background:var(--brand-button, #0ea5e9); color:white;">
-                                        <span x-text="s"></span>
-                                        <button type="button" @click="selected.splice(i, 1)" class="hover:opacity-70" aria-label="Remove">×</button>
-                                    </span>
-                                </template>
-                            </div>
-                            <input type="text" x-model="draft" placeholder="e.g. Uvongo, Margate"
-                                   @keydown.enter.prevent="if (draft.trim()) { selected.push(draft.trim()); draft = ''; }"
-                                   @keydown.,.prevent="if (draft.trim()) { selected.push(draft.trim()); draft = ''; }"
-                                   @blur="if (draft.trim()) { selected.push(draft.trim()); draft = ''; }"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            <template x-for="(s, i) in selected" :key="'h-' + i + '-' + s">
-                                <input type="hidden" name="suburbs[]" :value="s">
-                            </template>
-                        </div>
+                    </div>
+
+                    {{-- Suburbs: P24-backed cascading multi-picker (Province → City → Suburb).
+                         Hard cutover from free-text — see migration 2026_05_20_100001. --}}
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Suburbs <span class="font-normal" style="color:var(--text-muted);">(pick from Property24 — must match the Properties list)</span></label>
+                        @include('corex._partials.p24-multi-suburb-picker', [
+                            'fieldName'      => 'p24_suburb_ids',
+                            'initialSuburbs' => $initialP24Suburbs,
+                        ])
                     </div>
 
                     {{-- Row 2: Price range --}}
