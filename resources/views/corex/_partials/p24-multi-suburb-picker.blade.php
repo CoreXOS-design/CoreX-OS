@@ -108,11 +108,29 @@ function p24MultiSuburbPicker(init) {
             try {
                 let url;
                 if (level === 'province') url = '/api/v1/p24/provinces';
-                if (level === 'city')     url = '/api/v1/p24/cities?province_id=' + this.provinceId;
-                if (level === 'suburb')   url = '/api/v1/p24/suburbs?city_id=' + this.cityId;
+                if (level === 'city')     url = '/api/v1/p24/cities?province_id=' + this.provinceId + '&all=1';
+                if (level === 'suburb')   url = '/api/v1/p24/suburbs?city_id=' + this.cityId + '&all=1';
+
+                // Page-level cache so we don't re-fetch the same list for every
+                // instance of the picker on a page with many existing matches.
+                window.__p24PickerCache = window.__p24PickerCache || {};
+                if (window.__p24PickerCache[url]) {
+                    this.options[level] = window.__p24PickerCache[url];
+                    return;
+                }
                 const r = await fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+                if (!r.ok) {
+                    console.error('[p24-picker] ' + url + ' returned ' + r.status);
+                    this.options[level] = [];
+                    return;
+                }
                 const j = await r.json();
-                this.options[level] = j.data || [];
+                const data = j.data || [];
+                window.__p24PickerCache[url] = data;
+                this.options[level] = data;
+            } catch (e) {
+                console.error('[p24-picker] load failed for ' + level, e);
+                this.options[level] = [];
             } finally { this.loading[level] = false; }
         },
 
