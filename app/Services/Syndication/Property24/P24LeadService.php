@@ -205,6 +205,20 @@ class P24LeadService
     {
         if (!$listingRef) return null;
 
+        // Strategy 1 — direct lookup on properties.p24_listing_number / p24_ref.
+        // Cheapest and works immediately for every currently-syndicated stock listing.
+        $direct = Property::query()->withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where(function ($q) use ($listingRef) {
+                $q->where('p24_listing_number', $listingRef)
+                  ->orWhere('p24_ref', $listingRef);
+            })
+            ->value('id');
+        if ($direct) return (int) $direct;
+
+        // Strategy 2 — TrackedProperty via match-or-create (rule #10 compliant).
+        // Resolves leads for properties that were syndicated AFTER the audit-chain
+        // writeP24ExternalRef hook was added.
         try {
             $tracked = $this->matchOrCreate->matchOrCreate(
                 agencyId: $agencyId,
@@ -216,13 +230,12 @@ class P24LeadService
                     'property_type'=> $raw['propertyType'] ?? null,
                 ], fn ($v) => $v !== null && $v !== ''),
                 source: [
-                    'type'    => 'p24_lead',
+                    'type'    => 'property24',
                     'ref'     => (string) $listingRef,
                     'payload' => $raw,
                 ],
                 actorUserId: null,
             );
-            // If the tracked property was promoted to stock, link to the operational Property.
             if (!empty($tracked->promoted_to_property_id)) {
                 return (int) $tracked->promoted_to_property_id;
             }
@@ -233,10 +246,6 @@ class P24LeadService
             ]);
         }
 
-        // Fall back: direct stock-property lookup by external ref or numeric id.
-        if (is_numeric($listingRef)) {
-            return Property::query()->withoutGlobalScopes()->where('id', (int) $listingRef)->value('id');
-        }
         return null;
     }
 

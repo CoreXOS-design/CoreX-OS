@@ -19,6 +19,44 @@ class Property24SyndicationService
         $this->mapper = $mapper;
     }
 
+    /**
+     * Persist the P24 listingNumber as a TrackedProperty external ref so that
+     * subsequent ingress paths (e.g. P24 lead pull) can resolve back to this
+     * stock Property via TrackedPropertyMatchOrCreateService. Best-effort —
+     * any failure here must not break syndication.
+     */
+    private function writeP24ExternalRef(Property $property, string $listingNumber): void
+    {
+        try {
+            $svc = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
+            $facts = array_filter([
+                'address'       => $property->address ?? null,
+                'suburb'        => $property->suburb ?? null,
+                'latitude'      => $property->latitude ?? null,
+                'longitude'     => $property->longitude ?? null,
+                'property_type' => $property->property_type ?? null,
+                'bedrooms'      => $property->bedrooms ?? null,
+                'bathrooms'     => $property->bathrooms ?? null,
+                'garages'       => $property->garages ?? null,
+            ], fn ($v) => $v !== null && $v !== '');
+
+            $tracked = $svc->matchOrCreate(
+                agencyId: (int) $property->agency_id,
+                facts: $facts,
+                source: ['type' => 'property24', 'ref' => $listingNumber, 'payload' => ['property_id' => $property->id]],
+                actorUserId: null,
+            );
+
+            // Bind the tracked property to this stock property if not already.
+            if (empty($tracked->promoted_to_property_id)) {
+                $tracked->promoted_to_property_id = $property->id;
+                $tracked->save();
+            }
+        } catch (\Throwable $e) {
+            $this->log('warning', "writeP24ExternalRef failed for property #{$property->id}: {$e->getMessage()}");
+        }
+    }
+
     public function submitListing(Property $property): array
     {
         $this->log('info', "submitListing called for property #{$property->id}, agent_id={$property->agent_id}");
@@ -95,6 +133,14 @@ class Property24SyndicationService
         }
 
         $property->update($updateData);
+
+        // Audit chain (CLAUDE.md rule #10): record the P24 listingNumber as an
+        // external ref on the Tracked Property so future ingress paths (e.g.
+        // P24 lead pull) can resolve back to this Property without touching
+        // syndication code. Best-effort — never break syndication on failure.
+        if (!empty($updateData['p24_ref'])) {
+            $this->writeP24ExternalRef($property, (string) $updateData['p24_ref']);
+        }
 
         $this->log('info', "Listing submitted for property #{$property->id}", [
             'p24_status' => $updateData['p24_syndication_status'],
