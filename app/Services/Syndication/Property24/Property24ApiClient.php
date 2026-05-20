@@ -181,6 +181,19 @@ class Property24ApiClient
     }
 
     /**
+     * Fetch buyer-enquiry leads received via P24 since the given ISO-8601 timestamp.
+     *
+     * Endpoint per Listing Service v53: GET /listings/leads?after=<iso8601>
+     * Returns the raw P24 envelope under data; caller is responsible for parsing
+     * individual lead records (P24LeadService).
+     */
+    public function getLeads(?string $after = null): array
+    {
+        $query = $after ? '?after=' . rawurlencode($after) : '';
+        return $this->request('GET', "/listings/leads{$query}", [], null, 'fetch_leads');
+    }
+
+    /**
      * Smoke test: echo-authenticated to verify credentials.
      */
     public function smokeTest(): array

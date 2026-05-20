@@ -405,6 +405,12 @@
                 @endif
                 @endpermission
 
+                @permission('access_portal_leads')
+                @if(\Illuminate\Support\Facades\Route::has('corex.portal-leads.index'))
+                <a href="{{ route('corex.portal-leads.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.portal-leads.*') ? 'active' : '' }}">Portal Leads</a>
+                @endif
+                @endpermission
+
                 @permission('access_presentations')
                 @if(config('features.presentations') && \Illuminate\Support\Facades\Route::has('presentations.index'))
                 <a href="{{ route('presentations.index') }}" class="corex-nav-subitem {{ request()->routeIs('presentations.*') ? 'active' : '' }}">Presentations</a>

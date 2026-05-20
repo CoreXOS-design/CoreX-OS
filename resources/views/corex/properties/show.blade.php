@@ -3787,6 +3787,13 @@
                     ])
                 </div>
 
+                {{-- Portal Leads (P24 + PP) — Spec: .ai/specs/portal-leads.md --}}
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._portal-leads', [
+                        'property' => $property,
+                    ])
+                </div>
+
                 {{-- Section A: Performance Dashboard --}}
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">

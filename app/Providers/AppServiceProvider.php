@@ -87,6 +87,14 @@ class AppServiceProvider extends ServiceProvider
         DealSettlement::observe(DealSettlementObserver::class);
         Property::observe(PropertyObserver::class);
         CommandTask::observe(CommandTaskObserver::class);
+        CommandTask::observe(\App\Observers\CommandTaskPortalLeadObserver::class);
+
+        // Portal Leads: log every new portal lead (extension point for future
+        // Slack/push integrations). See .ai/specs/portal-leads.md.
+        Event::listen(
+            \App\Events\Leads\NewPortalLeadReceived::class,
+            \App\Listeners\Leads\LogPortalLeadReceived::class,
+        );
         \App\Models\ProspectingListing::observe(\App\Observers\ProspectingListingObserver::class);
         \App\Models\DealV2\DealV2::observe(\App\Observers\DealV2Observer::class);
         \App\Models\DealV2\DealStepInstance::observe(\App\Observers\DealStepInstanceObserver::class);

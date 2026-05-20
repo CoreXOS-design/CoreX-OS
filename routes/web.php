@@ -1838,6 +1838,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:access_contacts')
         ->name('corex.core-matches.index');
 
+    // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
+    Route::prefix('real-estate/portal-leads')
+        ->middleware(['permission:access_portal_leads', 'agency.required'])
+        ->name('corex.portal-leads.')
+        ->group(function () {
+            Route::get('/',     [\App\Http\Controllers\CoreX\PortalLeadController::class, 'index'])->name('index');
+            Route::get('/poll', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'poll'])->name('poll');
+            Route::post('/{portalLead}/mark-notified', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'markNotified'])->name('mark-notified');
+        });
+
     // Contacts
     Route::prefix('contacts')->middleware(['permission:access_contacts', 'agency.required'])->name('corex.contacts.')->group(function () {
         Route::get('/',                   [\App\Http\Controllers\CoreX\ContactController::class, 'index'])->name('index');

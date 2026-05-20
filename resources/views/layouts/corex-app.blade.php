@@ -108,6 +108,9 @@
             @include('layouts.partials.help-widget')
         @endauth
 
+        {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
+        @include('components.portal-lead-toast')
+
         {{-- Frontend error capture --}}
         @include('partials.error-reporter')
 
