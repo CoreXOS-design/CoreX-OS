@@ -110,5 +110,8 @@
 
         {{-- Frontend error capture --}}
         @include('partials.error-reporter')
+
+        {{-- Partial-pushed scripts (e.g. P24 location pickers via @push('scripts')) --}}
+        @stack('scripts')
     </body>
 </html>
