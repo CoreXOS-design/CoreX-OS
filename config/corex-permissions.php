@@ -639,6 +639,7 @@ return [
                 'access_properties', 'properties.view',
                 'access_contacts', 'contacts.view',
                 'access_core_matches', 'core_matches.view',
+                'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
                 'settings.view',
