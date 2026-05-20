@@ -61,7 +61,7 @@ window.portalLeadToast = function () {
         toasts: [],
         seen: new Set(),
         pollUrl: '{{ route('corex.portal-leads.poll') }}',
-        markUrlTemplate: '{{ url('real-estate/portal-leads') }}/__ID__/mark-notified',
+        markUrlTemplate: '{{ route('corex.portal-leads.mark-notified', ['portalLead' => '__ID__']) }}',
         intervalMs: 30000,
         timer: null,
 
