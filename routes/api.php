@@ -74,6 +74,15 @@ Route::post('/pp/webhook', [\App\Http\Controllers\PrivateProperty\PpWebhookContr
 // from a Blade-rendered page over fetch needs session-cookie auth, which
 // isn't applied to routes registered here in api.php.
 
+// ════════════════════════════════════════════════════════════════
+// API v1 — Demo Mode (mobile app)
+// Hard-gated to non-production via DemoLoginController::isEnabled()
+// ════════════════════════════════════════════════════════════════
+Route::prefix('v1/demo')->group(function () {
+    Route::get('/status', [\App\Http\Controllers\Api\V1\DemoAuthController::class, 'status'])->name('demo.status');
+    Route::post('/login', [\App\Http\Controllers\Api\V1\DemoAuthController::class, 'login'])->name('demo.login');
+});
+
 Route::prefix('v1/client-auth')->group(function () {
     Route::post('/lookup',          [ClientAuthController::class, 'lookup'])->name('client-auth.lookup');
     Route::post('/otp/send',        [ClientAuthController::class, 'sendOtp'])->name('client-auth.otp.send');
