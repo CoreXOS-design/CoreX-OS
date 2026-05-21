@@ -297,9 +297,57 @@
                                   style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">####</code>
                             <span style="color: var(--text-secondary);">Initial block &mdash; where parties initial</span>
                         </div>
+
+                        {{-- ES-9 / ES-6 — insertable-block marker family --}}
+                        <div class="mt-3 pt-3 rounded-md p-3"
+                             style="border-top: 1px solid var(--border);
+                                    background: color-mix(in srgb, #92400e 5%, transparent);">
+                            <p class="text-[11px] font-semibold uppercase tracking-wider mb-2"
+                               style="color: #92400e;">
+                                Insertable blocks (<span class="font-mono">~~~~</span>)
+                            </p>
+                            <div class="space-y-1.5">
+                                <div class="flex items-start gap-2 text-xs">
+                                    <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                                          style="background: color-mix(in srgb, #92400e 12%, transparent); color: #92400e;">~~~~OTHER_CONDITIONS~~~~</code>
+                                </div>
+                                <p class="text-[11px] pl-1" style="color: var(--text-secondary);">
+                                    Other Conditions &mdash; numbered list for additional clauses (max 1 per template)
+                                </p>
+
+                                <div class="flex items-start gap-2 text-xs pt-1">
+                                    <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                                          style="background: color-mix(in srgb, #92400e 12%, transparent); color: #92400e;">~~~~INCLUDED_ITEMS~~~~</code>
+                                </div>
+                                <p class="text-[11px] pl-1" style="color: var(--text-secondary);">
+                                    Included items &mdash; fixtures, fittings, items in sale
+                                </p>
+
+                                <div class="flex items-start gap-2 text-xs pt-1">
+                                    <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                                          style="background: color-mix(in srgb, #92400e 12%, transparent); color: #92400e;">~~~~EXCLUDED_ITEMS~~~~</code>
+                                </div>
+                                <p class="text-[11px] pl-1" style="color: var(--text-secondary);">
+                                    Excluded items &mdash; what's NOT part of the sale
+                                </p>
+
+                                <div class="flex items-start gap-2 text-xs pt-1">
+                                    <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
+                                          style="background: color-mix(in srgb, #92400e 12%, transparent); color: #92400e;">~~~~CUSTOM:&lt;label&gt;~~~~</code>
+                                </div>
+                                <p class="text-[11px] pl-1" style="color: var(--text-secondary);">
+                                    Custom-named block &mdash; e.g. <code class="font-mono">~~~~CUSTOM:Outstanding Repairs~~~~</code>
+                                </p>
+                            </div>
+                        </div>
                     </div>
                     <p class="text-xs mt-3" style="color: var(--text-muted);">
                         The system auto-detects fields from surrounding text. You can also tag fields manually after import.
+                    </p>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        <strong>Tip:</strong> Insertable blocks let recipients add conditions during signing.
+                        The first three markers stay locked to their template positions;
+                        <span class="font-mono">~~~~</span> markers become live insertable areas.
                     </p>
                 </div>
             </form>
