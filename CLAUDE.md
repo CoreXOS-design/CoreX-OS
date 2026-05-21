@@ -20,9 +20,10 @@ Before touching a single line of code, every session — Johan's or Andre's — 
 1. Read /.ai/SYSTEM.md          — pillars, architecture, data model, non-negotiables
 2. Read /.ai/STANDARDS.md       — UX rules, execution rules, done criteria
 3. Read /.ai/CODEBASE_MAP.md    — file paths, patterns, common gotchas
-4. Find the relevant spec in /.ai/specs/[module].md
-5. If no spec exists → STOP. Create the spec first. Get approval. Then build.
-6. If the feature touches multiple modules → confirm pillar connections before starting.
+4. Git sync (non-negotiable #11) — fetch + pull origin/<current branch> AND origin/Staging into the working branch. Resolve conflicts BEFORE touching any other file.
+5. Find the relevant spec in /.ai/specs/[module].md
+6. If no spec exists → STOP. Create the spec first. Get approval. Then build.
+7. If the feature touches multiple modules → confirm pillar connections before starting.
 ```
 
 **There is no step 0 that skips this.**
@@ -122,6 +123,16 @@ There are two property tiers, clearly separated:
 
 Promotion from Tracked → Stock happens when a mandate is signed, via `promoteToStock()`. Promotion preserves the audit chain — the Tracked Property record stays as the long-lived audit trail, and its `promoted_to_property_id` points at the operational Property. Resolution uses a 5-strategy match: source-ref exact → GPS proximity (~5m) → erf+suburb → normalised address → token overlap. This is the architectural mechanism by which CoreX builds a comprehensive property intelligence dataset organically through normal agent work.
 
+### 11. Git sync at session boundaries.
+Every VS Code session begins with the mandatory pre-reads (CLAUDE.md, STANDARDS.md, CODEBASE_MAP.md, the relevant spec) and THEN — before any other work — runs `git fetch --all --prune`, `git pull --rebase origin <current branch>`, and merges/rebases `origin/Staging` into the working branch. Conflicts are resolved on the spot, before any other file is touched. Every session ends with `git add` of the changed files, a focused commit message, and `git push origin <current branch>`.
+
+This replaces all separate "sync prompts" — there is no scenario where work begins without a pull or ends without a push. The reason: HFC2402 and andre branches diverge daily; without forced sync at session boundaries, the two developers' commits race each other into Staging with predictable merge pain. Pulling Staging at session start surfaces conflicts on the developer's local clock — not at merge time, not at deploy time. Pushing at session end keeps the remote branch the source of truth for the next session.
+
+### 12. Demo is always a working copy.
+The demo environment (`demo1.corexos.co.za`, `/mnt/HC_Volume_103099143/hfc-demo` on the production host, tracking `HFC2402`) is not a snapshot — it is a living working copy. Every dev cycle that touches the database, schema, or any seeder MUST end with the demo migrated, seeded, and verified to match local. The demo's `nexus_os_demo` database is the proving ground: if it can be regenerated end-to-end from `php artisan migrate:fresh --database=demo --force && php artisan demo:seed`, the work is complete; if not, it isn't.
+
+The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, missing columns, or pre-fix bugs cost trust with every customer interaction. The demo must always be exactly one fetch+migrate behind local — never more.
+
 ---
 
 ## How to Build Something New
@@ -159,6 +170,13 @@ Promotion from Tracked → Stock happens when a mandate is signed, via `promoteT
       - If you saved data: verify it persists and loads
       - If you built a form: verify the POST endpoint accepts data
       Do NOT mark done until all verification passes.
+   g. git add + commit + push to origin/<current branch> (non-negotiable #11).
+      No work is "done" until it is on the remote.
+   h. Demo deployment (non-negotiable #12) — if the change touches DB, schema,
+      seeder, or anything the demo persona will see: deploy to the demo host
+      (git pull + php artisan migrate + view:clear + config:clear; reseed if
+      data-shape changed) and verify parity against local. Report the demo
+      verification result.
 ```
 
 ---
