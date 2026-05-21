@@ -30,19 +30,8 @@
         <span style="color: var(--text-secondary); font-size: 0.8125rem;">{{ $agency }}</span>
     </div>
 
-    <div class="mi-topbar-modes inline-flex rounded-md overflow-hidden"
-         style="border: 1px solid var(--border);">
-        <a href="{{ route('market-intelligence.index', $workQuery) }}"
-           class="px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider no-underline"
-           style="{{ $mode === 'work' ? 'background: var(--brand-default); color: #fff;' : 'background: var(--surface); color: var(--text-secondary);' }}">
-            Work
-        </a>
-        <a href="{{ route('market-intelligence.index', $analyseQuery) }}"
-           class="px-3.5 py-1.5 text-xs font-semibold uppercase tracking-wider no-underline"
-           style="{{ $mode === 'analyse' ? 'background: var(--brand-default); color: #fff;' : 'background: var(--surface); color: var(--text-secondary);' }}">
-            Analyse
-        </a>
-    </div>
+    {{-- Phase D1 — Work/Analyse mode toggle removed; the four-tab nav at the
+         top of the page now handles tab switching. --}}
 
     <div class="mi-topbar-right" style="display: flex; align-items: center; gap: 12px;">
         @if($isManager)

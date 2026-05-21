@@ -29,7 +29,7 @@
             $rowBg = $isSelf ? 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface))' : 'var(--surface)';
             $widthPct = max(2, ($row['percentage'] / $maxPct) * 100);
             $href = (!$isOthers && !empty($row['name']))
-                ? route('market-intelligence.index', ['agency_name' => $row['name'], 'mode' => 'work'])
+                ? route('market-intelligence.work', ['agency_name' => $row['name'], 'mode' => 'work'])
                 : null;
         @endphp
         <div style="display: grid; grid-template-columns: 1fr 200px auto auto; gap: 8px; align-items: center;

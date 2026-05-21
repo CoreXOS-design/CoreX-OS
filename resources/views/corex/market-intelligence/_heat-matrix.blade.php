@@ -31,7 +31,7 @@
     };
 
     $cellUrl = function (string $suburb, int $bedrooms): string {
-        return route('market-intelligence.index', [
+        return route('market-intelligence.work', [
             'suburb'         => $suburb,
             'bedrooms_exact' => $bedrooms,
             'mode'           => 'work',

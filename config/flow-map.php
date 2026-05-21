@@ -78,7 +78,7 @@ return [
             'key' => 'prospecting', 'label' => 'Market Intelligence',
             'description' => 'See every property in the area, who is already on the market, and where the gaps are.',
             'category' => 'lifecycle', 'pillar' => 'property',
-            'route' => 'market-intelligence.index', 'permission' => 'access_prospecting', 'icon' => 'radar',
+            'route' => 'market-intelligence.work', 'permission' => 'access_prospecting', 'icon' => 'radar',
             'steps' => [
                 'Pick a suburb or filter the area',
                 'Spot properties not yet on the market',

@@ -361,7 +361,7 @@
                      F.2: count badge — canvass-pool size (matched_property_id IS NULL).
                      Cached 60s per agency. Mirrors the pendingVerificationCount / faultNewCount
                      precedents elsewhere in this sidebar. --}}
-                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.index'))
+                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.work'))
                 @php
                     $miAgencyId = auth()->user()->effectiveAgencyId() ?? auth()->user()->agency_id ?? null;
                     $miCount = $miAgencyId ? cache()->remember(
@@ -374,7 +374,7 @@
                             ->count(),
                     ) : 0;
                 @endphp
-                <a href="{{ route('market-intelligence.index') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.*') || request()->routeIs('prospecting.*') ? 'active' : '' }}">
+                <a href="{{ route('market-intelligence.work') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.*') || request()->routeIs('prospecting.*') ? 'active' : '' }}">
                     <span>Market intelligence</span>
                     @if($miCount > 0)
                     <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
@@ -382,9 +382,10 @@
                     @endif
                 </a>
                 @endif
-                @if(\Illuminate\Support\Facades\Route::has('corex.tracked-properties.index'))
-                <a href="{{ route('corex.tracked-properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.tracked-properties.*') ? 'active' : '' }}">Tracked Properties</a>
-                @endif
+                {{-- Phase D1 — Tracked Properties folded into the MIC
+                     Opportunities tab. Sidebar entry removed; the legacy
+                     route /corex/tracked-properties now 301-redirects to
+                     /corex/market-intelligence/opportunities. --}}
                 @endpermission
 
                 @permission('access_properties')
@@ -1117,7 +1118,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
             </svg>
-            <span>Market Intelligence</span>
+            <span>Market Intelligence Settings</span>
         </a>
         @endif
 
@@ -1328,7 +1329,8 @@
                 <a href="{{ route('evaluation.index') }}#tab=town" class="corex-nav-subitem">Town Report</a>
                 <a href="{{ route('evaluation.index') }}#tab=street" class="corex-nav-subitem">Street Report</a>
                 <a href="{{ route('evaluation.index') }}#tab=transfer" class="corex-nav-subitem">Transfer Report</a>
-                <a href="{{ route('evaluation.index') }}#tab=prospecting" class="corex-nav-subitem">Prospecting</a>
+                {{-- Phase D1 — Prospecting evaluation tab removed; the new
+                     MIC Analyse tab is now the canonical surface for that data. --}}
             </div>
         </div>
         @endif

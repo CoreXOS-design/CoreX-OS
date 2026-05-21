@@ -1,12 +1,17 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 (F.7 audit). --}}
 {{--
-    F.6 Analyse mode body. Same sticky top bar + stats strip as Work mode,
-    different content below: Ellie brief, then a 2-column grid with the
-    heat matrix + market velocity + buyer funnel on the left and
-    opportunity pockets + agency share on the right.
+    MIC Phase D1 — Analyse tab (standalone view extending the layout).
+    Body content unchanged from F.6: Ellie brief, 2-col grid with matrix +
+    velocity + funnel left, pockets + agency share right.
 
-    Spec: build-f-market-intelligence-redesign-spec.md §9.
+    Spec: build-f-market-intelligence-redesign-spec.md §9 +
+          .ai/specs/mic-complete-spec.md §5.2.
 --}}
+@extends('layouts.corex-app')
+
+@section('corex-content')
+
+@include('corex.market-intelligence.partials.tabs')
 
 <header class="mi-header"
         style="position: sticky; top: 0; z-index: 10; background: var(--surface);">
@@ -75,3 +80,4 @@
         margin-bottom: 10px;
     }
 </style>
+@endsection

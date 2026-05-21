@@ -1,18 +1,27 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 (F.7 audit). --}}
 {{--
-    F.3 Work mode — sticky top bar + stats strip + filter rail.
+    MIC Phases D1+D2+D3 — Work tab.
 
-    Sticky offsets:
-      <header> (top bar + stats strip) — sticky at top: 0, z-index 10
-      <aside.mi-filter-rail>           — sticky at top: var(--mi-header-h)
-      <main>                            — normal flow, scrolls naturally
+    Layout (top to bottom):
+      tabs nav (Work | Opportunities | Analyse | Market Pulse)
+      "This Week" hero block (deterministic tiles per agent)
+      sticky header: top-bar + simplified 5-tile stats strip
+      filter rail + listing list
+      slide-over detail panel
 
-    The CSS variable --mi-header-h is set from JS on load and on resize
-    so the rail's sticky-top always matches the live header height even
-    if the stats grid wraps to two rows on narrow viewports.
-
-    Spec: build-f-market-intelligence-redesign-spec.md §8.
+    Spec: .ai/specs/mic-complete-spec.md §5.2, §5.3, §6.
 --}}
+@extends('layouts.corex-app')
+
+@section('corex-content')
+
+@include('corex.market-intelligence.partials.tabs')
+
+@include('corex.market-intelligence.partials.this-week-hero', [
+    'tiles'            => $tiles ?? collect(),
+    'tilesGeneratedAt' => $tilesGeneratedAt ?? null,
+    'agent'            => auth()->user(),
+])
 
 <header class="mi-header"
         style="position: sticky; top: 0; z-index: 10; background: var(--surface);">
@@ -20,8 +29,7 @@
     @include('corex.market-intelligence._stats-strip')
 </header>
 
-{{-- F.8 — one-time dismissable intro banner. localStorage-gated; bumping the
-     version suffix in the partial re-shows it to everyone. --}}
+{{-- F.8 — one-time dismissable intro banner. localStorage-gated. --}}
 @include('corex.market-intelligence._intro-banner')
 
 <div class="mi-split" style="display: grid; grid-template-columns: 200px 1fr; align-items: start;">
@@ -32,12 +40,9 @@
     </main>
 </div>
 
-{{-- F.4 — single slide-over instance for the page; row clicks dispatch
-     `open-slideover` events that this component handles. --}}
 @include('corex.market-intelligence._slideover')
 
 <style>
-    /* Sticky rail — top offset matches header height. JS below keeps it in sync. */
     .mi-filter-rail {
         width: 200px;
         flex-shrink: 0;
@@ -49,7 +54,6 @@
         overflow-y: auto;
         align-self: start;
     }
-    /* Mobile fallback — collapse the rail and let stats wrap. F.G handles full mobile. */
     @media (max-width: 768px) {
         .mi-split { grid-template-columns: 1fr !important; }
         .mi-filter-rail { display: none; }
@@ -73,7 +77,7 @@
         };
         setHeaderHeight();
         window.addEventListener('resize', setHeaderHeight);
-        // Re-measure once after first paint in case fonts shift the box.
         requestAnimationFrame(setHeaderHeight);
     })();
 </script>
+@endsection

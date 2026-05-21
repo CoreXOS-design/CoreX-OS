@@ -34,23 +34,20 @@ use Illuminate\Support\Facades\Storage;
  */
 class MarketIntelligenceController extends Controller
 {
-    public function index(
+    /**
+     * Work tab — the daily working surface. Builds the canvass-pool listing
+     * list with filters, action presets, and the "This Week" hero block
+     * (Phase D2). Legacy ?mode=analyse query branch removed — Analyse lives
+     * at its own route now (Phase D1).
+     *
+     * Spec: .ai/specs/mic-complete-spec.md §5.2, §5.3, §6.
+     */
+    public function work(
         Request $request,
         ProspectingIntelligenceService $intelligence,
         ProspectingListingResolver $resolver,
         ProspectingConfigurationService $config,
     ) {
-        // F.6 — when ?mode=analyse, dispatch to the Analyse mode handler.
-        // Work mode (default) continues to render the legacy listings flow.
-        if ($request->query('mode') === 'analyse') {
-            return $this->analyse(
-                $request,
-                app(\App\Services\MarketIntelligence\AnalyseModeOrchestrator::class),
-                $intelligence,
-                $config,
-            );
-        }
-
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId() ?? $user->agency_id ?? 1;
         $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
@@ -483,7 +480,25 @@ class MarketIntelligenceController extends Controller
                 ->count(),
         );
 
-        return view('corex.market-intelligence.index', compact(
+        // Phase D2 — "This Week" hero block tiles. Deterministic for now;
+        // AI narration plugs into TileDTO->sentence at Phase E1.
+        $tiles = collect();
+        $tilesGeneratedAt = null;
+        try {
+            $tiles = app(\App\Services\MarketIntelligence\ThisWeekTileBuilder::class)->buildFor($user);
+            // Read generated_at from the cache row we just wrote — same query
+            // pattern the builder uses internally; lets the hero block show
+            // "Generated X ago".
+            $cacheKey = 'tiles:user:' . $user->id . ':date:' . now()->toDateString();
+            $tilesGeneratedAt = \App\Models\AI\AINarrativeCache::query()
+                ->where('cache_key', $cacheKey)
+                ->whereNull('deleted_at')
+                ->value('generated_at');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Work tab tile build failed', ['error' => $e->getMessage()]);
+        }
+
+        return view('corex.market-intelligence.work', compact(
             'listings', 'stats', 'suburbs', 'propertyTypes', 'users', 'claimStats', 'regenerating',
             'prospectingSetupTowns', 'prospectingSetupPropertyTypes', 'prospectingSetupBedroomSegments',
             'prospectingSetupPriceBandsSale', 'prospectingSetupPriceBandsRental', 'prospectingSetupSuggestionRegions',
@@ -496,7 +511,9 @@ class MarketIntelligenceController extends Controller
             // F.2 Work mode shell data
             'snapshotKpis', 'actionPresetCounts', 'filterRailAggregates',
             'demandPockets', 'actionPreset', 'includeInStock',
-            'marketIntelligenceSidebarCount'
+            'marketIntelligenceSidebarCount',
+            // Phase D2 — This Week hero
+            'tiles', 'tilesGeneratedAt'
         ));
     }
 
@@ -546,7 +563,7 @@ class MarketIntelligenceController extends Controller
         // urlWith closure used by the lifted buyer-funnel partial.
         $urlWith = function (array $params) {
             $merged = array_merge(request()->except(['page']), $params);
-            return route('market-intelligence.index', $merged);
+            return route('market-intelligence.work', $merged);
         };
 
         // Sidebar count consistency with Work mode.
@@ -564,13 +581,81 @@ class MarketIntelligenceController extends Controller
         // shell (sidebar + top bar + theme tokens + sidebar nav state) wraps
         // the analyse body. The previous direct-return bypassed @extends
         // entirely, producing a shellless page in production.
-        return view('corex.market-intelligence.index', compact(
+        return view('corex.market-intelligence.analyse', compact(
             'data',
             'snapshotKpis', 'actionPresetCounts',
             'snapshot', 'filters', 'segmentLabels', 'urlWith',
             'isProspectingManager', 'includeInStock',
             'marketIntelligenceSidebarCount',
         ));
+    }
+
+    /**
+     * Opportunities tab — STUB (Phase D1). Phase D4 folds the full Tracked
+     * Properties surface (filters, sorters, promote-to-stock) into this tab.
+     * For now, a paginated list with a "coming in D4" notice.
+     */
+    public function opportunities(Request $request)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null) abort(403);
+
+        $tps = \App\Models\Prospecting\TrackedProperty::query()
+            ->withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->with('primaryAddress')
+            ->orderByDesc('last_enriched_at')
+            ->paginate(50);
+
+        $tpCount = \App\Models\Prospecting\TrackedProperty::query()
+            ->withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->count();
+
+        return view('corex.market-intelligence.opportunities', compact('tps', 'tpCount'));
+    }
+
+    /**
+     * Market Pulse tab — STUB (Phase D1). Phase D6 folds the /admin/p24
+     * import surface into this tab. For now, agency-wide top-of-funnel
+     * stats so the tab does something useful.
+     */
+    public function marketPulse(Request $request)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null) abort(403);
+
+        $sinceMonday = \Carbon\Carbon::now()->startOfWeek();
+
+        $pulse = [
+            'tracked_total'  => \DB::table('tracked_properties')
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->count(),
+            'new_this_week'  => \DB::table('tracked_properties')
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where('first_seen_at', '>=', $sinceMonday)
+                ->count(),
+            'p24_active'     => \DB::table('prospecting_listings')
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where('portal_source', 'p24')
+                ->where('is_active', true)
+                ->count(),
+            'pp_active'      => \DB::table('prospecting_listings')
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where('portal_source', 'pp')
+                ->where('is_active', true)
+                ->count(),
+        ];
+
+        return view('corex.market-intelligence.market-pulse', compact('pulse'));
     }
 
     /**

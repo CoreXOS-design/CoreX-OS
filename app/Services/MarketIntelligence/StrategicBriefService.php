@@ -54,7 +54,7 @@ final class StrategicBriefService
             );
             $actions[] = [
                 'label'       => "Canvass {$topPocket['suburb']} {$topPocket['bedrooms']}-bed",
-                'preset_url'  => route('market-intelligence.index', [
+                'preset_url'  => route('market-intelligence.work', [
                     'suburb'         => $topPocket['suburb'],
                     'bedrooms_exact' => $topPocket['bedrooms'],
                     'action_preset'  => 'pitch_now_high',
@@ -99,7 +99,7 @@ final class StrategicBriefService
                 );
                 $actions[] = [
                     'label'      => 'See ' . $landscapeSuburb . ' supply',
-                    'preset_url' => route('market-intelligence.index', [
+                    'preset_url' => route('market-intelligence.work', [
                         'suburb' => $landscapeSuburb,
                         'mode'   => 'work',
                     ]),
@@ -124,7 +124,7 @@ final class StrategicBriefService
             );
             $actions[] = [
                 'label'      => 'Review stale claims',
-                'preset_url' => route('market-intelligence.index', [
+                'preset_url' => route('market-intelligence.work', [
                     'action_preset' => 'my_claims',
                     'mode'          => 'work',
                 ]),
@@ -137,7 +137,7 @@ final class StrategicBriefService
             $sentences[] = 'Not enough market data yet — capture more listings and add buyer wishlists to unlock the weekly brief.';
             $actions[] = [
                 'label'      => 'Go to Work mode',
-                'preset_url' => route('market-intelligence.index', ['mode' => 'work']),
+                'preset_url' => route('market-intelligence.work', ['mode' => 'work']),
                 'is_primary' => true,
             ];
         }

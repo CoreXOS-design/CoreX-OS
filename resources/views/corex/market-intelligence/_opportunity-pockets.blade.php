@@ -20,7 +20,7 @@
     <div style="display: flex; flex-direction: column; gap: 6px;">
         @foreach($list as $p)
         @php
-            $url = route('market-intelligence.index', [
+            $url = route('market-intelligence.work', [
                 'suburb'         => $p['suburb'],
                 'bedrooms_exact' => $p['bedrooms'],
                 'action_preset'  => 'pitch_now_high',

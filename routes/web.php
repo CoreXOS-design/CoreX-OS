@@ -319,8 +319,11 @@ Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('on
 });
 
 // ===== P24 MARKET INTELLIGENCE =====
+// Phase D1 — /admin/p24 root GET redirects to the new Market Pulse tab.
+// /listings (admin browse) and /import (POST upload trigger) stay mounted
+// for admin use; Phase D6 will fold them into the Market Pulse tab proper.
 Route::prefix('admin/p24')->middleware(['auth', 'permission:manage_p24'])->group(function () {
-    Route::get('/', [\App\Http\Controllers\Admin\P24Controller::class, 'index'])->name('admin.p24.index');
+    Route::redirect('/', '/corex/market-intelligence/market-pulse', 301)->name('admin.p24.index');
     Route::get('/listings', [\App\Http\Controllers\Admin\P24Controller::class, 'listings'])->name('admin.p24.listings');
     Route::post('/import', [\App\Http\Controllers\Admin\P24Controller::class, 'runImport'])->name('admin.p24.import');
 });
@@ -2498,7 +2501,11 @@ Route::middleware(['auth', 'permission:access_prospecting'])
     ->prefix('corex/tracked-properties')
     ->name('corex.tracked-properties.')
     ->group(function () {
-        Route::get('/',                      [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'index'])->name('index');
+        // Phase D1 — legacy GET root redirects to the Opportunities tab.
+        // The index() controller method is preserved (Phase D4 will fold its
+        // logic into MarketIntelligenceController::opportunities). The detail
+        // route + POST endpoints stay mounted at their current paths.
+        Route::redirect('/', '/corex/market-intelligence/opportunities', 301)->name('index');
         Route::get('/{trackedProperty}',     [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'show'])->name('show');
         Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->name('promote');
 
@@ -2540,7 +2547,12 @@ Route::middleware(['auth', 'permission:access_prospecting'])
     ->prefix('corex/market-intelligence')
     ->name('market-intelligence.')
     ->group(function () {
-        Route::get('/', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'index'])->name('index');
+        // Phase D1 — four-tab structure. Work is the default landing.
+        Route::get('/',              [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'work'])->name('work');
+        Route::get('/work',          [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'work']);
+        Route::get('/opportunities', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'opportunities'])->name('opportunities');
+        Route::get('/analyse',       [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'analyse'])->name('analyse');
+        Route::get('/market-pulse',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'marketPulse'])->name('market-pulse');
 
         // Intelligence layer — declared before the {listing} catch-alls so
         // model-binding doesn't shadow them.

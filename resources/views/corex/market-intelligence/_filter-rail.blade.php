@@ -48,13 +48,13 @@
     $urlWith = function (array $params) {
         $merged = array_merge(request()->except(['page']), $params);
         foreach ($merged as $k => $v) if ($v === null || $v === '') unset($merged[$k]);
-        return route('market-intelligence.index', $merged);
+        return route('market-intelligence.work', $merged);
     };
     $urlWithout = function ($keys) {
         $keys = is_array($keys) ? $keys : [$keys];
-        return route('market-intelligence.index', request()->except(array_merge($keys, ['page'])));
+        return route('market-intelligence.work', request()->except(array_merge($keys, ['page'])));
     };
-    $urlClearAll = route('market-intelligence.index');
+    $urlClearAll = route('market-intelligence.work');
 
     // Active filter pills
     $activePills = [];
@@ -84,7 +84,7 @@
 <aside class="mi-filter-rail">
 
     {{-- Sticky search at top --}}
-    <form method="GET" action="{{ route('market-intelligence.index') }}"
+    <form method="GET" action="{{ route('market-intelligence.work') }}"
           style="padding: 10px 12px; position: sticky; top: 0; background: var(--surface); border-bottom: 1px solid var(--border); z-index: 2;">
         @foreach(request()->except(['search', 'page']) as $k => $v)
             @if(is_array($v))
@@ -309,7 +309,7 @@
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By agency
         </button>
         <div x-show="open" x-cloak style="padding: 6px 12px;">
-            <form method="GET" action="{{ route('market-intelligence.index') }}">
+            <form method="GET" action="{{ route('market-intelligence.work') }}">
                 @foreach(request()->except(['agency_name', 'page']) as $k => $v)
                     @if(is_array($v))
                         @foreach($v as $vv)<input type="hidden" name="{{ $k }}[]" value="{{ $vv }}">@endforeach
