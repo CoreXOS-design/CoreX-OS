@@ -99,6 +99,11 @@ class AppServiceProvider extends ServiceProvider
         \App\Models\DealV2\DealV2::observe(\App\Observers\DealV2Observer::class);
         \App\Models\DealV2\DealStepInstance::observe(\App\Observers\DealStepInstanceObserver::class);
 
+        // MIC Phase A3 — TrackedPropertyAddress observer keeps the cached
+        // address fields on tracked_properties in sync with the primary row.
+        // Spec: .ai/specs/mic-complete-spec.md §3.2.1.
+        \App\Models\Prospecting\TrackedPropertyAddress::observe(\App\Observers\TrackedPropertyAddressObserver::class);
+
         // Register calendar source services (Phase 1)
         $registry = $this->app->make(\App\Services\CommandCenter\Calendar\CalendarSourceRegistry::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\ComplianceCalendarSource::class);
@@ -118,6 +123,51 @@ class AppServiceProvider extends ServiceProvider
         // class — so this listens on the DomainEvent interface, which every
         // AbstractDomainEvent subclass implements transitively.
         Event::listen(DomainEvent::class, RecordDomainEvent::class);
+
+        // ─────────────────────────────────────────────────────────────────
+        // MIC Phase A3 — log every activity-relevant domain event to
+        // agent_activity_events. Spec §14.6: ONE listener for now;
+        // additional listeners (points engine, etc.) hook into the same
+        // events without rewrites.
+        //
+        // Listed explicitly (per spec instruction) rather than subscribing
+        // to the DomainEvent base, so the activity log captures only the
+        // events intentionally categorised as "agent activity" — not, e.g.,
+        // configuration-change events or migration-bookkeeping events.
+        // ─────────────────────────────────────────────────────────────────
+        foreach ([
+            // 14.1 Tracked Property
+            \App\Events\Prospecting\TrackedPropertyCreated::class,
+            \App\Events\Prospecting\TrackedPropertyEnriched::class,
+            \App\Events\Prospecting\TrackedPropertyPromotedToStock::class,
+            \App\Events\Prospecting\TrackedPropertyAddressAdded::class,
+            \App\Events\Prospecting\TrackedPropertyAddressVerified::class,
+            \App\Events\Prospecting\TrackedPropertyAddressPrimaryChanged::class,
+            \App\Events\Prospecting\TrackedPropertyMerged::class,
+            // 14.2 Claims
+            \App\Events\Prospecting\ClaimCreated::class,
+            \App\Events\Prospecting\ClaimConvertedFromLock::class,
+            \App\Events\Prospecting\ClaimFeedbackRecorded::class,
+            \App\Events\Prospecting\ClaimFlaggedAsStale::class,
+            \App\Events\Prospecting\ClaimReleased::class,
+            \App\Events\Prospecting\ClaimAutoReleased::class,
+            // 14.3 Communication
+            \App\Events\Communication\WhatsAppDraftOpened::class,
+            \App\Events\Communication\WhatsAppMessageSent::class,
+            \App\Events\Communication\EmailDraftOpened::class,
+            \App\Events\Communication\EmailMessageSent::class,
+            \App\Events\Communication\CallLogged::class,
+            // 14.4 Market Reports
+            \App\Events\MarketReports\MarketReportUploaded::class,
+            \App\Events\MarketReports\MarketReportParsed::class,
+            \App\Events\MarketReports\MarketReportSpotCheckFlagged::class,
+            \App\Events\MarketReports\MarketDataPointSuperseded::class,
+            // 14.5 AI
+            \App\Events\AI\AINarrativeGenerated::class,
+            \App\Events\AI\AINarrativeFailedFallback::class,
+        ] as $micActivityEvent) {
+            Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
+        }
 
         // Prospecting setup: clear the ProspectingConfigurationService's
         // per-request cache for the affected agency on any configuration write.

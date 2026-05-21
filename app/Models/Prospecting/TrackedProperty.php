@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Models\Prospecting;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\MarketReports\MarketDataPoint;
 use App\Models\Property;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
@@ -108,6 +110,37 @@ final class TrackedProperty extends Model
     public function externalRefs(): HasMany
     {
         return $this->hasMany(TrackedPropertyExternalRef::class);
+    }
+
+    /**
+     * Address history (one row per source contribution). Exactly one row
+     * has is_primary=true; the TrackedPropertyAddressObserver keeps this TP's
+     * address-field cache (street_number, street_name, suburb, … latitude,
+     * longitude) in sync with that primary row.
+     */
+    public function addresses(): HasMany
+    {
+        return $this->hasMany(TrackedPropertyAddress::class, 'tracked_property_id');
+    }
+
+    /**
+     * The current primary address. Mirrored to this TP's address-field cache
+     * by the observer. Spec §3.2.1.
+     */
+    public function primaryAddress(): HasOne
+    {
+        return $this->hasOne(TrackedPropertyAddress::class, 'tracked_property_id')
+                    ->where('is_primary', true);
+    }
+
+    /**
+     * Market data points anchored to this property (per-TP metric history).
+     * The shared-pool default scope on MarketDataPoint is global — this
+     * relation pre-filters to rows whose tracked_property_id matches.
+     */
+    public function marketDataPoints(): HasMany
+    {
+        return $this->hasMany(MarketDataPoint::class, 'tracked_property_id');
     }
 
     public function promotedProperty(): BelongsTo
