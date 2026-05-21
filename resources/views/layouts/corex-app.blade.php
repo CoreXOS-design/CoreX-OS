@@ -35,6 +35,31 @@
         <!-- Scripts & Styles (Alpine.js bundled via Vite — no external CDN) -->
         @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
         <link rel="stylesheet" href="/css/paye-fix.css">
+
+        {{-- Per-agency brand colour injection. Mirrors layouts/corex.blade.php
+             so MIC pages (and any page extending this layout) get the
+             agency's brand colours rather than the corex.css safe defaults.
+             !important wins over the :root defaults in corex.css. --}}
+        @auth
+        @php
+            $_agencyId = auth()->user()?->effectiveAgencyId();
+            $_agency   = $_agencyId ? \App\Models\Agency::find($_agencyId) : \App\Models\Agency::first();
+        @endphp
+        @if($_agency)
+        <style id="agency-brand">
+            :root,
+            :root[data-theme="dark"],
+            :root[data-theme="light"],
+            html,
+            html.dark {
+                --brand-sidebar: {{ $_agency->sidebar_color ?? '#0ea5e9' }} !important;
+                --brand-icon:    {{ $_agency->icon_color    ?? '#0ea5e9' }} !important;
+                --brand-default: {{ $_agency->default_color ?? '#0b2a4a' }} !important;
+                --brand-button:  {{ $_agency->button_color  ?? '#0ea5e9' }} !important;
+            }
+        </style>
+        @endif
+        @endauth
     </head>
     <body class="font-sans antialiased">
         {{-- Environment column: thin env banner (or nothing on live) above the

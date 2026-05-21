@@ -64,6 +64,21 @@ Sidebar background itself uses `--surface` — it is **not** agency-branded. Onl
 | `--brand-default` | `#0b2a4a` | Page header backgrounds, profile blocks, banded surfaces |
 | `--brand-button` | `#0ea5e9` | Primary buttons, input focus, CTAs |
 
+#### How the brand vars resolve at runtime
+
+Three layers, in cascade order:
+
+1. **Safe defaults** — `resources/css/corex.css` `:root` defines every `--brand-*` token to the navy / sky-blue values above. Loaded by `@vite` on every page that uses CoreX layouts. These are the FALLBACK so the surface NEVER renders white-on-white when the per-agency injection is absent.
+2. **Per-agency override** — `layouts/corex.blade.php` AND `layouts/corex-app.blade.php` BOTH emit a `<style id="agency-brand">` block in `<head>` that re-declares each token with the agency's actual colour and `!important`. The `!important` wins over the `:root` defaults. Gated by `@auth + agency exists`.
+3. **Inline-style fallback** — when an inline `style` attribute references a brand var, the safer pattern is to include a per-property fallback: `style="background: var(--brand-default, #0b2a4a); color: #fff"`. Belt-and-braces against any future CSS-load-order surprise.
+
+The "white-on-light" contrast bug surfaces when:
+- The agency injection is missing (auth-less pages, error pages, layouts that don't carry the inject), AND
+- The `:root` defaults are missing OR overridden, AND
+- An inline style uses `background: var(--brand-default); color: #fff` without its own fallback.
+
+That combination resolves the background to `transparent` (the initial value), leaving white text on the page's white body — invisible. The fix that landed (commit referenced below) closes all three holes: layered defaults + agency inject on both layouts + sweep of high-traffic inline styles to add per-property fallbacks.
+
 ### 1.5 Semantic colours
 
 | Role | Token | Hex | Use |
@@ -629,6 +644,44 @@ These are audit failures. A page ships with **zero** of these. Not "we'll fix it
 11. **`onmouseover="..."` inline JavaScript for styling.** Use CSS `:hover` or Tailwind `hover:` classes. The row-hover inline-JS pattern (seen in rentals/deals) is acceptable only as a transitional fix — migrate to CSS.
 12. **jQuery.** We use Alpine.js. If you think you need jQuery, rewrite in Alpine.
 13. **Two primary buttons in the same header.** One primary CTA per section. Everything else is outline or text.
+
+---
+
+## 5.A COMMON PITFALLS — pattern bugs caught in audits
+
+These are NOT one-off bugs. They recur. Read this section before writing any inline style or new component.
+
+### 5.A.1 White text on `var(--brand-default)` without a per-property fallback
+
+**Symptom:** Page header banner renders as white-on-white — heading, breadcrumb link, subtext all invisible.
+
+**Cause:** `style="background: var(--brand-default); color: #fff"`. When `--brand-default` is unset (auth-less page, layout without the agency-brand inject), the background falls back to `transparent` and `#fff` text vanishes on the white page body.
+
+**Rule:** Every inline reference to a `--brand-*` var that pairs with a contrasting text colour MUST include a per-property fallback hex. The triple-defence is in place (`:root` defaults in corex.css + agency inject in both layouts + per-property fallback) — but the inline fallback is the cheapest guarantee:
+
+```html
+<!-- ❌ Brittle — fails if both upstream layers ever drop -->
+<div style="background: var(--brand-default); color: #fff">…</div>
+
+<!-- ✅ Safe — works even with no CSS at all -->
+<div style="background: var(--brand-default, #0b2a4a); color: #fff">…</div>
+```
+
+Same applies to `var(--brand-button, #0ea5e9)`, `var(--brand-icon, #0ea5e9)`, `var(--brand-sidebar, #0ea5e9)`.
+
+### 5.A.2 `text-white` without a `dark:` companion class
+
+`<span class="text-white">` on a card that uses `bg-white` in light mode (or `bg-slate-50`) is invisible. Either:
+- Use a semantic colour: `text-text-primary` (resolves correctly in both modes), OR
+- Pair it: `text-white dark:text-white` only when the container is dark-bg in BOTH modes.
+
+### 5.A.3 Light grey text (`text-slate-100`/`text-gray-100`/`text-slate-200`) on non-dark backgrounds
+
+Surfaces fine in dark mode, invisible in light mode. Pair with `dark:` variants or switch to `text-text-muted` (which already remaps per theme via `corex.css`).
+
+### 5.A.4 Inline style on an element inside `[x-show=""]` / `[x-cloak]`
+
+Inline styles persist when Alpine toggles visibility, but if the parent surface inherits `color: transparent` from an Alpine state transition class, the child text vanishes. Always provide colour on the element itself, not just the parent.
 
 ---
 

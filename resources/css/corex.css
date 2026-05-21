@@ -3,11 +3,25 @@
    ======================================== */
 
 :root {
-    /* Brand colour vars are injected per-agency via corex.blade.php <style> tag.
-       Do NOT define defaults here — Vite dev mode loads this AFTER the inline style,
-       which would override agency values. Fallbacks are in the semantic aliases below. */
+    /* Brand colour vars — SAFE DEFAULTS.
+       The per-agency overrides live in resources/views/layouts/corex.blade.php
+       as an `<style id="agency-brand">` block with !important on every value.
+       That !important wins over these defaults when the user is authed +
+       belongs to an agency. When that injection ISN'T present (auth-less
+       pages, pages that extend layouts/corex-app.blade.php without the
+       brand-injection block, error pages), these defaults kick in and
+       prevent the "white text on white background" bug that surfaces when
+       an inline style does `background: var(--brand-default); color: #fff`
+       without its own per-property fallback. Same hex values the agency
+       block uses as its own ?? defaults — see corex.blade.php:53-56. */
+    --brand-sidebar: #0ea5e9;
+    --brand-icon:    #0ea5e9;
+    --brand-default: #0b2a4a;
+    --brand-button:  #0ea5e9;
 
-    /* Semantic aliases (with fallbacks for unauthenticated pages) */
+    /* Semantic aliases (still fall back when the unprefixed vars are unset
+       on very old browsers — modern Chromium/Firefox always resolve to the
+       :root defaults above). */
     --corex-sidebar-hover: var(--brand-sidebar, #0ea5e9);
     --corex-accent:        var(--brand-icon, #0ea5e9);
     --corex-mid:           var(--brand-default, #0b2a4a);

@@ -15,7 +15,7 @@
 
     {{-- Breadcrumb + header --}}
     <div style="margin-bottom: 16px; padding: 14px 18px; border-radius: 6px;
-                background: var(--brand-default); color: #fff;">
+                background: var(--brand-default, #0b2a4a); color: #fff;">
         <nav style="font-size: 0.6875rem; margin-bottom: 3px; color: rgba(255,255,255,0.75);">
             <a href="{{ route('market-intelligence.opportunities') }}"
                style="text-decoration: none; color: rgba(255,255,255,0.85);">
@@ -286,7 +286,7 @@
                     <div style="display: flex; align-items: flex-start; gap: 10px; padding: 6px 10px;
                                 background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;">
                         <span style="padding: 2px 6px; font-size: 0.625rem; font-weight: 700;
-                                     background: var(--brand-default); color: #fff; border-radius: 3px; flex-shrink: 0;">
+                                     background: var(--brand-default, #0b2a4a); color: #fff; border-radius: 3px; flex-shrink: 0;">
                             {{ strtoupper($entry['type'] ?? '?') }}
                         </span>
                         <div style="flex: 1; min-width: 0; font-size: 0.6875rem; color: var(--text-secondary);">
