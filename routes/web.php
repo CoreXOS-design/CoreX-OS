@@ -2482,6 +2482,9 @@ Route::prefix('sign')->group(function () {
     // Phase 1B.5 — recipient Other Conditions / focused initialing
     Route::post('/{token}/conditions',          [\App\Http\Controllers\Docuperfect\SigningController::class, 'addCondition'])->name('signatures.external.addCondition');
     Route::post('/{token}/initial-amendments', [\App\Http\Controllers\Docuperfect\SigningController::class, 'initialAmendments'])->name('signatures.external.initialAmendments');
+    // Phase 1B.7 — inline per-condition initialing (distinct from bulk
+    // amendment cascade above).
+    Route::post('/{token}/conditions/{condition}/initial', [\App\Http\Controllers\Docuperfect\SigningController::class, 'initialCondition'])->name('signatures.external.initialCondition');
 
     // Phase 1B.6 (FIX 2) — recipient clause-flag (replaces Phase 1B.5 strikethrough modal).
     Route::post('/{token}/flag-clause',         [\App\Http\Controllers\Docuperfect\SigningController::class, 'flagClause'])->name('signatures.external.flagClause');

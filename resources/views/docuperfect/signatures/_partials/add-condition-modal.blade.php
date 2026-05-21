@@ -69,6 +69,98 @@
 </div>
 
 <script>
+// Phase 1B.7 (FIX A) — attach click handlers to `+ Add condition` buttons
+// rendered by InsertableBlockRenderer. The buttons are plain HTML emitted
+// by the server-side renderer; they carry data-block-id / data-block-purpose
+// / data-block-label attributes which we surface here as the modal's event
+// detail. The previous wiring lived inside Phase 1B.5's override-modal
+// partial (deleted in Phase 1B.6) — re-homed here so the dispatch survives.
+(function () {
+    function attachAddConditionHandlers() {
+        document.querySelectorAll('.btn-add-condition').forEach((btn) => {
+            if (btn.__phase1b7HandlerAttached) return;
+            btn.__phase1b7HandlerAttached = true;
+            btn.addEventListener('click', function (e) {
+                e.preventDefault();
+                window.dispatchEvent(new CustomEvent('open-add-condition-modal', {
+                    detail: {
+                        blockId: btn.dataset.blockId,
+                        purpose: btn.dataset.blockPurpose,
+                        label:   btn.dataset.blockLabel,
+                    },
+                }));
+            });
+        });
+    }
+
+    // Phase 1B.7 (FIX C) — wire per-condition initial buttons to POST the
+    // initialCondition endpoint. On 201 the slot transitions to filled by
+    // mutating classes in place (avoids a full reload on every initial).
+    async function postInitial(btn) {
+        const token       = btn.dataset.signingToken;
+        const conditionId = btn.dataset.conditionId;
+        const partyKey    = btn.dataset.partyKey;
+        if (!token || !conditionId) return;
+        const csrf = document.querySelector('meta[name=csrf-token]')?.content;
+        const url  = `/sign/${token}/conditions/${conditionId}/initial`;
+        try {
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
+                body: JSON.stringify({}),
+            });
+            if (r.ok || r.status === 409) {
+                // Either success OR an already-initialed conflict — repaint
+                // either way. The /409 case happens when a double-click
+                // races; the slot WAS persisted on first click, the second
+                // simply reflects that state.
+                const slot = btn;
+                slot.classList.remove('initial-active');
+                slot.classList.add('initial-filled');
+                slot.disabled = true;
+                slot.setAttribute(
+                    'style',
+                    'display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
+                    + 'background:#ecfdf5; border:1px solid #047857; border-radius:4px; font-size:0.75rem;'
+                );
+                const letters = slot.querySelector('strong')?.textContent || '';
+                slot.innerHTML = '<strong style="color:#047857; letter-spacing:0.05em;">' + letters + '</strong>'
+                    + '<small style="color:#065f46; font-size:0.65rem; margin-top:1px;">just now</small>';
+            } else {
+                const j = await r.json().catch(() => ({}));
+                alert(j.error || ('Could not initial (' + r.status + ')'));
+            }
+        } catch (e) {
+            alert('Network error: ' + e.message);
+        }
+    }
+
+    function attachInitialHandlers() {
+        document.querySelectorAll('.btn-add-initial').forEach((btn) => {
+            if (btn.__phase1b7InitialAttached) return;
+            btn.__phase1b7InitialAttached = true;
+            btn.addEventListener('click', function (e) {
+                e.preventDefault();
+                postInitial(btn);
+            });
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () {
+            attachAddConditionHandlers();
+            attachInitialHandlers();
+        });
+    } else {
+        attachAddConditionHandlers();
+        attachInitialHandlers();
+    }
+    document.addEventListener('alpine:initialized', function () {
+        attachAddConditionHandlers();
+        attachInitialHandlers();
+    });
+})();
+
 function addConditionModalAlpine() {
     return {
         open: false,

@@ -52,7 +52,16 @@ class SigningController extends Controller
         }
 
         // Already completed — show enhanced summary
-        if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED) {
+        // Phase 1B.7 (FIX H) — BUT bypass this early-return when the
+        // parent template is in an amendment-initialing cascade. The
+        // recipient previously signed; an amendment was raised and the
+        // agent approved it; the recipient must now initial the changed
+        // regions. Falling through to the show() body lets the existing
+        // showInitialingView() switch (Phase 1B.5) route them into the
+        // focused initialing view.
+        if ($signingRequest->status === SignatureRequest::STATUS_COMPLETED
+            && optional($signingRequest->template)->status !== SignatureTemplate::STATUS_AMENDMENT_INITIALING
+        ) {
             $branding = $this->getAgencyBranding($signingRequest);
             $consentLog = ESignConsentLog::where('signature_request_id', $signingRequest->id)
                 ->orderBy('created_at', 'desc')
@@ -288,9 +297,10 @@ class SigningController extends Controller
 
             // Phase 1B.5 — replace `~~~~MARKER~~~~` tokens with styled
             // insertable-block partials. Recipient context wires the
-            // "+ Add condition" affordance and the strikethrough click
-            // surface. Unbound markers (no template metadata entry) still
-            // render via the synthesised-block fallback in the service.
+            // "+ Add condition" affordance + per-condition initial slots
+            // (Phase 1B.7). Phase 1B.7 also passes the current party_role
+            // so the renderer can mark THIS party's pending initial slots
+            // as actionable.
             $blocksMeta = $docTemplate->insertable_blocks ?? [];
             $webTemplateHtml = app(\App\Services\Docuperfect\InsertableBlockRenderer::class)
                 ->renderInDocument(
@@ -298,7 +308,8 @@ class SigningController extends Controller
                     $template,
                     is_array($blocksMeta) ? $blocksMeta : [],
                     \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_RECIPIENT_SIGNING,
-                    $token
+                    $token,
+                    $signingRequest->party_role
                 );
         }
 
@@ -3259,6 +3270,88 @@ CSS;
             'strikethrough' => $result['strike'],
             'condition'     => $result['condition'],
             'amendment_id'  => $result['amendment']->id,
+        ], 201);
+    }
+
+    /**
+     * POST /docuperfect/api/sign/{token}/conditions/{condition}/initial   (Phase 1B.7 — FIX C)
+     *
+     * Per-condition initialing for the current signing party. This is the
+     * inline initialing path used while the recipient is reading through
+     * the conditions block — distinct from initialAmendments() which is
+     * the bulk-submit path used by the focused initialing view during a
+     * full amendment-initialing cascade.
+     *
+     * Insert-only via ConditionInitial::save() (Phase 1B model protection
+     * throws DomainException on existing rows). If the party already has
+     * an initial for this condition we 409 with the existing record.
+     */
+    public function initialCondition(Request $request, string $token, int $conditionId): \Illuminate\Http\JsonResponse
+    {
+        $signingRequest = SignatureRequest::where('token', $token)
+            ->with('template')
+            ->firstOrFail();
+        if (! $this->signerCanAct($signingRequest)) {
+            return response()->json(['error' => 'Not authorised at this stage.'], 403);
+        }
+
+        $condition = DocumentCondition::query()
+            ->where('id', $conditionId)
+            ->where('signature_template_id', $signingRequest->signature_template_id)
+            ->whereNull('superseded_at')
+            ->whereNull('deleted_at')
+            ->first();
+        if (! $condition) {
+            return response()->json(['error' => 'Condition not found on this document.'], 404);
+        }
+
+        $partyKey = (string) $signingRequest->party_role;
+        if ($partyKey === '') {
+            return response()->json(['error' => 'No party_role on this signing request.'], 400);
+        }
+
+        // Duplicate-initial guard (the insert-only model would throw, but
+        // a 409 is friendlier than a 500).
+        $existing = ConditionInitial::query()
+            ->where('initialable_type', DocumentCondition::class)
+            ->where('initialable_id', $condition->id)
+            ->where('party_key', $partyKey)
+            ->first();
+        if ($existing) {
+            return response()->json([
+                'error'   => 'Already initialed by this party.',
+                'initial' => $existing,
+            ], 409);
+        }
+
+        $initial = ConditionInitial::create([
+            'initialable_type'     => DocumentCondition::class,
+            'initialable_id'       => $condition->id,
+            'party_key'            => $partyKey,
+            'signature_request_id' => $signingRequest->id,
+            'amendment_id'         => $condition->amendment_id,
+            'initial_image_path'   => null,
+            'ip_address'           => $request->ip(),
+            'user_agent'           => substr((string) $request->userAgent(), 0, 500),
+        ]);
+
+        SignatureAuditLog::log(
+            $signingRequest->template,
+            'condition_initialed',
+            SignatureAuditLog::ACTOR_SIGNER,
+            $signingRequest->signer_name ?? 'Unknown',
+            metadata: [
+                'condition_id'   => $condition->id,
+                'condition_no'   => $condition->condition_number,
+                'block_id'       => $condition->block_id,
+                'party_key'      => $partyKey,
+                'amendment_id'   => $condition->amendment_id,
+            ],
+        );
+
+        return response()->json([
+            'ok'      => true,
+            'initial' => $initial,
         ], 201);
     }
 

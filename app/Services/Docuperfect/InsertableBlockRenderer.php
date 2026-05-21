@@ -48,17 +48,20 @@ final class InsertableBlockRenderer
         SignatureTemplate $doc,
         array $blocks,
         string $context,
-        ?string $signingToken = null
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
     ): string {
         if ($documentHtml === '' || empty($blocks)) {
-            return $this->renderUnboundMarkers($documentHtml, $doc, $context, $signingToken);
+            return $this->renderUnboundMarkers($documentHtml, $doc, $context, $signingToken, $currentPartyKey);
         }
 
-        // Group existing conditions and strikethroughs once for the whole pass.
+        // Phase 1B.7 (FIX B) — eager-load initials on every condition once
+        // so the renderer can paint per-party initial slots without N+1.
         $conditionsByBlock = DocumentCondition::query()
             ->where('signature_template_id', $doc->id)
             ->whereNull('superseded_at')
             ->whereNull('deleted_at')
+            ->with('initials')
             ->orderBy('block_id')
             ->orderBy('condition_number')
             ->get()
@@ -84,14 +87,15 @@ final class InsertableBlockRenderer
                 $conditionsByBlock->get($block['id'] ?? '', collect()),
                 $doc,
                 $context,
-                $signingToken
+                $signingToken,
+                $currentPartyKey
             );
             $html = str_replace($marker, $rendered, $html);
         }
 
         // Catch markers in the body that aren't declared in the template's
         // insertable_blocks metadata (e.g. older templates pre-migration).
-        $html = $this->renderUnboundMarkers($html, $doc, $context, $signingToken);
+        $html = $this->renderUnboundMarkers($html, $doc, $context, $signingToken, $currentPartyKey);
 
         // Apply strikethrough rendering pass for already-proposed overrides.
         $html = $this->applyStrikethroughs($html, $strikesByClauseRef->values());
@@ -149,7 +153,24 @@ final class InsertableBlockRenderer
         Collection $conditions,
         SignatureTemplate $doc,
         string $context,
-        ?string $signingToken
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
+    ): string {
+        return $this->renderBlockPartialInner($block, $conditions, $doc, $context, $signingToken, $currentPartyKey);
+    }
+
+    /**
+     * Inner block-render body. Phase 1B.7 split so the additional
+     * currentPartyKey parameter doesn't break the legacy 5-arg call shape
+     * in places that pre-date this phase.
+     */
+    private function renderBlockPartialInner(
+        array $block,
+        Collection $conditions,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken,
+        ?string $currentPartyKey = null
     ): string {
         $blockId    = (string) ($block['id'] ?? '');
         $purpose    = (string) ($block['purpose'] ?? 'other_conditions');
@@ -178,7 +199,7 @@ final class InsertableBlockRenderer
                     . 'style="list-style: none; padding-left: 0; margin: 0.4rem 0;">';
             }
             foreach ($conditions as $c) {
-                $itemsHtml .= $this->renderConditionRow($c, $context);
+                $itemsHtml .= $this->renderConditionRow($c, $context, $doc, $signingToken, $currentPartyKey);
             }
             $itemsHtml .= $autoNumber ? '</ol>' : '</ul>';
         } elseif ($useLegacyTextFallback) {
@@ -234,8 +255,13 @@ final class InsertableBlockRenderer
             . '</div>';
     }
 
-    private function renderConditionRow(DocumentCondition $c, string $context): string
-    {
+    private function renderConditionRow(
+        DocumentCondition $c,
+        string $context,
+        ?SignatureTemplate $doc = null,
+        ?string $signingToken = null,
+        ?string $currentPartyKey = null
+    ): string {
         $overrideBadge = '';
         if ($c->is_override && $c->overrides_clause_ref) {
             $overrideBadge = ' <span class="override-badge" '
@@ -244,10 +270,6 @@ final class InsertableBlockRenderer
                 . 'Overrides clause ' . e((string) $c->overrides_clause_ref) . '</span>';
         }
 
-        // Phase 1B.6 (FIX 4) — informational "Relates to clause N" badge
-        // when the recipient picked an existing clause reference during
-        // the Add Condition flow. Distinct from override — the original
-        // clause is NOT struck through.
         $relatesBadge = '';
         if (! $c->is_override && ! empty($c->relates_to_clause_ref)) {
             $relatesBadge = ' <a href="#" class="relates-badge" '
@@ -258,17 +280,150 @@ final class InsertableBlockRenderer
                 . 'Relates to clause ' . e((string) $c->relates_to_clause_ref) . '</a>';
         }
 
+        // Phase 1B.7 (Part 4) — amendment-vs-original visual distinction.
+        // Conditions whose amendment_id is set AND whose amendment is still
+        // pending agent review render with a "Pending agent review" pill so
+        // recipients see the amendment isn't yet authoritative.
+        $amendmentBadge = '';
+        if ($c->amendment_id) {
+            $amendStatus = $c->amendment?->status ?? 'pending';
+            if ($amendStatus === 'pending') {
+                $amendmentBadge = ' <span class="amendment-badge" '
+                    . 'style="display:inline-block; margin-left:0.4rem; padding:1px 6px; '
+                    . 'background:#fef3c7; color:#92400e; border-radius:3px; font-size:0.7rem;">'
+                    . 'Amendment pending agent review</span>';
+            }
+        }
+
         $lockedHint = $c->is_locked
             ? ' <span style="color:#6b7280; font-size:0.7rem; font-style:italic;">[locked]</span>'
             : '';
 
+        // Phase 1B.7 (FIX B) — per-party initial slots.
+        $initialsHtml = $doc
+            ? $this->renderInitialSlotsForCondition($c, $doc, $context, $signingToken, $currentPartyKey)
+            : '';
+
         return '<li class="condition-row" data-condition-id="' . $c->id . '" '
-            . 'style="margin: 0.3rem 0; padding-left: 0.2rem; display: list-item;">'
+            . 'data-amendment-id="' . ($c->amendment_id ?? '') . '" '
+            . 'style="margin: 0.5rem 0; padding-left: 0.2rem; display: list-item;">'
+            . '<div class="condition-content">'
             . nl2br(e($c->content))
             . $overrideBadge
             . $relatesBadge
+            . $amendmentBadge
             . $lockedHint
+            . '</div>'
+            . $initialsHtml
             . '</li>';
+    }
+
+    /**
+     * Phase 1B.7 (FIX B + C) — render per-party initial slots beneath a
+     * condition row. Each signing party on the document gets a slot showing
+     * either the captured initial or an interactive placeholder.
+     *
+     * Slot states:
+     *   filled   — ConditionInitial row exists for this (condition, party)
+     *   active   — current signer + recipient_signing context (clickable)
+     *   pending  — other party hasn't initialed yet (placeholder)
+     *
+     * The active slot triggers POST .../conditions/{id}/initial via
+     * client-side handler (see add-condition-modal partial bootstrap).
+     */
+    private function renderInitialSlotsForCondition(
+        DocumentCondition $c,
+        SignatureTemplate $doc,
+        string $context,
+        ?string $signingToken,
+        ?string $currentPartyKey
+    ): string {
+        // Skip slot rendering for PDF flatten (no interactive UI).
+        if ($context === self::CONTEXT_PDF_RENDER) {
+            return '';
+        }
+
+        $parties = $doc->parties_json ?? [];
+        if (! is_array($parties) || empty($parties)) {
+            return '';
+        }
+
+        // Index the already-captured initials by party_key for O(1) lookup.
+        $byParty = [];
+        foreach ($c->initials as $initial) {
+            $byParty[$initial->party_key] = $initial;
+        }
+
+        $slots = '<div class="condition-initials" '
+            . 'style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.4rem; padding-top:0.4rem; '
+            . 'border-top:1px dashed #d1d5db;">';
+
+        foreach ($parties as $party) {
+            $partyKey   = (string) ($party['role'] ?? '');
+            $partyLabel = (string) ($party['name'] ?? $party['role_label'] ?? ucfirst(str_replace('_', ' ', $partyKey)));
+            if ($partyKey === '') continue;
+
+            $existing = $byParty[$partyKey] ?? null;
+            $initials = $this->makeInitialsToken($partyLabel);
+
+            if ($existing) {
+                $slots .= '<div class="initial-slot initial-filled" '
+                    . 'data-party-key="' . e($partyKey) . '" data-condition-id="' . $c->id . '" '
+                    . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
+                    . 'background:#ecfdf5; border:1px solid #047857; border-radius:4px; font-size:0.75rem;">'
+                    . '<strong style="color:#047857; letter-spacing:0.05em;">' . e($initials) . '</strong>'
+                    . '<small style="color:#065f46; font-size:0.65rem; margin-top:1px;">'
+                    . e($partyLabel) . ' &middot; ' . e($existing->initialed_at?->format('d M H:i') ?? '')
+                    . '</small></div>';
+                continue;
+            }
+
+            // Determine whether THIS party is the current signer + the
+            // context permits a click (recipient signing only).
+            $isMine = $currentPartyKey !== null
+                && strcasecmp($currentPartyKey, $partyKey) === 0
+                && $context === self::CONTEXT_RECIPIENT_SIGNING
+                && $signingToken !== null;
+
+            if ($isMine) {
+                $slots .= '<button type="button" class="btn-add-initial initial-slot initial-active" '
+                    . 'data-party-key="' . e($partyKey) . '" data-condition-id="' . $c->id . '" '
+                    . 'data-signing-token="' . e($signingToken) . '" '
+                    . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
+                    . 'background:#fff; border:1px dashed #0ea5e9; border-radius:4px; cursor:pointer; font-size:0.75rem;">'
+                    . '<strong style="color:#0ea5e9; letter-spacing:0.05em;">' . e($initials) . '</strong>'
+                    . '<small style="color:#0369a1; font-size:0.65rem; margin-top:1px;">Click to initial</small>'
+                    . '</button>';
+            } else {
+                $slots .= '<div class="initial-slot initial-pending" '
+                    . 'data-party-key="' . e($partyKey) . '" data-condition-id="' . $c->id . '" '
+                    . 'style="display:inline-flex; flex-direction:column; align-items:center; padding:0.35rem 0.6rem; '
+                    . 'background:#f9fafb; border:1px solid #e5e7eb; border-radius:4px; font-size:0.75rem; opacity:0.85;">'
+                    . '<strong style="color:#9ca3af; letter-spacing:0.05em;">' . e($initials) . '</strong>'
+                    . '<small style="color:#6b7280; font-size:0.65rem; margin-top:1px;">' . e($partyLabel) . ' &middot; pending</small>'
+                    . '</div>';
+            }
+        }
+
+        $slots .= '</div>';
+        return $slots;
+    }
+
+    /**
+     * Naive initials token derivation: first letter of each whitespace-
+     * separated word, up to 3 letters. "John Smith" -> "JS", "Home
+     * Finders Coastal" -> "HFC".
+     */
+    private function makeInitialsToken(string $name): string
+    {
+        $parts = preg_split('/\s+/', trim($name)) ?: [];
+        $letters = '';
+        foreach ($parts as $p) {
+            if ($p === '') continue;
+            $letters .= mb_strtoupper(mb_substr($p, 0, 1));
+            if (mb_strlen($letters) >= 3) break;
+        }
+        return $letters !== '' ? $letters : '—';
     }
 
     /**
@@ -281,11 +436,12 @@ final class InsertableBlockRenderer
         string $html,
         SignatureTemplate $doc,
         string $context,
-        ?string $signingToken
+        ?string $signingToken,
+        ?string $currentPartyKey = null
     ): string {
         return preg_replace_callback(
             '/~{4,}([A-Z_]+(?::[^~]+)?)~{4,}/',
-            function ($m) use ($doc, $context, $signingToken) {
+            function ($m) use ($doc, $context, $signingToken, $currentPartyKey) {
                 $token = $m[1];
                 $synthBlock = $this->synthBlockFromToken($token);
                 $conds = DocumentCondition::query()
@@ -293,9 +449,10 @@ final class InsertableBlockRenderer
                     ->where('block_id', $synthBlock['id'])
                     ->whereNull('superseded_at')
                     ->whereNull('deleted_at')
+                    ->with('initials')
                     ->orderBy('condition_number')
                     ->get();
-                return $this->renderBlockPartial($synthBlock, $conds, $doc, $context, $signingToken);
+                return $this->renderBlockPartial($synthBlock, $conds, $doc, $context, $signingToken, $currentPartyKey);
             },
             $html
         );
