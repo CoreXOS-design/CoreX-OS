@@ -5,38 +5,51 @@ declare(strict_types=1);
 namespace App\Services\MarketIntelligence;
 
 use App\Models\AI\AINarrativeCache;
+use App\Models\Agency;
 use App\Models\User;
+use App\Services\AI\AnthropicGateway;
+use App\Services\AI\DTOs\NarrativeRequest;
 use App\Services\MarketIntelligence\DTOs\TileDTO;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 /**
  * Build the "This Week" hero block tile collection for one agent.
  *
- * THIS PHASE (D2): purely deterministic — counts are real, sentences are
- * fill-in-the-blank templates. AI narration plugs into the `sentence` field
- * at Phase E1 (uses AnthropicGateway, same cache key, same DTO shape — the
- * deterministic sentence becomes the AI's `fallbackData['text']`).
+ * Phase D2 — deterministic narrator (counts real, sentences templated).
+ * Phase E1 — Haiku 4.5 narration via AnthropicGateway. The facts are still
+ * fully deterministic (numbers come from real queries); the AI only writes
+ * the human-readable sentence + action label. When the API is unavailable
+ * (kill-switch, budget cap, network) each tile falls back to the templated
+ * sentence it would have produced under D2 — the surface never breaks.
  *
- * Cached for 6h per agent in `ai_narrative_cache` even though no API call
- * fires this phase — that primes the exact cache key pattern E1 will swap
- * into without changing call sites.
+ * Cache: ai_narrative_cache row keyed by tiles:user:{id}:date:{YYYY-MM-DD}
+ * with a 12h TTL. Phase E2 (WarmThisWeekTilesJob) primes the cache nightly
+ * at 02:30 SAST so the first agent visit of the day is sub-100ms.
  *
- * A tile is included only if its `number > 0`. So the returned collection
- * is 0..5 items, ordered by urgency: red → orange → blue → green → neutral.
- *
- * Spec: .ai/specs/mic-complete-spec.md §6.1 (deterministic logic per tile).
+ * Spec: .ai/specs/mic-complete-spec.md §4.2, §6.1.
  */
 final class ThisWeekTileBuilder
 {
-    public const CACHE_TTL_MINUTES = 6 * 60;
+    public const CACHE_TTL_MINUTES = 12 * 60;
+    public const PROMPT_VERSION = 'v1';
+
     private const URGENCY_ORDER = ['red' => 0, 'orange' => 1, 'blue' => 2, 'green' => 3, 'neutral' => 4];
+
+    private const TILE_META = [
+        'matches'      => ['emoji' => '🔥', 'urgency' => 'red',     'action_label' => 'Pitch now'],
+        'expiring'     => ['emoji' => '⏰', 'urgency' => 'orange',  'action_label' => 'Log feedback'],
+        'pocket'       => ['emoji' => '🎯', 'urgency' => 'green',   'action_label' => 'Open pocket'],
+        'new_listings' => ['emoji' => '📈', 'urgency' => 'neutral', 'action_label' => 'Browse'],
+    ];
 
     public function __construct(
         private readonly OpportunityPocketService $pockets,
+        private readonly AnthropicGateway $gateway,
     ) {}
 
     /**
@@ -53,14 +66,38 @@ final class ThisWeekTileBuilder
             return $cached;
         }
 
-        $tiles = collect([
-            $this->matchesTile($agent, $agencyId),
-            $this->expiringClaimsTile($agent, $agencyId),
-            $this->staleSellersTile($agent, $agencyId),
-            $this->demandPocketTile($agent, $agencyId),
-            $this->newListingsTile($agent, $agencyId),
-        ])
-        ->filter(fn (?TileDTO $t) => $t !== null && $t->number > 0)
+        // Phase 1 — assemble facts per tile (deterministic queries).
+        $facts = [
+            'matches'      => $this->matchesFacts($agent, $agencyId),
+            'expiring'     => $this->expiringFacts($agent, $agencyId),
+            'pocket'       => $this->pocketFacts($agent, $agencyId),
+            'new_listings' => $this->newListingsFacts($agent, $agencyId),
+        ];
+
+        $activeFacts = collect($facts)
+            ->filter(fn ($f) => is_array($f) && ($f['count'] ?? 0) > 0);
+
+        if ($activeFacts->isEmpty()) {
+            $this->writeCache($cacheKey, $agencyId, collect());
+            return collect();
+        }
+
+        // Phase 2 — AI narration (Haiku 4.5). Falls back per-tile if any
+        // problem at all — never blocks the surface.
+        $aiSentences = $this->generateAiSentences($agent, $agencyId, $activeFacts->all());
+
+        $tiles = $activeFacts->map(function (array $f, string $key) use ($aiSentences) {
+            $meta = self::TILE_META[$key] ?? ['emoji' => '·', 'urgency' => 'neutral', 'action_label' => 'Open'];
+            return new TileDTO(
+                id:          $key,
+                emoji:       $meta['emoji'],
+                sentence:    $aiSentences[$key]['sentence']     ?? $this->fallbackSentence($key, $f),
+                number:      (int) $f['count'],
+                urgency:     $meta['urgency'],
+                actionLabel: $aiSentences[$key]['action_label'] ?? $meta['action_label'],
+                actionUrl:   (string) ($f['action_url'] ?? '#'),
+            );
+        })
         ->sortBy(fn (TileDTO $t) => self::URGENCY_ORDER[$t->urgency] ?? 99)
         ->values();
 
@@ -68,13 +105,17 @@ final class ThisWeekTileBuilder
         return $tiles;
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // Fact builders — return null when there's nothing to show.
+    // Each returns array keyed: count, plus per-tile context fields,
+    // plus action_url.
+    // ─────────────────────────────────────────────────────────────────
+
     /**
-     * Tile 1 — Buyer matches awaiting a pitch (strong-tier; tier1 score ≥ 80).
-     *
-     * Counts distinct listings in the agency canvass pool with at least one
-     * undismissed strong-tier buyer match.
+     * Buyer matches awaiting a pitch (strong-tier; score ≥ 80).
+     * @return array{count:int, action_url:string}|null
      */
-    private function matchesTile(User $agent, int $agencyId): ?TileDTO
+    private function matchesFacts(User $agent, int $agencyId): ?array
     {
         try {
             $n = (int) DB::table('prospecting_listings as pl')
@@ -90,89 +131,48 @@ final class ThisWeekTileBuilder
                 ->distinct()
                 ->count('pl.id');
             if ($n === 0) return null;
-
-            return new TileDTO(
-                id:          'matches',
-                emoji:       '🔥',
-                sentence:    "{$n} " . ($n === 1 ? 'property matches' : 'properties match') . ' your buyers right now.',
-                number:      $n,
-                urgency:     'red',
-                actionLabel: 'Pitch now',
-                actionUrl:   route('market-intelligence.work', ['action_preset' => 'pitch_now_high']),
-            );
+            return [
+                'count'      => $n,
+                'action_url' => route('market-intelligence.work', ['action_preset' => 'pitch_now_high']),
+            ];
         } catch (Throwable $e) {
-            Log::warning('ThisWeekTileBuilder::matchesTile failed', ['error' => $e->getMessage()]);
+            Log::warning('ThisWeekTileBuilder::matchesFacts failed', ['error' => $e->getMessage()]);
             return null;
         }
     }
 
     /**
-     * Tile 2 — Claims that auto-release in under 24h without a feedback log.
+     * Claims that auto-release in under 24h without a feedback log.
+     * @return array{count:int, action_url:string}|null
      */
-    private function expiringClaimsTile(User $agent, int $agencyId): ?TileDTO
+    private function expiringFacts(User $agent, int $agencyId): ?array
     {
         try {
-            $now = Carbon::now();
-            $cutoff = $now->copy()->subHours(24);
-
-            // Active claims belonging to this agent, no feedback yet, claimed
-            // more than 24h ago (so within their auto-release window).
+            $cutoff = Carbon::now()->subHours(24);
             $q = DB::table('prospecting_claims')
                 ->where('agency_id', $agencyId)
                 ->where('user_id', $agent->id);
-
-            // Defensive — schemas vary across feature flags. Only filter on a
-            // column if it exists on the table to avoid runtime errors.
-            if (\Schema::hasColumn('prospecting_claims', 'released_at')) {
-                $q->whereNull('released_at');
-            }
-            if (\Schema::hasColumn('prospecting_claims', 'feedback_logged_at')) {
-                $q->whereNull('feedback_logged_at');
-            }
-            if (\Schema::hasColumn('prospecting_claims', 'claimed_at')) {
-                $q->where('claimed_at', '<=', $cutoff);
-            }
+            if (Schema::hasColumn('prospecting_claims', 'released_at'))        $q->whereNull('released_at');
+            if (Schema::hasColumn('prospecting_claims', 'feedback_logged_at')) $q->whereNull('feedback_logged_at');
+            if (Schema::hasColumn('prospecting_claims', 'claimed_at'))         $q->where('claimed_at', '<=', $cutoff);
 
             $n = (int) $q->count();
             if ($n === 0) return null;
-
-            return new TileDTO(
-                id:          'expiring',
-                emoji:       '⏰',
-                sentence:    "{$n} of your " . ($n === 1 ? 'claim expires' : 'claims expire') . ' in the next 24 hours.',
-                number:      $n,
-                urgency:     'orange',
-                actionLabel: 'Log feedback',
-                actionUrl:   route('market-intelligence.work', ['action_preset' => 'expiring']),
-            );
+            return [
+                'count'      => $n,
+                'action_url' => route('market-intelligence.work', ['action_preset' => 'expiring']),
+            ];
         } catch (Throwable $e) {
-            Log::warning('ThisWeekTileBuilder::expiringClaimsTile failed', ['error' => $e->getMessage()]);
+            Log::warning('ThisWeekTileBuilder::expiringFacts failed', ['error' => $e->getMessage()]);
             return null;
         }
     }
 
     /**
-     * Tile 3 — Stale sellers (properties the agent owns where no contact has
-     * been logged in 14+ days). SKIPPED in V1: the activity-log surface is
-     * heterogeneous (Command Centre tasks, calendar events, outreach pitches,
-     * notes), and a faithful query would be expensive without a denormalised
-     * "last_seller_touch_at" column. Phase D5 audit-log unification will fill
-     * this in. Comment kept here so the tile slot exists for the future.
+     * Top demand pocket (suburb × bedrooms band, demand-to-supply ≥ 2×).
+     * @return array{count:int, suburb:string, bedrooms:int, listing_count:int, action_url:string}|null
      */
-    private function staleSellersTile(User $agent, int $agencyId): ?TileDTO
-    {
-        // V1: skip — see PHPDoc. Returning null leaves the slot empty so the
-        // hero block doesn't show a misleading zero.
-        return null;
-    }
-
-    /**
-     * Tile 4 — Top demand pocket (suburb × bedrooms band with demand-to-supply
-     * ratio ≥ 2x). Falls back to agency-wide top pocket when the agent has no
-     * coverage suburb data. Uses OpportunityPocketService::buildFor, which
-     * already caches its computation for 6h via the framework Cache layer.
-     */
-    private function demandPocketTile(User $agent, int $agencyId): ?TileDTO
+    private function pocketFacts(User $agent, int $agencyId): ?array
     {
         try {
             $pockets = $this->pockets->buildFor($agencyId, limit: 1);
@@ -181,66 +181,153 @@ final class ThisWeekTileBuilder
 
             $suburb = (string) ($top['suburb'] ?? '');
             $beds   = (int) ($top['bedrooms'] ?? 0);
-            $demand = (int) ($top['demand'] ?? 0);
-            $supply = (int) ($top['supply'] ?? 0);
-
-            $listingWord = $supply === 1 ? 'listing' : 'listings';
-            $buyerWord   = $demand === 1 ? 'buyer' : 'buyers';
-
-            return new TileDTO(
-                id:          'pocket',
-                emoji:       '🎯',
-                sentence:    "{$suburb} · {$beds}-bed: {$demand} {$buyerWord} chasing {$supply} {$listingWord}.",
-                number:      $demand,
-                urgency:     'green',
-                actionLabel: 'Open pocket',
-                actionUrl:   route('market-intelligence.work', [
+            return [
+                'count'         => (int) ($top['demand'] ?? 0),
+                'suburb'        => $suburb,
+                'bedrooms'      => $beds,
+                'listing_count' => (int) ($top['supply'] ?? 0),
+                'action_url'    => route('market-intelligence.work', [
                     'suburb'         => $suburb,
                     'bedrooms_exact' => $beds,
                 ]),
-            );
+            ];
         } catch (Throwable $e) {
-            Log::warning('ThisWeekTileBuilder::demandPocketTile failed', ['error' => $e->getMessage()]);
+            Log::warning('ThisWeekTileBuilder::pocketFacts failed', ['error' => $e->getMessage()]);
             return null;
         }
     }
 
     /**
-     * Tile 5 — New listings captured since last Friday in the agency.
-     *
-     * Agency-wide rather than agent-coverage scoped (V1) — coverage suburbs
-     * vary by agent and are not yet denormalised onto User. Phase D6 will
-     * narrow this to the agent's coverage once that surface lands.
+     * New listings captured since last Friday.
+     * @return array{count:int, action_url:string}|null
      */
-    private function newListingsTile(User $agent, int $agencyId): ?TileDTO
+    private function newListingsFacts(User $agent, int $agencyId): ?array
     {
         try {
             $sinceFriday = Carbon::now()->previous(Carbon::FRIDAY)->startOfDay();
-
             $n = (int) DB::table('tracked_properties')
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->where('first_seen_at', '>=', $sinceFriday)
                 ->count();
             if ($n === 0) return null;
-
-            return new TileDTO(
-                id:          'new_listings',
-                emoji:       '📈',
-                sentence:    "{$n} new " . ($n === 1 ? 'listing' : 'listings') . ' in your area since Friday.',
-                number:      $n,
-                urgency:     'neutral',
-                actionLabel: 'Browse',
-                actionUrl:   route('market-intelligence.work', ['action_preset' => 'new_today']),
-            );
+            return [
+                'count'      => $n,
+                'action_url' => route('market-intelligence.work', ['action_preset' => 'new_today']),
+            ];
         } catch (Throwable $e) {
-            Log::warning('ThisWeekTileBuilder::newListingsTile failed', ['error' => $e->getMessage()]);
+            Log::warning('ThisWeekTileBuilder::newListingsFacts failed', ['error' => $e->getMessage()]);
             return null;
         }
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Cache plumbing — primes the E1 swap.
+    // AI narration — one Haiku call for the whole tile set.
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * @param  array<string, array> $activeFacts
+     * @return array<string, array{sentence:string, action_label:string}>
+     */
+    private function generateAiSentences(User $agent, int $agencyId, array $activeFacts): array
+    {
+        try {
+            $request = new NarrativeRequest(
+                narrativeType:   'tile_copy',
+                cacheKey:        $this->cacheKey($agent) . ':batch',
+                modelAlias:      'fast', // Haiku 4.5
+                systemPrompt:    $this->systemPrompt(),
+                userPrompt:      $this->userPrompt($agent, $activeFacts),
+                inputData:       ['agent_id' => $agent->id, 'facts' => $activeFacts],
+                maxTokens:       600,
+                temperature:     0.7,
+                cacheTtlMinutes: self::CACHE_TTL_MINUTES,
+                agencyId:        $agencyId,
+                fallbackData:    null, // per-tile fallback handled at the caller
+                promptVersion:   self::PROMPT_VERSION,
+            );
+
+            $schema = [
+                'description' => 'Object keyed by tile id. Each value: { sentence: string, action_label: string }. Include keys ONLY for tiles in the input. sentence ≤ 16 words. action_label ≤ 4 words.',
+                'shape' => [
+                    'matches'      => '{sentence, action_label}',
+                    'expiring'     => '{sentence, action_label}',
+                    'pocket'       => '{sentence, action_label}',
+                    'new_listings' => '{sentence, action_label}',
+                ],
+            ];
+
+            $response = $this->gateway->generateStructured($request, $schema);
+            if (!is_array($response->outputJson)) return [];
+
+            // Normalise: shape may be { tiles: {...} } depending on how the
+            // model interprets the schema. Accept either.
+            if (isset($response->outputJson['tiles']) && is_array($response->outputJson['tiles'])) {
+                return $response->outputJson['tiles'];
+            }
+            return $response->outputJson;
+        } catch (Throwable $e) {
+            Log::warning('ThisWeekTileBuilder AI narration failed', [
+                'agent_id' => $agent->id,
+                'error'    => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    private function systemPrompt(): string
+    {
+        return <<<PROMPT
+        You write daily action tiles for South African real estate agents. Each
+        tile is one sentence that motivates action.
+
+        Strict rules:
+        - Each sentence is ≤ 16 words.
+        - Sentence MUST include the specific number from the facts.
+        - Conversational, plain English, no jargon.
+        - No emojis in the sentence (the UI adds them separately).
+        - No "Dear" or formal greetings — direct.
+        - Don't use words like "huge", "massive", "incredible" — be factual.
+        - For "pocket" tiles, name the suburb and bedroom count from the facts.
+        - Anti-overpricing: never imply the agent should quote a high price.
+
+        Return STRICT JSON only. No markdown. No preamble. Object keyed by tile
+        id ("matches", "expiring", "pocket", "new_listings"). Each value is
+        { "sentence": string, "action_label": string }. action_label is ≤ 4
+        words. Include keys ONLY for tiles present in the input.
+        PROMPT;
+    }
+
+    private function userPrompt(User $agent, array $facts): string
+    {
+        $firstName = trim(strtok((string) ($agent->name ?? ''), ' ')) ?: 'the agent';
+        return "Generate tiles for {$firstName} based on these facts:\n\n"
+            . json_encode($facts, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
+            . "\n\nFollow all rules. Strict JSON output only.";
+    }
+
+    private function fallbackSentence(string $key, array $facts): string
+    {
+        $n = (int) ($facts['count'] ?? 0);
+        return match ($key) {
+            'matches' => $n . ' ' . ($n === 1 ? 'property matches' : 'properties match') . ' your buyers right now.',
+            'expiring' => $n . ' of your ' . ($n === 1 ? 'claim expires' : 'claims expire') . ' in the next 24 hours.',
+            'pocket' => sprintf(
+                '%s · %d-bed: %d %s chasing %d %s.',
+                $facts['suburb'] ?? '—',
+                $facts['bedrooms'] ?? 0,
+                $n,
+                $n === 1 ? 'buyer' : 'buyers',
+                $facts['listing_count'] ?? 0,
+                ($facts['listing_count'] ?? 0) === 1 ? 'listing' : 'listings',
+            ),
+            'new_listings' => $n . ' new ' . ($n === 1 ? 'listing' : 'listings') . ' in your area since Friday.',
+            default => $n . ' items need your attention.',
+        };
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Cache plumbing — shared with E2 nightly warm job.
     // ─────────────────────────────────────────────────────────────────
 
     private function cacheKey(User $agent): string
@@ -285,8 +372,8 @@ final class ThisWeekTileBuilder
                     'agency_id'      => $agencyId,
                     'narrative_type' => AINarrativeCache::TYPE_TILE_COPY,
                     'input_hash'     => hash('sha256', $cacheKey),
-                    'prompt_version' => 'deterministic-v1',
-                    'model'          => 'deterministic',
+                    'prompt_version' => self::PROMPT_VERSION,
+                    'model'          => 'tile-builder', // batch row — the AI call inside writes its own row separately
                     'input_tokens'   => 0,
                     'output_tokens'  => 0,
                     'cost_zar'       => 0,
@@ -298,7 +385,6 @@ final class ThisWeekTileBuilder
             );
         } catch (Throwable $e) {
             Log::warning('ThisWeekTileBuilder cache write failed', [
-                'agent_id' => null,
                 'cache_key' => $cacheKey,
                 'error' => $e->getMessage(),
             ]);

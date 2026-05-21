@@ -2573,6 +2573,11 @@ Route::middleware(['auth', 'permission:access_prospecting'])
             ->where('suburb', '[A-Za-z0-9 \-\&\']+')
             ->name('suburb-deep-dive');
 
+        // Phase E3 — per-listing "why this matches" tooltip (Sonnet 4.6).
+        Route::get('/listing/{listing}/match-tooltip',
+            [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'matchTooltip'])
+            ->name('match-tooltip');
+
         // Intelligence layer — declared before the {listing} catch-alls so
         // model-binding doesn't shadow them.
         Route::get('/snapshot.json', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'snapshotJson'])->name('snapshot');

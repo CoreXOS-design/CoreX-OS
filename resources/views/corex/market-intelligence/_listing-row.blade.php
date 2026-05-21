@@ -198,17 +198,30 @@
             </a>
             @endif
 
-            {{-- Demand microbar — strong / mid counts --}}
+            {{-- Demand microbar — strong / mid counts. Phase E3: hover loads
+                 a one-sentence AI tooltip explaining why the buyers match. --}}
             @if(($tiers['strong'] + $tiers['mid']) > 0)
-            <button type="button"
-                    @click.stop="openBuyerPanel({{ $listing->id }})"
-                    style="{{ $tagOutline }} cursor: pointer;"
-                    title="Buyer matches for this listing — green dot = strong-tier (high likelihood of conversion, score ≥ 80). Amber = mid-tier (50–79). Top score {{ $tiers['top_score'] ?? '?' }}%. Click for the full buyer list.">
-                @if($tiers['strong'] > 0)<span style="color: var(--ds-green, #10b981);"
-                                                 title="{{ $tiers['strong'] }} strong-tier buyer match{{ $tiers['strong'] === 1 ? '' : 'es' }} — high likelihood of conversion">●</span> {{ $tiers['strong'] }}@endif
-                @if($tiers['mid'] > 0)<span style="color: var(--ds-amber, #f59e0b); margin-left: 4px;"
-                                            title="{{ $tiers['mid'] }} mid-tier buyer match{{ $tiers['mid'] === 1 ? '' : 'es' }}">●</span> {{ $tiers['mid'] }}@endif
-            </button>
+            <span x-data="micMatchTooltip({{ $listing->id }})"
+                  @mouseenter="load()"
+                  @focusin="load()"
+                  style="position: relative; display: inline-block;">
+                <button type="button"
+                        @click.stop="openBuyerPanel({{ $listing->id }})"
+                        style="{{ $tagOutline }} cursor: pointer;"
+                        title="Buyer matches for this listing — green dot = strong-tier (high likelihood of conversion, score ≥ 80). Amber = mid-tier (50–79). Top score {{ $tiers['top_score'] ?? '?' }}%. Click for the full buyer list. Hover for Ellie's read.">
+                    @if($tiers['strong'] > 0)<span style="color: var(--ds-green, #10b981);">●</span> {{ $tiers['strong'] }}@endif
+                    @if($tiers['mid'] > 0)<span style="color: var(--ds-amber, #f59e0b); margin-left: 4px;">●</span> {{ $tiers['mid'] }}@endif
+                </button>
+                <span x-show="tooltip || loading" x-cloak
+                      style="position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 20;
+                             width: 280px; padding: 8px 10px; font-size: 0.6875rem; line-height: 1.4;
+                             background: var(--surface); color: var(--text-primary);
+                             border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, var(--border));
+                             border-radius: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.12);">
+                    <span x-show="loading" style="color: var(--text-muted);">Loading Ellie's read…</span>
+                    <span x-show="!loading" x-text="tooltip"></span>
+                </span>
+            </span>
             @endif
         </div>
     </div>

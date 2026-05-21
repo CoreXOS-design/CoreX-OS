@@ -79,5 +79,38 @@
         window.addEventListener('resize', setHeaderHeight);
         requestAnimationFrame(setHeaderHeight);
     })();
+
+    // Phase E3 — per-listing "why this matches" tooltip.
+    // Cache per-listing in-memory so repeated hovers don't refetch.
+    window.__micMatchTooltipCache = window.__micMatchTooltipCache || {};
+    window.micMatchTooltip = function (listingId) {
+        return {
+            tooltip: '',
+            loading: false,
+            loaded: false,
+            inflight: false,
+            load() {
+                if (this.loaded || this.inflight) return;
+                if (window.__micMatchTooltipCache[listingId]) {
+                    this.tooltip = window.__micMatchTooltipCache[listingId];
+                    this.loaded = true;
+                    return;
+                }
+                this.inflight = true;
+                this.loading = true;
+                fetch('/corex/market-intelligence/listing/' + listingId + '/match-tooltip', {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                })
+                .then(r => r.ok ? r.json() : Promise.reject('HTTP ' + r.status))
+                .then(data => {
+                    this.tooltip = data.tooltip || '';
+                    window.__micMatchTooltipCache[listingId] = this.tooltip;
+                    this.loaded = true;
+                })
+                .catch(() => { this.tooltip = ''; })
+                .finally(() => { this.loading = false; this.inflight = false; });
+            },
+        };
+    };
 </script>
 @endsection

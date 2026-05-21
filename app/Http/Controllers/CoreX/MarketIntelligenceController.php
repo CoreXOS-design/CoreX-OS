@@ -1006,6 +1006,171 @@ class MarketIntelligenceController extends Controller
         ]);
     }
 
+    /**
+     * Phase E3 — per-listing "why this matches your buyers" tooltip.
+     * Sonnet 4.6 (quality matters for client-facing copy). Anonymised buyer
+     * summaries — no names, no exact prices, no contact details. 7-day cache
+     * per (listing × agency). Anti-overpricing baked into the system prompt.
+     *
+     * Spec: .ai/specs/mic-complete-spec.md §4.3.
+     */
+    public function matchTooltip(Request $request, ProspectingListing $listing): JsonResponse
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null || (int) $listing->agency_id !== (int) $agencyId) {
+            abort(404);
+        }
+
+        // Top 3 strong-tier matches. Secondary sort by contact_id is
+        // critical: without a stable tie-breaker, MySQL returns ties in
+        // non-deterministic order, so the inputData hash drifts across
+        // consecutive calls and the gateway cache misses every time.
+        $matches = DB::table('prospecting_buyer_matches as pbm')
+            ->join('contacts as c', 'c.id', '=', 'pbm.contact_id')
+            ->where('pbm.prospecting_listing_id', $listing->id)
+            ->where('pbm.score', '>=', 80)
+            ->whereNull('pbm.dismissed_at')
+            ->select('pbm.score', 'c.id as contact_id', 'c.created_at as contact_created_at',
+                     'c.preapproval_amount', 'c.buyer_state')
+            ->orderByDesc('pbm.score')
+            ->orderBy('c.id')
+            ->limit(3)
+            ->get();
+
+        if ($matches->isEmpty()) {
+            return response()->json([
+                'tooltip'       => 'No strong-tier buyers matched yet — keep this in your radar as new buyers arrive.',
+                'from_cache'    => false,
+                'from_fallback' => true,
+            ]);
+        }
+
+        $matchSummaries = $matches->map(fn ($m) => $this->anonymiseBuyer($m, $listing))->all();
+
+        $facts = [
+            'listing' => [
+                'suburb'        => $listing->suburb,
+                'property_type' => $listing->property_type,
+                'bedrooms'      => $listing->bedrooms,
+                'price'         => $listing->price,
+            ],
+            'matches' => $matchSummaries,
+        ];
+
+        $fallback = $this->buildTooltipFallback($facts);
+
+        try {
+            $response = app(AnthropicGateway::class)->generate(new NarrativeRequest(
+                narrativeType:   'listing_tooltip',
+                cacheKey:        "tooltip:listing:{$listing->id}:agency:{$agencyId}",
+                modelAlias:      'quality', // Sonnet 4.6
+                systemPrompt:    $this->tooltipSystemPrompt(),
+                userPrompt:      $this->tooltipUserPrompt($facts),
+                inputData:       $facts,
+                maxTokens:       120,
+                temperature:     0.6,
+                cacheTtlMinutes: 7 * 24 * 60, // 7 days
+                agencyId:        (int) $agencyId,
+                fallbackData:    ['text' => $fallback],
+                promptVersion:   'v1',
+            ));
+
+            return response()->json([
+                'tooltip'       => $response->outputText,
+                'from_cache'    => $response->fromCache,
+                'from_fallback' => $response->fromFallback,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('matchTooltip failed', [
+                'listing_id' => $listing->id,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json([
+                'tooltip'       => $fallback,
+                'from_cache'    => false,
+                'from_fallback' => true,
+            ]);
+        }
+    }
+
+    /**
+     * Anonymise a single buyer match for AI input. Strips PII: no name,
+     * no email, no phone, no exact price (rounded to nearest R100k band).
+     */
+    private function anonymiseBuyer($row, ProspectingListing $listing): array
+    {
+        // Search duration — weeks since the buyer became a contact.
+        // Cast to int — Carbon 3's diffInWeeks returns a float, which would
+        // make the input hash drift between consecutive calls (cache miss).
+        $createdAt = $row->contact_created_at ? Carbon::parse($row->contact_created_at) : Carbon::now();
+        $weeks = (int) max(0, floor((float) $createdAt->diffInWeeks(Carbon::now())));
+
+        // Budget band: round to nearest R100k, expressed as a range around it.
+        $budget = $row->preapproval_amount !== null ? (float) $row->preapproval_amount : null;
+        $budgetBand = null;
+        if ($budget !== null && $budget > 0) {
+            $centerK = round($budget / 100_000) * 100; // hundreds of thousands
+            $lowK    = max(0, $centerK - 100);
+            $highK   = $centerK + 100;
+            $budgetBand = 'R' . number_format($lowK / 1_000, 2, '.', '') . 'm-R' . number_format($highK / 1_000, 2, '.', '') . 'm';
+        }
+
+        $state = (string) ($row->buyer_state ?? '');
+        $archetype = match (true) {
+            $weeks <= 2  => 'newly registered buyer',
+            $weeks <= 8  => 'actively searching buyer',
+            $weeks <= 26 => 'patient buyer (in market for 2+ months)',
+            default      => 'long-term buyer',
+        };
+
+        return [
+            'archetype'             => $archetype,
+            'search_duration_weeks' => $weeks,
+            'budget_band'           => $budgetBand,
+            'state'                 => $state !== '' ? $state : null,
+            'match_score'           => (int) $row->score,
+        ];
+    }
+
+    private function buildTooltipFallback(array $facts): string
+    {
+        $count = count($facts['matches']);
+        $sub   = (string) ($facts['listing']['suburb'] ?? 'this area');
+        $beds  = $facts['listing']['bedrooms'] ?? null;
+        $bedsPart = $beds ? "{$beds}-bed " : '';
+        return "{$count} strong-tier {$bedsPart}buyers are actively looking in {$sub} right now. Reach out to gauge fit — then check comparable sales before quoting any list price.";
+    }
+
+    private function tooltipSystemPrompt(): string
+    {
+        return <<<PROMPT
+        You write one-sentence tooltips that explain why a listing matches a
+        small group of active buyers. The tooltip pops on hover for a real
+        estate agent considering whether to pitch this listing's seller.
+
+        Strict rules:
+        - One sentence, ≤ 28 words.
+        - Reference WHY the match fits (search duration, budget overlap).
+        - Plain English. No jargon. No hype words.
+        - NEVER imply the agent should quote a high price. NEVER mention
+          "top dollar", "premium price", "flying off the market", "highest
+          value", or similar overpricing prompts.
+        - NEVER include any buyer's name, email, phone, or exact price.
+        - If buyers are early in their search (≤ 2 weeks), say they're
+          newly registered. If patient (> 8 weeks), say they're patient.
+
+        Return ONLY the sentence. No JSON. No markdown. No preamble.
+        PROMPT;
+    }
+
+    private function tooltipUserPrompt(array $facts): string
+    {
+        return "Listing context + anonymised buyer matches:\n\n"
+            . json_encode($facts, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
+            . "\n\nWrite the tooltip per the rules. One sentence.";
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // Phase D5/D6 helpers
     // ─────────────────────────────────────────────────────────────────
