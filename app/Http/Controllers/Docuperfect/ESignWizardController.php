@@ -2025,6 +2025,8 @@ class ESignWizardController extends Controller
                     if (! $hasApprovedFica) {
                         $existingDraft = FicaSubmission::where('contact_id', $contactId)
                             ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved'])
+                            ->orderByDesc('created_at')
+                            ->orderByDesc('id')
                             ->first();
                         if ($existingDraft) {
                             // Reused FICA submissions (seeder/wet-ink/legacy)

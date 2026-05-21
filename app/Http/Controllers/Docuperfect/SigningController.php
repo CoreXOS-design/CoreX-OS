@@ -105,6 +105,8 @@ class SigningController extends Controller
                     ? FicaSubmission::find($signingRequest->fica_submission_id)
                     : FicaSubmission::where('contact_id', $signingRequest->contact_id)
                         ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved'])
+                        ->orderByDesc('created_at')
+                        ->orderByDesc('id')
                         ->first();
 
                 $signingUrl = route('signatures.external', $token);
