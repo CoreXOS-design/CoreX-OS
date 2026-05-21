@@ -92,6 +92,31 @@ Every record created in any module must link to at least one pillar (Property, C
 ### Document Fidelity is Non-Negotiable
 A web document rendered to PDF must be character-for-character identical to the intended legal document. No autocorrection. No smart quotes. No rewording. No reformatting. If a word changes, the document is legally compromised.
 
+### E-Sign — Signing-view state preservation
+
+During an active signing session, the recipient's signing-view state (captured signatures, captured initials, filled fields, party signing status) is the authoritative record. This state lives in two layers:
+
+1. Persisted server-side: `party.signed_at`, `party.signature_locked_at`, captured signature data, field values stored on the document model
+2. Hydrated client-side from #1 on page load via server-rendered Blade
+
+**Forbidden operations during signing:**
+
+- `location.reload()` after any AJAX action — wipes Alpine state including any captured-but-not-yet-submitted signatures
+- Full re-fetch of the signing view from JS after an inline action
+- Re-rendering signature widgets, initial widgets, or field widgets from JS based on document HTML metadata
+- Resetting Alpine `x-data` on partial updates
+
+**Required pattern for inline mutations** (e.g. add condition, flag clause, capture initial):
+
+1. Client POSTs to endpoint
+2. Controller returns JSON containing a `rendered_row` (or `rendered_html`) field — server-rendered HTML for ONLY the new/changed element
+3. Client appends/replaces ONLY the affected node in the DOM
+4. No other widgets touched. No re-render of anything else.
+
+**Canonical implementation:** Phase 1B.9 commit `bb6cc9f` — `SigningController::addCondition()` + `InsertableBlockRenderer::renderConditionRowPublic()` + `add-condition-modal.blade.php` `_appendConditionRow()` handler.
+
+**Why this matters:** Recipients spend 5–15 minutes signing a document. A single inadvertent re-render wipes all that work and destroys trust in the system. This is a P0 invariant.
+
 ### Flows Carry Data Forward
 When a flow moves from one stage to the next, all relevant data from previous stages is carried forward and pre-filled. Agents never re-enter data the system already knows.
 
