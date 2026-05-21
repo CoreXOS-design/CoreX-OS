@@ -2501,6 +2501,27 @@ Route::middleware(['auth', 'permission:access_prospecting'])
         Route::get('/',                      [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'index'])->name('index');
         Route::get('/{trackedProperty}',     [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'show'])->name('show');
         Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->name('promote');
+
+        // Phase C3 — address management on the TP detail page.
+        Route::post('/{trackedProperty}/address/edit',
+            [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'editAddress'])
+            ->middleware('permission:mic.edit_address')
+            ->name('address.edit');
+
+        Route::post('/{trackedProperty}/address/add-alternative',
+            [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'addAlternativeAddress'])
+            ->middleware('permission:mic.edit_address')
+            ->name('address.add-alternative');
+
+        Route::post('/{trackedProperty}/address/{address}/set-primary',
+            [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'setPrimaryAddress'])
+            ->middleware('permission:mic.edit_address')
+            ->name('address.set-primary');
+
+        Route::get('/{trackedProperty}/merge',
+            [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'stubMergeDuplicate'])
+            ->middleware('permission:mic.merge_duplicates')
+            ->name('merge');
     });
 
 // ===== MARKET INTELLIGENCE (Build F.1 — rename of Prospecting) =====

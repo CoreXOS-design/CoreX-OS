@@ -28,6 +28,21 @@
             {{ session('error') }}
         </div>
     @endif
+    @if(session('status'))
+        <div class="mb-3 rounded-md px-4 py-2 text-sm"
+             style="background: color-mix(in srgb, var(--ds-green, #10b981) 12%, transparent); color: var(--ds-green, #10b981); border: 1px solid var(--ds-green, #10b981);">
+            {{ session('status') }}
+        </div>
+    @endif
+    @if($errors->any())
+        <div class="mb-3 rounded-md px-4 py-2 text-sm"
+             style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent); color: var(--ds-crimson, #dc2626); border: 1px solid var(--ds-crimson, #dc2626);">
+            <strong>Please fix:</strong>
+            <ul class="list-disc list-inside mt-1">
+                @foreach($errors->all() as $err)<li>{{ $err }}</li>@endforeach
+            </ul>
+        </div>
+    @endif
 
     {{-- Snapshot cards --}}
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -150,6 +165,113 @@
         </div>
     </div>
 
+    {{-- Address (Phase C3) — primary + history + edit affordances --}}
+    @php
+        $primaryAddr = $tp->primaryAddress;
+        $historyAddrs = $tp->addresses->where('is_primary', false);
+        $confidenceColors = [
+            'verified' => ['bg' => '#0d9488', 'text' => '#fff'],
+            'high'     => ['bg' => '#16a34a', 'text' => '#fff'],
+            'medium'   => ['bg' => '#d97706', 'text' => '#fff'],
+            'low'      => ['bg' => 'var(--surface-2)', 'text' => 'var(--text-secondary)'],
+        ];
+        $primaryColor = $primaryAddr ? ($confidenceColors[$primaryAddr->confidence] ?? $confidenceColors['low']) : null;
+    @endphp
+    <section class="mb-6 p-4 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Address</h2>
+            @permission('mic.edit_address')
+                <div class="flex gap-2">
+                    <button type="button" x-data @click="$dispatch('open-edit-address')"
+                            class="px-3 py-1.5 text-xs font-medium rounded"
+                            style="background: var(--brand-button); color: #fff;">
+                        Edit primary address
+                    </button>
+                    <button type="button" x-data @click="$dispatch('open-add-alternative')"
+                            class="px-3 py-1.5 text-xs font-medium rounded"
+                            style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
+                        Add alternative address
+                    </button>
+                </div>
+            @endpermission
+        </div>
+
+        {{-- Primary address --}}
+        @if($primaryAddr)
+            <div class="pl-3" style="border-left: 4px solid var(--brand-button);">
+                <div class="flex items-center gap-2 flex-wrap mb-1">
+                    <span class="text-sm font-medium" style="color: var(--text-primary);">
+                        {{ $primaryAddr->formatted_address ?? '(no street address)' }}
+                    </span>
+                    <span class="inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded"
+                          style="background: {{ $primaryColor['bg'] }}; color: {{ $primaryColor['text'] }};">
+                        {{ strtoupper($primaryAddr->confidence) }}
+                    </span>
+                    @if($primaryAddr->verified_by_user_id)
+                        <span class="text-[11px]" style="color: var(--text-muted);">
+                            Verified by {{ $primaryAddr->verifier?->name ?? 'agent' }}
+                            @if($primaryAddr->verified_at) on {{ $primaryAddr->verified_at->format('j M Y') }} @endif
+                        </span>
+                    @endif
+                </div>
+                @if($primaryAddr->notes)
+                    <p class="text-xs italic" style="color: var(--text-secondary);">{{ $primaryAddr->notes }}</p>
+                @endif
+                <div class="text-[11px] mt-1" style="color: var(--text-muted);">
+                    Source: {{ ucfirst(str_replace('_', ' ', $primaryAddr->source_type)) }}
+                    @if($primaryAddr->source_ref) · ref <code class="text-[11px]">{{ $primaryAddr->source_ref }}</code> @endif
+                    @if($primaryAddr->last_seen_at) · last seen {{ $primaryAddr->last_seen_at->diffForHumans() }} @endif
+                </div>
+            </div>
+        @else
+            <div class="text-sm italic" style="color: var(--text-muted);">No primary address recorded.</div>
+        @endif
+
+        {{-- Address history (collapsed by default) --}}
+        @if($historyAddrs->isNotEmpty())
+            <div x-data="{ open: false }" class="mt-4">
+                <button type="button" @click="open = !open"
+                        class="text-xs font-medium inline-flex items-center gap-1"
+                        style="color: var(--text-secondary);">
+                    <span x-text="open ? '▼' : '▶'"></span>
+                    Address history ({{ $historyAddrs->count() }})
+                </button>
+                <div x-show="open" x-cloak class="mt-2 space-y-2">
+                    @foreach($historyAddrs as $addr)
+                        @php $col = $confidenceColors[$addr->confidence] ?? $confidenceColors['low']; @endphp
+                        <div class="pl-3 py-1.5" style="border-left: 2px solid var(--border);">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-sm" style="color: var(--text-primary);">
+                                    {{ $addr->formatted_address ?? '(no street)' }}
+                                </span>
+                                <span class="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold rounded"
+                                      style="background: {{ $col['bg'] }}; color: {{ $col['text'] }};">
+                                    {{ strtoupper($addr->confidence) }}
+                                </span>
+                            </div>
+                            <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">
+                                {{ ucfirst(str_replace('_', ' ', $addr->source_type)) }}
+                                @if($addr->source_ref) · <code class="text-[11px]">{{ $addr->source_ref }}</code> @endif
+                                @if($addr->last_seen_at) · {{ $addr->last_seen_at->diffForHumans() }} @endif
+                                @permission('mic.edit_address')
+                                    · <button type="button"
+                                              onclick="window.setPrimaryAddress({{ $tp->id }}, {{ $addr->id }})"
+                                              class="font-medium"
+                                              style="color: var(--brand-button); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline;">
+                                        Make primary
+                                    </button>
+                                @endpermission
+                            </div>
+                            @if($addr->notes)
+                                <p class="text-[11px] italic mt-0.5" style="color: var(--text-secondary);">{{ $addr->notes }}</p>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
+    </section>
+
     {{-- Source chain (the audit trail) --}}
     <div class="mb-6 p-4 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -243,6 +365,37 @@
             </div>
         </div>
     @endif
+
+    {{-- Phase C3 — Edit + Add Alternative address modals (rendered only when permitted) --}}
+    @permission('mic.edit_address')
+        @include('corex.tracked-properties.partials.edit-address-modal', ['tp' => $tp])
+        @include('corex.tracked-properties.partials.add-alternative-modal', ['tp' => $tp])
+
+        <script>
+            window.setPrimaryAddress = function (tpId, addressId) {
+                if (!confirm('Make this the primary address?\n\nThe current primary will move to history.')) return;
+                const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+                fetch(`/corex/tracked-properties/${tpId}/address/${addressId}/set-primary`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': token || '',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                }).then(r => {
+                    // back() redirect (302) is followed by fetch automatically; treat
+                    // any 2xx/3xx as success and reload.
+                    if (r.ok || r.redirected) {
+                        window.location.reload();
+                    } else {
+                        alert('Could not change primary address (HTTP ' + r.status + '). Please refresh and try again.');
+                    }
+                }).catch(err => {
+                    alert('Network error: ' + (err?.message || 'unknown'));
+                });
+            };
+        </script>
+    @endpermission
 
     {{-- External references grouped by source --}}
     @if($intelligence['external_refs_by_source']->isNotEmpty())

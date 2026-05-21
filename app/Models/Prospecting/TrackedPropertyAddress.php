@@ -105,6 +105,35 @@ final class TrackedPropertyAddress extends Model
         return $this->belongsTo(User::class, 'verified_by_user_id');
     }
 
+    /**
+     * Alias for the Phase C3 Edit Address UI — short name reads better in
+     * Blade. Same FK target as verifiedBy().
+     */
+    public function verifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verified_by_user_id');
+    }
+
+    /**
+     * Human-friendly one-line address for display. Returns null when the
+     * row carries no usable address fields (suburb-only with no street).
+     *
+     * Phase C3 — used by the TP detail page Address section.
+     */
+    public function getFormattedAddressAttribute(): ?string
+    {
+        $parts = [];
+        if (!empty($this->unit_number))   $parts[] = "Unit {$this->unit_number}";
+        if (!empty($this->complex_name))  $parts[] = $this->complex_name;
+        if (!empty($this->street_number) && !empty($this->street_name)) {
+            $parts[] = "{$this->street_number} {$this->street_name}";
+        } elseif (!empty($this->street_name)) {
+            $parts[] = $this->street_name;
+        }
+        if (!empty($this->suburb)) $parts[] = $this->suburb;
+        return count($parts) > 0 ? implode(', ', $parts) : null;
+    }
+
     public function scopeVerified(Builder $q): Builder
     {
         return $q->where('confidence', self::CONFIDENCE_VERIFIED);
