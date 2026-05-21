@@ -16,6 +16,9 @@ class DocumentAmendment extends Model
         'signature_template_id',
         'amended_by_request_id',
         'amendment_type',
+        'flag_origin',
+        'flag_clause_ref',
+        'flag_reason',
         'section_reference',
         'original_text',
         'new_text',
@@ -29,10 +32,22 @@ class DocumentAmendment extends Model
     const TYPE_ADDITION = 'addition';
     const TYPE_STRIKEOUT = 'strikeout';
     const TYPE_MODIFICATION = 'modification';
+    // ES-4: flags are now first-class amendments.
+    const TYPE_FLAG_RAISED = 'flag_raised';
+
+    // ES-4 flag origin tokens
+    const FLAG_ORIGIN_AGENT_PREPARATION  = 'agent_preparation';
+    const FLAG_ORIGIN_COMPLIANCE_OFFICER = 'compliance_officer';
+    const FLAG_ORIGIN_SIGNING_PARTY      = 'signing_party';
 
     const STATUS_PENDING = 'pending';
     const STATUS_ACCEPTED = 'accepted';
     const STATUS_REJECTED = 'rejected';
+
+    public function isFlag(): bool
+    {
+        return $this->amendment_type === self::TYPE_FLAG_RAISED;
+    }
 
     // --- Relationships ---
 

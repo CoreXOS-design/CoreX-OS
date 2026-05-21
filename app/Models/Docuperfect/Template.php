@@ -287,4 +287,53 @@ class Template extends Model
         }
         return $urls;
     }
+
+    /**
+     * ES-5 — return the list of party-role tokens allowed to edit a given
+     * tag at signing time.
+     *
+     * Reads from `field_mappings[tag_id].editable_by`. Returns an empty
+     * array when the field is NOT editable at signing time (the field is
+     * locked once the agent fills it during prep).
+     *
+     * Role tokens recognised:
+     *   owner_party | acquiring_party | agent | witness | all
+     *
+     * Spec: .ai/specs/esign-v3-complete-spec.md §9
+     */
+    public function getEditableByForField(string $tagId): array
+    {
+        $mappings = $this->field_mappings ?? [];
+        if (!is_array($mappings) || !isset($mappings[$tagId])) {
+            return [];
+        }
+        $editableBy = $mappings[$tagId]['editable_by'] ?? null;
+        if ($editableBy === null) {
+            return [];
+        }
+        if (is_string($editableBy)) {
+            // Legacy single-role string — normalise to array shape.
+            return [$editableBy];
+        }
+        if (is_array($editableBy)) {
+            return array_values(array_filter($editableBy, fn($r) => is_string($r) && $r !== ''));
+        }
+        return [];
+    }
+
+    /**
+     * ES-5 — check whether a specific party role may edit a specific tag
+     * at signing time. 'all' is a wildcard that matches every party.
+     */
+    public function isFieldEditableBy(string $tagId, string $partyRole): bool
+    {
+        $allowed = $this->getEditableByForField($tagId);
+        if (empty($allowed)) {
+            return false;
+        }
+        if (in_array('all', $allowed, true)) {
+            return true;
+        }
+        return in_array($partyRole, $allowed, true);
+    }
 }

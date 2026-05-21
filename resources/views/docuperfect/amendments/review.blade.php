@@ -31,7 +31,28 @@
             Proposed changes
         </h2>
 
-        @if($conditions->isEmpty() && $strikethroughs->isEmpty())
+        {{-- ES-4 — flag-type amendment renders its origin + clause ref + reason --}}
+        @if($amendment->isFlag())
+            <div class="rounded-md p-4 mb-3"
+                 style="background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent);
+                        border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent);">
+                <p class="text-xs font-semibold uppercase tracking-wider"
+                   style="color: var(--ds-amber, #d97706);">
+                    Concern flagged
+                    @if($amendment->flag_clause_ref)
+                        &mdash; clause {{ $amendment->flag_clause_ref }}
+                    @endif
+                </p>
+                <p class="text-[11px] mt-1" style="color: var(--text-muted, #6b7280);">
+                    Origin: {{ str_replace('_', ' ', ucfirst($amendment->flag_origin ?? 'signing_party')) }}
+                </p>
+                <p class="mt-2 text-sm" style="color: var(--text-primary, #111827);">
+                    {{ $amendment->flag_reason ?? $amendment->new_text }}
+                </p>
+            </div>
+        @endif
+
+        @if(!$amendment->isFlag() && $conditions->isEmpty() && $strikethroughs->isEmpty())
             <p class="text-sm" style="color: var(--text-muted, #6b7280);">
                 No condition or strikethrough rows are attached to this amendment.
             </p>

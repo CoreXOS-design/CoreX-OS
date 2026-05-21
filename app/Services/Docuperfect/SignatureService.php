@@ -1479,19 +1479,38 @@ class SignatureService
             $documentName = $template->document->name ?? 'Document';
             $dashboardUrl = route('docuperfect.rental');
 
-            $typeLabel = $type === 'final_signoff' ? 'final sign-off' : 'review and authorisation';
+            // ES-7 — dedicated SupervisorApprovalMail (replaces placeholder
+            // copy that previously rode on SigningRequestMail with a
+            // subject like "Please sign: [Candidate Authorisation] ...").
+            $document        = $template->document;
+            $documentType    = $document?->document_type ?? null;
+            $documentTypeLbl = $documentType
+                ? ucwords(str_replace('_', ' ', $documentType))
+                : null;
+
+            // Best-effort recipient + property surfacing for the email body
+            $firstRequest = $template->requests()
+                ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final', 'witness'])
+                ->orderBy('signing_order')
+                ->first();
+            $contactName     = $firstRequest?->signer_name;
+            $propertyAddress = $document?->property_address;
 
             foreach ($authorisers as $authoriser) {
                 try {
                     Mail::to($authoriser->email)->send(
-                        (new SigningRequestMail(
-                            signerName: $authoriser->name,
-                            documentName: "[Candidate Authorisation] {$documentName}",
-                            signingUrl: $dashboardUrl,
-                            personalMessage: "Candidate practitioner {$candidateUser->name} has a document requiring your {$typeLabel}. "
-                                . "Please review it from your dashboard. Any eligible authoriser can action this.",
-                            expiresAt: now()->addDays(14),
-                        ))
+                        (new \App\Mail\Signatures\SupervisorApprovalMail(
+                            supervisorName:    $authoriser->name,
+                            candidateName:     $candidateUser->name,
+                            documentName:      $documentName,
+                            documentTypeLabel: $documentTypeLbl,
+                            contactName:       $contactName,
+                            propertyAddress:   $propertyAddress,
+                            candidatePhone:    $candidateUser->phone ?? $candidateUser->cell ?? null,
+                            reviewUrl:         $dashboardUrl,
+                            expiresAt:         now()->addDays(7),
+                            reviewType:        $type,
+                        ))->fromAgent($candidateUser)
                     );
                 } catch (\Throwable $e) {
                     Log::error('Failed to send authorisation notification', [

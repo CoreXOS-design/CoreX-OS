@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Docuperfect;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\Docuperfect\DocumentAmendment;
 use App\Models\Docuperfect\ESignConsentLog;
 use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
@@ -1094,6 +1095,17 @@ class SigningController extends Controller
             $webData['clause_flags'] = array_merge($existingFlags, [
                 $signingRequest->party_role => $clauseFlags,
             ]);
+
+            // ES-4 — Promote each flag to a first-class DocumentAmendment row
+            // so it flows through the same agent review surface used by
+            // Other Conditions + Strikethroughs (Phase 1B). The JSON note in
+            // web_template_data is preserved for backward compatibility and
+            // forensic context; it is no longer the sole record.
+            $this->promoteClauseFlagsToAmendments(
+                $signingRequest,
+                $document,
+                $clauseFlags
+            );
         }
 
         // Save signatures (base64 data URIs keyed by block ID)
@@ -2752,5 +2764,91 @@ CSS;
             'rejected' => true,
             'acceptance_id' => $acceptance->id,
         ]);
+    }
+
+    /**
+     * ES-4 — promote signer-raised clause flags into first-class
+     * DocumentAmendment rows. Each flag becomes its own amendment so the
+     * agent review surface (Phase 1B) can render and action it through the
+     * same approve / reject / reject-document workflow as conditions and
+     * strikethroughs.
+     *
+     * Backward compatibility: the JSON note in
+     * docuperfect_documents.web_template_data['clause_flags'] is preserved
+     * by the caller — this method only ADDS the relational record.
+     *
+     * Failures are logged but never abort the signing transaction: a flag
+     * record that fails to write should not block the signer's signature
+     * commit.
+     *
+     * @param array $clauseFlags Array of { clauseNum, clauseIndex, concern }
+     *
+     * Spec: .ai/specs/esign-v3-complete-spec.md §17 ES-4
+     */
+    private function promoteClauseFlagsToAmendments(
+        SignatureRequest $signingRequest,
+        $document,
+        array $clauseFlags
+    ): void {
+        try {
+            $template = $signingRequest->template
+                ?? SignatureTemplate::find($signingRequest->signature_template_id);
+            if (! $template) {
+                return;
+            }
+
+            foreach ($clauseFlags as $flag) {
+                $clauseRef = $flag['clauseNum'] ?? $flag['clause_num'] ?? null;
+                $reason    = trim((string) ($flag['concern'] ?? $flag['reason'] ?? ''));
+                if ($reason === '') {
+                    // A flag without a concern note is still a signal the
+                    // signer stopped — but we can't action a blank. Skip
+                    // promotion in that case (the JSON note is still kept).
+                    continue;
+                }
+
+                $currentVersion = (int) ($template->document_version ?? 1);
+
+                DocumentAmendment::create([
+                    'document_id'              => $document->id,
+                    'signature_template_id'    => $template->id,
+                    'amended_by_request_id'    => $signingRequest->id,
+                    'amendment_type'           => DocumentAmendment::TYPE_FLAG_RAISED,
+                    'flag_origin'              => DocumentAmendment::FLAG_ORIGIN_SIGNING_PARTY,
+                    'flag_clause_ref'          => $clauseRef ? (string) $clauseRef : null,
+                    'flag_reason'              => $reason,
+                    'section_reference'        => $clauseRef ? ('Clause ' . $clauseRef) : 'Flag',
+                    'original_text'            => '',
+                    'new_text'                 => $reason,
+                    'document_version_before'  => $currentVersion,
+                    'document_version_after'   => $currentVersion,
+                    'document_hash_before'     => $template->document_hash,
+                    'document_hash_after'      => null,
+                    'status'                   => DocumentAmendment::STATUS_PENDING,
+                ]);
+            }
+
+            // Transition into review state so the agent picks it up.
+            $template->update([
+                'status'           => SignatureTemplate::STATUS_AMENDMENT_REVIEW,
+                'amendment_status' => SignatureTemplate::AMENDMENT_STATUS_PENDING_REVIEW,
+            ]);
+
+            SignatureAuditLog::log(
+                $template,
+                'flag_raised',
+                SignatureAuditLog::ACTOR_SIGNER,
+                $signingRequest->signer_name ?? 'Unknown',
+                metadata: [
+                    'flag_count'   => count($clauseFlags),
+                    'party_role'   => $signingRequest->party_role,
+                ],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('ES-4 flag promotion failed', [
+                'request_id' => $signingRequest->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
     }
 }
