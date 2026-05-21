@@ -301,6 +301,14 @@ return [
         // ── Prospecting ──
         ['key' => 'access_prospecting',          'label' => 'Access Prospecting',          'section' => 'prospecting',      'type' => 'access',  'module' => 'prospecting',      'sort_order' => 1],
 
+        // ── Market Intelligence Centre (Phase A2) ── per spec §12.2/§12.3
+        ['key' => 'mic.edit_address',            'label' => 'Edit / Add Property Address',         'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 50],
+        ['key' => 'mic.merge_duplicates',        'label' => 'Merge Duplicate Tracked Properties',  'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 51],
+        ['key' => 'mic.upload_reports',          'label' => 'Upload Market / CMA Reports',         'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 52],
+        ['key' => 'mic.view_team',               'label' => 'View BM Team Dashboard',              'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 53],
+        ['key' => 'mic.regenerate_brief',        'label' => 'Regenerate Strategic Brief (manual)', 'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 54],
+        ['key' => 'mic.view_ai_costs',           'label' => 'View AI Token / Cost Dashboard',      'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 55],
+
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
 
@@ -467,6 +475,9 @@ return [
                 'compliance.whistleblow.configure',
                 // Seller Outreach
                 'outreach.compose', 'outreach_templates.manage',
+                // MIC (Phase A2) — admin gets every MIC permission
+                'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
+                'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
             ],
         ],
 
@@ -552,6 +563,10 @@ return [
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
                 // Seller Outreach
                 'outreach.compose',
+                // MIC (Phase A2) — branch_manager (= spec "manager"): all
+                // EXCEPT regenerate_brief and view_ai_costs (admin+ only).
+                'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
+                'mic.view_team',
             ],
         ],
 
@@ -614,6 +629,10 @@ return [
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 // Seller Outreach — composer only; template management is admin
                 'outreach.compose',
+                // MIC (Phase A2) — agent gets edit_address + upload_reports
+                // ONLY (per matrix §12.3). No merge, team, brief regen, or
+                // AI cost visibility for agents.
+                'mic.edit_address', 'mic.upload_reports',
             ],
         ],
 

@@ -46,6 +46,9 @@ class DatabaseSeeder extends Seeder
             ProspectingSetupSeeder::class,
             SellerOutreachTemplatesSeeder::class,
             SuggestedActionThresholdsSeeder::class,
+            // MIC Phase A2 — supported report types for the upload UI.
+            // Idempotent (updateOrInsert by key); 11 V1 types per spec §3.2.3.
+            MarketReportTypesSeeder::class,
         ]);
     }
 }
