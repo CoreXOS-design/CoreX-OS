@@ -3044,6 +3044,184 @@ class SignatureService
     }
 
     /**
+     * ES-3 — Initialing Cascade.
+     *
+     * Replaces the full re-sign cascade for amendment review approvals.
+     * After the agent approves a proposed amendment (a new condition or a
+     * strikethrough override), this requeues every previously-signed party
+     * for a focused initialing view that shows ONLY the changed regions.
+     *
+     * Original signatures are preserved verbatim — they don't get
+     * superseded — only the new conditions/strikethroughs introduced by
+     * the amendment need fresh initials.
+     *
+     * Spec: .ai/specs/esign-v3-complete-spec.md §7.5.7, §8
+     */
+    public function requeueAllPartiesForInitialing(
+        SignatureTemplate $template,
+        DocumentAmendment $amendment
+    ): void {
+        DB::transaction(function () use ($template, $amendment) {
+            // 1. Move template into initialing-cascade state. The amendment
+            //    table row already exists (created when the condition or
+            //    strikethrough was proposed) — we just flip it to ACCEPTED-
+            //    by-agent and start the cascade.
+            $template->update([
+                'status'           => SignatureTemplate::STATUS_AMENDMENT_INITIALING,
+                'amendment_status' => SignatureTemplate::AMENDMENT_STATUS_INITIALING,
+            ]);
+            $amendment->update(['status' => DocumentAmendment::STATUS_ACCEPTED]);
+
+            // 2. Find all previous signers. Same query as the legacy
+            //    handleAmendment() flow, but we route them into the
+            //    initialing view rather than full re-sign.
+            $previousSigners = $template->requests()
+                ->where('status', SignatureRequest::STATUS_COMPLETED)
+                ->orderBy('signing_order')
+                ->get();
+
+            foreach ($previousSigners as $previousRequest) {
+                // Skip duplicate acceptance rows for this amendment
+                $existing = AmendmentAcceptance::where('amendment_id', $amendment->id)
+                    ->where('signature_request_id', $previousRequest->id)
+                    ->first();
+                if (! $existing) {
+                    AmendmentAcceptance::create([
+                        'amendment_id'         => $amendment->id,
+                        'signature_request_id' => $previousRequest->id,
+                        'accepted'             => false,
+                        'rejected'             => false,
+                    ]);
+                }
+
+                // Mint a fresh token so the party can land on the focused
+                // initialing view (existing request rows are re-issued —
+                // signed_at / original signatures NOT touched).
+                $initialingToken = $this->generateToken();
+                $previousRequest->update([
+                    'token'            => $initialingToken,
+                    'token_expires_at' => now()->addDays(14),
+                ]);
+
+                // Best-effort email send. Existing amendment-review route is
+                // used so the previous signer lands on the focused initialing
+                // view we render server-side from the same surface.
+                try {
+                    $url = route('signatures.external.amendment-review', $initialingToken);
+                    Mail::to($previousRequest->signer_email)->send(
+                        new SigningRequestMail(
+                            signerName:      $previousRequest->signer_name,
+                            documentName:    $template->document->name ?? 'Document',
+                            signingUrl:      $url,
+                            personalMessage: 'A change to this document was approved. Please initial the changed sections to confirm — your original signature stays in place.',
+                            expiresAt:       $previousRequest->token_expires_at,
+                        )
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning('Initialing cascade — mail send failed', [
+                        'amendment_id' => $amendment->id,
+                        'request_id'   => $previousRequest->id,
+                        'error'        => $e->getMessage(),
+                    ]);
+                }
+
+                SignatureAuditLog::log(
+                    $template,
+                    'amendment_initialing_invited',
+                    SignatureAuditLog::ACTOR_SYSTEM,
+                    'System',
+                    metadata: [
+                        'amendment_id'  => $amendment->id,
+                        'party_role'    => $previousRequest->party_role,
+                        'signer_name'   => $previousRequest->signer_name,
+                    ],
+                );
+            }
+        });
+    }
+
+    /**
+     * ES-3 — Reject the amendment but keep the document alive.
+     * Restores prior amendment_status and clears any proposed conditions
+     * tied to this amendment so the original document continues.
+     */
+    public function rejectAmendmentChange(
+        SignatureTemplate $template,
+        DocumentAmendment $amendment,
+        ?string $reason = null
+    ): void {
+        DB::transaction(function () use ($template, $amendment, $reason) {
+            $amendment->update([
+                'status' => DocumentAmendment::STATUS_REJECTED,
+            ]);
+
+            // Mark conditions tied to this amendment as superseded (soft-
+            // delete so they remain auditable).
+            \App\Models\Docuperfect\DocumentCondition::where('amendment_id', $amendment->id)
+                ->update([
+                    'superseded_at' => now(),
+                ]);
+            \App\Models\Docuperfect\DocumentCondition::where('amendment_id', $amendment->id)->delete();
+
+            \App\Models\Docuperfect\DocumentClauseStrikethrough::where('amendment_id', $amendment->id)
+                ->update([
+                    'status'               => \App\Models\Docuperfect\DocumentClauseStrikethrough::STATUS_REJECTED,
+                    'rejected_by_agent_at' => now(),
+                    'rejection_reason'     => $reason,
+                ]);
+
+            // Return template to its prior status (best guess — back to
+            // signing). Calling code may override.
+            $template->update([
+                'status'           => SignatureTemplate::STATUS_SIGNING,
+                'amendment_status' => SignatureTemplate::AMENDMENT_STATUS_REJECTED,
+            ]);
+
+            SignatureAuditLog::log(
+                $template,
+                'amendment_change_rejected',
+                SignatureAuditLog::ACTOR_USER,
+                \Illuminate\Support\Facades\Auth::user()?->name ?? 'Agent',
+                metadata: [
+                    'amendment_id' => $amendment->id,
+                    'reason'       => $reason,
+                ],
+            );
+        });
+    }
+
+    /**
+     * ES-3 — Hard-reject the document. Terminal state.
+     */
+    public function rejectAmendmentDocument(
+        SignatureTemplate $template,
+        DocumentAmendment $amendment,
+        ?string $reason = null
+    ): void {
+        DB::transaction(function () use ($template, $amendment, $reason) {
+            $amendment->update(['status' => DocumentAmendment::STATUS_REJECTED]);
+            $template->update([
+                'status'            => SignatureTemplate::STATUS_REJECTED,
+                'rejected_at'       => now(),
+                'rejected_by'       => \Illuminate\Support\Facades\Auth::id(),
+                'rejection_reason'  => $reason,
+                'amendment_status'  => SignatureTemplate::AMENDMENT_STATUS_REJECTED,
+            ]);
+
+            SignatureAuditLog::log(
+                $template,
+                'amendment_document_rejected',
+                SignatureAuditLog::ACTOR_USER,
+                \Illuminate\Support\Facades\Auth::user()?->name ?? 'Agent',
+                metadata: [
+                    'amendment_id' => $amendment->id,
+                    'reason'       => $reason,
+                ],
+            );
+        });
+    }
+
+    /**
      * Accept an amendment (one party initials one amendment).
      */
     public function acceptAmendment(

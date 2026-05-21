@@ -2254,6 +2254,17 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/import/parties/reorder', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'reorderParties'])->name('docuperfect.import.parties.reorder');
     Route::post('/import/template/{id}/edit', [\App\Http\Controllers\Docuperfect\DocumentImporterController::class, 'editFromTemplate'])->name('docuperfect.import.template.edit');
 
+    // ===== ES-9 / ES-3 — Other Conditions + Strikethrough + Amendment Review =====
+    // Add a condition or propose a strikethrough during signing or agent preparation
+    Route::post('/signing/{signatureTemplate}/conditions',     [\App\Http\Controllers\Docuperfect\ConditionsController::class, 'storeCondition'])->name('docuperfect.conditions.store');
+    Route::post('/signing/{signatureTemplate}/strikethroughs', [\App\Http\Controllers\Docuperfect\ConditionsController::class, 'storeStrikethrough'])->name('docuperfect.strikethroughs.store');
+
+    // Agent review surface
+    Route::get('/amendments/{amendment}/review',           [\App\Http\Controllers\Docuperfect\AmendmentController::class, 'review'])->name('docuperfect.amendments.review');
+    Route::post('/amendments/{amendment}/approve',         [\App\Http\Controllers\Docuperfect\AmendmentController::class, 'approve'])->name('docuperfect.amendments.approve');
+    Route::post('/amendments/{amendment}/reject-change',   [\App\Http\Controllers\Docuperfect\AmendmentController::class, 'rejectChange'])->name('docuperfect.amendments.rejectChange');
+    Route::post('/amendments/{amendment}/reject-document', [\App\Http\Controllers\Docuperfect\AmendmentController::class, 'rejectDocument'])->name('docuperfect.amendments.rejectDocument');
+
     // ===== RENDERER TEST =====
     Route::get('/renderer-test', function () {
         return view('docuperfect.renderer-test');

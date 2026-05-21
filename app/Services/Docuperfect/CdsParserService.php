@@ -725,9 +725,22 @@ class CdsParserService
      * Post-process: detect marker characters that users place
      * in their Word documents before importing. These are split out of
      * text runs into typed placeholder items.
+     *
+     * Recognised markers:
+     *   @@@@  (≥4 @)  — field_placeholder       (input value)
+     *   %%%%  (≥4 %)  — signature_placeholder
+     *   ####  (≥4 #)  — initial_placeholder
+     *   ~~~~<PURPOSE>~~~~ (ES-9) — insertable_block_placeholder
+     *     Purpose tokens: OTHER_CONDITIONS, INCLUDED_ITEMS, EXCLUDED_ITEMS,
+     *     or CUSTOM:<label>.
      */
     private function detectMarkers(array $sections): array
     {
+        // Split pattern needs the insertable-block form FIRST because the
+        // tilde-bounded form is longer and overlaps with no other; the field
+        // markers come second.
+        $splitPattern = '/(~{4,}[A-Z_]+(?::[^~]+)?~{4,}|@{4,}|%{4,}|#{4,})/';
+
         foreach ($sections as &$section) {
             if (!isset($section['content'])) continue;
 
@@ -738,11 +751,12 @@ class CdsParserService
                     continue;
                 }
 
-                // Split on marker patterns: @{4,} or %{4,} or #{4,}
-                $parts = preg_split('/(@{4,}|%{4,}|#{4,})/', $item['value'], -1, PREG_SPLIT_DELIM_CAPTURE);
+                $parts = preg_split($splitPattern, $item['value'], -1, PREG_SPLIT_DELIM_CAPTURE);
 
                 foreach ($parts as $part) {
-                    if (preg_match('/^@{4,}$/', $part)) {
+                    if (preg_match('/^~{4,}([A-Z_]+(?::[^~]+)?)~{4,}$/', $part, $m)) {
+                        $newContent[] = $this->parseInsertableBlockMarker($m[1]);
+                    } elseif (preg_match('/^@{4,}$/', $part)) {
                         $newContent[] = [
                             'type' => 'field_placeholder',
                             'marker' => 'input',
@@ -773,6 +787,87 @@ class CdsParserService
         }
 
         return $sections;
+    }
+
+    /**
+     * ES-9 — parse an insertable-block marker token like 'OTHER_CONDITIONS'
+     * or 'CUSTOM:Outstanding Repairs' into a structured placeholder item.
+     */
+    private function parseInsertableBlockMarker(string $token): array
+    {
+        if (str_starts_with($token, 'CUSTOM:')) {
+            $label   = trim(substr($token, 7));
+            $purpose = 'custom_named';
+            $blockId = 'custom_' . \Illuminate\Support\Str::slug($label !== '' ? $label : 'unnamed', '_');
+            return [
+                'type'         => 'insertable_block_placeholder',
+                'marker'       => 'insertable_block',
+                'block_id'     => $blockId,
+                'purpose'      => $purpose,
+                'custom_label' => $label,
+                'raw_token'    => $token,
+            ];
+        }
+
+        $purposeMap = [
+            'OTHER_CONDITIONS' => 'other_conditions',
+            'INCLUDED_ITEMS'   => 'included_items',
+            'EXCLUDED_ITEMS'   => 'excluded_items',
+        ];
+        $purpose = $purposeMap[$token] ?? 'custom_named';
+        $blockId = strtolower($token);
+
+        return [
+            'type'         => 'insertable_block_placeholder',
+            'marker'       => 'insertable_block',
+            'block_id'     => $blockId,
+            'purpose'      => $purpose,
+            'custom_label' => null,
+            'raw_token'    => $token,
+        ];
+    }
+
+    /**
+     * ES-9 — collect detected insertable blocks across all sections so the
+     * CDS draft / template can persist the metadata alongside the parsed body.
+     * Call after detectMarkers().
+     *
+     * @return array<int, array{block_id:string, purpose:string, label:string, position_marker:string}>
+     */
+    public function collectInsertableBlocks(array $sections): array
+    {
+        $blocks = [];
+        $seen = [];
+        foreach ($sections as $section) {
+            foreach (($section['content'] ?? []) as $item) {
+                if (($item['type'] ?? '') !== 'insertable_block_placeholder') continue;
+                $id = $item['block_id'];
+                if (isset($seen[$id])) continue;
+                $seen[$id] = true;
+
+                $defaultLabels = [
+                    'other_conditions' => 'Other Conditions',
+                    'included_items'   => 'Included Items',
+                    'excluded_items'   => 'Excluded Items',
+                ];
+                $label = $item['custom_label']
+                    ?? $defaultLabels[$item['purpose']]
+                    ?? ucwords(str_replace('_', ' ', $item['block_id']));
+
+                $blocks[] = [
+                    'id'              => $id,
+                    'purpose'         => $item['purpose'],
+                    'label'           => $label,
+                    'position_marker' => '~~~~' . $item['raw_token'] . '~~~~',
+                    'min_conditions'  => 0,
+                    'max_conditions'  => $item['purpose'] === 'other_conditions' ? 20 : 30,
+                    'auto_number'     => $item['purpose'] === 'other_conditions',
+                    'locked'          => false,
+                ];
+            }
+        }
+
+        return $blocks;
     }
 
     /**

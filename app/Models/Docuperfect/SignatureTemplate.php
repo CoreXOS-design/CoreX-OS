@@ -67,7 +67,17 @@ class SignatureTemplate extends Model
     const STATUS_PARTIAL = 'partial';
     const STATUS_AWAITING_DEFERRED = 'awaiting_deferred';
     const STATUS_AMENDMENT_REVIEW = 'amendment_review';
+    // ES-3: amendment_initialing — agent approved a change; parties must
+    // initial only the changed regions (focused view, not full re-sign).
+    const STATUS_AMENDMENT_INITIALING = 'amendment_initialing';
     const STATUS_CANCELLED = 'cancelled';
+
+    // amendment_status (the secondary column, varchar(255)) carries finer
+    // amendment-phase state.
+    const AMENDMENT_STATUS_PENDING_REVIEW = 'pending_review';
+    const AMENDMENT_STATUS_INITIALING     = 'amendment_initialing';
+    const AMENDMENT_STATUS_RESOLVED       = 'resolved';
+    const AMENDMENT_STATUS_REJECTED       = 'rejected';
 
     // --- Relationships ---
 
