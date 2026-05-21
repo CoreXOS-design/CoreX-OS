@@ -26,22 +26,6 @@
             review your request before it&rsquo;s added to the document.
         </p>
 
-        @if(!empty($numberedClauses))
-            <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #111827; margin-bottom: 0.3rem;">
-                Does this relate to an existing clause?
-                <span style="color: #6b7280; font-weight: 400;">(optional)</span>
-            </label>
-            <select x-model="relatesToClause"
-                    style="width: 100%; padding: 0.55rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 0.9rem; background: #fff; margin-bottom: 1rem;">
-                <option value="">No &mdash; this is a new condition</option>
-                @foreach($numberedClauses as $clause)
-                    <option value="{{ $clause['ref'] }}">
-                        Clause {{ $clause['ref'] }} &mdash; {{ $clause['preview'] }}
-                    </option>
-                @endforeach
-            </select>
-        @endif
-
         <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #111827; margin-bottom: 0.3rem;">
             Your proposed condition
         </label>
@@ -168,7 +152,6 @@ function addConditionModalAlpine() {
         blockPurpose: '',
         blockLabel: '',
         customText: '',
-        relatesToClause: '',
         submitting: false,
         error: '',
         storeUrl: @json(route('signatures.external.addCondition', ['token' => $token])),
@@ -179,7 +162,6 @@ function addConditionModalAlpine() {
                 this.blockPurpose = d.purpose || 'other_conditions';
                 this.blockLabel = d.label || '';
                 this.customText = '';
-                this.relatesToClause = '';
                 this.error = '';
                 this.open = true;
             });
@@ -196,11 +178,10 @@ function addConditionModalAlpine() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
                     body: JSON.stringify({
-                        block_id:              this.blockId,
-                        block_purpose:         this.blockPurpose,
-                        content:               content,
-                        source:                'custom',
-                        relates_to_clause_ref: this.relatesToClause || null,
+                        block_id:      this.blockId,
+                        block_purpose: this.blockPurpose,
+                        content:       content,
+                        source:        'custom',
                     }),
                 });
                 if (r.ok) {

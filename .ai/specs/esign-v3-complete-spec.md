@@ -1375,6 +1375,12 @@ Six corrections to the Phase 1B.5 recipient experience:
 
 Phase 1B.5 data tables retained as-is: `document_clause_strikethroughs` is no longer written by any recipient code path, but the schema is preserved for future agent-side strikethrough creation.
 
+### 22.10 Phase 1B.8 — Add Condition dropdown removed
+
+Removed the "Does this relate to an existing clause? (optional)" dropdown from the recipient Add Condition modal. Recipients now provide free-text conditions only. The `document_conditions.relates_to_clause_ref` column is retained — existing rows keep their values and the `InsertableBlockRenderer` continues to render the "Relates to clause N" badge for legacy data. Recipient writes no longer populate the column. All other Phase 1B.5/1B.6/1B.7 functionality preserved.
+
+E-Sign V3 is shipped at this point. Remaining backlog (non-blocking): Phase 2.1 multi-role `editable_by` enforcement, V1.5 deferrals (wet-ink rendering + pagination recalc), and the ES-1 cherry-pick to `main` + Staging back-merge pending Johan's per-push authorisation.
+
 ---
 
 ## 23. Open Questions

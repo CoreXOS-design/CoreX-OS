@@ -2961,7 +2961,9 @@ CSS;
             // the value to 'custom' below.
             'source'                => ['sometimes', 'in:library,custom'],
             'library_clause_id'     => ['nullable', 'integer'],
-            'relates_to_clause_ref' => ['nullable', 'string', 'max:50'],
+            // Phase 1B.8: relates_to_clause_ref dropdown removed from the
+            // recipient modal. The DB column is retained for legacy rows;
+            // recipient writes no longer populate it.
         ]);
         $validated['source'] = 'custom';
         $validated['library_clause_id'] = null;
@@ -2994,7 +2996,6 @@ CSS;
                 'content'               => $validated['content'],
                 'is_locked'             => false,
                 'is_override'           => false,
-                'relates_to_clause_ref' => $validated['relates_to_clause_ref'] ?? null,
                 'added_by_user_id'      => $signingRequest->signed_by_user_id ?? null,
                 'added_by_party_id'     => $signingRequest->id,
                 'added_via'             => 'recipient_signing',
