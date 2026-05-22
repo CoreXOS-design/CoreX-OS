@@ -1,0 +1,99 @@
+{{--
+    Phase 9d F4 — PDF export template (HTML; downstream PDF renderer converts).
+
+    Single-page-per-section break model. Each section heads a fresh page so
+    the printed RCR maps cleanly to the goAML question structure.
+--}}
+@php
+    use App\Models\Compliance\Rcr\RcrAnswer;
+@endphp
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>RCR Export — {{ $submission->questionnaire->title }}</title>
+    <style>
+        body { font-family: 'Helvetica', Arial, sans-serif; font-size: 11pt; color: #0f172a; margin: 24px; line-height: 1.4; }
+        h1 { font-size: 18pt; margin: 0 0 6px 0; }
+        h2 { font-size: 14pt; margin: 28px 0 8px 0; border-bottom: 2px solid #0f172a; padding-bottom: 4px; }
+        h3 { font-size: 11pt; margin: 16px 0 6px 0; font-weight: 700; }
+        .meta { color: #475569; font-size: 9pt; margin-bottom: 18px; }
+        .meta strong { color: #0f172a; }
+        .question { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dotted #cbd5e1; }
+        .question-code { font-weight: 700; color: #475569; font-size: 9pt; letter-spacing: 0.05em; }
+        .question-text { font-weight: 500; margin: 4px 0; }
+        .answer-block { background: #f1f5f9; padding: 8px 12px; border-radius: 4px; margin-top: 6px; font-size: 10pt; }
+        .answer-label { font-size: 8pt; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
+        .answer-value { color: #0f172a; white-space: pre-wrap; }
+        .answer-status { font-size: 8pt; color: #475569; margin-top: 4px; }
+        .declaration { margin-top: 40px; padding: 16px; background: #fef3c7; border: 1px solid #d97706; border-radius: 4px; font-size: 10pt; }
+        .declaration strong { display: block; margin-bottom: 6px; }
+        .section-break { page-break-before: always; }
+        .footer { margin-top: 36px; font-size: 8pt; color: #64748b; border-top: 1px solid #cbd5e1; padding-top: 10px; }
+    </style>
+</head>
+<body>
+
+<h1>Risk &amp; Compliance Return</h1>
+<div class="meta">
+    <div><strong>{{ $submission->questionnaire->title }}</strong></div>
+    <div>{{ $submission->questionnaire->directive_reference ?: 'FIC Directive 11 of 2026' }}</div>
+    <div>Reporting period: {{ $submission->reporting_period_from->format('j F Y') }} → {{ $submission->reporting_period_to->format('j F Y') }}</div>
+    <div>Submission deadline: {{ $submission->submission_deadline->format('j F Y') }}</div>
+    <hr style="border:0;border-top:1px solid #cbd5e1;margin:8px 0;">
+    <div><strong>Accountable institution:</strong> {{ $agency?->name ?? '—' }}</div>
+    <div><strong>PPRA / FFC reference:</strong> {{ $agency?->ffc_no ?? '—' }}</div>
+    <div><strong>FIC reference:</strong> {{ $agency?->fic_no ?? '—' }}</div>
+    <div><strong>Submitted by:</strong> {{ $submission->submitter?->name ?? $submission->assignedCo?->name ?? '(draft — unsigned)' }}</div>
+    <div><strong>Submitted on:</strong> {{ $submission->submitted_at?->format('j F Y H:i') ?? 'Draft (not yet submitted)' }}</div>
+    @if($submission->submitted_to_platform_reference)
+        <div><strong>FIC goAML reference:</strong> {{ $submission->submitted_to_platform_reference }}</div>
+    @endif
+</div>
+
+@foreach($submission->questionnaire->sections as $section)
+    <div class="{{ $loop->first ? '' : 'section-break' }}">
+        <h2>{{ $section->section_code }}. {{ $section->title }}</h2>
+        @if($section->description)
+            <p style="color:#475569;font-size:10pt;">{{ $section->description }}</p>
+        @endif
+
+        @foreach($section->questions as $question)
+            @php $a = $submission->answers->firstWhere('question_id', $question->id); @endphp
+            <div class="question">
+                <div class="question-code">{{ $question->question_code }} @if($question->is_required)<span style="color:#dc2626;">*</span>@endif</div>
+                <div class="question-text">{{ $question->question_text }}</div>
+                <div class="answer-block">
+                    <div class="answer-label">Answer</div>
+                    <div class="answer-value">{{ $a?->answer_value ?: '(unanswered)' }}</div>
+                    @if($a)
+                        <div class="answer-status">
+                            Status: {{ ucfirst(str_replace('_', ' ', $a->status)) }}
+                            @if($a->is_auto_populated)
+                                · Auto-populated{{ $a->manually_edited ? ' (later edited by CO)' : '' }}
+                            @endif
+                            @if($a->last_edited_at)
+                                · Last edited {{ $a->last_edited_at->format('j M Y H:i') }}
+                            @endif
+                        </div>
+                    @endif
+                </div>
+            </div>
+        @endforeach
+    </div>
+@endforeach
+
+<div class="declaration">
+    <strong>Declaration</strong>
+    {{ $declaration }}
+</div>
+
+<div class="footer">
+    Generated by CoreX OS — Home Finders Coastal compliance workflow ·
+    Reporting under FICA + Property Practitioners Act 22 of 2019 ·
+    Snapshot taken at submission time for FIC audit retention ·
+    Page generated {{ now()->format('j F Y H:i') }}
+</div>
+
+</body>
+</html>

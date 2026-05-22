@@ -181,6 +181,8 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Presentation\PresentationOutcomeLocked::class,
             // Phase 3j — SG document save.
             \App\Events\Property\PropertySgDocumentSaved::class,
+            // Phase 9d — RCR submission lifecycle.
+            \App\Events\Compliance\RcrSubmissionSubmitted::class,
         ] as $micActivityEvent) {
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }

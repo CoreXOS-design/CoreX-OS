@@ -100,6 +100,33 @@ Route::middleware('auth')->group(function () {
         ->middleware('permission:access_presentations')
         ->name('corex.presentations.analytics.index');
 
+    // Phase 9d — RCR submission flow.
+    Route::bind('rcrSubmission', fn ($id) => \App\Models\Compliance\Rcr\RcrSubmission::findOrFail($id));
+    Route::bind('rcrAnswer',     fn ($id) => \App\Models\Compliance\Rcr\RcrAnswer::findOrFail($id));
+    Route::bind('rcrQuestionnaire', fn ($id) => \App\Models\Compliance\Rcr\RcrQuestionnaire::findOrFail($id));
+
+    Route::prefix('corex/compliance/rcr')
+        ->name('corex.compliance.rcr.')
+        ->group(function () {
+            Route::get('/',                                          [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'index'])->name('index');
+            Route::post('/',                                         [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'store'])->name('store');
+            Route::get('/{rcrSubmission}',                           [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'show'])->name('show');
+            Route::patch('/{rcrSubmission}/answers/{rcrAnswer}',     [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'saveAnswer'])->name('answers.save');
+            Route::post('/{rcrSubmission}/answers/{rcrAnswer}/evidence', [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'attachEvidence'])->name('answers.evidence');
+            Route::post('/{rcrSubmission}/auto-populate-all',        [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'autoPopulateAll'])->name('auto-populate');
+            Route::post('/{rcrSubmission}/send-for-review',          [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'sendForReview'])->name('send-for-review');
+            Route::post('/{rcrSubmission}/submit',                   [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'submit'])->name('submit');
+            Route::get('/{rcrSubmission}/export/{format}',           [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'export'])->name('export');
+        });
+
+    Route::prefix('corex/admin/rcr/questionnaires')
+        ->name('corex.admin.rcr.questionnaires.')
+        ->group(function () {
+            Route::get('/',                          [\App\Http\Controllers\Compliance\Rcr\RcrQuestionnaireAdminController::class, 'index'])->name('index');
+            Route::get('/{rcrQuestionnaire}',        [\App\Http\Controllers\Compliance\Rcr\RcrQuestionnaireAdminController::class, 'show'])->name('show');
+            Route::post('/{rcrQuestionnaire}/import-csv', [\App\Http\Controllers\Compliance\Rcr\RcrQuestionnaireAdminController::class, 'importCsv'])->name('import-csv');
+        });
+
     // Phase 3i — admin deal-link-review queue.
     Route::bind('reviewItem', fn ($id) => \App\Models\DealLinkReviewQueue::findOrFail($id));
     // Phase 3j — SG document binding.

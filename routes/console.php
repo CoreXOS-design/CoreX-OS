@@ -56,6 +56,8 @@ Schedule::job(new \App\Jobs\PromptOutcomeCaptureJob())->dailyAt('08:30')->withou
 Schedule::job(new \App\Jobs\LockOldOutcomesJob())->dailyAt('02:45')->withoutOverlapping();
 // Phase 9a — POPIA 90-day retention for presentation_snapshot_views.
 Schedule::job(new \App\Jobs\PurgeOldSnapshotViewsJob())->dailyAt('03:15')->withoutOverlapping();
+// Phase 9d — RCR deadline reminder cadence (weekly → 3-daily → daily → critical).
+Schedule::job(new \App\Jobs\RcrDeadlineReminderJob())->dailyAt('07:00')->withoutOverlapping();
 
 // Prospecting claim maintenance — runs hourly
 Schedule::command('prospecting:maintain-claims')->hourly();

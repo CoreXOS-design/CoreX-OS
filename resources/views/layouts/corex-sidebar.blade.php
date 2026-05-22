@@ -633,6 +633,36 @@
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
                 @endpermission
 
+                @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
+                    @php
+                        // Phase 9d — open RCR submissions for current agency.
+                        $rcrOpenCount = 0; $rcrNextDeadline = null;
+                        try {
+                            $agencyId = auth()->user()?->effectiveAgencyId();
+                            if ($agencyId) {
+                                $open = \App\Models\Compliance\Rcr\RcrSubmission::where('agency_id', $agencyId)
+                                    ->whereIn('status', ['draft', 'in_review', 'approved_for_submission'])
+                                    ->orderBy('submission_deadline')
+                                    ->first();
+                                if ($open) {
+                                    $rcrOpenCount = 1;
+                                    $rcrNextDeadline = (int) round(now()->diffInDays($open->submission_deadline, false));
+                                }
+                            }
+                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
+                    @endphp
+                    <a href="{{ route('corex.compliance.rcr.index') }}"
+                       class="corex-nav-subitem {{ request()->routeIs('corex.compliance.rcr.*') ? 'active' : '' }}"
+                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                        <span>RCR · FIC 2026</span>
+                        @if($rcrOpenCount > 0)
+                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:{{ $rcrNextDeadline !== null && $rcrNextDeadline <= 7 ? '#dc2626' : '#0ea5e9' }};color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
+                                {{ $rcrNextDeadline !== null ? ($rcrNextDeadline < 0 ? 'OVERDUE' : $rcrNextDeadline . 'd') : '!' }}
+                            </span>
+                        @endif
+                    </a>
+                @endif
+
                 @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.admin.deal-link-review.index'))
                     @php
                         // Phase 3i — pending deal-link review count.
