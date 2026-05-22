@@ -2,7 +2,7 @@
 
 @section('corex-content')
 @php
-    $totalMatches = $contacts->sum(fn($row) => $row['matches']->count());
+    $totalMatches = $byAgent->sum(fn($row) => $row['matches']->count());
 @endphp
 <div class="space-y-5">
 
@@ -10,87 +10,81 @@
     <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Core Matches</h1>
-                <p class="text-sm text-white/60">Buyer and renter search criteria saved against your contacts.</p>
+                <h1 class="text-xl font-bold text-white leading-tight">All Core Matches</h1>
+                <p class="text-sm text-white/60">
+                    Every saved search across {{ $branchLimited ? 'your branch' : 'the agency' }} — oversight for managers and admins.
+                </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('corex.contacts.index') }}" class="corex-btn-outline text-sm"
+                <a href="{{ route('corex.core-matches.index') }}" class="corex-btn-outline text-sm"
                    style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
-                    Contacts
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                    My Core Matches
                 </a>
-                @permission('core_matches.all_view')
-                <a href="{{ route('corex.core-matches.all') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
-                    All View
-                </a>
-                @endpermission
             </div>
         </div>
     </div>
 
-    @if($totalMatches > 0)
-    <div class="corex-kpi-grid">
-        <x-corex-kpi-card title="Saved searches" :value="number_format($totalMatches)" />
-        <x-corex-kpi-card title="Contacts with criteria" :value="number_format($contacts->count())" />
+    {{-- Filter bar --}}
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+        <form method="GET" action="{{ route('corex.core-matches.all') }}"
+              class="flex items-end gap-3 flex-wrap">
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color:var(--text-secondary);">Filter by agent</label>
+                <select name="agent_id" onchange="this.form.submit()"
+                        class="rounded-md px-3 py-2 text-sm"
+                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:220px;">
+                    <option value="all" @selected($agentId === null)>All agents</option>
+                    @foreach($agents as $agent)
+                    <option value="{{ $agent->id }}" @selected($agentId === (int) $agent->id)>{{ $agent->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            @if($agentId !== null)
+            <a href="{{ route('corex.core-matches.all') }}" class="corex-btn-outline text-sm">Clear filter</a>
+            @endif
+            <div class="flex-1"></div>
+            <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
+                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+                {{ number_format($totalMatches) }} {{ Str::plural('search', $totalMatches) }}
+            </span>
+        </form>
     </div>
-    @endif
 
-    @if($contacts->isEmpty())
+    @if($byAgent->isEmpty())
     {{-- Empty state --}}
     <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
-        <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-             style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
-        </div>
-        <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No Core Matches saved yet</h3>
-        <p class="text-sm mb-4" style="color:var(--text-muted);">Open a contact and go to the Core Matches tab to save buyer or renter criteria.</p>
-        <a href="{{ route('corex.contacts.index') }}" class="corex-btn-primary text-sm">Go to Contacts</a>
+        <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No Core Matches found</h3>
+        <p class="text-sm" style="color:var(--text-muted);">
+            No saved searches match the current filter{{ $branchLimited ? ' in your branch' : '' }}.
+        </p>
     </div>
 
     @else
     <div class="space-y-3">
-        @foreach($contacts as $row)
+        @foreach($byAgent as $row)
         @php
-            $contact = $row['contact'];
+            $agent   = $row['agent'];
             $matches = $row['matches'];
         @endphp
 
         <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
 
-            {{-- Contact header --}}
+            {{-- Agent header --}}
             <div class="flex items-center justify-between gap-3 px-5 py-4"
                  style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                 <div class="flex items-center gap-3 min-w-0">
-                    {{-- Avatar --}}
                     <div class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
                          style="background:var(--brand-icon,#0ea5e9);">
-                        {{ $contact->initials }}
+                        {{ strtoupper(mb_substr($agent->name ?? '?', 0, 1)) }}
                     </div>
-                    {{-- Name + meta --}}
                     <div class="min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
-                               class="text-sm font-semibold no-underline leading-tight transition-colors duration-150"
-                               style="color:var(--text-primary);">
-                                {{ $contact->full_name }}
-                            </a>
-                            @if($contact->type)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
-                                {{ $contact->type->name }}
-                            </span>
-                            @endif
+                        <div class="text-sm font-semibold leading-tight" style="color:var(--text-primary);">
+                            {{ $agent->name ?? 'Unknown agent' }}
                         </div>
-                        <div class="flex items-center gap-3 mt-0.5 flex-wrap">
-                            @if($contact->phone)
-                            <span class="text-xs" style="color:var(--text-secondary);">{{ $contact->phone }}</span>
-                            @endif
-                            @if($contact->email)
-                            <span class="text-xs" style="color:var(--text-secondary);">{{ $contact->email }}</span>
-                            @endif
-                        </div>
+                        @if($agent && $agent->email)
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">{{ $agent->email }}</div>
+                        @endif
                     </div>
                 </div>
                 <div class="flex-shrink-0">
@@ -104,8 +98,19 @@
             {{-- Match rows --}}
             <div>
                 @foreach($matches as $match)
+                @php
+                    $contact = $match->contact;
+                    $counts  = $matchCounts[$match->id] ?? ['total' => 0, 'visible' => 0, 'hidden' => 0];
+                @endphp
                 <div class="flex items-center gap-4 px-5 py-3.5 flex-wrap"
                      style="{{ !$loop->last ? 'border-bottom:1px solid var(--border);' : '' }}">
+
+                    {{-- Contact --}}
+                    <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
+                       class="text-sm font-semibold no-underline flex-shrink-0 whitespace-nowrap"
+                       style="color:var(--text-primary); min-width:140px;">
+                        {{ $contact->full_name }}
+                    </a>
 
                     {{-- Type pill --}}
                     <span class="text-xs font-semibold px-2.5 py-1 rounded-md flex-shrink-0 whitespace-nowrap"
@@ -121,33 +126,24 @@
                         <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
                         <span class="text-xs" style="color:var(--text-muted);">·</span>
                         @endif
-
                         @if($match->suburb)
                         <span class="text-xs font-medium" style="color:var(--text-secondary);">📍 {{ $match->suburb }}</span>
                         <span class="text-xs" style="color:var(--text-muted);">·</span>
                         @endif
-
                         @if($match->category)
                         <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $match->category }}</span>
                         @endif
-
                         @if($match->property_type)
                         <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $match->property_type }}</span>
                         @endif
-
                         @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Gar']] as [$val,$lbl])
                         @if($val !== null)
                         <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $val }}+ {{ $lbl }}</span>
                         @endif
                         @endforeach
-
-                        @if(!$match->category && !$match->property_type && !$match->suburb && !$match->price_min && !$match->price_max && !$match->beds_min && !$match->baths_min)
-                        <span class="text-xs italic" style="color:var(--text-muted);">Any property</span>
-                        @endif
                     </div>
 
                     {{-- Match counts: total / visible / hidden --}}
-                    @php $counts = $matchCounts[$match->id] ?? ['total' => 0, 'visible' => 0, 'hidden' => 0]; @endphp
                     <div class="flex items-center gap-1.5 flex-shrink-0">
                         <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
                               style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"

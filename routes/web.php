@@ -1839,6 +1839,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:access_contacts')
         ->name('corex.core-matches.index');
 
+    // Core Matches — All View (agency / branch oversight for managers & admins)
+    Route::get('/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
+        ->middleware('permission:core_matches.all_view')
+        ->name('corex.core-matches.all');
+
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     Route::prefix('real-estate/portal-leads')
         ->middleware(['permission:access_portal_leads', 'agency.required'])
