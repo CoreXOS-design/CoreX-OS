@@ -1791,6 +1791,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/wizard/{property}/finalize',      [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'finalize'])->name('wizard.finalize');
         Route::delete('/wizard/{property}',             [\App\Http\Controllers\CoreX\PropertyWizardController::class, 'discardDraft'])->name('wizard.discard');
         Route::get('/{property}',              [\App\Http\Controllers\CoreX\PropertyController::class, 'show'])->name('show');
+        // Phase 3g — JSON detail card for the Map module.
+        Route::get('/{property}/map-card',     [\App\Http\Controllers\Map\MapController::class, 'propertyCard'])->name('map-card');
         Route::get('/{property}/edit',         [\App\Http\Controllers\CoreX\PropertyController::class, 'edit'])->name('edit');
         Route::get('/{property}/ad',           [\App\Http\Controllers\CoreX\PropertyController::class, 'ad'])->name('ad');
         Route::put('/{property}',              [\App\Http\Controllers\CoreX\PropertyController::class, 'update'])->name('update');
@@ -1840,6 +1842,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/p24-syndication/reactivate', [\App\Http\Controllers\Property24\P24SyndicationController::class, 'reactivate'])->name('p24-syndication.reactivate');
         Route::get('/{property}/p24-syndication/status',      [\App\Http\Controllers\Property24\P24SyndicationController::class, 'status'])->name('p24-syndication.status');
         Route::get('/{property}/p24-syndication/readiness',   [\App\Http\Controllers\Property24\P24SyndicationController::class, 'readiness'])->name('p24-syndication.readiness');
+    });
+
+    // Phase 3g — Map module (standalone page + JSON pin + detail endpoints).
+    // Same permission as Properties; agency scoping enforced inside the service.
+    Route::prefix('map')->middleware(['permission:access_properties', 'agency.required'])->name('corex.map.')->group(function () {
+        Route::get('/',                       [\App\Http\Controllers\Map\MapController::class, 'index'])->name('index');
+        Route::get('/pins',                   [\App\Http\Controllers\Map\MapController::class, 'pins'])->name('pins');
+        Route::get('/sold/{layerId}',         [\App\Http\Controllers\Map\MapController::class, 'soldCard'])->name('sold');
+        Route::get('/active/{layerId}',       [\App\Http\Controllers\Map\MapController::class, 'activeCard'])->name('active');
+        Route::get('/mic-subject/{report}',   [\App\Http\Controllers\Map\MapController::class, 'micSubjectCard'])->name('mic-subject');
+        Route::get('/scheme-owner/{owner}',   [\App\Http\Controllers\Map\MapController::class, 'schemeOwnerCard'])->name('scheme-owner');
     });
 
     // Ad Template Builder

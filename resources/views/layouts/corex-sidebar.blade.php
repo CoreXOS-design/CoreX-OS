@@ -401,6 +401,16 @@
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
                 <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.properties.*') ? 'active' : '' }}">Properties</a>
                 @endif
+                {{-- Phase 3g — Map module. Same permission as Properties; agency-scoped. --}}
+                @if(\Illuminate\Support\Facades\Route::has('corex.map.index'))
+                <a href="{{ route('corex.map.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.map.*') ? 'active' : '' }}" style="display:flex;align-items:center;gap:6px;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 10c0 6-9 13-9 13s-9-7-9-13a9 9 0 0 1 18 0z"/>
+                        <circle cx="12" cy="10" r="3"/>
+                    </svg>
+                    Map
+                </a>
+                @endif
                 @endpermission
 
                 @permission('access_contacts')
