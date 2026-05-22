@@ -69,6 +69,12 @@ final class MapPinService
             $totals['scheme_owners'] = $total;
         }
 
+        // Map hotfix — cross-layer overlap coalesce. Mutates layers in-place
+        // to add colocated_count / colocated_layers on the highest-priority
+        // pin at each collision point, and shifts lower-priority pins to a
+        // small radial offset so they remain visible + clickable.
+        $this->coalesceCrossLayer($layers);
+
         return [
             'bounds'  => [
                 'north' => $req->north, 'south' => $req->south,
@@ -77,6 +83,107 @@ final class MapPinService
             'layers'  => $layers,
             'totals'  => $totals,
         ];
+    }
+
+    /**
+     * Map hotfix Part B — cross-layer overlap detection + offset.
+     *
+     * Same-layer overlaps are handled by Leaflet's spiderfyOnMaxZoom on the
+     * marker cluster groups (one fan per layer). This routine deals with
+     * the cross-layer case: e.g. an HFC listing pin + a sold comp pin + a
+     * MIC subject pin + scheme owner pins all sitting at the same building.
+     *
+     * Algorithm:
+     *   - Group every pin (across all layers) by GPS rounded to 5 decimal
+     *     places (~1.1m precision). Anything closer than that visually
+     *     collides on a Leaflet map at any normal zoom.
+     *   - For each group containing pins from 2+ DIFFERENT layers:
+     *       1. Sort by layer priority (higher = on top)
+     *       2. Primary pin keeps its GPS + gets `colocated_count` and
+     *          `colocated_layers` (a flat list of {layer,id,title,subtitle,
+     *          detail_url} for every other source at this point).
+     *       3. Lower-priority pins get a radial offset (12m equivalent),
+     *          evenly spaced around the primary; each gets `shifted=true`
+     *          and `original_gps={lat,lng}` so the UI can render them with
+     *          a dashed ring and link back to the actual location.
+     *   - Same-layer-only groups are left alone — spiderfy handles them.
+     *
+     * Priority order (higher wins):
+     *   hfc_listings > active_listings > sold_comps > mic_subjects > scheme_owners
+     *
+     * @param array<int, array<string, mixed>> $layers  Modified in place.
+     */
+    private function coalesceCrossLayer(array &$layers): void
+    {
+        $priority = [
+            'hfc_listings'    => 1000,
+            'active_listings' => 800,
+            'sold_comps'      => 600,
+            'mic_subjects'    => 400,
+            'scheme_owners'   => 200,
+        ];
+
+        // Build index: gps_key → [{li, pi, priority}].
+        $byKey = [];
+        foreach ($layers as $li => $layer) {
+            foreach ($layer['pins'] as $pi => $pin) {
+                $key = round((float) $pin['lat'], 5) . ':' . round((float) $pin['lng'], 5);
+                $byKey[$key][] = [
+                    'li'        => $li,
+                    'pi'        => $pi,
+                    'priority'  => $priority[$pin['layer']] ?? 0,
+                    'layer_key' => $pin['layer'],
+                ];
+            }
+        }
+
+        foreach ($byKey as $items) {
+            if (count($items) < 2) continue;
+
+            // Only coalesce when pins come from 2+ DIFFERENT layers — same-layer
+            // overlap is spiderfy's job.
+            $distinctLayers = array_unique(array_column($items, 'layer_key'));
+            if (count($distinctLayers) < 2) continue;
+
+            usort($items, fn ($a, $b) => $b['priority'] - $a['priority']);
+
+            $primary = &$layers[$items[0]['li']]['pins'][$items[0]['pi']];
+            $primary['colocated_count']  = count($items) - 1;
+            $primary['colocated_layers'] = [];
+
+            $others = array_slice($items, 1);
+            $n      = count($others);
+            $latC   = (float) $primary['lat'];
+            $lngC   = (float) $primary['lng'];
+
+            foreach ($others as $i => $other) {
+                $pinRef = &$layers[$other['li']]['pins'][$other['pi']];
+
+                // Capture for the primary's colocated list (built BEFORE the
+                // pin is shifted so the UI can hyperlink to the original).
+                $primary['colocated_layers'][] = [
+                    'layer'      => $pinRef['layer'],
+                    'id'         => $pinRef['id'],
+                    'title'      => $pinRef['title']    ?? null,
+                    'subtitle'   => $pinRef['subtitle'] ?? null,
+                    'detail_url' => $pinRef['detail_url'],
+                ];
+
+                // Radial offset: evenly spaced bearings around the primary.
+                $bearing  = $i * (2 * M_PI / max(1, $n));
+                $distance = 12; // metres — visible at zoom ≥17 without crossing buildings
+                $dLat = ($distance * cos($bearing)) / 111_320;
+                $dLng = ($distance * sin($bearing)) / (111_320 * cos(deg2rad($latC)));
+
+                $pinRef['original_gps'] = ['lat' => $latC, 'lng' => $lngC];
+                $pinRef['lat']          = round($latC + $dLat, 7);
+                $pinRef['lng']          = round($lngC + $dLng, 7);
+                $pinRef['shifted']      = true;
+
+                unset($pinRef);
+            }
+            unset($primary);
+        }
     }
 
     /** @return array{0: array, 1: int} */

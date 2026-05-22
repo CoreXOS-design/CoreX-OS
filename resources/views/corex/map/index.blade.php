@@ -202,21 +202,78 @@ document.addEventListener('DOMContentLoaded', function () {
     baseLayers[baseLayerKey].addTo(map);
 
     // Pre-create one cluster group per layer so toggles act independently.
+    // Map hotfix:
+    //   - spiderfyOnMaxZoom + spiderfyDistanceMultiplier: when 2+ pins of the
+    //     SAME layer share GPS (e.g. 14 owners of a scheme), they fan out
+    //     clickably at max zoom.
+    //   - maxClusterRadius dropped to 40px so only genuinely-close pins cluster.
+    //   - zIndexOffset by priority so HFC pins render on top of MIC/owner pins
+    //     even when the cross-layer coalesce can't physically separate them.
+    const Z_INDEX_BY_LAYER = {
+        hfc_listings:    1000,
+        active_listings:  800,
+        sold_comps:       600,
+        mic_subjects:     400,
+        scheme_owners:    200,
+    };
     ['hfc_listings', 'sold_comps', 'active_listings', 'mic_subjects', 'scheme_owners'].forEach(k => {
         clusterByLayer[k] = L.markerClusterGroup({
             disableClusteringAtZoom: 14,
-            maxClusterRadius: 50,
+            maxClusterRadius: 40,
             chunkedLoading: true,
-        }).addTo(map);
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false,
+            zoomToBoundsOnClick: true,
+            spiderfyDistanceMultiplier: 1.8,
+        });
+        // Per-cluster z-index offset — affects markers added to the group.
+        clusterByLayer[k].on('layeradd', (e) => {
+            if (e.layer && typeof e.layer.setZIndexOffset === 'function') {
+                e.layer.setZIndexOffset(Z_INDEX_BY_LAYER[k] || 0);
+            }
+        });
+        clusterByLayer[k].addTo(map);
     });
 
+    const LAYER_NAMES = {
+        hfc_listings:    'HFC Listing',
+        sold_comps:      'Sold Comp',
+        active_listings: 'Active Listing',
+        mic_subjects:    'MIC Subject',
+        scheme_owners:   'Scheme Owner',
+    };
+
     // ── Helpers ───────────────────────────────────────────────────────────
-    function pinIcon(layer) {
-        const colour = LAYER_COLOURS[layer] || '#64748b';
-        const letter = LAYER_LETTERS[layer] || '?';
-        const html = '<div style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:' + colour
-            + ';color:#fff;border:2px solid #fff;border-radius:50%;font-size:11px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.4);">'
-            + letter + '</div>';
+    /**
+     * Build the pin icon HTML from a full pin payload (not just the layer
+     * key). Handles two server-driven states:
+     *   - pin.colocated_count > 0 → render a "+N" badge in the top-right
+     *   - pin.shifted=true        → render a dashed ring around the pin
+     */
+    function pinIcon(pin) {
+        const colour = LAYER_COLOURS[pin.layer] || '#64748b';
+        const letter = LAYER_LETTERS[pin.layer] || '?';
+        const isShifted = !!pin.shifted;
+        const colocated = pin.colocated_count || 0;
+
+        // Outer wrapper has positioning context for the +N badge.
+        const borderStyle = isShifted
+            ? '2px dashed #ffffff'
+            : '2px solid #ffffff';
+        const ringShadow = isShifted
+            ? '0 0 0 2px rgba(148,163,184,0.55), 0 1px 3px rgba(0,0,0,.4)'
+            : '0 1px 3px rgba(0,0,0,.4)';
+
+        let html = '<div style="position:relative;display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:'
+            + colour + ';color:#fff;border:' + borderStyle + ';border-radius:50%;font-size:11px;font-weight:700;box-shadow:'
+            + ringShadow + ';">' + letter;
+
+        if (colocated > 0) {
+            html += '<span style="position:absolute;top:-7px;right:-9px;background:#fff;color:#0f172a;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.3);white-space:nowrap;">+'
+                + colocated + '</span>';
+        }
+        html += '</div>';
+
         return L.divIcon({ html: html, className: 'corex-pin', iconSize: [22, 22], iconAnchor: [11, 11] });
     }
 
@@ -263,9 +320,23 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!enabledLayers.has(layer.key)) return;
 
             (layer.pins || []).forEach(pin => {
-                const m = L.marker([pin.lat, pin.lng], { icon: pinIcon(layer.key) });
-                m.bindTooltip(pin.title + '\n' + (pin.subtitle || ''), { direction: 'top' });
-                m.on('click', () => openDetail(pin));
+                const m = L.marker([pin.lat, pin.lng], { icon: pinIcon(pin) });
+                // Tooltip hints — shifted pins explain themselves, +N pins
+                // promise more sources on click.
+                let tooltipBody = pin.title + '\n' + (pin.subtitle || '');
+                if (pin.shifted) {
+                    tooltipBody += '\n(Shifted — multiple data sources at this address)';
+                } else if (pin.colocated_count) {
+                    tooltipBody += '\n+' + pin.colocated_count + ' more source' + (pin.colocated_count === 1 ? '' : 's') + ' here — click to choose';
+                }
+                m.bindTooltip(tooltipBody, { direction: 'top' });
+                m.on('click', () => {
+                    if (pin.colocated_count && pin.colocated_count > 0 && Array.isArray(pin.colocated_layers)) {
+                        openMultiSourcePicker(pin);
+                    } else {
+                        openDetail(pin);
+                    }
+                });
                 cluster.addLayer(m);
             });
             total += layer.pins.length;
@@ -344,6 +415,74 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('detail-close-btn').addEventListener('click', () => {
         detailPanel.style.transform = 'translateX(100%)';
     });
+
+    /**
+     * Multi-source picker — shown when a primary pin has colocated_count > 0.
+     * Lists every source at that GPS so the user can pick which detail card
+     * to load. Each list item is a button that swaps the panel back to the
+     * normal detail flow for the chosen source.
+     */
+    function openMultiSourcePicker(primary) {
+        const all = [
+            {
+                layer:      primary.layer,
+                id:         primary.id,
+                title:      primary.title,
+                subtitle:   primary.subtitle,
+                detail_url: primary.detail_url,
+                primary:    true,
+            },
+            ...primary.colocated_layers.map(c => ({ ...c, primary: false })),
+        ];
+
+        document.getElementById('detail-title').textContent = primary.title || '';
+        document.getElementById('detail-subtitle').textContent =
+            all.length + ' data sources at this address';
+
+        const addrEl = document.getElementById('detail-address');
+        addrEl.style.display = 'none';
+        document.getElementById('detail-sensitive').style.display = 'none';
+        document.getElementById('detail-relationships').innerHTML = '';
+
+        const itemsHtml = all.map((src, idx) => {
+            const colour = LAYER_COLOURS[src.layer] || '#64748b';
+            const letter = LAYER_LETTERS[src.layer] || '?';
+            const name   = LAYER_NAMES[src.layer] || src.layer;
+            const primaryBadge = src.primary
+                ? '<span style="margin-left:6px;font-size:0.625rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">primary</span>'
+                : '';
+            return '<button type="button" data-pick-idx="' + idx + '" '
+                + 'style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;margin-bottom:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-family:inherit;">'
+                + '<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;background:' + colour + ';color:#fff;border:2px solid #fff;border-radius:50%;font-size:11px;font-weight:700;flex-shrink:0;">' + letter + '</span>'
+                + '<span style="flex:1;min-width:0;">'
+                +   '<div style="font-size:0.8125rem;font-weight:500;color:var(--text-primary);">' + escapeHtml(name) + primaryBadge + '</div>'
+                +   '<div style="font-size:0.75rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(src.title || '') + '</div>'
+                + '</span>'
+                + '<span style="color:var(--text-muted);">→</span>'
+                + '</button>';
+        }).join('');
+
+        document.getElementById('detail-facts').innerHTML =
+            '<div style="font-size:0.6875rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:8px;">Choose a source</div>'
+            + itemsHtml;
+
+        // Wire each picker button — clicking loads that source's detail.
+        document.querySelectorAll('[data-pick-idx]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.dataset.pickIdx, 10);
+                const src = all[idx];
+                openDetail({
+                    layer:      src.layer,
+                    id:         src.id,
+                    title:      src.title,
+                    subtitle:   src.subtitle,
+                    detail_url: src.detail_url,
+                });
+            });
+        });
+
+        detailPanel.style.transform = 'translateX(0)';
+    }
 
     async function openDetail(pin) {
         document.getElementById('detail-title').textContent = pin.title || '';
