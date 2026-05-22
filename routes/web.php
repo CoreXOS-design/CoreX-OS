@@ -1689,6 +1689,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
 
+        // Presentations V2 — one-button generator (Phase 1)
+        Route::post('/{property}/generate-presentation', [\App\Http\Controllers\Presentation\PresentationGeneratorController::class, 'generate'])
+            ->name('generate-presentation');
+
         // Seller Live Links — agent management
         Route::post('/seller-links/generate', [\App\Http\Controllers\SellerLinkController::class, 'generate'])->name('seller-links.generate');
         Route::post('/seller-links/{link}/revoke', [\App\Http\Controllers\SellerLinkController::class, 'revoke'])->name('seller-links.revoke');

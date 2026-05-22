@@ -288,6 +288,18 @@ class Property extends Model
                     ->withTimestamps();
     }
 
+    // ── Presentations V2 ──
+
+    public function presentations(): HasMany
+    {
+        return $this->hasMany(Presentation::class, 'property_id')->latest();
+    }
+
+    public function latestPresentation(): ?Presentation
+    {
+        return $this->presentations()->first();
+    }
+
     // ── Address Helpers ──
 
     /**

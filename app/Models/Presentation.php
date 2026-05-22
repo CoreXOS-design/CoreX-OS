@@ -17,6 +17,10 @@ class Presentation extends Model
         'branch_id',
         'created_by_user_id',
         'listing_id',
+        'property_id',
+        'tracked_property_id',
+        'seller_contact_id',
+        'deal_id',
         'title',
         'property_address',
         'suburb',
@@ -127,6 +131,28 @@ class Presentation extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    // ── Pillar links (V2 Phase 1) ──
+
+    public function property()
+    {
+        return $this->belongsTo(\App\Models\Property::class, 'property_id');
+    }
+
+    public function trackedProperty()
+    {
+        return $this->belongsTo(\App\Models\Prospecting\TrackedProperty::class, 'tracked_property_id');
+    }
+
+    public function sellerContact()
+    {
+        return $this->belongsTo(\App\Models\Contact::class, 'seller_contact_id');
+    }
+
+    public function deal()
+    {
+        return $this->belongsTo(\App\Models\Deal::class, 'deal_id');
     }
 
     // ── Scopes ──

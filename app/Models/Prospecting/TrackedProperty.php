@@ -177,4 +177,11 @@ final class TrackedProperty extends Model
         ]);
         return implode(', ', $parts) ?: '(no address)';
     }
+
+    // ── Presentations V2 ──
+
+    public function presentations(): HasMany
+    {
+        return $this->hasMany(\App\Models\Presentation::class, 'tracked_property_id')->latest();
+    }
 }
