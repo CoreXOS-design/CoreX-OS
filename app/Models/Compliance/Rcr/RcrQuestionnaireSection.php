@@ -14,6 +14,15 @@ final class RcrQuestionnaireSection extends Model
 
     protected $fillable = [
         'questionnaire_id', 'section_code', 'title', 'description', 'sort_order',
+        // Phase 9d.1 — drives 3-period vs static answer-row creation, and
+        // sector-specific applicability gates (e.g. only show Part 8 to
+        // estate-agent agencies via applies_when_json).
+        'has_period_columns', 'applies_when_json',
+    ];
+
+    protected $casts = [
+        'has_period_columns' => 'boolean',
+        'applies_when_json'  => 'array',
     ];
 
     public function questionnaire(): BelongsTo

@@ -81,8 +81,14 @@ final class EvidenceGatheringService
             return [];
         }
 
+        // Phase 9d.1 — read evidence_source_codes_json (array) primary, with
+        // legacy auto_population_source (single string) as fallback. Questions
+        // with NO source data wired (both null) are skipped.
         $questions = RcrQuestion::where('questionnaire_id', $submission->questionnaire_id)
-            ->whereNotNull('auto_population_source')
+            ->where(function ($q) {
+                $q->whereNotNull('auto_population_source')
+                  ->orWhereNotNull('evidence_source_codes_json');
+            })
             ->get();
 
         foreach ($questions as $question) {
@@ -99,11 +105,25 @@ final class EvidenceGatheringService
      */
     public function populateOne(RcrSubmission $submission, RcrQuestion $question, Agency $agency): AutoPopulationResult
     {
-        $source = (string) $question->auto_population_source;
+        // Phase 9d.1 — first source in evidence_source_codes_json wins,
+        // legacy auto_population_source as fallback. Future enhancement
+        // could merge multiple sources into one synthesised answer.
+        $sources = is_array($question->evidence_source_codes_json) ? $question->evidence_source_codes_json : [];
+        $source = !empty($sources) ? (string) $sources[0] : (string) $question->auto_population_source;
 
-        // Skip-if-manually-edited (D2 guarantee).
+        // Phase 9d.1 — determine which period this auto-pop targets. For
+        // period-bound sections we write to P3 (most recent); the CO can
+        // copy that value into P1/P2 manually when relevant. For static
+        // sections the period_code is 'static'.
+        $section = $question->section;
+        $targetPeriod = ($section && $section->has_period_columns)
+            ? RcrAnswer::PERIOD_P3
+            : RcrAnswer::PERIOD_STATIC;
+
+        // Skip-if-manually-edited (D2 guarantee) — only checks the target period.
         $existing = RcrAnswer::where('submission_id', $submission->id)
             ->where('question_id', $question->id)
+            ->where('period_code', $targetPeriod)
             ->first();
         if ($existing && $existing->manually_edited) {
             return new AutoPopulationResult(
@@ -141,7 +161,7 @@ final class EvidenceGatheringService
             error:      $payload['error']     ?? null,
         );
 
-        $this->writeAnswer($submission, $question, $result);
+        $this->writeAnswer($submission, $question, $result, $targetPeriod);
         return $result;
     }
 
@@ -464,13 +484,19 @@ final class EvidenceGatheringService
 
     // ── Persistence ────────────────────────────────────────────────────────
 
-    private function writeAnswer(RcrSubmission $submission, RcrQuestion $question, AutoPopulationResult $result): void
+    private function writeAnswer(
+        RcrSubmission $submission,
+        RcrQuestion $question,
+        AutoPopulationResult $result,
+        string $period = RcrAnswer::PERIOD_STATIC,
+    ): void
     {
         if ($result->skipped) return;
 
         $existing = RcrAnswer::firstOrNew([
             'submission_id' => $submission->id,
             'question_id'   => $question->id,
+            'period_code'   => $period,
         ]);
 
         // Even if the source couldn't populate, we still write the row so the
@@ -478,9 +504,11 @@ final class EvidenceGatheringService
         $existing->fill([
             'submission_id'              => $submission->id,
             'question_id'                => $question->id,
+            'period_code'                => $period,
             'answer_value'               => $result->populated ? (string) ($result->value ?? '') : ($existing->answer_value ?? null),
             'is_auto_populated'          => $result->populated,
             'auto_population_source_data' => $result->toLogArray(),
+            'final_answer_format'        => $existing->final_answer_format ?: $question->answer_type,
             'status'                     => $result->populated
                 ? RcrAnswer::STATUS_AUTO_FILLED
                 : ($existing->status ?: RcrAnswer::STATUS_UNANSWERED),

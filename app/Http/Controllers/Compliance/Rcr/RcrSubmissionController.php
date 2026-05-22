@@ -94,15 +94,54 @@ final class RcrSubmissionController extends Controller
             ],
         );
 
-        // Kick off auto-population in the foreground for the initial sweep
-        // (cheap — ~20-30 questions). Subsequent re-runs use the explicit
-        // re-populate endpoint.
+        // Phase 9d.1 — seed period-bound answer rows. Period sections get
+        // 3 rows (p1/p2/p3); static sections get 1 (period_code='static').
         if ($submission->wasRecentlyCreated) {
+            $this->seedAnswerRows($submission);
             $this->evidence->autoPopulate($submission);
         }
 
         return redirect()->route('corex.compliance.rcr.show', $submission->id)
             ->with('status', 'RCR draft started — ' . $questionnaire->title);
+    }
+
+    /**
+     * Phase 9d.1 — seed one answer row per (question × period). For sections
+     * with has_period_columns=true → p1/p2/p3 rows; otherwise a single
+     * 'static' row. Idempotent via the UNIQUE(submission, question, period).
+     */
+    private function seedAnswerRows(RcrSubmission $submission): void
+    {
+        $submission->loadMissing('questionnaire.sections.questions');
+        $rows = [];
+        $now = now();
+        foreach ($submission->questionnaire->sections as $section) {
+            $periods = $section->has_period_columns
+                ? [\App\Models\Compliance\Rcr\RcrAnswer::PERIOD_P1, \App\Models\Compliance\Rcr\RcrAnswer::PERIOD_P2, \App\Models\Compliance\Rcr\RcrAnswer::PERIOD_P3]
+                : [\App\Models\Compliance\Rcr\RcrAnswer::PERIOD_STATIC];
+            foreach ($section->questions as $question) {
+                foreach ($periods as $period) {
+                    $rows[] = [
+                        'submission_id'           => $submission->id,
+                        'question_id'             => $question->id,
+                        'period_code'             => $period,
+                        'status'                  => \App\Models\Compliance\Rcr\RcrAnswer::STATUS_UNANSWERED,
+                        'is_auto_populated'       => false,
+                        'manually_edited'         => false,
+                        'copied_to_clipboard_count' => 0,
+                        'final_answer_format'     => $question->answer_type,
+                        'created_at'              => $now,
+                        'updated_at'              => $now,
+                    ];
+                }
+            }
+        }
+        if (!empty($rows)) {
+            // chunk insert to avoid query-size limits.
+            foreach (array_chunk($rows, 200) as $chunk) {
+                \DB::table('rcr_answers')->insertOrIgnore($chunk);
+            }
+        }
     }
 
     /** GET /corex/compliance/rcr/{submission} */
@@ -340,6 +379,116 @@ final class RcrSubmissionController extends Controller
             'added_by_user_id'   => $request->user()->id,
         ]);
         return response()->json(['ok' => true, 'evidence' => $row->toArray()]);
+    }
+
+    // ── Phase 9d.1 deep view + copy + transposed ───────────────────────────
+
+    /**
+     * GET /corex/compliance/rcr/{submission}/question/{questionCode}
+     * Per-question deep view — the copy-to-goAML workflow surface.
+     */
+    public function showQuestion(Request $request, RcrSubmission $submission, string $questionCode): \Illuminate\View\View
+    {
+        $this->assertCompliance($request);
+        $this->guardAgency($request, $submission);
+
+        $question = RcrQuestion::where('questionnaire_id', $submission->questionnaire_id)
+            ->where('question_code', $questionCode)
+            ->firstOrFail();
+        $question->loadMissing('section');
+
+        $answers = RcrAnswer::where('submission_id', $submission->id)
+            ->where('question_id', $question->id)
+            ->orderByRaw("FIELD(period_code, 'p1','p2','p3','static')")
+            ->get()
+            ->keyBy('period_code');
+
+        // Adjacent question navigation (by sort_order within questionnaire).
+        $allQuestions = RcrQuestion::where('questionnaire_id', $submission->questionnaire_id)
+            ->orderBy('sort_order')
+            ->get(['id', 'question_code']);
+        $currentIndex = (int) ($allQuestions->search(fn ($q) => (int) $q->id === (int) $question->id)) + 1;
+        $totalCount   = $allQuestions->count();
+        $prevQuestion = $currentIndex > 1 ? $allQuestions[$currentIndex - 2] : null;
+        $nextQuestion = $currentIndex < $totalCount ? $allQuestions[$currentIndex] : null;
+
+        // Period date ranges from constants.
+        $periodRanges = RcrAnswer::PERIOD_DATE_RANGES;
+
+        return view('compliance.rcr.question-deep-view', compact(
+            'submission', 'question', 'answers',
+            'prevQuestion', 'nextQuestion', 'currentIndex', 'totalCount', 'periodRanges',
+        ));
+    }
+
+    /** POST /corex/compliance/rcr/answer/copied */
+    public function logAnswerCopied(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'submission_id' => 'required|integer|exists:rcr_submissions,id',
+            'question_id'   => 'required|integer|exists:rcr_questions,id',
+            'period_code'   => 'required|string|in:p1,p2,p3,static',
+        ]);
+
+        $answer = RcrAnswer::where('submission_id', $data['submission_id'])
+            ->where('question_id', $data['question_id'])
+            ->where('period_code', $data['period_code'])
+            ->firstOrFail();
+
+        $this->assertCompliance($request);
+        $this->guardAgency($request, $answer->submission);
+
+        $transposedCleared = false;
+        $answer->copied_to_clipboard_count = (int) $answer->copied_to_clipboard_count + 1;
+        $answer->copied_to_clipboard_at    = now();
+        if ($answer->transposed_to_goaml_at) {
+            $answer->transposed_to_goaml_at = null;
+            $transposedCleared = true;
+        }
+        $answer->save();
+
+        return response()->json([
+            'copied_at'           => $answer->copied_to_clipboard_at?->toIso8601String(),
+            'count'               => $answer->copied_to_clipboard_count,
+            'transposed_cleared'  => $transposedCleared,
+        ]);
+    }
+
+    /** POST /corex/compliance/rcr/answer/transposed */
+    public function markAnswerTransposed(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'submission_id' => 'required|integer|exists:rcr_submissions,id',
+            'question_id'   => 'required|integer|exists:rcr_questions,id',
+            'period_code'   => 'required|string|in:p1,p2,p3,static',
+            'transposed'    => 'required|boolean',
+        ]);
+
+        $answer = RcrAnswer::where('submission_id', $data['submission_id'])
+            ->where('question_id', $data['question_id'])
+            ->where('period_code', $data['period_code'])
+            ->firstOrFail();
+
+        $this->assertCompliance($request);
+        $this->guardAgency($request, $answer->submission);
+
+        $answer->transposed_to_goaml_at = $data['transposed'] ? now() : null;
+        $answer->save();
+
+        // Submission-level rollup: if every answer transposed, stamp the submission.
+        $submission = $answer->submission;
+        $remaining = RcrAnswer::where('submission_id', $submission->id)
+            ->whereNull('transposed_to_goaml_at')->count();
+        if ($remaining === 0 && !$submission->transposed_to_goaml_at) {
+            $submission->forceFill(['transposed_to_goaml_at' => now()])->save();
+        } elseif ($remaining > 0 && $submission->transposed_to_goaml_at) {
+            $submission->forceFill(['transposed_to_goaml_at' => null])->save();
+        }
+
+        return response()->json([
+            'transposed_at'      => $answer->transposed_to_goaml_at?->toIso8601String(),
+            'submission_complete' => $remaining === 0,
+        ]);
     }
 
     // ── Guards ──────────────────────────────────────────────────────────────

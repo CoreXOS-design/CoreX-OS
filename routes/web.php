@@ -117,6 +117,12 @@ Route::middleware('auth')->group(function () {
             Route::post('/{rcrSubmission}/send-for-review',          [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'sendForReview'])->name('send-for-review');
             Route::post('/{rcrSubmission}/submit',                   [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'submit'])->name('submit');
             Route::get('/{rcrSubmission}/export/{format}',           [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'export'])->name('export');
+            // Phase 9d.1 — per-question deep view + clipboard endpoints.
+            Route::get('/{rcrSubmission}/question/{questionCode}',   [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'showQuestion'])
+                ->where('questionCode', '[A-Za-z0-9._]+')
+                ->name('question.show');
+            Route::post('/answer/copied',                            [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'logAnswerCopied'])->name('answer.copied');
+            Route::post('/answer/transposed',                        [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'markAnswerTransposed'])->name('answer.transposed');
         });
 
     Route::prefix('corex/admin/rcr/questionnaires')

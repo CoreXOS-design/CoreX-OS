@@ -30,12 +30,23 @@ final class RcrQuestion extends Model
         'questionnaire_id', 'section_id', 'question_code', 'question_text',
         'answer_type', 'answer_options_json', 'is_required',
         'auto_population_source', 'help_text', 'sort_order',
+        // Phase 9d.1 — sub-question linkage + FIC footnote text + array source wiring.
+        'parent_code', 'footnote', 'evidence_source_codes_json', 'auto_populate_hint',
     ];
 
     protected $casts = [
-        'answer_options_json' => 'array',
-        'is_required'         => 'boolean',
+        'answer_options_json'        => 'array',
+        'is_required'                => 'boolean',
+        'evidence_source_codes_json' => 'array',
     ];
+
+    /** Child sub-questions (e.g. 1.29.1 → parent 1.29). */
+    public function children(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_code', 'question_code')
+            ->where('questionnaire_id', $this->questionnaire_id)
+            ->orderBy('sort_order');
+    }
 
     public function questionnaire(): BelongsTo
     {

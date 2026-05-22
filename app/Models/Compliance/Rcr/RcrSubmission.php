@@ -37,14 +37,17 @@ final class RcrSubmission extends Model
         'reporting_period_from', 'reporting_period_to', 'submission_deadline',
         'submitted_at', 'submitted_by_user_id', 'submitted_to_platform_reference',
         'locked_at', 'export_document_path', 'notes', 'assigned_co_user_id',
+        // Phase 9d.1 — set when every answer row has been transposed into goAML.
+        'transposed_to_goaml_at',
     ];
 
     protected $casts = [
-        'reporting_period_from' => 'date',
-        'reporting_period_to'   => 'date',
-        'submission_deadline'   => 'date',
-        'submitted_at'          => 'datetime',
-        'locked_at'             => 'datetime',
+        'reporting_period_from'  => 'date',
+        'reporting_period_to'    => 'date',
+        'submission_deadline'    => 'date',
+        'submitted_at'           => 'datetime',
+        'locked_at'              => 'datetime',
+        'transposed_to_goaml_at' => 'datetime',
     ];
 
     public function agency(): BelongsTo
