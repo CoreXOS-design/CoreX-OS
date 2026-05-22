@@ -211,9 +211,11 @@
             <thead>
                 <tr style="text-align:left;color:var(--text-muted);font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid var(--border);">
                     <th style="padding:8px 6px;">Recipient</th>
+                    <th style="padding:8px 6px;">Mode</th>
                     <th style="padding:8px 6px;">Created</th>
                     <th style="padding:8px 6px;">Expires</th>
                     <th style="padding:8px 6px;text-align:center;">Views</th>
+                    <th style="padding:8px 6px;text-align:center;">Leads</th>
                     <th style="padding:8px 6px;">First viewed</th>
                     <th style="padding:8px 6px;">URL</th>
                     <th style="padding:8px 6px;text-align:right;">Actions</th>
@@ -234,9 +236,15 @@
                         @else
                             <span style="color: var(--text-muted);">Untargeted</span>
                         @endif
-                        @if($sl->mode === 'teaser')<span class="ds-badge ds-badge-info" style="margin-left:6px;">Teaser</span>@endif
                         @if($sl->flagged_at)
                             <span class="ds-badge ds-badge-warning" title="{{ $sl->flagged_reason }}" style="margin-left:6px;">⚠ Flagged</span>
+                        @endif
+                    </td>
+                    <td style="padding:8px 6px;">
+                        @if($sl->mode === 'teaser')
+                            <span class="ds-badge ds-badge-info">Teaser</span>
+                        @else
+                            <span class="ds-badge" style="background:var(--surface-2);color:var(--text-secondary);">Full</span>
                         @endif
                     </td>
                     <td style="padding:8px 6px;color:var(--text-muted);font-size:0.75rem;">{{ $sl->created_at->diffForHumans() }}</td>
@@ -248,6 +256,17 @@
                         @endif
                     </td>
                     <td style="padding:8px 6px;text-align:center;font-variant-numeric:tabular-nums;">{{ $sl->view_count }}</td>
+                    <td style="padding:8px 6px;text-align:center;font-variant-numeric:tabular-nums;">
+                        @if($sl->mode === 'teaser')
+                            @if(($sl->teaser_leads_count ?? 0) > 0)
+                                <a href="{{ route('presentations.teaser-leads', $presentation) }}" style="color:var(--brand-button);font-weight:600;">{{ $sl->teaser_leads_count }}</a>
+                            @else
+                                <span style="color:var(--text-muted);">—</span>
+                            @endif
+                        @else
+                            <span style="color:var(--text-muted);">n/a</span>
+                        @endif
+                    </td>
                     <td style="padding:8px 6px;color:var(--text-muted);font-size:0.75rem;">
                         {{ $sl->first_viewed_at ? $sl->first_viewed_at->diffForHumans() : 'Not yet viewed' }}
                     </td>
@@ -295,10 +314,13 @@
                     <input type="radio" name="mode" value="full" checked>
                     <span>Full presentation</span>
                 </label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:0.8125rem;padding:4px 0;opacity:0.5;cursor:not-allowed;">
-                    <input type="radio" name="mode" value="teaser" disabled>
-                    <span>Teaser <span class="ds-badge ds-badge-info" style="margin-left:6px;">Phase 5</span></span>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.8125rem;padding:4px 0;">
+                    <input type="radio" name="mode" value="teaser">
+                    <span>Teaser (lead-capture mode)</span>
                 </label>
+                <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:2px;line-height:1.4;">
+                    Recipient sees suburb context but must submit their details to unlock the full report. Use for cold prospects.
+                </div>
             </div>
 
             <div style="margin-bottom:12px;">

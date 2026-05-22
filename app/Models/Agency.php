@@ -96,6 +96,11 @@ class Agency extends Model
         // Presentations V2 Phase 4 — snapshot share link defaults.
         'snapshot_link_default_expiry_days',
         'snapshot_link_ip_masking',
+        // Presentations V2 Phase 5 — teaser section visibility toggles.
+        'teaser_default_show_suburb_stats',
+        'teaser_default_show_market_position',
+        'teaser_default_show_asking_range',
+        'teaser_default_show_holding_cost_summary',
     ];
 
     protected $casts = [
@@ -132,6 +137,11 @@ class Agency extends Model
         // Presentations V2 Phase 4 — snapshot link defaults.
         'snapshot_link_default_expiry_days'                  => 'integer',
         'snapshot_link_ip_masking'                           => 'boolean',
+        // Presentations V2 Phase 5 — teaser section toggles.
+        'teaser_default_show_suburb_stats'                   => 'boolean',
+        'teaser_default_show_market_position'                => 'boolean',
+        'teaser_default_show_asking_range'                   => 'boolean',
+        'teaser_default_show_holding_cost_summary'           => 'boolean',
     ];
 
     public const AI_BUDGET_STATUS_HEALTHY  = 'healthy';

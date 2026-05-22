@@ -20,6 +20,7 @@ final class PresentationSnapshotView extends Model
 
     protected $fillable = [
         'snapshot_link_id',
+        'teaser_lead_id',
         'viewed_at',
         'ip_address',
         'user_agent',

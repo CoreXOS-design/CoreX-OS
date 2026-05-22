@@ -80,6 +80,12 @@ final class PresentationSnapshotLink extends Model
         return $this->hasMany(PresentationSnapshotView::class, 'snapshot_link_id');
     }
 
+    /** Phase 5 — captured leads from teaser-mode views. */
+    public function teaserLeads(): HasMany
+    {
+        return $this->hasMany(PresentationTeaserLead::class, 'snapshot_link_id');
+    }
+
     public function isRevoked(): bool
     {
         return $this->revoked_at !== null;

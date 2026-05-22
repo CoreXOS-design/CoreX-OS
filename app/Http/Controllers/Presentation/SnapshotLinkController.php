@@ -75,6 +75,26 @@ final class SnapshotLinkController extends Controller
         return back()->with('status', 'Share link expiry extended by ' . $days . ' days.');
     }
 
+    /**
+     * Phase 5 — GET /presentations/{presentation}/teaser-leads — list of all
+     * captured leads across this presentation's teaser links.
+     */
+    public function teaserLeads(Request $request, Presentation $presentation)
+    {
+        $this->guardAgency($request, $presentation);
+
+        $leads = \App\Models\PresentationTeaserLead::where('presentation_id', $presentation->id)
+            ->where('agency_id', $presentation->agency_id)
+            ->with(['contact:id,first_name,last_name,email,phone', 'link:id,token,recipient_label'])
+            ->orderByDesc('captured_at')
+            ->paginate(50);
+
+        return view('presentations.teaser-leads.index', [
+            'presentation' => $presentation,
+            'leads'        => $leads,
+        ]);
+    }
+
     // ── Guards ──────────────────────────────────────────────────────────────
 
     private function guardAgency(Request $request, Presentation $presentation): void

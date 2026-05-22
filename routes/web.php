@@ -38,6 +38,11 @@ Route::post('/p/{token}/track', [\App\Http\Controllers\Presentation\PublicPresen
     ->where('token', '[A-Za-z0-9]{40,64}')
     ->middleware('throttle:60,1')
     ->name('presentation.public.track');
+// Phase 5 — teaser lead capture (POST). Rate-limited 5/min/IP.
+Route::post('/p/{token}/capture-lead', [\App\Http\Controllers\Presentation\PublicPresentationController::class, 'captureLead'])
+    ->where('token', '[A-Za-z0-9]{40,64}')
+    ->middleware('throttle:5,1')
+    ->name('presentation.public.capture-lead');
 Route::get('/p/{token}/refresh', [\App\Http\Controllers\Presentation\PublicPresentationController::class, 'refreshForm'])
     ->where('token', '[A-Za-z0-9]{40,64}')
     ->name('presentation.public.refresh-form');
@@ -2040,6 +2045,9 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
         ->name('snapshot-links.revoke');
     Route::post('/{presentation}/snapshot-links/{link}/extend',         [\App\Http\Controllers\Presentation\SnapshotLinkController::class, 'extend'])
         ->name('snapshot-links.extend');
+    // Phase 5 — teaser leads index.
+    Route::get('/{presentation}/teaser-leads',                          [\App\Http\Controllers\Presentation\SnapshotLinkController::class, 'teaserLeads'])
+        ->name('teaser-leads');
     Route::post('/{presentation}/analysis/run',[\App\Http\Controllers\Presentation\PresentationController::class, 'runAnalysis'])  ->name('analysis.run');
     Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])
         ->name('analysis-selections.update');

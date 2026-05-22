@@ -97,6 +97,7 @@ final class SnapshotLinkService
         return $presentation->snapshotLinks()
             ->whereNull('revoked_at')
             ->with(['recipientContact:id,first_name,last_name', 'creator:id,name'])
+            ->withCount('teaserLeads')
             ->orderByDesc('id')
             ->get();
     }
