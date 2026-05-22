@@ -43,13 +43,32 @@ class ContactMatchController extends Controller
         /** @var \App\Models\User $user */
         $user = auth()->user();
 
-        $matches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
+        $allMatches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
             ->whereHas('contact')
             ->where('created_by_user_id', $user->id)
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest()
-            ->get()
-            ->groupBy('contact_id');
+            ->get();
+
+        // Per-match property counts: total resolved, visible, and hidden.
+        // Resolved agency-wide (agent_id => null) so the figures line up with
+        // what the "View Matches" results page shows.
+        $matchCounts = [];
+        foreach ($allMatches as $m) {
+            $resolved  = $this->matching->propertiesForMatch($m, [
+                'agent_id'       => null,
+                'include_hidden' => true,
+            ]);
+            $hiddenIds = $m->hidden_property_ids ?? [];
+            $hidden    = $resolved->filter(fn ($p) => in_array($p->id, $hiddenIds, true))->count();
+            $matchCounts[$m->id] = [
+                'total'   => $resolved->count(),
+                'hidden'  => $hidden,
+                'visible' => $resolved->count() - $hidden,
+            ];
+        }
+
+        $matches = $allMatches->groupBy('contact_id');
 
         $contacts = Contact::whereIn('id', $matches->keys())
             ->with('type')
@@ -60,7 +79,7 @@ class ContactMatchController extends Controller
                 'matches' => $matches->get($c->id, collect()),
             ]);
 
-        return view('corex.core-matches.index', compact('contacts'));
+        return view('corex.core-matches.index', compact('contacts', 'matchCounts'));
     }
 
     public function store(Request $request, Contact $contact)

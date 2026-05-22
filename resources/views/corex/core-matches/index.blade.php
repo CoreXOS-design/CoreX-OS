@@ -139,6 +139,28 @@
                         @endif
                     </div>
 
+                    {{-- Match counts: total / visible / hidden --}}
+                    @php $counts = $matchCounts[$match->id] ?? ['total' => 0, 'visible' => 0, 'hidden' => 0]; @endphp
+                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                              title="Total properties matching this search">
+                            {{ number_format($counts['total']) }} {{ Str::plural('match', $counts['total']) }}
+                        </span>
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); color:var(--ds-green, #16a34a); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 25%, transparent);"
+                              title="Visible to the client">
+                            {{ number_format($counts['visible']) }} visible
+                        </span>
+                        @if($counts['hidden'] > 0)
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);"
+                              title="Hidden from this match">
+                            {{ number_format($counts['hidden']) }} hidden
+                        </span>
+                        @endif
+                    </div>
+
                     {{-- Action --}}
                     <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
                        class="corex-btn-outline text-xs flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1.5">
