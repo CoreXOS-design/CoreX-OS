@@ -23,6 +23,21 @@
              if (!this.waPhone) return;
              window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank');
              this.showWaModal = false;
+         },
+         hideModal: { open: false, reason: '', title: '', form: null },
+         openHideModal(form, title) {
+             this.hideModal.form = form;
+             this.hideModal.title = title;
+             this.hideModal.reason = '';
+             this.hideModal.open = true;
+             this.$nextTick(() => this.$refs.hideReasonInput && this.$refs.hideReasonInput.focus());
+         },
+         confirmHide() {
+             const r = this.hideModal.reason.trim();
+             if (r.length < 3) return;
+             this.hideModal.form.querySelector('input[name=reason]').value = r;
+             this.hideModal.open = false;
+             this.hideModal.form.submit();
          }
      }">
 
@@ -359,15 +374,13 @@
                 </form>
                 @endpermission
 
-                <form method="POST" action="{{ route('corex.contacts.matches.toggleHide', [$contact, $match, $property]) }}"
-                      @if(!$isHidden)
-                      onsubmit="var r=prompt('Why are you hiding this property from this match?');if(r===null){return false;}r=r.trim();if(r.length<3){alert('Please enter a reason (at least 3 characters).');return false;}this.querySelector('input[name=reason]').value=r;return true;"
-                      @endif>
+                <form method="POST" action="{{ route('corex.contacts.matches.toggleHide', [$contact, $match, $property]) }}">
                     @csrf
                     @unless($isHidden)
                     <input type="hidden" name="reason" value="">
                     @endunless
-                    <button type="submit" class="corex-btn-outline w-full">
+                    <button type="{{ $isHidden ? 'submit' : 'button' }}" class="corex-btn-outline w-full"
+                            @unless($isHidden) @click="openHideModal($el.closest('form'), {{ Js::from($property->title ?: 'this property') }})" @endunless>
                         @if($isHidden)
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                         Unhide
@@ -431,6 +444,55 @@
                         <path d="M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.523 5.824L0 24l6.335-1.509A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.854 0-3.6-.483-5.12-1.33l-.368-.214-3.76.896.952-3.656-.238-.384A10.01 10.01 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
                     </svg>
                     Open in WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Hide property — reason modal (custom CoreX) --}}
+    <div x-show="hideModal.open" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         style="background: rgba(0,0,0,0.5);"
+         @keydown.escape.window="hideModal.open = false">
+        <div class="w-full max-w-md rounded-md overflow-hidden"
+             style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.18);"
+             @click.stop>
+
+            {{-- Modal header --}}
+            <div class="flex items-center justify-between px-6 py-4" style="border-bottom: 1px solid var(--border);">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                         style="background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="var(--warning, #f59e0b)" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+                    </div>
+                    <div>
+                        <div class="text-lg font-semibold" style="color: var(--text-primary);">Hide property</div>
+                        <div class="text-xs" style="color: var(--text-muted);" x-text="hideModal.title"></div>
+                    </div>
+                </div>
+                <button type="button" @click="hideModal.open = false"
+                        class="w-8 h-8 flex items-center justify-center rounded-md text-sm font-bold"
+                        style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">✕</button>
+            </div>
+
+            {{-- Reason input --}}
+            <div class="px-6 py-5 space-y-3">
+                <label class="block text-xs font-medium" style="color: var(--text-secondary);">Why are you hiding this property from this match?</label>
+                <textarea x-ref="hideReasonInput" x-model="hideModal.reason" rows="4"
+                          @keydown.enter.meta="confirmHide()" @keydown.enter.ctrl="confirmHide()"
+                          placeholder="e.g. Already sold, client not interested in this area, out of budget…"
+                          class="w-full rounded-md px-3 py-2 text-sm"
+                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); resize: vertical; line-height: 1.6;"></textarea>
+                <p class="text-xs" style="color: var(--text-muted);">This reason is saved against the match and visible to your team.</p>
+            </div>
+
+            {{-- Footer --}}
+            <div class="px-6 pb-5 flex items-center justify-end gap-3">
+                <button type="button" @click="hideModal.open = false" class="corex-btn-outline">Cancel</button>
+                <button type="button" @click="confirmHide()" class="corex-btn-primary"
+                        :disabled="hideModal.reason.trim().length < 3"
+                        :style="hideModal.reason.trim().length < 3 ? 'opacity:.5; cursor:not-allowed;' : ''">
+                    Hide property
                 </button>
             </div>
         </div>
