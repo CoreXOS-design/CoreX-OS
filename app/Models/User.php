@@ -66,6 +66,8 @@ class User extends Authenticatable
         'tax_clearance_expiry',
         'website',
         'theme',
+        'last_presentation_send_channel',
+        'last_presentation_send_mode',
 
         // Private Property integration
         'pp_unique_agent_id',

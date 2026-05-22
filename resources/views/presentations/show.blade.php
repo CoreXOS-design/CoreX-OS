@@ -166,8 +166,13 @@
     $shareLinkService = app(\App\Services\Presentations\SnapshotLinkService::class);
     $shareLinks       = $shareLinkService->listForPresentation($presentation);
     $contactsForLink  = $presentation->property
-        ? $presentation->property->contacts()->select('contacts.id', 'first_name', 'last_name', 'email')->get()
+        ? $presentation->property->contacts()->select('contacts.id', 'first_name', 'last_name', 'email', 'phone')
+            ->withPivot('role')->get()
         : collect();
+    $sendDefaults = [
+        'channel' => auth()->user()->last_presentation_send_channel ?: 'email',
+        'mode'    => auth()->user()->last_presentation_send_mode    ?: 'full',
+    ];
     $shareLinkSummary = $shareLinkService->engagementSummary($presentation);
 @endphp
 <div class="ds-status-card mb-8" id="share-links">
@@ -178,15 +183,21 @@
                 Tokenised public links for sellers. Static snapshots — locked to the version when the link was created.
             </p>
         </div>
-        <button type="button" onclick="document.getElementById('share-link-modal').style.display='flex'"
-                class="corex-btn-primary">
-            Generate Share Link
-        </button>
+        <div style="display:flex;gap:8px;">
+            <button type="button" onclick="document.getElementById('send-presentation-modal').style.display='flex';window.__corexSendInit && window.__corexSendInit();"
+                    class="corex-btn-primary">
+                📧 Send to Recipient
+            </button>
+            <button type="button" onclick="document.getElementById('share-link-modal').style.display='flex'"
+                    class="corex-btn-outline">
+                🔗 Generate Link Only
+            </button>
+        </div>
     </div>
 
     @if($shareLinks->isEmpty())
         <div style="padding: 18px; text-align: center; background: var(--surface-2); border: 1px dashed var(--border); border-radius: 6px; color: var(--text-muted); font-size: 0.875rem;">
-            No links created yet. Click <strong style="color: var(--text-primary);">Generate Share Link</strong> to create one.
+            No links created yet. Click <strong style="color: var(--text-primary);">Send to Recipient</strong> or <strong style="color: var(--text-primary);">Generate Link Only</strong> to create one.
         </div>
     @else
         @if($shareLinkSummary['total_views'] > 0)
@@ -352,6 +363,319 @@
         </form>
     </div>
 </div>
+
+{{-- ── PHASE 6: Send-to-Recipient modal ──────────────────────────────── --}}
+<div id="send-presentation-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface);border-radius:8px;max-width:780px;width:100%;max-height:92vh;overflow:auto;padding:24px;box-shadow:0 12px 48px rgba(0,0,0,0.22);">
+        <div class="flex items-center justify-between mb-3">
+            <h3 style="font-size:1.0625rem;font-weight:600;margin:0;">Send presentation: {{ \Illuminate\Support\Str::limit($presentation->property_address ?: ('Presentation #' . $presentation->id), 60) }}</h3>
+            <button type="button" onclick="document.getElementById('send-presentation-modal').style.display='none'"
+                    style="background:none;border:0;font-size:1.25rem;color:var(--text-muted);cursor:pointer;">×</button>
+        </div>
+
+        {{-- Step indicators --}}
+        <div style="display:flex;gap:6px;margin-bottom:16px;font-size:0.6875rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">
+            <span id="step-tab-1" style="padding:4px 10px;border-radius:999px;background:var(--brand-button);color:#fff;font-weight:600;">1 · Pick</span>
+            <span id="step-tab-2" style="padding:4px 10px;border-radius:999px;background:var(--surface-2);font-weight:500;">2 · Preview</span>
+            <span id="step-tab-3" style="padding:4px 10px;border-radius:999px;background:var(--surface-2);font-weight:500;">3 · Send</span>
+        </div>
+
+        {{-- ─ Step 1: Pick Recipients ─ --}}
+        <div id="send-step-1">
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:8px;">
+                Select recipients linked to this property, or add an ad-hoc address. Each recipient gets their own unique tracked link.
+            </div>
+            <div style="border:1px solid var(--border);border-radius:6px;max-height:240px;overflow-y:auto;background:var(--surface-2);">
+                @forelse($contactsForLink as $c)
+                    <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;">
+                        <input type="checkbox" data-recip-contact-id="{{ $c->id }}"
+                               data-recip-name="{{ trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) }}"
+                               data-recip-first="{{ $c->first_name }}"
+                               data-recip-email="{{ $c->email }}"
+                               data-recip-phone="{{ $c->phone }}"
+                               data-recip-role="{{ $c->pivot->role ?? '' }}"
+                               class="recip-check" checked>
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-size:0.875rem;color:var(--text-primary);font-weight:500;">
+                                {{ trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id) }}
+                                @if($c->pivot->role)<span class="ds-badge" style="margin-left:6px;background:var(--surface);color:var(--text-secondary);font-size:0.6875rem;">{{ ucfirst($c->pivot->role) }}</span>@endif
+                            </div>
+                            <div style="font-size:0.6875rem;color:var(--text-muted);">{{ $c->email }}{{ $c->email && $c->phone ? ' · ' : '' }}{{ $c->phone }}</div>
+                        </div>
+                    </label>
+                @empty
+                    <div style="padding:14px;color:var(--text-muted);font-size:0.8125rem;text-align:center;">No contacts linked to this property yet. Add an ad-hoc recipient below.</div>
+                @endforelse
+            </div>
+
+            {{-- Ad-hoc recipient --}}
+            <details style="margin-top:10px;">
+                <summary style="font-size:0.75rem;color:var(--brand-button);cursor:pointer;">+ Add ad-hoc recipient</summary>
+                <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                    <input type="text" id="adhoc-name" placeholder="Name" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+                    <input type="email" id="adhoc-email" placeholder="Email" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+                    <input type="tel" id="adhoc-phone" placeholder="Phone" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;">
+                    <button type="button" onclick="window.__corexSendAddAdhoc()" class="corex-btn-outline corex-btn-xs">Add</button>
+                </div>
+                <div id="adhoc-list" style="margin-top:6px;font-size:0.75rem;color:var(--text-muted);"></div>
+            </details>
+
+            {{-- Default channel + mode --}}
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                <div>
+                    <label style="font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;">Default channel</label>
+                    <div style="display:flex;flex-direction:column;gap:3px;margin-top:4px;font-size:0.8125rem;">
+                        <label><input type="radio" name="default_channel" value="email" {{ $sendDefaults['channel'] === 'email' ? 'checked' : '' }}> Email</label>
+                        <label><input type="radio" name="default_channel" value="whatsapp" {{ $sendDefaults['channel'] === 'whatsapp' ? 'checked' : '' }}> WhatsApp</label>
+                        <label><input type="radio" name="default_channel" value="copy" {{ $sendDefaults['channel'] === 'copy' ? 'checked' : '' }}> Copy URL only</label>
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;">Default mode</label>
+                    <div style="display:flex;flex-direction:column;gap:3px;margin-top:4px;font-size:0.8125rem;">
+                        <label><input type="radio" name="default_mode" value="full" {{ $sendDefaults['mode'] === 'full' ? 'checked' : '' }}> Full presentation</label>
+                        <label><input type="radio" name="default_mode" value="teaser" {{ $sendDefaults['mode'] === 'teaser' ? 'checked' : '' }}> Teaser (lead capture)</label>
+                    </div>
+                </div>
+            </div>
+            <div style="font-size:0.6875rem;color:var(--text-muted);margin-top:6px;">You can override mode and channel per-recipient on the next step.</div>
+
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                <button type="button" onclick="document.getElementById('send-presentation-modal').style.display='none'" class="corex-btn-outline">Cancel</button>
+                <button type="button" id="send-step-1-next" class="corex-btn-primary">Continue →</button>
+            </div>
+        </div>
+
+        {{-- ─ Step 2: Preview & Customise ─ --}}
+        <div id="send-step-2" style="display:none;">
+            <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:8px;">
+                Review per-recipient. Customise the message templates below — placeholders auto-substitute per recipient on send.
+            </div>
+            <div id="recipient-table-wrap" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:0.8125rem;">
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead><tr style="background:var(--surface-2);color:var(--text-muted);font-size:0.625rem;text-transform:uppercase;letter-spacing:0.04em;">
+                        <th style="padding:6px 8px;text-align:left;">Recipient</th>
+                        <th style="padding:6px 8px;text-align:left;">Channel</th>
+                        <th style="padding:6px 8px;text-align:left;">Mode</th>
+                        <th style="padding:6px 8px;text-align:left;">Status</th>
+                    </tr></thead>
+                    <tbody id="recipient-table-body"></tbody>
+                </table>
+            </div>
+
+            <details style="margin-top:14px;" id="template-details">
+                <summary style="font-size:0.75rem;color:var(--text-secondary);cursor:pointer;font-weight:600;">Customise message templates</summary>
+                <div style="margin-top:10px;">
+                    <label style="font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;">Email subject</label>
+                    <input type="text" id="send-subject" maxlength="300" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;margin-top:4px;margin-bottom:8px;"
+                           value="{{ optional(\App\Models\Agency::find($presentation->agency_id))->email_default_subject_template }}">
+                    <label style="font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;">Email body</label>
+                    <textarea id="send-body" rows="8" maxlength="8000" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.8125rem;margin-top:4px;font-family:inherit;">{{ optional(\App\Models\Agency::find($presentation->agency_id))->email_default_body_template }}</textarea>
+                    <div style="font-size:0.625rem;color:var(--text-muted);margin-top:4px;">
+                        Placeholders: <code>{recipient_first_name}</code> <code>{property_address}</code> <code>{agent_name}</code> <code>{agency_name}</code> <code>{presentation_url}</code>
+                    </div>
+                </div>
+            </details>
+
+            <div style="display:flex;gap:8px;justify-content:space-between;margin-top:16px;">
+                <button type="button" id="send-step-2-back" class="corex-btn-outline">← Back</button>
+                <button type="button" id="send-step-2-send" class="corex-btn-primary">Send Now →</button>
+            </div>
+        </div>
+
+        {{-- ─ Step 3: Send / Results ─ --}}
+        <div id="send-step-3" style="display:none;">
+            <div id="send-progress" style="font-size:0.8125rem;color:var(--text-secondary);"></div>
+            <div id="send-results" style="margin-top:14px;"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                <button type="button" onclick="document.getElementById('send-presentation-modal').style.display='none';window.location.reload();" class="corex-btn-primary">Done</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+    const PREVIEW_URL = @json(route('presentations.deliveries.preview', $presentation));
+    const SEND_URL    = @json(route('presentations.deliveries.send', $presentation));
+    const CSRF        = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const adhocList   = [];
+    let collected     = [];
+
+    function $(id) { return document.getElementById(id); }
+    function show(id) { $(id).style.display = 'block'; }
+    function hide(id) { $(id).style.display = 'none'; }
+    function activeTab(n) {
+        ['step-tab-1','step-tab-2','step-tab-3'].forEach((t,i) => {
+            const el = $(t);
+            const active = (i+1) === n;
+            el.style.background = active ? 'var(--brand-button)' : 'var(--surface-2)';
+            el.style.color      = active ? '#fff' : '';
+            el.style.fontWeight = active ? '600' : '500';
+        });
+    }
+
+    window.__corexSendInit = function () {
+        adhocList.length = 0;
+        $('adhoc-list').innerHTML = '';
+        document.querySelectorAll('.recip-check').forEach(cb => cb.checked = true);
+        show('send-step-1'); hide('send-step-2'); hide('send-step-3');
+        activeTab(1);
+    };
+
+    window.__corexSendAddAdhoc = function () {
+        const name  = $('adhoc-name').value.trim();
+        const email = $('adhoc-email').value.trim();
+        const phone = $('adhoc-phone').value.trim();
+        if (!name || (!email && !phone)) {
+            alert('Provide name + (email or phone).'); return;
+        }
+        adhocList.push({ name, email, phone });
+        $('adhoc-name').value = $('adhoc-email').value = $('adhoc-phone').value = '';
+        renderAdhocList();
+    };
+    function renderAdhocList() {
+        $('adhoc-list').innerHTML = adhocList.map((r, i) =>
+            '<div>+ ' + escHtml(r.name) + (r.email ? ' · ' + escHtml(r.email) : '') + (r.phone ? ' · ' + escHtml(r.phone) : '')
+            + ' <button type="button" data-rm="' + i + '" style="margin-left:6px;background:none;border:0;color:#dc2626;cursor:pointer;font-size:0.6875rem;">remove</button></div>'
+        ).join('');
+        $('adhoc-list').querySelectorAll('[data-rm]').forEach(btn => btn.addEventListener('click', () => {
+            adhocList.splice(parseInt(btn.dataset.rm, 10), 1);
+            renderAdhocList();
+        }));
+    }
+
+    function collectRecipients() {
+        const picked = Array.from(document.querySelectorAll('.recip-check:checked')).map(cb => ({
+            contact_id: parseInt(cb.dataset.recipContactId, 10),
+            name:       cb.dataset.recipName,
+            first_name: cb.dataset.recipFirst || cb.dataset.recipName.split(' ')[0],
+            email:      cb.dataset.recipEmail || null,
+            phone:      cb.dataset.recipPhone || null,
+        }));
+        return picked.concat(adhocList.map(r => ({
+            name: r.name, first_name: r.name.split(' ')[0],
+            email: r.email || null, phone: r.phone || null,
+        })));
+    }
+
+    $('send-step-1-next').addEventListener('click', async () => {
+        const recipients = collectRecipients();
+        if (!recipients.length) { alert('Pick at least one recipient.'); return; }
+        const defaultChannel = document.querySelector('[name=default_channel]:checked').value;
+        const defaultMode    = document.querySelector('[name=default_mode]:checked').value;
+        recipients.forEach(r => { r.channel = defaultChannel; r.mode = defaultMode; });
+        collected = recipients;
+        await renderStep2();
+        hide('send-step-1'); show('send-step-2'); activeTab(2);
+    });
+
+    async function renderStep2() {
+        const body = $('recipient-table-body');
+        body.innerHTML = '';
+        collected.forEach((r, i) => {
+            body.insertAdjacentHTML('beforeend',
+                '<tr style="border-top:1px solid var(--border);">'
+                + '<td style="padding:6px 8px;"><div style="font-weight:500;">' + escHtml(r.name) + '</div>'
+                +   '<div style="font-size:0.6875rem;color:var(--text-muted);">' + escHtml(r.email || r.phone || '') + '</div></td>'
+                + '<td style="padding:6px 8px;"><select data-row="' + i + '" data-field="channel" style="padding:3px 6px;border:1px solid var(--border);border-radius:3px;font-size:0.75rem;">'
+                +   '<option value="email"'    + (r.channel === 'email'    ? ' selected' : '') + '>Email</option>'
+                +   '<option value="whatsapp"' + (r.channel === 'whatsapp' ? ' selected' : '') + '>WhatsApp</option>'
+                +   '<option value="copy"'     + (r.channel === 'copy'     ? ' selected' : '') + '>Copy URL</option>'
+                + '</select></td>'
+                + '<td style="padding:6px 8px;"><select data-row="' + i + '" data-field="mode" style="padding:3px 6px;border:1px solid var(--border);border-radius:3px;font-size:0.75rem;">'
+                +   '<option value="full"'   + (r.mode === 'full'   ? ' selected' : '') + '>Full</option>'
+                +   '<option value="teaser"' + (r.mode === 'teaser' ? ' selected' : '') + '>Teaser</option>'
+                + '</select></td>'
+                + '<td style="padding:6px 8px;" data-status="' + i + '"><span style="color:var(--text-muted);">Ready</span></td>'
+                + '</tr>');
+        });
+        body.querySelectorAll('select').forEach(sel => sel.addEventListener('change', () => {
+            const idx = parseInt(sel.dataset.row, 10);
+            collected[idx][sel.dataset.field] = sel.value;
+            previewValidate();
+        }));
+        previewValidate();
+    }
+    async function previewValidate() {
+        try {
+            const resp = await fetch(PREVIEW_URL, {
+                method: 'POST',
+                headers: { 'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':CSRF },
+                body: JSON.stringify({
+                    recipients: collected,
+                    subject: $('send-subject').value,
+                    body:    $('send-body').value,
+                }),
+                credentials: 'same-origin',
+            });
+            const j = await resp.json();
+            const errors = j.errors || {};
+            collected.forEach((r, i) => {
+                const cell = document.querySelector('[data-status="' + i + '"]');
+                if (errors[i]) {
+                    cell.innerHTML = '<span style="color:#dc2626;font-size:0.6875rem;">' + escHtml(errors[i]) + '</span>';
+                } else {
+                    cell.innerHTML = '<span style="color:var(--ds-green,#16a34a);">Ready</span>';
+                }
+            });
+        } catch (e) { /* silent */ }
+    }
+    $('send-step-2-back').addEventListener('click', () => {
+        hide('send-step-2'); show('send-step-1'); activeTab(1);
+    });
+    $('send-step-2-send').addEventListener('click', async () => {
+        hide('send-step-2'); show('send-step-3'); activeTab(3);
+        $('send-progress').textContent = 'Sending to ' + collected.length + ' recipient' + (collected.length === 1 ? '' : 's') + '…';
+        try {
+            const resp = await fetch(SEND_URL, {
+                method: 'POST',
+                headers: { 'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':CSRF },
+                body: JSON.stringify({
+                    recipients: collected,
+                    subject: $('send-subject').value,
+                    body:    $('send-body').value,
+                }),
+                credentials: 'same-origin',
+            });
+            const j = await resp.json();
+            if (!resp.ok || !j.ok) {
+                $('send-progress').innerHTML = '<span style="color:#dc2626;">Send failed: ' + escHtml(j.errors ? JSON.stringify(j.errors) : 'unknown error') + '</span>';
+                return;
+            }
+            renderResults(j.results, j.summary);
+        } catch (e) {
+            $('send-progress').innerHTML = '<span style="color:#dc2626;">Network error.</span>';
+        }
+    });
+
+    function renderResults(results, summary) {
+        const lines = results.map(r => {
+            const emoji = r.status === 'failed' ? '✗' : '✓';
+            const colour = r.status === 'failed' ? '#dc2626' : 'var(--ds-green,#16a34a)';
+            let row = '<div style="padding:8px 10px;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;font-size:0.8125rem;">'
+                + '<span style="color:' + colour + ';font-weight:600;">' + emoji + '</span> '
+                + escHtml(r.recipient) + ' — ' + r.channel + ' / ' + r.mode + ' · ' + r.status;
+            if (r.whatsapp_url) {
+                const waRedirect = @json(route('corex.deliveries.whatsapp-redirect', '__ID__')).replace('__ID__', r.delivery_id);
+                row += ' · <a href="' + waRedirect + '" target="_blank" style="color:var(--brand-button);">Open WhatsApp →</a>';
+            }
+            if (r.channel === 'copy' && r.snapshot_url) {
+                row += ' · <button type="button" onclick="navigator.clipboard.writeText(\'' + r.snapshot_url + '\').then(()=>this.textContent=\'Copied!\')" class="corex-btn-outline corex-btn-xs">Copy URL</button>';
+            }
+            if (r.error) row += '<div style="color:#dc2626;font-size:0.6875rem;margin-top:2px;">' + escHtml(r.error) + '</div>';
+            row += '</div>';
+            return row;
+        }).join('');
+        $('send-progress').innerHTML = '<strong>Sent ' + (summary.by_status.sent || 0) + ' of ' + summary.total + '</strong>'
+            + (summary.whatsapp_links > 0 ? ' · ' + summary.whatsapp_links + ' WhatsApp link' + (summary.whatsapp_links === 1 ? '' : 's') + ' ready to open.' : '');
+        $('send-results').innerHTML = lines;
+    }
+
+    function escHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+})();
+</script>
 
 {{-- ── READINESS CHECKLIST (P16) ──────────────────────────────────────────── --}}
 <div class="ds-status-card mb-8">

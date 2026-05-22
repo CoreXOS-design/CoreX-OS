@@ -84,6 +84,11 @@ Route::get('/dashboard', function () {
 
 Route::middleware('auth')->group(function () {
 
+    // Phase 6 — agent-side WhatsApp click-through tracker → records the
+    // click + 302s to the wa.me URL. Agency-scoped inside the controller.
+    Route::get('/corex/deliveries/{delivery}/whatsapp-redirect', [\App\Http\Controllers\Presentation\PresentationDeliveryController::class, 'whatsappRedirect'])
+        ->name('corex.deliveries.whatsapp-redirect');
+
     // P24 location tree read-API (called from Blade pages over fetch with
     // session cookies — must live in web.php so the `web` middleware group
     // applies, not in routes/api.php where session isn't set up).
@@ -2048,6 +2053,14 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     // Phase 5 — teaser leads index.
     Route::get('/{presentation}/teaser-leads',                          [\App\Http\Controllers\Presentation\SnapshotLinkController::class, 'teaserLeads'])
         ->name('teaser-leads');
+    // Phase 6 — Send-to-Recipient flow.
+    Route::post('/{presentation}/deliveries/preview',                   [\App\Http\Controllers\Presentation\PresentationDeliveryController::class, 'preview'])
+        ->name('deliveries.preview');
+    Route::post('/{presentation}/deliveries/send',                      [\App\Http\Controllers\Presentation\PresentationDeliveryController::class, 'send'])
+        ->middleware('throttle:30,1')
+        ->name('deliveries.send');
+    Route::get('/{presentation}/deliveries',                            [\App\Http\Controllers\Presentation\PresentationDeliveryController::class, 'index'])
+        ->name('deliveries.index');
     Route::post('/{presentation}/analysis/run',[\App\Http\Controllers\Presentation\PresentationController::class, 'runAnalysis'])  ->name('analysis.run');
     Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])
         ->name('analysis-selections.update');
