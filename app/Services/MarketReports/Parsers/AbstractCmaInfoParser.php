@@ -108,16 +108,40 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
     }
 
     /**
-     * Heuristic shared by all CMA Info variants — "Powered by CMA Info" or
-     * "CMA Info" appears in the file. Returns false when the file looks
-     * like another vendor.
+     * Heuristic shared by all CMA Info variants. The original gate looked
+     * only for "CMA Info" / "CMAinfo" branding, but the real reports HFC
+     * uses don't carry that wordmark in extractable PDF text. We broaden
+     * to recognise the actual structural signatures we see across the
+     * five sample types:
+     *
+     *   - "CMA - <something>" section headers (Property Valuation, Market
+     *     Analysis, Indexed Value, Comparative Market Analysis)
+     *   - "Sectional Title sales" header (in-scheme + radius variants)
+     *   - "Sectional Title Scheme Owners List" header
+     *   - "ST Residential Sales Analysis" header (Median Sales Analysis)
+     *   - "PROPERTY INFORMATION" + "SALE INFORMATION" block (Property Valuation)
+     *
+     * Returns true if any of these markers appear. Returns false for
+     * unrelated documents so the GenericFallbackParser still wins on
+     * non-CMA-Info content.
      */
     protected function looksLikeCmaInfo(string $text): bool
     {
         if ($text === '') return false;
-        return stripos($text, 'CMA Info') !== false
-            || stripos($text, 'CMAinfo') !== false
-            || stripos($text, 'CMA INFO') !== false;
+
+        // Legacy wordmark — still match when the source has it.
+        if (stripos($text, 'CMA Info') !== false) return true;
+        if (stripos($text, 'CMAinfo') !== false) return true;
+
+        // Structural signatures.
+        if (preg_match('/\bCMA\s*-\s*/i', $text)) return true;
+        if (stripos($text, 'Sectional Title sales') !== false) return true;
+        if (stripos($text, 'Sectional Title Scheme Owners List') !== false) return true;
+        if (stripos($text, 'ST Residential Sales Analysis') !== false) return true;
+        if (stripos($text, 'PROPERTY INFORMATION') !== false
+            && stripos($text, 'SALE INFORMATION') !== false) return true;
+
+        return false;
     }
 
     protected function pageCount(string $text): int

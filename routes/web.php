@@ -2640,6 +2640,10 @@ Route::middleware(['auth', 'permission:access_prospecting'])
                 Route::get('/',                       [\App\Http\Controllers\CoreX\MarketReportController::class, 'index'])->name('index');
                 Route::get('/create',                 [\App\Http\Controllers\CoreX\MarketReportController::class, 'create'])->name('create');
                 Route::post('/',                      [\App\Http\Controllers\CoreX\MarketReportController::class, 'store'])->name('store');
+                // Phase 3c — bulk multi-file import (declared BEFORE /{report} so
+                // model-binding doesn't shadow the literal segment).
+                Route::get('/bulk-import',            [\App\Http\Controllers\CoreX\MarketReportController::class, 'bulkImportShow'])->name('bulk-import');
+                Route::post('/bulk-import',           [\App\Http\Controllers\CoreX\MarketReportController::class, 'bulkImportStore'])->name('bulk-import.store');
                 Route::get('/parsers',                [\App\Http\Controllers\CoreX\MarketReportController::class, 'parserDashboard'])->name('parser-dashboard');
                 Route::get('/{report}',               [\App\Http\Controllers\CoreX\MarketReportController::class, 'show'])->name('show');
                 Route::delete('/{report}',            [\App\Http\Controllers\CoreX\MarketReportController::class, 'destroy'])->name('destroy');

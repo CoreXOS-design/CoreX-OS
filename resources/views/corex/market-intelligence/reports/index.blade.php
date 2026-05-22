@@ -22,12 +22,26 @@
                 Upload CMAs, Lightstone reports, and other market intelligence. Parsed data lands in market_data_points and feeds Property Intelligence + Strategic Brief.
             </p>
         </div>
-        <a href="{{ route('market-intelligence.reports.create') }}"
-           style="padding: 8px 14px; font-size: 0.8125rem; font-weight: 500;
-                  background: var(--brand-button); color: #fff;
-                  border-radius: 4px; text-decoration: none;">
-            Upload a report →
-        </a>
+        <div style="display: flex; gap: 8px;">
+            <a href="{{ route('market-intelligence.reports.bulk-import') }}"
+               style="padding: 8px 14px; font-size: 0.8125rem; font-weight: 500;
+                      color: var(--text-secondary); background: var(--surface);
+                      border: 1px solid var(--border); border-radius: 4px;
+                      text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-2"/>
+                    <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+                    <rect x="2" y="2" width="12" height="14" rx="1"/>
+                </svg>
+                Bulk Import
+            </a>
+            <a href="{{ route('market-intelligence.reports.create') }}"
+               style="padding: 8px 14px; font-size: 0.8125rem; font-weight: 500;
+                      background: var(--brand-button); color: #fff;
+                      border-radius: 4px; text-decoration: none;">
+                Upload a report →
+            </a>
+        </div>
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 16px;">

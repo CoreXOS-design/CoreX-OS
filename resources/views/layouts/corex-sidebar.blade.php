@@ -381,6 +381,15 @@
                           style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
                     @endif
                 </a>
+                @permission('mic.upload_reports')
+                @if(\Illuminate\Support\Facades\Route::has('market-intelligence.reports.bulk-import'))
+                <a href="{{ route('market-intelligence.reports.bulk-import') }}"
+                   class="corex-nav-subitem {{ request()->routeIs('market-intelligence.reports.bulk-import*') ? 'active' : '' }}"
+                   style="padding-left: 36px; font-size: 0.78rem;">
+                    <span>Bulk Import Reports</span>
+                </a>
+                @endif
+                @endpermission
                 @endif
                 {{-- Phase D1 — Tracked Properties folded into the MIC
                      Opportunities tab. Sidebar entry removed; the legacy

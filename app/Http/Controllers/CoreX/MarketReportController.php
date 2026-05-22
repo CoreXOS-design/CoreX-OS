@@ -10,9 +10,11 @@ use App\Jobs\MarketReports\SpotCheckMarketReportJob;
 use App\Models\MarketReports\MarketReport;
 use App\Models\MarketReports\MarketReportType;
 use App\Services\MarketReports\MarketReportParserRegistry;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
@@ -150,6 +152,148 @@ final class MarketReportController extends Controller
         $this->assertOwnership($request, $report);
         $report->load(['reportType', 'uploader', 'dataPoints', 'discrepancies']);
         return view('corex.market-intelligence.reports.show', compact('report'));
+    }
+
+    /**
+     * Phase 3c — bulk-import landing page (drag-drop multi-select).
+     *
+     * Same permission gate as the single-file flow (mic.upload_reports,
+     * applied at the route level). Hands the registry-derived report types
+     * to the view so the per-file dropdown is populated dynamically — no
+     * hard-coded type lists.
+     */
+    public function bulkImportShow(Request $request): View
+    {
+        $reportTypes = MarketReportType::query()
+            ->orderBy('display_name')
+            ->get(['id', 'key', 'display_name', 'auto_approve']);
+        return view('corex.market-intelligence.reports.bulk-import', compact('reportTypes'));
+    }
+
+    /**
+     * Phase 3c — per-file ingest endpoint for the bulk-import UI.
+     *
+     * The client posts ONE file at a time so the UI can show real-time
+     * per-row progress and isolate failures. Server-side dedupe matches the
+     * single-file store() exactly: UNIQUE(agency_id, file_hash). When a
+     * dupe is detected the response surfaces the existing report id.
+     *
+     * Returns JSON regardless of outcome — 200 on accept/duplicate,
+     * 422 on validation failure, 500 on storage/parse exception.
+     */
+    public function bulkImportStore(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'file'           => ['required', 'file', 'mimes:pdf', 'max:20480'], // 20MB
+            'report_type_id' => ['nullable', 'integer', 'exists:market_report_types,id'],
+            'source_suburb'  => ['nullable', 'string', 'max:120'],
+            'source_town'    => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $agencyId = $this->resolveAgencyId($request);
+        $user     = $request->user();
+        $upload   = $request->file('file');
+        $original = $upload->getClientOriginalName();
+
+        try {
+            $fileHash = hash_file('sha256', $upload->getRealPath());
+
+            // Dedupe per agency.
+            $existing = MarketReport::query()
+                ->withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->where('file_hash', $fileHash)
+                ->first();
+            if ($existing) {
+                return response()->json([
+                    'status'             => 'duplicate',
+                    'filename'           => $original,
+                    'report_id'          => $existing->id,
+                    'report_type_key'    => $existing->reportType?->key,
+                    'report_type_display'=> $existing->reportType?->display_name,
+                    'message'            => 'Already imported on ' . $existing->created_at->format('j M Y') . '.',
+                ]);
+            }
+
+            // Store under the same path layout as single-file uploads.
+            $year       = now()->format('Y');
+            $month      = now()->format('m');
+            $filename   = (string) \Illuminate\Support\Str::uuid() . '.pdf';
+            $storedPath = "market-reports/{$agencyId}/{$year}/{$month}/{$filename}";
+            Storage::disk('local')->putFileAs(
+                "market-reports/{$agencyId}/{$year}/{$month}",
+                $upload,
+                $filename,
+            );
+            $absolutePath = Storage::disk('local')->path($storedPath);
+
+            // Resolve report_type: explicit > auto-detect.
+            $reportTypeId      = $validated['report_type_id'] ?? null;
+            $detectedKey       = null;
+            $detectedConfPct   = null;
+            if (!$reportTypeId) {
+                $detection       = $this->registry->detect($absolutePath);
+                $detectedKey     = $detection['parser']->getReportTypeKey();
+                $detectedConfPct = (int) round($detection['confidence']->score * 100);
+                $type            = MarketReportType::query()->where('key', $detectedKey)->first();
+                $reportTypeId    = $type?->id;
+            }
+
+            if (!$reportTypeId) {
+                // Cleanup: don't leave an orphaned file on disk.
+                Storage::disk('local')->delete($storedPath);
+                return response()->json([
+                    'status'   => 'detection_failed',
+                    'filename' => $original,
+                    'message'  => 'Could not auto-detect a parser; select a type manually and retry.',
+                ], 200);
+            }
+
+            $report = MarketReport::create([
+                'agency_id'           => $agencyId,
+                'uploaded_by_user_id' => $user->id,
+                'report_type_id'      => $reportTypeId,
+                'file_path'           => $storedPath,
+                'file_name'           => $original,
+                'file_hash'           => $fileHash,
+                'source_suburb'       => $validated['source_suburb'] ?? null,
+                'source_town'         => $validated['source_town']   ?? null,
+                'report_date'         => now()->toDateString(),
+                'parse_status'        => MarketReport::PARSE_PENDING,
+                'spot_check_status'   => MarketReport::SPOT_PENDING,
+                'data_points_count'   => 0,
+            ]);
+
+            // Match single-file behaviour: parse synchronously.
+            ParseMarketReportJob::dispatchSync($report->id);
+
+            $report->refresh()->load('reportType');
+
+            return response()->json([
+                'status'             => 'queued',
+                'filename'           => $original,
+                'report_id'          => $report->id,
+                'report_type_key'    => $report->reportType?->key,
+                'report_type_display'=> $report->reportType?->display_name,
+                'parse_status'       => $report->parse_status,
+                'data_points_count'  => $report->data_points_count,
+                'detected_confidence_pct' => $detectedConfPct,
+                'message'            => $detectedConfPct
+                    ? "Parsed (auto-detected with {$detectedConfPct}% confidence)."
+                    : 'Parsed.',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('MarketReportController::bulkImportStore — exception', [
+                'filename' => $original,
+                'message'  => $e->getMessage(),
+                'trace'    => substr($e->getTraceAsString(), 0, 2000),
+            ]);
+            return response()->json([
+                'status'   => 'failed',
+                'filename' => $original,
+                'message'  => 'Server error: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function destroy(Request $request, MarketReport $report): RedirectResponse
