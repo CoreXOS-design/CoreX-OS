@@ -61,7 +61,13 @@ final class MapController extends Controller
         ]);
 
         $user = $request->user();
-        if (!$user || !$user->agency_id) {
+        // Phase 3g hotfix #2 — System Owners have agency_id=NULL on the
+        // users table; their active agency lives in session('active_agency_id'),
+        // surfaced via effectiveAgencyId(). The agency.required middleware
+        // already passes them through; this inline check just needs to read
+        // the same source of truth.
+        $effectiveAgencyId = $user?->effectiveAgencyId();
+        if (!$user || !$effectiveAgencyId) {
             return response()->json(['error' => 'No agency context.'], 403);
         }
 
@@ -74,7 +80,7 @@ final class MapController extends Controller
             west:          (float) $validated['west'],
             layers:        $layers,
             viewMode:      $validated['viewMode']  ?? 'agent',
-            agencyId:      (int) $user->agency_id,
+            agencyId:      (int) $effectiveAgencyId,
             dateFrom:      $validated['dateFrom']  ?? null,
             dateTo:        $validated['dateTo']    ?? null,
             propertyTypes: $validated['propertyTypes'] ?? [],
@@ -384,7 +390,11 @@ final class MapController extends Controller
     private function assertSameAgency(Request $request, ?int $agencyId): void
     {
         $user = $request->user();
-        if (!$user || $user->agency_id !== $agencyId) {
+        // Phase 3g hotfix #2 — use effectiveAgencyId() so System Owners
+        // (agency_id=NULL on the users row, session-selected agency) pass
+        // when they're viewing data inside their currently selected agency.
+        $effectiveAgencyId = $user?->effectiveAgencyId();
+        if (!$user || $effectiveAgencyId === null || $effectiveAgencyId !== $agencyId) {
             abort(403, 'Cross-agency access denied.');
         }
     }
