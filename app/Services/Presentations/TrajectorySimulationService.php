@@ -108,13 +108,20 @@ class TrajectorySimulationService
                 : null;
 
             // ── 6. Stage probability (use p30 for 30-day window match) ──────
-            $stageProbability = $spResult->p30; // probability of sale within this 30-day step
+            // Phase 3e C — defensive clamp; SaleProbabilityService should
+            // already return [0,1] but a malformed input could leak through.
+            $stageProbability = $spResult->p30;
+            if ($stageProbability !== null) {
+                $stageProbability = max(0.0, min(1.0, (float) $stageProbability));
+            }
 
             // ── 7. Cumulative probability ────────────────────────────────────
             if ($stageProbability !== null) {
                 $cumulativeNotSold *= (1.0 - $stageProbability);
             }
+            $cumulativeNotSold     = max(0.0, min(1.0, $cumulativeNotSold));
             $cumulativeProbability = round(1.0 - $cumulativeNotSold, 4);
+            $cumulativeProbability = max(0.0, min(1.0, $cumulativeProbability));
 
             // ── 8. Holding cost accumulation ─────────────────────────────────
             $stageHoldingCost    = round($holdingCostMonthly * $daysPerStep / 30, 2);

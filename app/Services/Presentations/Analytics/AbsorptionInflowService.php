@@ -88,9 +88,15 @@ class AbsorptionInflowService
 
             // Selling probability
             if ($activeListings > 0) {
-                $monthlyRate        = $monthlySales / $activeListings;
+                // Phase 3e C — clamp monthlyRate to [0, 1] so the probabilities
+                // stay coherent when monthlySales exceeds the active pool
+                // (thin-stock months → rate > 1 → meaningless 460% values).
+                $rawMonthlyRate     = $monthlySales / $activeListings;
+                $monthlyRate        = max(0.0, min(1.0, $rawMonthlyRate));
                 $monthlyProbability = round($monthlyRate * 100, 1);
+                $monthlyProbability = max(0.0, min(100.0, $monthlyProbability));
                 $prob3Months        = round((1 - pow(1 - $monthlyRate, 3)) * 100, 1);
+                $prob3Months        = max(0.0, min(100.0, $prob3Months));
 
                 // Adjusted 3-month probability (accounting for inflow growing the pool)
                 if ($newListingRate > 0) {
@@ -99,10 +105,9 @@ class AbsorptionInflowService
                     $netChangePerMonth = $newListingRate - $monthlySales;
                     $avgPool = $activeListings + ($netChangePerMonth * 1.5);
                     if ($avgPool > 0) {
-                        $adjustedRate  = $monthlySales / $avgPool;
+                        $adjustedRate  = max(0.0, min(1.0, $monthlySales / $avgPool));
                         $adjustedProb3 = round((1 - pow(1 - $adjustedRate, 3)) * 100, 1);
-                        // Clamp to 0-100
-                        $adjustedProb3 = max(0, min(100, $adjustedProb3));
+                        $adjustedProb3 = max(0.0, min(100.0, $adjustedProb3));
                     }
                 }
             }

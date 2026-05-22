@@ -9,6 +9,7 @@ use App\Models\MarketReports\MarketReportCompRow;
 use App\Services\MarketReports\DTOs\MarketReportParseResult;
 use App\Services\MarketReports\DTOs\ParserConfidence;
 use App\Support\MarketReports\GpsParser;
+use Illuminate\Support\Facades\Log;
 
 /**
  * V1+Phase3a parser for CMA Info "Property Valuation" — full ~11-page document
@@ -297,7 +298,9 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
         // including when the scheme/address text bled onto the same line.
         // For each match we look backward up to 200 chars for the nearest
         // SCHEME, ADDRESS pattern to attribute the comp to.
-        $pattern = '/(?<sec>\d{1,3})\s+(?<ss>\d{1,5})\s+(?<yr>\d{4})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<sp>[\d ,]+)(?:\s+R\s*(?<est>[\d ,]+))?(?:\s+R\s*(?<ppm>[\d ,]+))?/u';
+        // Bounded price tokens — each "thousands group" must be exactly 3
+        // digits, so the regex can't bleed across column boundaries.
+        $pattern = '/(?<sec>\d{1,3})\s+(?<ss>\d{1,5})\s+(?<yr>\d{4})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<sp>\d{1,3}(?:[\s,]\d{3}){0,3})(?:\s+R\s*(?<est>\d{1,3}(?:[\s,]\d{3}){0,3}))?(?:\s+R\s*(?<ppm>\d{1,3}(?:[\s,]\d{3}){0,2}))?/u';
 
         if (!preg_match_all($pattern, $body, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
             return $rows;
@@ -325,9 +328,9 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
                 'property_type'    => 'Residence',
                 'extent_m2'        => (int) $m['ext'][0],
                 'sale_date'        => $this->parseDate($m['date'][0]),
-                'sale_price'       => (int) $this->parsePrice($m['sp'][0]),
-                'estimated_value'  => !empty($m['est'][0]) ? (int) $this->parsePrice($m['est'][0]) : null,
-                'r_per_m2'         => !empty($m['ppm'][0]) ? (int) $this->parsePrice($m['ppm'][0]) : null,
+                'sale_price'       => $this->parsePriceBounded($m['sp'][0], 'cma.sale_price', $m[0][0]),
+                'estimated_value'  => !empty($m['est'][0]) ? $this->parsePriceBounded($m['est'][0], 'cma.estimated_value', $m[0][0]) : null,
+                'r_per_m2'         => !empty($m['ppm'][0]) ? $this->parsePriceBounded($m['ppm'][0], 'cma.r_per_m2', $m[0][0], 100, 500000) : null,
                 'address'          => $address,
             ];
         }
@@ -366,11 +369,16 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
             $segment = mb_substr($body, $start, $end - $start);
 
             // Within the segment, capture section + Residence + ext + date + R + R.
+            // Price tokens use a bounded "thousands group" pattern so they
+            // can't consume the trailing diff column (e.g. "R 810 000 18.25%"
+            // must yield "810 000", not "810 000 18" → R 81,000,018).
             if (preg_match(
-                '/(?<addr>[A-Z][A-Z0-9 ,\']{4,80}?)?\s*(?<sec>\d{1,3})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+(?<dom>\d{1,5})\s+R\s*(?<lp>[\d ,]+)\s+R\s*(?<sp>[\d ,]+)/us',
+                '/(?<addr>[A-Z][A-Z0-9 ,\']{4,80}?)?\s*(?<sec>\d{1,3})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+(?<dom>\d{1,5})\s+R\s*(?<lp>\d{1,3}(?:[\s,]\d{3}){0,3})\s+R\s*(?<sp>\d{1,3}(?:[\s,]\d{3}){0,3})/us',
                 $segment,
                 $m
             )) {
+                $listPrice = $this->parsePriceBounded($m['lp'], 'sold.list_price', $m[0]);
+                $salePrice = $this->parsePriceBounded($m['sp'], 'sold.sale_price', $m[0]);
                 $rows[] = [
                     'address'               => isset($m['addr']) ? trim($m['addr']) : null,
                     'section_number'        => $m['sec'],
@@ -378,8 +386,8 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
                     'extent_m2'             => (int) $m['ext'],
                     'sale_date'             => $this->parseDate($m['date']),
                     'days_on_market'        => (int) $m['dom'],
-                    'list_price'            => (int) $this->parsePrice($m['lp']),
-                    'sale_price'            => (int) $this->parsePrice($m['sp']),
+                    'list_price'            => $listPrice,
+                    'sale_price'            => $salePrice,
                     'distance_to_subject_m' => (int) $anchors['dist'][$i][0],
                 ];
             }
@@ -415,10 +423,11 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
             $segment = mb_substr($body, $start, $end - $start);
 
             if (preg_match(
-                '/(?<addr>[A-Z][A-Z0-9 ,\']{4,80}?)?\s*(?<sec>\d{1,3})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<lp>[\d ,]+)\s+(?<dom>\d{1,5})/us',
+                '/(?<addr>[A-Z][A-Z0-9 ,\']{4,80}?)?\s*(?<sec>\d{1,3})\s+Residence\s+(?<ext>\d{1,5})\s*m\S?\s+(?<date>\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+R\s*(?<lp>\d{1,3}(?:[\s,]\d{3}){0,3})\s+(?<dom>\d{1,5})/us',
                 $segment,
                 $m
             )) {
+                $listPrice = $this->parsePriceBounded($m['lp'], 'active.list_price', $m[0]);
                 $rows[] = [
                     'address'               => isset($m['addr']) ? trim($m['addr']) : null,
                     'section_number'        => $m['sec'],
@@ -426,7 +435,7 @@ final class CmaInfoPropertyValuationParser extends AbstractCmaInfoParser
                     'extent_m2'             => (int) $m['ext'],
                     'sale_date'             => null,
                     'days_on_market'        => (int) $m['dom'],
-                    'list_price'            => (int) $this->parsePrice($m['lp']),
+                    'list_price'            => $listPrice,
                     'sale_price'            => null,
                     'distance_to_subject_m' => (int) $anchors['dist'][$i][0],
                 ];

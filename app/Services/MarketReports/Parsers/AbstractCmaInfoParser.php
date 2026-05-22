@@ -8,6 +8,7 @@ use App\Domain\Presentation\TextExtractionService;
 use App\Models\Prospecting\TrackedProperty;
 use App\Services\MarketReports\Contracts\MarketReportParser;
 use App\Services\MarketReports\DTOs\ParserConfidence;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Shared scaffolding for the CMA Info family of parsers.
@@ -90,6 +91,40 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
         $digits = preg_replace('/[^\d.]/', '', (string) $raw);
         if ($digits === '' || $digits === '.') return null;
         return (float) $digits;
+    }
+
+    /**
+     * Phase 3e A1 — parse a captured price and reject implausible outliers.
+     *
+     * Default sanity window 50,000 ≤ price ≤ 50,000,000 catches the most
+     * common parser failure mode (column bleed concatenating digits across
+     * adjacent columns, e.g. "R 810 000 18.25%" → R 81,000,018). Out-of-range
+     * captures are logged with the raw matched segment so we can audit and
+     * tighten the regex later. Returns null when raw is empty or out of band.
+     */
+    protected function parsePriceBounded(
+        ?string $raw,
+        string $field,
+        ?string $matchedSegment = null,
+        int $min = 50_000,
+        int $max = 50_000_000,
+    ): ?int {
+        $val = $this->parsePrice($raw);
+        if ($val === null) return null;
+        $int = (int) $val;
+        if ($int < $min || $int > $max) {
+            Log::warning('CMA parser price out of range; dropping value.', [
+                'field'   => $field,
+                'parser'  => static::class,
+                'raw'     => $raw,
+                'value'   => $int,
+                'min'     => $min,
+                'max'     => $max,
+                'segment' => $matchedSegment !== null ? mb_substr($matchedSegment, 0, 200) : null,
+            ]);
+            return null;
+        }
+        return $int;
     }
 
     protected function parseDate(?string $raw): ?string

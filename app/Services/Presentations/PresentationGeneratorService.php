@@ -41,6 +41,8 @@ class PresentationGeneratorService
         private AnalysisDataService $analysisData = new AnalysisDataService(),
         private PresentationCompilerService $compiler = new PresentationCompilerService(),
         private MicSnapshotHydrator $hydrator = new MicSnapshotHydrator(),
+        private HoldingCostEstimator $holdingCostEstimator = new HoldingCostEstimator(),
+        private SimilarActiveListingsResolver $linkSuggestions = new SimilarActiveListingsResolver(),
     ) {}
 
     /**
@@ -169,6 +171,13 @@ class PresentationGeneratorService
             // presentation_* tables unchanged.
             $hydrationSummary = $this->hydrator->hydrateForPresentation($presentation);
 
+            // ── 3.6. Phase 3e E — holding-cost auto-fill ───────────────────
+            // Now that CMA middle / asking price + property type are settled,
+            // auto-fill any monthly_* cost columns the agent left null. The
+            // estimator never clobbers an agent-supplied value.
+            $presentation->refresh();
+            $holdingCostSummary = $this->holdingCostEstimator->estimateAndPersist($presentation);
+
             // ── 4. AnalysisDataService compile + PresentationSnapshot ──────
             $presentation->refresh();
             $computed = $this->analysisData->compile($presentation);
@@ -190,7 +199,16 @@ class PresentationGeneratorService
             $version = $this->compiler->compile($presentation->id, $agentUserId);
 
             // Phase 3d — stamp hydration summary on the version row.
-            $version->hydration_summary_json = $hydrationSummary;
+            // Phase 3e E — fold in the holding-cost estimator outcome so
+            // QA can see what was auto-filled vs left for the agent.
+            // Phase 3e F — link suggestions from competing active listings.
+            $version->hydration_summary_json = array_merge(
+                $hydrationSummary,
+                [
+                    'holding_cost_autofill' => $holdingCostSummary,
+                    'link_suggestions'      => $this->linkSuggestions->suggestFor($presentation),
+                ],
+            );
             $version->save();
 
             // ── 6. Fire event ──────────────────────────────────────────────

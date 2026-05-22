@@ -87,8 +87,21 @@ class ParseMarketReportJob implements ShouldQueue
                         array_flip([
                             'subject_address', 'subject_scheme_name', 'subject_section_number',
                             'subject_latitude', 'subject_longitude', 'subject_extent_m2', 'radius_metres',
+                            // Phase 3e A2 — let parsers back-fill suburb/town
+                            // when the upload path (e.g. bulk import) didn't
+                            // capture them. Only overwrite if currently blank,
+                            // never clobber an explicit user-supplied value.
+                            'source_suburb', 'source_town',
                         ])
                     );
+                    // Don't clobber explicit values — back-fill only when blank.
+                    foreach (['source_suburb', 'source_town'] as $softField) {
+                        if (isset($allowed[$softField])
+                            && !empty($report->{$softField})
+                        ) {
+                            unset($allowed[$softField]);
+                        }
+                    }
                     if (!empty($allowed)) {
                         $report->fill($allowed)->save();
                     }

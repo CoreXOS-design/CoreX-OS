@@ -87,6 +87,12 @@ class Agency extends Model
         // Presentations V2 Phase 3b — comp scope + radius defaults.
         'presentations_default_comp_scope',
         'presentations_default_radius_m',
+        // Presentations V2 Phase 3e — holding-cost defaults.
+        'presentations_default_rates_per_million_zar',
+        'presentations_default_levies_sectional_per_m2_zar',
+        'presentations_default_insurance_per_million_zar',
+        'presentations_default_utilities_zar',
+        'presentations_default_opportunity_cost_pct',
     ];
 
     protected $casts = [
@@ -114,6 +120,12 @@ class Agency extends Model
         'presentations_default_period_months'       => 'integer',
         // Presentations V2 Phase 3b.
         'presentations_default_radius_m'            => 'integer',
+        // Presentations V2 Phase 3e — holding-cost casts.
+        'presentations_default_rates_per_million_zar'        => 'integer',
+        'presentations_default_levies_sectional_per_m2_zar'  => 'integer',
+        'presentations_default_insurance_per_million_zar'    => 'integer',
+        'presentations_default_utilities_zar'                => 'integer',
+        'presentations_default_opportunity_cost_pct'         => 'decimal:2',
     ];
 
     public const AI_BUDGET_STATUS_HEALTHY  = 'healthy';

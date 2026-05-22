@@ -13,6 +13,7 @@ use App\Models\PresentationField;
 use App\Models\PresentationSoldComp;
 use App\Models\Property;
 use App\Support\MarketAnalytics\HaversineDistance;
+use App\Support\MarketAnalytics\OutlierGuard;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -78,14 +79,21 @@ final class MicSnapshotHydrator
         $deduped = $this->deduplicate($compRows, isSold: true);
         $soldInserted = 0;
         foreach ($deduped as $row) {
+            // Phase 3e B — sanitise comp price/extent before persisting.
+            $salePrice = OutlierGuard::price($row->sale_price);
+            $sizeM2    = OutlierGuard::extentM2($row->extent_m2);
+            if ($salePrice === null) {
+                // Skip rows the guard couldn't validate — they'd corrupt averages.
+                continue;
+            }
             try {
                 PresentationSoldComp::create([
                     'presentation_id' => $presentation->id,
                     'sold_date'       => $row->sale_date,
-                    'sold_price_inc'  => (int) $row->sale_price,
+                    'sold_price_inc'  => $salePrice,
                     'suburb'          => $this->resolveSuburb($row, $presentation),
                     'property_type'   => $row->property_type,
-                    'size_m2'         => $row->extent_m2 ?: null,
+                    'size_m2'         => $sizeM2,
                     'raw_row_json'    => $this->encodeRaw($row, $cfg['source_reports'] ?? [], $presentation),
                     'parser_version'  => self::SOURCE_TAG,
                 ]);
@@ -102,13 +110,18 @@ final class MicSnapshotHydrator
         $listingDedup = $this->deduplicate($listingRows, isSold: false);
         $listingInserted = 0;
         foreach ($listingDedup as $row) {
+            $listPrice = OutlierGuard::price($row->list_price);
+            $sizeM2    = OutlierGuard::extentM2($row->extent_m2);
+            if ($listPrice === null) {
+                continue;
+            }
             try {
                 PresentationActiveListing::create([
                     'presentation_id'   => $presentation->id,
-                    'list_price_inc'    => $row->list_price !== null ? (int) $row->list_price : null,
+                    'list_price_inc'    => $listPrice,
                     'suburb'            => $this->resolveSuburb($row, $presentation),
                     'property_type'     => $row->property_type,
-                    'size_m2'           => $row->extent_m2 ?: null,
+                    'size_m2'           => $sizeM2,
                     'status'            => 'active',
                     'raw_row_json'      => $this->encodeRaw($row, $cfg['source_reports'] ?? [], $presentation),
                     'parser_version'    => self::SOURCE_TAG,
@@ -477,6 +490,28 @@ final class MicSnapshotHydrator
                 ? (string) (int) $countRow->metric_value_numeric
                 : ($countFallback ? (string) (int) $countFallback->metric_value_numeric : null),
         ];
+
+        // Phase 3e A3 — low/high/max from the per-year Residential Price
+        // Ranges table (MSA parser writes suburb_low_year / suburb_high_year
+        // / suburb_max_year keys). Pull the same year as the median above so
+        // all four columns line up.
+        $rangeKeys = [
+            'suburb_low_year'  => 'suburb.latest_low',
+            'suburb_high_year' => 'suburb.latest_high',
+            'suburb_max_year'  => 'suburb.latest_max',
+        ];
+        foreach ($rangeKeys as $srcKey => $dstKey) {
+            $rangeRow = DB::table('market_data_points')
+                ->whereNull('deleted_at')
+                ->where('metric_key', $srcKey)
+                ->whereRaw('LOWER(suburb_normalised) = ?', [$suburb])
+                ->whereYear('metric_date', $year)
+                ->orderByDesc('metric_date')
+                ->first(['metric_value_numeric']);
+            if ($rangeRow) {
+                $writes[$dstKey] = (string) (int) $rangeRow->metric_value_numeric;
+            }
+        }
 
         return $this->upsertFields($presentation->id, $writes);
     }
