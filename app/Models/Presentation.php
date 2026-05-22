@@ -113,6 +113,12 @@ class Presentation extends Model
         return $this->hasMany(PresentationVersion::class);
     }
 
+    /** Phase 4 — public snapshot share links (tokenised). */
+    public function snapshotLinks()
+    {
+        return $this->hasMany(PresentationSnapshotLink::class);
+    }
+
     public function articles()
     {
         return $this->hasMany(PresentationArticle::class);

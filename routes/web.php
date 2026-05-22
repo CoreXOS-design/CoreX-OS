@@ -27,6 +27,24 @@ Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalC
 Route::get('/m/{shortcode}', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'show'])
     ->where('shortcode', '[A-Za-z0-9]{6}')
     ->name('seller-outreach.public.landing');
+
+// ── Presentations V2 Phase 4 — public snapshot share links (no auth).
+//    Token is the credential; controller checks revoked_at + expires_at.
+//    Track endpoint is rate-limited 60req/min/IP to stop beacon abuse.
+Route::get('/p/{token}', [\App\Http\Controllers\Presentation\PublicPresentationController::class, 'show'])
+    ->where('token', '[A-Za-z0-9]{40,64}')
+    ->name('presentation.public.show');
+Route::post('/p/{token}/track', [\App\Http\Controllers\Presentation\PublicPresentationController::class, 'track'])
+    ->where('token', '[A-Za-z0-9]{40,64}')
+    ->middleware('throttle:60,1')
+    ->name('presentation.public.track');
+Route::get('/p/{token}/refresh', [\App\Http\Controllers\Presentation\PublicPresentationController::class, 'refreshForm'])
+    ->where('token', '[A-Za-z0-9]{40,64}')
+    ->name('presentation.public.refresh-form');
+Route::post('/p/{token}/refresh', [\App\Http\Controllers\Presentation\PublicPresentationController::class, 'refreshSubmit'])
+    ->where('token', '[A-Za-z0-9]{40,64}')
+    ->middleware('throttle:5,1')
+    ->name('presentation.public.refresh-submit');
 Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
     ->where('shortcode', '[A-Za-z0-9]{6}')
     ->middleware('throttle:10,60')
@@ -2014,6 +2032,14 @@ Route::middleware(['auth', 'permission:access_presentations'])->prefix('presenta
     Route::get('/{presentation}/analysis',     [\App\Http\Controllers\Presentation\PresentationController::class, 'analysis']) ->name('analysis');
     // Phase 3g V2 Part D — embedded spatial view JSON for the analysis screen.
     Route::get('/{presentation}/spatial-pins', [\App\Http\Controllers\Map\MapController::class, 'presentationPins'])->name('spatial-pins');
+
+    // Phase 4 — snapshot share link management (agent-side).
+    Route::post('/{presentation}/snapshot-links',                       [\App\Http\Controllers\Presentation\SnapshotLinkController::class, 'store'])
+        ->name('snapshot-links.store');
+    Route::post('/{presentation}/snapshot-links/{link}/revoke',         [\App\Http\Controllers\Presentation\SnapshotLinkController::class, 'revoke'])
+        ->name('snapshot-links.revoke');
+    Route::post('/{presentation}/snapshot-links/{link}/extend',         [\App\Http\Controllers\Presentation\SnapshotLinkController::class, 'extend'])
+        ->name('snapshot-links.extend');
     Route::post('/{presentation}/analysis/run',[\App\Http\Controllers\Presentation\PresentationController::class, 'runAnalysis'])  ->name('analysis.run');
     Route::patch('/{presentation}/analysis-selections', [\App\Http\Controllers\Presentation\PresentationController::class, 'updateAnalysisSelections'])
         ->name('analysis-selections.update');

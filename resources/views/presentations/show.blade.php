@@ -161,6 +161,176 @@
 
 {{-- Error flash handled by global toast system --}}
 
+{{-- ── PHASE 4: SHARE LINKS ──────────────────────────────────────────────── --}}
+@php
+    $shareLinkService = app(\App\Services\Presentations\SnapshotLinkService::class);
+    $shareLinks       = $shareLinkService->listForPresentation($presentation);
+    $contactsForLink  = $presentation->property
+        ? $presentation->property->contacts()->select('contacts.id', 'first_name', 'last_name', 'email')->get()
+        : collect();
+    $shareLinkSummary = $shareLinkService->engagementSummary($presentation);
+@endphp
+<div class="ds-status-card mb-8" id="share-links">
+    <div class="flex items-center justify-between mb-3">
+        <div>
+            <h2 class="ds-section-header" style="margin-bottom:0">Share Links</h2>
+            <p class="text-xs" style="color: var(--text-muted); margin: 2px 0 0 0;">
+                Tokenised public links for sellers. Static snapshots — locked to the version when the link was created.
+            </p>
+        </div>
+        <button type="button" onclick="document.getElementById('share-link-modal').style.display='flex'"
+                class="corex-btn-primary">
+            Generate Share Link
+        </button>
+    </div>
+
+    @if($shareLinks->isEmpty())
+        <div style="padding: 18px; text-align: center; background: var(--surface-2); border: 1px dashed var(--border); border-radius: 6px; color: var(--text-muted); font-size: 0.875rem;">
+            No links created yet. Click <strong style="color: var(--text-primary);">Generate Share Link</strong> to create one.
+        </div>
+    @else
+        @if($shareLinkSummary['total_views'] > 0)
+        <div style="margin-bottom: 12px; padding: 10px 12px; background: color-mix(in srgb, var(--ds-green, #16a34a) 8%, transparent); border-left: 3px solid var(--ds-green, #16a34a); border-radius: 4px; font-size: 0.8125rem;">
+            <strong>Recent activity:</strong>
+            Sellers opened the presentation
+            <strong>{{ $shareLinkSummary['total_views'] }}</strong> {{ \Illuminate\Support\Str::plural('time', $shareLinkSummary['total_views']) }}
+            @if($shareLinkSummary['last_viewed_at'])
+                · most recent {{ $shareLinkSummary['last_viewed_at']->diffForHumans() }}
+            @endif
+            @if($shareLinkSummary['avg_duration_seconds'])
+                · avg {{ floor($shareLinkSummary['avg_duration_seconds'] / 60) }}m {{ $shareLinkSummary['avg_duration_seconds'] % 60 }}s on page
+            @endif
+            @if($shareLinkSummary['any_flagged'])
+                · <span style="color: var(--ds-amber, #d97706); font-weight: 600;">⚠ at least one flagged access</span>
+            @endif
+        </div>
+        @endif
+
+        <div style="overflow:auto;">
+        <table style="width:100%;font-size:0.8125rem;">
+            <thead>
+                <tr style="text-align:left;color:var(--text-muted);font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid var(--border);">
+                    <th style="padding:8px 6px;">Recipient</th>
+                    <th style="padding:8px 6px;">Created</th>
+                    <th style="padding:8px 6px;">Expires</th>
+                    <th style="padding:8px 6px;text-align:center;">Views</th>
+                    <th style="padding:8px 6px;">First viewed</th>
+                    <th style="padding:8px 6px;">URL</th>
+                    <th style="padding:8px 6px;text-align:right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach($shareLinks as $sl)
+                @php
+                    $expDays = $sl->expires_at ? now()->diffInDays($sl->expires_at, false) : null;
+                    $expBadgeClass = $expDays === null ? '' : ($expDays < 0 ? 'ds-badge-danger' : ($expDays <= 7 ? 'ds-badge-warning' : 'ds-badge-success'));
+                @endphp
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:8px 6px;">
+                        @if($sl->recipientContact)
+                            {{ trim(($sl->recipientContact->first_name ?? '') . ' ' . ($sl->recipientContact->last_name ?? '')) ?: 'Contact #' . $sl->recipientContact->id }}
+                        @elseif($sl->recipient_label)
+                            {{ $sl->recipient_label }}
+                        @else
+                            <span style="color: var(--text-muted);">Untargeted</span>
+                        @endif
+                        @if($sl->mode === 'teaser')<span class="ds-badge ds-badge-info" style="margin-left:6px;">Teaser</span>@endif
+                        @if($sl->flagged_at)
+                            <span class="ds-badge ds-badge-warning" title="{{ $sl->flagged_reason }}" style="margin-left:6px;">⚠ Flagged</span>
+                        @endif
+                    </td>
+                    <td style="padding:8px 6px;color:var(--text-muted);font-size:0.75rem;">{{ $sl->created_at->diffForHumans() }}</td>
+                    <td style="padding:8px 6px;">
+                        @if($expDays !== null)
+                            <span class="ds-badge {{ $expBadgeClass }}">
+                                {{ $expDays < 0 ? 'Expired ' . abs((int) $expDays) . 'd ago' : 'in ' . (int) $expDays . 'd' }}
+                            </span>
+                        @endif
+                    </td>
+                    <td style="padding:8px 6px;text-align:center;font-variant-numeric:tabular-nums;">{{ $sl->view_count }}</td>
+                    <td style="padding:8px 6px;color:var(--text-muted);font-size:0.75rem;">
+                        {{ $sl->first_viewed_at ? $sl->first_viewed_at->diffForHumans() : 'Not yet viewed' }}
+                    </td>
+                    <td style="padding:8px 6px;">
+                        <button type="button" class="corex-btn-outline corex-btn-xs"
+                                data-share-url="{{ route('presentation.public.show', $sl->token) }}"
+                                onclick="navigator.clipboard.writeText(this.dataset.shareUrl).then(()=>{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy URL',1500);})">
+                            Copy URL
+                        </button>
+                    </td>
+                    <td style="padding:8px 6px;text-align:right;white-space:nowrap;">
+                        <form method="POST" action="{{ route('presentations.snapshot-links.extend', [$presentation, $sl]) }}" style="display:inline;">
+                            @csrf
+                            <input type="hidden" name="days" value="7">
+                            <button type="submit" class="corex-btn-outline corex-btn-xs">+7d</button>
+                        </form>
+                        <form method="POST" action="{{ route('presentations.snapshot-links.revoke', [$presentation, $sl]) }}" style="display:inline;"
+                              onsubmit="return confirm('Revoke this link? The seller will no longer be able to view it.');">
+                            @csrf
+                            <button type="submit" class="corex-btn-outline corex-btn-xs" style="color: var(--ds-red, #dc2626);">Revoke</button>
+                        </form>
+                    </td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table>
+        </div>
+    @endif
+</div>
+
+{{-- Generate Share Link modal --}}
+<div id="share-link-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.4);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface);border-radius:8px;max-width:480px;width:100%;padding:24px;box-shadow:0 10px 40px rgba(0,0,0,0.2);">
+        <div class="flex items-center justify-between mb-3">
+            <h3 style="font-size:1rem;font-weight:600;margin:0;">Generate share link</h3>
+            <button type="button" onclick="document.getElementById('share-link-modal').style.display='none'"
+                    style="background:none;border:0;font-size:1.25rem;color:var(--text-muted);cursor:pointer;">×</button>
+        </div>
+        <form method="POST" action="{{ route('presentations.snapshot-links.store', $presentation) }}">
+            @csrf
+
+            <div style="margin-bottom:12px;">
+                <label style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Mode</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.8125rem;padding:4px 0;">
+                    <input type="radio" name="mode" value="full" checked>
+                    <span>Full presentation</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.8125rem;padding:4px 0;opacity:0.5;cursor:not-allowed;">
+                    <input type="radio" name="mode" value="teaser" disabled>
+                    <span>Teaser <span class="ds-badge ds-badge-info" style="margin-left:6px;">Phase 5</span></span>
+                </label>
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <label for="recipient_contact_id" style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Recipient (optional)</label>
+                <select name="recipient_contact_id" id="recipient_contact_id" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
+                    <option value="">— Untargeted —</option>
+                    @foreach($contactsForLink as $c)
+                        <option value="{{ $c->id }}">{{ trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) ?: ('Contact #' . $c->id) }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <label for="recipient_label" style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Or free-text label</label>
+                <input type="text" name="recipient_label" id="recipient_label" maxlength="200" placeholder="e.g. Seller WhatsApp" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <label for="expires_days" style="display:block;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;margin-bottom:4px;">Expires in (days)</label>
+                <input type="number" name="expires_days" id="expires_days" min="1" max="365"
+                       value="{{ optional(\App\Models\Agency::find($presentation->agency_id))->snapshot_link_default_expiry_days ?? 21 }}"
+                       style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-size:0.875rem;">
+            </div>
+
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" onclick="document.getElementById('share-link-modal').style.display='none'" class="corex-btn-outline">Cancel</button>
+                <button type="submit" class="corex-btn-primary">Generate</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 {{-- ── READINESS CHECKLIST (P16) ──────────────────────────────────────────── --}}
 <div class="ds-status-card mb-8">
     <div class="flex items-center justify-between mb-3">

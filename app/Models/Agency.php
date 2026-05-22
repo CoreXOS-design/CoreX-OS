@@ -93,6 +93,9 @@ class Agency extends Model
         'presentations_default_insurance_per_million_zar',
         'presentations_default_utilities_zar',
         'presentations_default_opportunity_cost_pct',
+        // Presentations V2 Phase 4 — snapshot share link defaults.
+        'snapshot_link_default_expiry_days',
+        'snapshot_link_ip_masking',
     ];
 
     protected $casts = [
@@ -126,6 +129,9 @@ class Agency extends Model
         'presentations_default_insurance_per_million_zar'    => 'integer',
         'presentations_default_utilities_zar'                => 'integer',
         'presentations_default_opportunity_cost_pct'         => 'decimal:2',
+        // Presentations V2 Phase 4 — snapshot link defaults.
+        'snapshot_link_default_expiry_days'                  => 'integer',
+        'snapshot_link_ip_masking'                           => 'boolean',
     ];
 
     public const AI_BUDGET_STATUS_HEALTHY  = 'healthy';
