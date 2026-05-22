@@ -144,19 +144,75 @@ class Template extends Model
 
     /**
      * Check if this template type is legally blocked from e-signing.
-     * Sale agreements and OTPs must be signed with wet ink per Alienation of Land Act.
+     * Sale agreements and OTPs must be signed with wet ink per Alienation of
+     * Land Act §2(1) + ECTA §13(1).
+     *
+     * Spec: .ai/specs/esign-v3-complete-spec.md §5
+     *
+     * Four-layer defence:
+     *   Layer 1 — document_type_id slug match (the canonical classification)
+     *   Layer 2 — template_type string fallback (for templates without a slug)
+     *   Layer 3 — name regex with word boundaries (catches unclassified inputs)
+     *   Layer 5 — every trigger writes to legal_block_audit_log (insert-only)
      */
     public function isEsignBlocked(): bool
     {
-        $type = strtolower($this->template_type ?? '');
-        if (in_array($type, ['sale_agreement', 'otp'])) {
+        $blockedSlugs = [
+            'otp',
+            'sale_agreement',
+            'deed_of_sale',
+            'deed_of_alienation',
+            // offer_to_purchase is the pre-ES-1 slug that 6 templates already
+            // carry — keep it blocked so existing classifications stay safe.
+            'offer_to_purchase',
+        ];
+
+        // Layer 1 + 2 — slug or template_type string match
+        $slug = $this->documentType?->slug ?? $this->template_type ?? '';
+        if (in_array($slug, $blockedSlugs, true) && $slug !== '') {
+            $this->logBlockTrigger('document_type_match', $slug);
             return true;
         }
-        // Also check by name for safety
-        $name = strtolower($this->name ?? '');
-        return str_contains($name, 'agreement of sale')
-            || str_contains($name, 'deed of sale')
-            || str_contains($name, 'offer to purchase');
+
+        // Layer 3 — name regex with word boundaries.
+        // "Photoshop" / "Photoshop Workflow" must NOT match; "SB 2026 OTP" must.
+        $pattern = '/\b(otp|deed of alienation|agreement for sale|sale agreement|agreement of sale|deed of sale|offer to purchase)\b/i';
+        if (preg_match($pattern, $this->name ?? '', $matches)) {
+            $this->logBlockTrigger('name_pattern_match', $matches[0]);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * ES-1 — write an insert-only audit row for every legal-block trigger.
+     * Failure to write the log MUST NOT break the block — the block always
+     * stands regardless of audit-log persistence.
+     */
+    private function logBlockTrigger(string $reason, ?string $matchedPattern): void
+    {
+        try {
+            \App\Models\LegalBlockAuditLog::create([
+                'agency_id'          => auth()->user()?->effectiveAgencyId(),
+                'template_id'        => $this->id,
+                'template_name'      => $this->name,
+                'document_type_slug' => $this->documentType?->slug,
+                'user_id'            => auth()->id(),
+                'block_reason'       => $reason,
+                'matched_pattern'    => $matchedPattern,
+                'request_context'    => [
+                    'route'      => request()->route()?->getName(),
+                    'ip'         => request()->ip(),
+                    'user_agent' => substr((string) request()->userAgent(), 0, 500),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            \Log::warning('Legal block audit log write failed: ' . $e->getMessage(), [
+                'template_id' => $this->id,
+                'reason'      => $reason,
+            ]);
+        }
     }
 
     /**
