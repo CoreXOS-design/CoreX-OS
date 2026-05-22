@@ -2,8 +2,10 @@
      Spec: .ai/specs/presentations.md (Phase 3g build prompt). --}}
 @extends('layouts.corex-app')
 
-@push('scripts')
-{{-- Leaflet 1.9.4 + MarkerCluster 1.5.3, free-tier OSM + Esri tiles. --}}
+@push('head')
+{{-- Leaflet 1.9.4 + MarkerCluster 1.5.3, free-tier OSM + Esri tiles.
+     Must load in <head> BEFORE the body inline init script — otherwise
+     the init runs while `L` is still undefined. --}}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
@@ -14,7 +16,7 @@
 @endpush
 
 @section('corex-content')
-<div id="corex-map-root" style="position: relative; height: calc(100vh - 96px); margin: -16px -20px 0; display: flex; flex-direction: column; overflow: hidden;">
+<div id="corex-map-root" style="position: relative; height: calc(100vh - 64px); margin: -16px -20px -16px; display: flex; flex-direction: column; overflow: hidden; min-height: 0;">
 
     {{-- ── Header bar ────────────────────────────────────────────────────── --}}
     <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 500;">
@@ -113,8 +115,21 @@
 </div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     'use strict';
+
+    // ── Leaflet load guard ────────────────────────────────────────────────
+    if (typeof L === 'undefined') {
+        console.error('CoreX Map: Leaflet failed to load. Check network / ad-blocker.');
+        var mapEl = document.getElementById('corex-map');
+        if (mapEl) {
+            mapEl.innerHTML = '<div style="padding:24px;color:#64748b;font-size:0.875rem;line-height:1.5;">'
+                + '<strong>Map library failed to load.</strong><br>'
+                + 'Disable ad-blockers for this host and retry, or check network connectivity.'
+                + '</div>';
+        }
+        return;
+    }
 
     // ── Config / constants ────────────────────────────────────────────────
     const HFC_BOUNDS = { south: -31.0, north: -30.4, west: 30.0, east: 30.9 };
@@ -446,6 +461,6 @@
 
     // First fetch.
     fetchPins();
-})();
+});
 </script>
 @endsection

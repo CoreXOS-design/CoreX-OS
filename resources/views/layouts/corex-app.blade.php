@@ -60,6 +60,11 @@
         </style>
         @endif
         @endauth
+
+        {{-- Phase 3g — head stack for per-page assets that must load before
+             body inline scripts (e.g. Leaflet on /corex/map). Pages opt in
+             via @push('head'); pages that don't push produce nothing here. --}}
+        @stack('head')
     </head>
     <body class="font-sans antialiased">
         {{-- Environment column: thin env banner (or nothing on live) above the
