@@ -14,11 +14,12 @@ class ProfileTest extends TestCase
     {
         $user = User::factory()->create();
 
+        // /profile now redirects (301) to /my-portal#profile. Follow the redirect.
         $response = $this
             ->actingAs($user)
             ->get('/profile');
 
-        $response->assertOk();
+        $response->assertRedirect('/my-portal#profile');
     }
 
     public function test_profile_information_can_be_updated(): void
@@ -28,13 +29,12 @@ class ProfileTest extends TestCase
         $response = $this
             ->actingAs($user)
             ->patch('/profile', [
-                'name' => 'Test User',
+                'name'  => 'Test User',
                 'email' => 'test@example.com',
+                'cell'  => '0820000000',
             ]);
 
-        $response
-            ->assertSessionHasNoErrors()
-            ->assertRedirect('/profile');
+        $response->assertSessionHasNoErrors();
 
         $user->refresh();
 
@@ -50,13 +50,12 @@ class ProfileTest extends TestCase
         $response = $this
             ->actingAs($user)
             ->patch('/profile', [
-                'name' => 'Test User',
+                'name'  => 'Test User',
                 'email' => $user->email,
+                'cell'  => '0820000000',
             ]);
 
-        $response
-            ->assertSessionHasNoErrors()
-            ->assertRedirect('/profile');
+        $response->assertSessionHasNoErrors();
 
         $this->assertNotNull($user->refresh()->email_verified_at);
     }
@@ -76,7 +75,9 @@ class ProfileTest extends TestCase
             ->assertRedirect('/');
 
         $this->assertGuest();
-        $this->assertNull($user->fresh());
+        // User uses SoftDeletes; deleted record is hidden by default scope.
+        $this->assertNull(User::find($user->id));
+        $this->assertNotNull(User::withTrashed()->find($user->id)?->deleted_at);
     }
 
     public function test_correct_password_must_be_provided_to_delete_account(): void

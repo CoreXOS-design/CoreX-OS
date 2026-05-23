@@ -3,8 +3,10 @@
 namespace Tests\Feature\Tools;
 
 use App\Models\Role;
+use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\FlowMap\FlowMapBuilder;
+use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -19,6 +21,11 @@ class FlowMapTest extends TestCase
     /** A user with no role permissions must be blocked by route middleware. */
     public function test_route_requires_access_flow_map_permission(): void
     {
+        // Seed a row so PermissionService treats the table as seeded.
+        // The 'agent' role has no rows → no permissions → blocked.
+        RolePermission::create(['role' => 'super_admin', 'permission_key' => 'view_dashboard']);
+        PermissionService::clearCache();
+
         $user = User::factory()->create(['role' => 'agent']);
 
         $this->actingAs($user)
@@ -49,6 +56,10 @@ class FlowMapTest extends TestCase
      */
     public function test_builder_filters_nodes_and_prunes_edges(): void
     {
+        // Seed a row so PermissionService treats the table as seeded.
+        RolePermission::create(['role' => 'super_admin', 'permission_key' => 'view_dashboard']);
+        PermissionService::clearCache();
+
         // Plain agent with no role_permissions rows → holds nothing.
         $user = User::factory()->create(['role' => 'agent']);
 

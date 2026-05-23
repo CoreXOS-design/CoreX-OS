@@ -388,10 +388,24 @@ class ClientAuthController extends Controller
         $token = $clientUser->currentAccessToken();
 
         $this->service->log($clientUser, $clientUser->current_agency_id, null, 'logout', $request, [
-            'token_id' => $token?->id,
+            'token_id' => $token?->id ?? null,
         ]);
 
-        $token?->delete();
+        // Delete by id where possible (currentAccessToken may return a TransientToken under
+        // stateful Sanctum, which has no real DB row and a no-op delete()).
+        if ($token instanceof \Laravel\Sanctum\PersonalAccessToken) {
+            $token->delete();
+        } else {
+            // Defensive fallback: nuke every token for this client user.
+            $clientUser->tokens()->delete();
+        }
+
+        // Stateful Sanctum may have established a session cookie; clear it so a
+        // follow-up request with the same cookie can't authenticate as this user.
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
 
         return response()->json(['ok' => true]);
     }
