@@ -19,7 +19,7 @@ return new class extends Migration
             $table->foreignId('sent_by_user_id')->constrained('users');
             $table->foreignId('agency_id')->constrained();
             $table->string('token', 64)->unique();
-            $table->timestamp('expires_at');
+            $table->timestamp('expires_at')->useCurrent();
             $table->unsignedInteger('accessed_count')->default(0);
             $table->timestamp('last_accessed_at')->nullable();
             $table->timestamps();

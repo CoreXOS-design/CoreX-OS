@@ -46,7 +46,7 @@ class DatabaseSeeder extends Seeder
             DealPipelineTemplateSeeder::class,
             AgencyDocumentTypeConfigSeeder::class,
             PayrollSeeder::class,
-            NotificationEventTypeSeeder::class,
+            // NotificationEventTypeSeeder::class, // file missing - removed
             PublicHolidaySeeder::class,
             LeaveTypeSeeder::class,
             ProspectingSetupSeeder::class,
