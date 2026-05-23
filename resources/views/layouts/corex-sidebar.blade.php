@@ -148,8 +148,15 @@
 
 <div class="corex-sidebar">
     {{-- Logo + Help icon --}}
-    <div class="corex-sidebar-logo" style="display:flex; align-items:center; justify-content:space-between;">
-        <span>CoreX <span>Os</span></span>
+    <div class="corex-sidebar-logo" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+        <div style="display:flex; align-items:baseline; gap:0.5rem; min-width:0;">
+            <span style="flex-shrink:0;">CoreX <span>Os</span></span>
+            @if($_userAgency)
+            <span style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); opacity:0.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">
+                {{ $_userAgency->name }}@if($_activeBranch || ($_branchViewAll && $_agencyBranches->count() > 0)) <span style="opacity:0.5;">—</span>@if($_branchViewAll && !$_viewAsBranchId) All Branches @elseif($_activeBranch) {{ $_activeBranch->name }}@if($_viewAsBranchId) <span style="color:var(--brand-icon, #0ea5e9); text-transform:none; letter-spacing:normal; font-weight:500;">(viewing as)</span>@endif @endif @endif
+            </span>
+            @endif
+        </div>
         <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
             @auth
             <div id="help-widget-slot" style="flex-shrink:0;"></div>
@@ -164,19 +171,6 @@
             </button>
         </div>
     </div>
-    @if($_userAgency)
-    <div class="px-4 -mt-1 pb-2">
-        <div class="text-[0.6875rem] font-semibold uppercase tracking-widest text-center truncate" style="color:var(--text-muted); opacity:0.6;">
-            {{ $_userAgency->name }}@if($_activeBranch || ($_branchViewAll && $_agencyBranches->count() > 0)) <span style="opacity:0.5;">—</span>
-                @if($_branchViewAll && !$_viewAsBranchId)
-                    <span>All Branches</span>
-                @elseif($_activeBranch)
-                    <span>{{ $_activeBranch->name }}</span>@if($_viewAsBranchId) <span style="color:var(--brand-icon, #0ea5e9); text-transform:none; letter-spacing:normal; font-weight:500;">(viewing as)</span>@endif
-                @endif
-            @endif
-        </div>
-    </div>
-    @endif
 
     {{-- Agency Switcher (owner role only) — with consent flow.
          See .ai/specs/agency-access-authorization-spec.md --}}

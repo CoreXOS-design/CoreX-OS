@@ -100,15 +100,23 @@ html.dark {
 }
 
 .corex-sidebar-logo {
-    font-size: 1.125rem;
+    font-size: 1.2375rem;
     font-weight: 600;
     letter-spacing: -0.025em;
-    color: #fff;
+    color: #0a1628;
     padding: 1.25rem 1.25rem 0.75rem;
 }
 
 .corex-sidebar-logo span {
-    color: var(--corex-accent-light);
+    color: #1cb8e0;
+}
+
+html.dark .corex-sidebar-logo {
+    color: #ffffff;
+}
+
+html.dark .corex-sidebar-logo span {
+    color: #1cb8e0;
 }
 
 .corex-nav-item {
@@ -1881,11 +1889,19 @@ main#appScroll {
 }
 
 .corex-sidebar-logo {
-    color: var(--text-primary);
+    color: #0a1628;
 }
 
 .corex-sidebar-logo span {
-    color: var(--accent);
+    color: #1cb8e0;
+}
+
+html.dark .corex-sidebar-logo {
+    color: #ffffff;
+}
+
+html.dark .corex-sidebar-logo span {
+    color: #1cb8e0;
 }
 
 /* Logo icon: 32px rounded square with gradient */

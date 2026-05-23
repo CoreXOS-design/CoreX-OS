@@ -7,9 +7,9 @@
         <meta name="corex-auth" content="{{ auth()->check() ? '1' : '0' }}">
 
         <title>{{ config('app.name', 'Laravel') }}</title>
-        <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=2">
-        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=2">
-        <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=2">
+        <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=3">
+        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=3">
+        <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=3">
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
