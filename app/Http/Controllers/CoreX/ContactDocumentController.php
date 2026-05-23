@@ -45,6 +45,13 @@ class ContactDocumentController extends Controller
             $doc->properties()->attach($request->input('property_id'));
         }
 
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Document\DocumentUploaded(
+            document: $doc,
+            owner: $contact,
+            actorUserId: auth()->id(),
+        ));
+
         return redirect()->route('corex.contacts.show', $contact)
             ->with('success', 'File uploaded.')
             ->withFragment('tab-drive');
@@ -67,6 +74,12 @@ class ContactDocumentController extends Controller
         // If no contacts or properties remain linked, soft-delete the document
         if ($document->contacts()->count() === 0 && $document->properties()->count() === 0) {
             $document->delete();
+
+            // Domain event — spec .ai/specs/corex-domain-events-spec.md
+            event(new \App\Events\Document\DocumentArchived(
+                document: $document,
+                actorUserId: auth()->id(),
+            ));
         }
 
         return redirect()->route('corex.contacts.show', $contact)

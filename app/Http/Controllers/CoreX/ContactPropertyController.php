@@ -54,6 +54,8 @@ class ContactPropertyController extends Controller
             $role = $roleMap[$esignRole] ?? null;
         }
 
+        $alreadyLinked = $contact->properties()->where('properties.id', (int) $data['property_id'])->exists();
+
         $contact->properties()->syncWithoutDetaching([
             $data['property_id'] => ['role' => $role],
         ]);
@@ -61,6 +63,20 @@ class ContactPropertyController extends Controller
         // Auto-create seller live link if seller role
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
             \App\Models\PropertySellerLink::ensureExists((int) $data['property_id'], $contact->id);
+        }
+
+        // Domain event — only on new link (not on no-op re-attach).
+        // Spec: .ai/specs/corex-domain-events-spec.md
+        if (!$alreadyLinked) {
+            $property = Property::find((int) $data['property_id']);
+            if ($property) {
+                event(new \App\Events\Contact\ContactLinkedToProperty(
+                    contact: $contact,
+                    property: $property,
+                    role: (string) ($role ?? 'unknown'),
+                    actorUserId: auth()->id(),
+                ));
+            }
         }
 
         return back()->with('success', 'Property linked to contact.')->with('tab', 'properties');

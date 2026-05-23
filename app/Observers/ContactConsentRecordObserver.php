@@ -14,6 +14,17 @@ class ContactConsentRecordObserver
     public function saved(ContactConsentRecord $record): void
     {
         $this->recompute($record->contact_id);
+
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        $contact = Contact::withoutGlobalScopes()->find($record->contact_id);
+        if ($contact) {
+            event(new \App\Events\Contact\ContactConsentChanged(
+                contact: $contact,
+                channel: (string) ($record->channel ?? 'unknown'),
+                granted: (bool) ($record->granted ?? false),
+                actorUserId: \Illuminate\Support\Facades\Auth::id(),
+            ));
+        }
     }
 
     public function deleted(ContactConsentRecord $record): void

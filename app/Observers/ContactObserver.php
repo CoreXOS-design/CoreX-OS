@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Events\Contact\ContactCreated;
 use App\Models\Branch;
 use App\Models\ClientUser;
 use App\Models\Contact;
@@ -9,6 +10,13 @@ use Illuminate\Support\Facades\Auth;
 
 class ContactObserver
 {
+    public function created(Contact $contact): void
+    {
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new ContactCreated($contact, Auth::id()));
+    }
+
+
     /**
      * When a contact is being created:
      *  - ensure branch_id is populated (creator's branch → agency default → lowest branch)
