@@ -1,10 +1,11 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
 <div class="-m-4 lg:-m-6">
     <x-page-header title="Payslip {{ $payslip->payslip_number }}" :back-route="route('my-portal.payslips')" back-label="My Payslips" :flush="true">
         <x-slot:actions>
-            <a href="{{ route('my-portal.payslips.pdf', $payslip) }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+            <a href="{{ route('my-portal.payslips.pdf', $payslip) }}" class="corex-btn-primary">
                 Download PDF
             </a>
         </x-slot:actions>
@@ -125,7 +126,7 @@
                 @endif
 
                 {{-- Net pay card --}}
-                <div class="p-4" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
+                <div class="p-4" style="background:color-mix(in srgb, var(--brand-icon) 6%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                     <div class="flex items-center justify-between">
                         <h4 class="text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Net Pay</h4>
                         <p class="text-xl font-bold" style="color:var(--brand-icon);">R {{ number_format($payslip->net_pay, 2) }}</p>

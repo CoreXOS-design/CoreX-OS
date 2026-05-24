@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -5,7 +6,7 @@
     <x-page-header title="My Leave" :back-route="route('agent.portal')" back-label="My Portal" :flush="true">
         <x-slot:actions>
             @if($employee)
-                <a href="{{ route('my-portal.leave.apply') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                <a href="{{ route('my-portal.leave.apply') }}" class="corex-btn-primary inline-flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Apply for Leave
                 </a>
@@ -43,7 +44,7 @@
 
             <div class="flex gap-1 mb-4" style="border-bottom:1px solid var(--border, #e5e7eb);">
                 @foreach(['all'=>'All','pending'=>'Pending','approved'=>'Approved','rejected'=>'Rejected','cancelled'=>'Cancelled'] as $key => $label)
-                    <a href="{{ route('my-portal.leave.index', ['status' => $key]) }}" class="px-3 py-1.5 text-xs font-semibold transition" style="{{ ($status ?? 'all') === $key ? 'border-bottom:2px solid #00d4aa; color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);' }}">
+                    <a href="{{ route('my-portal.leave.index', ['status' => $key]) }}" class="px-3 py-1.5 text-xs font-semibold transition" style="{{ ($status ?? 'all') === $key ? 'border-bottom:2px solid var(--brand-icon); color:var(--brand-icon);' : 'color:var(--text-secondary, #6b7280);' }}">
                         {{ $label }} <span class="ml-1 text-[10px] opacity-60">{{ $counts[$key] ?? 0 }}</span>
                     </a>
                 @endforeach
@@ -71,8 +72,17 @@
                             <td class="px-3 py-2.5 text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->start_date?->format('d M') }} â€” {{ $app->end_date?->format('d M Y') }}</td>
                             <td class="px-2 py-2.5 text-center text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ number_format($app->working_days_requested, 1) }}</td>
                             <td class="px-2 py-2.5 text-center">
-                                @php $sc = ['submitted'=>'#eab308','approved'=>'#00d4aa','rejected'=>'#ef4444','cancelled'=>'#94a3b8','taken'=>'#3b82f6']; @endphp
-                                <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:{{ $sc[$app->status] ?? '#94a3b8' }}15; color:{{ $sc[$app->status] ?? '#94a3b8' }}; border-radius:6px;">{{ ucfirst($app->status) }}</span>
+                                @php
+                                    $badgeClassMap = [
+                                        'submitted' => 'ds-badge-warning',
+                                        'approved' => 'ds-badge-success',
+                                        'rejected' => 'ds-badge-danger',
+                                        'cancelled' => 'ds-badge-default',
+                                        'taken' => 'ds-badge-info',
+                                    ];
+                                    $appBadgeClass = $badgeClassMap[$app->status] ?? 'ds-badge-default';
+                                @endphp
+                                <span class="ds-badge {{ $appBadgeClass }}">{{ ucfirst($app->status) }}</span>
                             </td>
                             <td class="px-3 py-2.5 text-right">
                                 <a href="{{ route('my-portal.leave.show', $app) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>

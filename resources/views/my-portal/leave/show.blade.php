@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -10,9 +11,17 @@
         @endif
 
         {{-- Status banner --}}
-        @php $sc = ['submitted'=>['#eab308','color-mix(in srgb, var(--ds-amber) 8%, transparent)'],'approved'=>['#00d4aa','color-mix(in srgb, var(--brand-icon) 8%, transparent)'],'rejected'=>['#ef4444','color-mix(in srgb, var(--ds-crimson) 8%, transparent)'],'cancelled'=>['#94a3b8','rgba(148,163,184,0.08)'],'taken'=>['#3b82f6','rgba(59,130,246,0.08)']]; @endphp
-        @php $c = $sc[$application->status] ?? ['#94a3b8','rgba(148,163,184,0.08)']; @endphp
-        <div class="p-4 mb-4" style="background:{{ $c[1] }}; border:1px solid {{ $c[0] }}25; border-radius:6px;">
+        @php
+            $sc = [
+                'submitted' => ['var(--ds-amber, #f59e0b)', 'color-mix(in srgb, var(--ds-amber) 8%, transparent)', 'color-mix(in srgb, var(--ds-amber) 25%, transparent)'],
+                'approved'  => ['var(--brand-icon)', 'color-mix(in srgb, var(--brand-icon) 8%, transparent)', 'color-mix(in srgb, var(--brand-icon) 25%, transparent)'],
+                'rejected'  => ['var(--ds-crimson)', 'color-mix(in srgb, var(--ds-crimson) 8%, transparent)', 'color-mix(in srgb, var(--ds-crimson) 25%, transparent)'],
+                'cancelled' => ['var(--text-muted, #94a3b8)', 'var(--surface-2)', 'var(--border)'],
+                'taken'     => ['var(--ds-navy, #0b2a4a)', 'color-mix(in srgb, var(--ds-navy) 8%, transparent)', 'color-mix(in srgb, var(--ds-navy) 25%, transparent)'],
+            ];
+            $c = $sc[$application->status] ?? ['var(--text-muted, #94a3b8)', 'var(--surface-2)', 'var(--border)'];
+        @endphp
+        <div class="p-4 mb-4" style="background:{{ $c[1] }}; border:1px solid {{ $c[2] }}; border-radius:6px;">
             <span class="text-lg font-bold" style="color:{{ $c[0] }};">{{ ucfirst($application->status) }}</span>
             @if($application->decided_at)
                 <p class="text-xs mt-1" style="color:var(--text-secondary, #6b7280);">
@@ -46,7 +55,7 @@
             <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Balance Transactions</h4>
             @foreach($transactions as $txn)
                 <div class="flex items-center gap-2 py-1.5" style="border-bottom:1px solid var(--border, #e5e7eb);">
-                    <span class="text-xs font-semibold" style="color:{{ (float)$txn->days_delta >= 0 ? '#00d4aa' : '#ef4444' }};">{{ $txn->days_delta > 0 ? '+' : '' }}{{ number_format((float)$txn->days_delta, 2) }}</span>
+                    <span class="text-xs font-semibold" style="color:{{ (float)$txn->days_delta >= 0 ? 'var(--ds-green, #059669)' : 'var(--ds-crimson, #c41e3a)' }};">{{ $txn->days_delta > 0 ? '+' : '' }}{{ number_format((float)$txn->days_delta, 2) }}</span>
                     <span class="text-xs" style="color:var(--text-primary, #0f172a);">{{ $txn->description }}</span>
                 </div>
             @endforeach
@@ -61,7 +70,7 @@
                 @csrf
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Reason (optional)</label>
-                    <input type="text" name="cancellation_reason" maxlength="500" placeholder="e.g. Plans changed" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                    <input type="text" name="cancellation_reason" maxlength="500" placeholder="e.g. Plans changed" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                 </div>
                 <div class="flex gap-2">
                     <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-white" style="background:var(--ds-crimson); border-radius:6px;" onclick="return confirm('Cancel this leave application?')">Confirm Cancel</button>

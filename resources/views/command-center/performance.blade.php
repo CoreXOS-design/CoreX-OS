@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -88,8 +89,13 @@
                         </div>
                     @endif
                 @else
-                    <div class="py-8 text-center">
-                        <p class="text-sm" style="color: var(--text-muted);">Scorecard will be available once data accumulates.</p>
+                    <div class="py-8 px-4 text-center">
+                        <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                             style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>
+                        </div>
+                        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No scorecard yet</h3>
+                        <p class="text-sm" style="color: var(--text-muted);">Your scorecard will appear once activity data accumulates.</p>
                     </div>
                 @endif
             </div>

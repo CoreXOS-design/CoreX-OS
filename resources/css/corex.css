@@ -2142,7 +2142,6 @@ html.dark .corex-icon-moon { display: none; }
 
 .corex-kpi-value {
     color: var(--text-primary);
-    font-family: 'DM Mono', 'Courier New', monospace;
 }
 
 .corex-kpi-subtitle {

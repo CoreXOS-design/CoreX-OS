@@ -42,10 +42,10 @@
 
     // F.7 — defensive token + fallback pattern per UI_DESIGN_SYSTEM.md §5.10
     // so the tiles render correctly even if a token fails to resolve at runtime.
-    $tileBaseStyle = 'background: var(--surface, #ffffff); border: 1px solid var(--border, rgba(0,0,0,0.07)); padding: 6px 8px; border-radius: 6px; min-width: 0;';
-    $tileActiveStyle = 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, var(--surface, #ffffff)); border: 1px solid var(--brand-icon, #0ea5e9); padding: 6px 8px; border-radius: 6px; min-width: 0;';
-    $labelStyle = 'font-size: 0.6125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-muted, #9ca3af); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
-    $valueStyle = 'font-size: 1rem; font-weight: 600; color: var(--text-primary, #111827); line-height: 1.1;';
+    $tileBaseStyle = 'background: var(--surface, #ffffff); border: 1px solid var(--border, rgba(0,0,0,0.07)); padding: 12px 14px; border-radius: 6px; min-width: 0; transition: border-color 150ms ease, transform 150ms ease;';
+    $tileActiveStyle = 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, var(--surface, #ffffff)); border: 1px solid var(--brand-icon, #0ea5e9); padding: 12px 14px; border-radius: 6px; min-width: 0; transition: border-color 150ms ease, transform 150ms ease;';
+    $labelStyle = 'font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted, #9ca3af); margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+    $valueStyle = 'font-size: 1.5rem; font-weight: 600; color: var(--text-primary, #111827); line-height: 1.15;';
 
     // F.8 — every tile carries a plain-English tooltip explaining what the
     // number means and (for Row 2 action presets) what clicking it does.
@@ -64,8 +64,8 @@
 @endphp
 
 <div class="mi-stats-strip"
-     style="padding: 8px 12px; background: var(--surface-2, #f0f2f8); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07));
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px;">
+     style="padding: 0 0 12px 0; background: transparent;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
 
     @foreach($tiles as $tile)
         @php $tip = $tile['tip'] ?? ''; @endphp

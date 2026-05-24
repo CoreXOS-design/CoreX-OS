@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @php
@@ -427,14 +428,14 @@
                         @click="current='dark'; document.documentElement.classList.add('dark'); localStorage.setItem('corex-theme','dark'); fetch('{{ route('profile.theme') }}',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content,'Accept':'application/json'},body:JSON.stringify({theme:'dark'})})"
                         :style="current === 'dark' ? 'border:2px solid var(--brand-button);' : 'border:2px solid var(--border);'"
                         style="border-radius:6px; padding:12px 20px; cursor:pointer; display:flex; align-items:center; gap:10px; background:var(--surface-2); min-width:140px; transition:all 200ms;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#8890a4" style="width:18px; height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px; height:18px; color:var(--text-secondary, #8890a4);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" /></svg>
                     <div style="text-align:left;"><div style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">Dark</div></div>
                 </button>
                 <button type="button"
                         @click="current='light'; document.documentElement.classList.remove('dark'); localStorage.setItem('corex-theme','light'); fetch('{{ route('profile.theme') }}',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content,'Accept':'application/json'},body:JSON.stringify({theme:'light'})})"
                         :style="current === 'light' ? 'border:2px solid var(--brand-button);' : 'border:2px solid var(--border);'"
                         style="border-radius:6px; padding:12px 20px; cursor:pointer; display:flex; align-items:center; gap:10px; background:var(--surface-2); min-width:140px; transition:all 200ms;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#64748B" style="width:18px; height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px; height:18px; color:var(--text-secondary, #64748b);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" /></svg>
                     <div style="text-align:left;"><div style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">Light</div></div>
                 </button>
             </div>
@@ -580,15 +581,14 @@
                 Hand this to prospects. When they scan it in the CoreX app, they sign up directly as your client.
             </p>
             <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
-                <div style="background:#fff; padding:12px; border-radius:6px; border:1px solid var(--border); width:200px; height:200px; display:flex; align-items:center; justify-content:center;">
+                <div style="background:#ffffff; padding:12px; border-radius:6px; border:1px solid var(--border); width:200px; height:200px; display:flex; align-items:center; justify-content:center;">{{-- White is intentional: QR code requires high-contrast white background --}}
                     <img src="{{ $qrImgSrc }}" alt="Your client onboarding QR code"
                          style="width:176px; height:176px; display:block;">
                 </div>
                 <div style="flex:1; min-width:240px;">
                     <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">URL</div>
                     <div style="font-family:monospace; font-size:0.75rem; color:var(--text-primary); word-break:break-all; margin-bottom:12px;">{{ $qrUrl }}</div>
-                    <a href="{{ $qrPngSrc }}" download="corex-agent-qr.png" target="_blank" rel="noopener"
-                       style="display:inline-block; font-size:0.8125rem; padding:8px 14px; border-radius:6px; background:var(--brand-button); color:#fff; text-decoration:none; font-weight:600;">
+                    <a href="{{ $qrPngSrc }}" download="corex-agent-qr.png" target="_blank" rel="noopener" class="corex-btn-primary" style="display:inline-block;">
                         Download PNG
                     </a>
                 </div>
@@ -907,7 +907,7 @@
             <h3 class="text-sm font-semibold" style="color:var(--text-primary); margin:0 0 6px; border-left:3px solid var(--ds-crimson); padding-left:12px;">Delete Account</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 16px;">Once your account is deleted, all of its resources and data will be permanently deleted.</p>
 
-            <button @click="confirmDelete = true" x-show="!confirmDelete" type="button" class="corex-btn-primary" style="background:#dc2626; box-shadow:none;">Delete Account</button>
+            <button @click="confirmDelete = true" x-show="!confirmDelete" type="button" class="corex-btn-primary" style="background:var(--ds-crimson, #dc2626); box-shadow:none;">Delete Account</button>
 
             <div x-show="confirmDelete" x-cloak x-transition class="rounded-md" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); padding:16px; max-width:400px;">
                 <p style="font-size:0.8125rem; font-weight:600; color:var(--ds-crimson); margin:0 0 4px;">Are you sure?</p>
@@ -920,7 +920,7 @@
                     @error('password', 'userDeletion') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-bottom:8px;">{{ $message }}</p> @enderror
                     <div class="flex gap-2">
                         <button type="button" @click="confirmDelete = false" class="corex-btn-outline">Cancel</button>
-                        <button type="submit" class="corex-btn-primary" style="background:#dc2626; box-shadow:none;">Confirm Delete</button>
+                        <button type="submit" class="corex-btn-primary" style="background:var(--ds-crimson, #dc2626); box-shadow:none;">Confirm Delete</button>
                     </div>
                 </form>
             </div>

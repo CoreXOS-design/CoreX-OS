@@ -86,7 +86,7 @@
                             </svg>
                         </div>
                         <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No field groups yet</h3>
-                        <p class="text-sm" style="color: var(--text-muted);">Create your first group on the right.</p>
+                        <p class="text-sm" style="color: var(--text-muted);">Use the form to create your first group.</p>
                     </div>
                 </div>
             </div>
@@ -99,7 +99,7 @@
 
                 {{-- Group Name --}}
                 <div>
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group Name</label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group Name <span class="text-red-500">*</span></label>
                     <input x-model="form.name" type="text" required
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
