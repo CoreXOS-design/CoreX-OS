@@ -1103,7 +1103,7 @@
             @endif
             <button type="button"
                     data-prop-tab="{{ $tab['key'] }}"
-                    @click="activeTab = '{{ $tab['key'] }}'"
+                    @click="if (formDirty && activeTab !== '{{ $tab['key'] }}') { pendingNavTab = '{{ $tab['key'] }}'; unsavedModalOpen = true; } else { activeTab = '{{ $tab['key'] }}'; }"
                     :class="activeTab === '{{ $tab['key'] }}' ? 'border-b-2 border-sky-500 bg-sky-500/5' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
                     class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none"
