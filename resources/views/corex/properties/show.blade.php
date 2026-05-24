@@ -3,7 +3,7 @@
 @section('corex-content')
 @php $isNew = !$property->exists; @endphp
 <div class="w-full space-y-4"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), formDirty: false, wbReportOpen: false, complianceModalOpen: false, unsavedModalOpen: false, pendingNavUrl: null, contactRequiredModalOpen: false }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), formDirty: false, wbReportOpen: false, complianceModalOpen: false, unsavedModalOpen: false, pendingNavUrl: null, pendingNavTab: null, contactRequiredModalOpen: false }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:clear-dirty.window="formDirty = false"
@@ -1091,7 +1091,7 @@
                 @continue
             @endif
             <button type="button"
-                    @click="activeTab = '{{ $tab['key'] }}'"
+                    @click="if (formDirty) { pendingNavTab = '{{ $tab['key'] }}'; unsavedModalOpen = true; } else { activeTab = '{{ $tab['key'] }}'; }"
                     :class="activeTab === '{{ $tab['key'] }}' ? 'border-b-2 border-sky-500 bg-sky-500/5' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
                     class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none"
@@ -4330,7 +4330,7 @@
     <div x-show="unsavedModalOpen" x-cloak
          class="fixed inset-0 z-[9999] flex items-center justify-center"
          style="background: rgba(0,0,0,0.6);"
-         @keydown.escape.window="unsavedModalOpen = false; pendingNavUrl = null;">
+         @keydown.escape.window="unsavedModalOpen = false; pendingNavUrl = null; pendingNavTab = null;">
         <div class="rounded-md shadow-2xl w-full max-w-md mx-4 p-6"
              style="background: var(--surface); border: 1px solid var(--border);"
              @click.stop>
@@ -4342,13 +4342,13 @@
                 <button type="button"
                         class="px-4 py-2 text-sm rounded-md"
                         style="background: transparent; color: var(--text-secondary); border: 1px solid var(--border);"
-                        @click="unsavedModalOpen = false; pendingNavUrl = null;">
+                        @click="unsavedModalOpen = false; pendingNavUrl = null; pendingNavTab = null;">
                     Cancel
                 </button>
                 <button type="button"
                         class="px-4 py-2 text-sm rounded-md font-medium"
                         style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);"
-                        @click="formDirty = false; const url = pendingNavUrl; unsavedModalOpen = false; pendingNavUrl = null; if (url) window.location.href = url;">
+                        @click="formDirty = false; const url = pendingNavUrl; const tab = pendingNavTab; unsavedModalOpen = false; pendingNavUrl = null; pendingNavTab = null; if (url) { window.location.href = url; } else if (tab) { activeTab = tab; }">
                     Discard changes
                 </button>
                 <button type="button"
