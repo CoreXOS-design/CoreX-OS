@@ -4344,7 +4344,8 @@
 
     function form() { return document.getElementById('prop-update-form'); }
     function modal() { return document.getElementById('prop-unsaved-modal'); }
-    function saveBtn() { return document.querySelector('[data-prop-save] .prop-save-label'); }
+    function saveBtn() { return document.querySelector('[data-prop-save]'); }
+    function saveLabel() { return document.querySelector('[data-prop-save] .prop-save-label'); }
 
     function snapshot() {
         var f = form();
@@ -4352,17 +4353,34 @@
         try { return new URLSearchParams(new FormData(f)).toString(); } catch (e) { return ''; }
     }
 
+    function paintSaveBtn() {
+        var btn = saveBtn(); var lbl = saveLabel();
+        if (lbl) lbl.textContent = dirty ? 'Save Changes *' : 'Save Changes';
+        if (btn) {
+            if (dirty) {
+                btn.style.background = 'var(--brand-button, #0ea5e9)';
+                btn.style.color = '#fff';
+                btn.style.borderColor = 'var(--brand-button, #0ea5e9)';
+                btn.classList.add('is-dirty');
+            } else {
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+                btn.classList.remove('is-dirty');
+            }
+        }
+    }
+
     function recompute() {
         var current = snapshot();
         dirty = (current !== initialSnapshot);
-        var lbl = saveBtn();
-        if (lbl) lbl.textContent = dirty ? 'Save Changes *' : 'Save Changes';
+        paintSaveBtn();
     }
 
     function setClean() {
         initialSnapshot = snapshot();
         dirty = false;
-        var lbl = saveBtn(); if (lbl) lbl.textContent = 'Save Changes';
+        paintSaveBtn();
     }
 
     function showModal() { var m = modal(); if (m) m.style.display = 'flex'; }
