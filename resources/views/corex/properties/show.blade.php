@@ -11,8 +11,9 @@
      @beforeunload.window="if (formDirty && !unsavedModalOpen) { $event.preventDefault(); $event.returnValue = ''; }"
      x-init="
         document.addEventListener('click', (e) => {
-            if (!formDirty || unsavedModalOpen) return;
             const tabBtn = e.target.closest('[data-prop-tab]');
+            if (tabBtn) console.log('[unsaved-debug] tab click', tabBtn.getAttribute('data-prop-tab'), 'formDirty=', formDirty, 'modalOpen=', unsavedModalOpen);
+            if (!formDirty || unsavedModalOpen) return;
             if (tabBtn) {
                 const key = tabBtn.getAttribute('data-prop-tab');
                 if (key && key !== activeTab) {
