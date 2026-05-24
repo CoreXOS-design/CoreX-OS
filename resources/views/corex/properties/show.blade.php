@@ -7,13 +7,13 @@
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:clear-dirty.window="formDirty = false"
+     @corex:set-dirty.window="formDirty = true"
      x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')"
      @beforeunload.window="if (formDirty && !unsavedModalOpen) { $event.preventDefault(); $event.returnValue = ''; }"
      x-init="
         document.addEventListener('click', (e) => {
-            const tabBtn = e.target.closest('[data-prop-tab]');
-            console.log('[unsaved-debug] click target=', e.target.tagName, e.target.className?.toString().slice(0,60), 'tabBtn=', tabBtn && tabBtn.getAttribute('data-prop-tab'), 'formDirty=', formDirty, 'modalOpen=', unsavedModalOpen);
             if (!formDirty || unsavedModalOpen) return;
+            const tabBtn = e.target.closest('[data-prop-tab]');
             if (tabBtn) {
                 const key = tabBtn.getAttribute('data-prop-tab');
                 if (key && key !== activeTab) {
@@ -1351,8 +1351,8 @@
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
                   class="space-y-0"
                   novalidate
-                  @input="formDirty = true"
-                  @change="formDirty = true"
+                  @input="formDirty = true; window.dispatchEvent(new CustomEvent('corex:set-dirty'))"
+                  @change="formDirty = true; window.dispatchEvent(new CustomEvent('corex:set-dirty'))"
                   data-is-new="{{ $isNew ? '1' : '0' }}"
                   data-contact-count="{{ $isNew ? 0 : $property->contacts->count() }}"
                   @submit="if (!window.coreXPropertyContactGuard($event, $el)) { return; } formDirty = false;"
