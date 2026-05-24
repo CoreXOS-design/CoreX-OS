@@ -15,8 +15,8 @@ class DemoDataSeeder extends Seeder
 
     public function run(): void
     {
-        if (!app()->environment('local')) {
-            throw new \RuntimeException('DemoDataSeeder can only run in local environment. Current: ' . app()->environment());
+        if (!in_array(app()->environment(), ['local', 'demo'], true)) {
+            throw new \RuntimeException('DemoDataSeeder can only run in local or demo environment. Current: ' . app()->environment());
         }
 
         $this->agentIds = DB::table('users')
