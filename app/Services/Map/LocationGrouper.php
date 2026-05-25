@@ -107,6 +107,28 @@ final class LocationGrouper
             $loc['record_count']     = count($loc['records']);
             $loc['is_composite']     = $loc['record_count'] > 1;
 
+            // A.2.3 Item 2 — distinct visual classes so the client can render
+            // sectional schemes differently from cross-category composites.
+            //   'single'    — one record only
+            //   'scheme'    — multi-record AND every record is a scheme owner
+            //                 (sectional title building — render as a labelled
+            //                 building pin, not a generic composite)
+            //   'composite' — multi-record, mixed categories
+            if ($loc['record_count'] === 1) {
+                $loc['display_as'] = 'single';
+            } elseif (collect($loc['records'])->every(fn ($r) => ($r['category'] ?? null) === 'scheme_owners')) {
+                $loc['display_as'] = 'scheme';
+            } else {
+                $loc['display_as'] = 'composite';
+            }
+
+            // For scheme displays, surface the canonical scheme name so the
+            // client doesn't have to split " § " on every record's title.
+            if ($loc['display_as'] === 'scheme') {
+                $first = (string) ($primary['title'] ?? '');
+                $loc['scheme_name'] = trim(explode(' § ', $first, 2)[0]) ?: 'Sectional Scheme';
+            }
+
             $out[] = $loc;
         }
 

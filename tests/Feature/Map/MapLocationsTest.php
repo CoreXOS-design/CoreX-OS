@@ -294,6 +294,82 @@ final class MapLocationsTest extends TestCase
         }
     }
 
+    // ── A.2.3 Item 2 — display_as field ──────────────────────────────────
+
+    /** M32 — scheme-only composite (all records are scheme_owners) → display_as=scheme. */
+    public function test_m32_scheme_only_composite_is_display_as_scheme(): void
+    {
+        $grouper = new LocationGrouper();
+
+        $records = [
+            $this->record('a', 1, 'Sunset Manor § 1', 'scheme_owners', address: 'Sunset Manor § 1'),
+            $this->record('b', 2, 'Sunset Manor § 2', 'scheme_owners', address: 'Sunset Manor § 2'),
+            $this->record('c', 3, 'Sunset Manor § 3', 'scheme_owners', address: 'Sunset Manor § 3'),
+        ];
+
+        $locs = $grouper->group($records);
+        $this->assertCount(1, $locs);
+        $this->assertSame('scheme', $locs[0]['display_as']);
+        $this->assertSame('Sunset Manor', $locs[0]['scheme_name']);
+        $this->assertSame(3, $locs[0]['record_count']);
+    }
+
+    /** M33 — mixed-category composite → display_as=composite. */
+    public function test_m33_mixed_category_composite_is_display_as_composite(): void
+    {
+        $grouper = new LocationGrouper();
+
+        $records = [
+            $this->record('a', 1, 'Sunset Manor § 1', 'scheme_owners', address: 'Sunset Manor § 1'),
+            $this->record('b', 2, 'Sunset Manor § 2', 'scheme_owners', address: 'Sunset Manor § 2'),
+            $this->record('c', 3, '12 Beach Road',     'hfc_listings',  address: 'Sunset Manor § 1'),
+        ];
+
+        $locs = $grouper->group($records);
+        $this->assertCount(1, $locs);
+        $this->assertSame('composite', $locs[0]['display_as']);
+        $this->assertArrayNotHasKey('scheme_name', $locs[0],
+            'scheme_name only present when display_as=scheme');
+    }
+
+    /** M34 — single record → display_as=single. */
+    public function test_m34_single_record_is_display_as_single(): void
+    {
+        $grouper = new LocationGrouper();
+        $records = [
+            $this->record('a', 1, '18 Golf Course Road', 'hfc_listings', lat: -30.84, lng: 30.39),
+        ];
+        $locs = $grouper->group($records);
+        $this->assertCount(1, $locs);
+        $this->assertSame('single', $locs[0]['display_as']);
+    }
+
+    /** M35 — full endpoint response exposes display_as on every location
+     *        so the client renderer can switch pin visuals without a
+     *        re-derivation pass. */
+    public function test_m35_endpoint_response_carries_display_as_per_location(): void
+    {
+        [$agencyId] = $this->makeTwoAgencies();
+        $userA = $this->makeUserInAgency($agencyId);
+
+        $this->insertProperty([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId, 'agent_id' => $userA->id,
+            'address'   => '18 Golf Course Road', 'suburb' => 'Uvongo',
+            'latitude'  => -30.84, 'longitude' => 30.39, 'price' => 1_200_000,
+            'property_type' => 'house',
+        ]);
+
+        $svc = new \App\Services\Map\MapPinService();
+        $req = $this->bounds(agencyId: $agencyId, layers: ['hfc_listings']);
+        $resp = $svc->getPinsInBounds($req);
+
+        $this->assertNotEmpty($resp['locations']);
+        foreach ($resp['locations'] as $loc) {
+            $this->assertContains($loc['display_as'], ['scheme', 'composite', 'single'],
+                'display_as must be one of three known values');
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function record(

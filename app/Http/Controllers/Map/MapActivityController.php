@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Map;
 use App\Events\Map\MapCmaOpened;
 use App\Events\Map\MapComparableAdded;
 use App\Events\Map\MapContactOwnerLaunched;
+use App\Events\Map\MapListingOpened;
 use App\Events\Map\MapPitchLaunched;
 use App\Events\Map\MapProspectLaunched;
 use App\Events\Map\MapWhatsAppLaunched;
@@ -55,6 +56,8 @@ final class MapActivityController extends Controller
                 'comparable_added', 'cma_opened',
                 // Phase A.2.1 — Prospect Now from competitor active listings.
                 'prospect_launched',
+                // Phase A.2.3 — portal-strip click on an HFC listing.
+                'listing_opened',
             ])],
             'category'             => ['required', 'string', 'max:40'],
             'record_id'            => ['required'],   // int OR string ref — validated per-action below
@@ -68,6 +71,8 @@ final class MapActivityController extends Controller
             'latitude'             => ['sometimes', 'nullable', 'numeric'],
             'longitude'            => ['sometimes', 'nullable', 'numeric'],
             'suburb'               => ['sometimes', 'nullable', 'string', 'max:120'],
+            // A.2.3 — portal strip on HFC listings.
+            'portal'               => ['sometimes', 'nullable', Rule::in(['p24', 'pp', 'hfc'])],
         ]);
 
         $user = $request->user();
@@ -87,6 +92,7 @@ final class MapActivityController extends Controller
             'comparable_added'       => $this->comparableAdded($data, $agencyId, $user->id),
             'cma_opened'             => $this->cmaOpened($data, $agencyId, $user->id),
             'prospect_launched'      => $this->prospectLaunched($data, $agencyId, $user->id, $extras),
+            'listing_opened'         => $this->listingOpened($data, $agencyId, $user->id),
         };
 
         if ($event === null) {
@@ -183,6 +189,30 @@ final class MapActivityController extends Controller
             actingUserId: $userId,
             locationKey:  (string) $data['location_key'],
             source:       (string) $data['source'],
+        );
+    }
+
+    /**
+     * Phase A.2.3 Item 4 — portal-strip click on an HFC listing.
+     * Records which portal (p24 / pp / hfc) the agent opened so we can
+     * track which syndication surfaces actually get used.
+     */
+    private function listingOpened(array $data, int $agencyId, int $userId): ?MapListingOpened
+    {
+        $id = (int) $data['record_id'];
+        $property = Property::withoutGlobalScopes()
+            ->where('id', $id)
+            ->where('agency_id', $agencyId)
+            ->first();
+        if (!$property) return null;
+
+        return new MapListingOpened(
+            property:     $property,
+            agencyId:     $agencyId,
+            actingUserId: $userId,
+            locationKey:  (string) $data['location_key'],
+            source:       (string) $data['source'],
+            portal:       (string) ($data['portal'] ?? 'unknown'),
         );
     }
 

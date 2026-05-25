@@ -57,7 +57,7 @@
                     $layerDefs = [
                         ['key' => 'hfc_listings',    'label' => 'HFC Listings',    'colour' => '#00d4aa', 'letter' => 'H'],
                         ['key' => 'sold_comps',      'label' => 'Sold Comps',      'colour' => '#3b82f6', 'letter' => 'S'],
-                        ['key' => 'active_listings', 'label' => 'Active Listings', 'colour' => '#f59e0b', 'letter' => 'A'],
+                        ['key' => 'active_listings', 'label' => 'Portal Stock',    'colour' => '#f59e0b', 'letter' => 'P', 'title' => 'Portal Stock — competitor listings captured from Property24 and Private Property'],
                         ['key' => 'mic_subjects',    'label' => 'MIC Subjects',    'colour' => '#64748b', 'letter' => 'M'],
                         ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#8b5cf6', 'letter' => 'O', 'sensitive' => true],
                     ];
@@ -65,6 +65,7 @@
                 @foreach($layerDefs as $l)
                 <label data-layer="{{ $l['key'] }}"
                        @if($l['sensitive'] ?? false) data-sensitive="1" @endif
+                       @if(!empty($l['title'])) title="{{ $l['title'] }}" @endif
                        style="display: flex; align-items: center; gap: 8px; padding: 6px 6px; border-radius: 4px; cursor: pointer; font-size: 0.8125rem;">
                     <input type="checkbox" checked data-layer-cb="{{ $l['key'] }}" style="margin: 0;">
                     <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: {{ $l['colour'] }}; color: #fff; border-radius: 50%; font-size: 0.6875rem; font-weight: 700;">{{ $l['letter'] }}</span>
@@ -273,13 +274,13 @@ document.addEventListener('DOMContentLoaded', function () {
         scheme_owners:   '#8b5cf6',
     };
     const LAYER_LETTERS = {
-        hfc_listings: 'H', sold_comps: 'S', active_listings: 'A',
+        hfc_listings: 'H', sold_comps: 'S', active_listings: 'P',
         mic_subjects: 'M', scheme_owners: 'O',
     };
     const LAYER_NAMES = {
         hfc_listings:    'HFC Listing',
         sold_comps:      'Sold Comp',
-        active_listings: 'Active Listing',
+        active_listings: 'Portal Stock',
         mic_subjects:    'MIC Subject',
         scheme_owners:   'Sectional Scheme',
     };
@@ -415,24 +416,58 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // ── Helpers ───────────────────────────────────────────────────────────
     /**
-     * Build the Leaflet icon for a location. Two paths:
-     *   - composite (record_count > 1): neutral slate background + teal
-     *     accent border + white count badge top-right
-     *   - single record: category-coloured circle + category letter
+     * Build the Leaflet icon for a location. Three paths (A.2.3 Item 2):
+     *   - 'scheme'    → distinct rounded-rectangle PURPLE pin with unit count
+     *                   (sectional title building, all records are owners)
+     *   - 'composite' → slate square + teal accent + count badge (mixed cats)
+     *   - 'single'    → category-coloured circle + letter
+     *
+     * Fallback when display_as is missing on a payload: infer from
+     * record_count + records[].category to stay compatible with cached
+     * pre-A.2.3 payloads.
      */
     function locationIcon(loc) {
-        if (loc.is_composite) {
+        const display = loc.display_as
+            || (loc.record_count > 1
+                ? ((loc.records || []).every(r => r.category === 'scheme_owners') ? 'scheme' : 'composite')
+                : 'single');
+
+        if (display === 'scheme') {
+            const count = loc.record_count;
+            // Purple matches LAYER_COLOURS.scheme_owners but used as the
+            // dominant background — reads as "this is a sectional scheme",
+            // not a generic composite.
+            const html =
+                '<div style="position:relative;width:28px;height:24px;">'
+                +   '<div style="display:flex;align-items:center;justify-content:center;width:28px;height:24px;background:#5b21b6;color:#fff;border:2px solid #ffffff;border-radius:5px;font-size:11px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.4);">'
+                +     'SS'
+                +   '</div>'
+                +   '<span style="position:absolute;top:-6px;right:-8px;background:#ffffff;color:#0f172a;font-size:10px;font-weight:700;border-radius:10px;padding:1px 5px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.35);white-space:nowrap;border:1px solid #5b21b6;">'
+                +     count
+                +   '</span>'
+                + '</div>';
+            return L.divIcon({
+                html,
+                className: 'corex-pin corex-pin-scheme',
+                iconSize:   [28, 24],
+                iconAnchor: [14, 12],
+            });
+        }
+
+        if (display === 'composite') {
             const count = loc.record_count;
             const html =
-                '<div style="position:relative;display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:'
-                + COMPOSITE_BG + ';color:#fff;border:2px solid ' + COMPOSITE_BORDER + ';border-radius:6px;font-size:9px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.4);">'
-                +   '<span style="font-size:10px;letter-spacing:0.5px;">+</span>'
-                + '</div>'
-                + '<span style="position:absolute;top:-6px;right:-8px;background:#ffffff;color:#0f172a;font-size:10px;font-weight:700;border-radius:10px;padding:1px 5px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.35);white-space:nowrap;border:1px solid ' + COMPOSITE_BORDER + ';">'
-                + count + '</span>';
-
+                '<div style="position:relative;width:24px;height:24px;">'
+                +   '<div style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;background:'
+                +     COMPOSITE_BG + ';color:#fff;border:2px solid ' + COMPOSITE_BORDER + ';border-radius:6px;font-size:9px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.4);">'
+                +     '<span style="font-size:10px;letter-spacing:0.5px;">+</span>'
+                +   '</div>'
+                +   '<span style="position:absolute;top:-6px;right:-8px;background:#ffffff;color:#0f172a;font-size:10px;font-weight:700;border-radius:10px;padding:1px 5px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.35);white-space:nowrap;border:1px solid ' + COMPOSITE_BORDER + ';">'
+                +     count
+                +   '</span>'
+                + '</div>';
             return L.divIcon({
-                html: '<div style="position:relative;width:24px;height:24px;">' + html + '</div>',
+                html,
                 className: 'corex-pin corex-pin-composite',
                 iconSize: [24, 24],
                 iconAnchor: [12, 12],
@@ -462,6 +497,15 @@ document.addEventListener('DOMContentLoaded', function () {
         (payload.locations || []).forEach(loc => {
             const kept = (loc.records || []).filter(r => enabledLayers.has(r.category));
             if (kept.length === 0) return;
+
+            // A.2.3 — re-derive display_as after filtering since the category
+            // mix may have changed (a multi-data composite filtered down to
+            // only scheme_owners becomes a 'scheme' visual).
+            let displayAs;
+            if (kept.length === 1)                                                    displayAs = 'single';
+            else if (kept.every(r => r.category === 'scheme_owners'))                 displayAs = 'scheme';
+            else                                                                      displayAs = 'composite';
+
             out.push({
                 ...loc,
                 records: kept,
@@ -469,6 +513,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 is_composite: kept.length > 1,
                 primary_category: kept[0].category,
                 categories_present: Array.from(new Set(kept.map(r => r.category))),
+                display_as: displayAs,
             });
         });
         return { ...payload, locations: out };
@@ -500,31 +545,40 @@ document.addEventListener('DOMContentLoaded', function () {
 
         switch (record.category) {
             case 'hfc_listings': {
-                // A.2.1 — "Open listing →" smart-picks the activated portal URL
-                // (P24 → PP → HFC website) served by Property::preferredPublicListingUrl().
-                // When no external URL exists (most demo data is unsyndicated)
-                // we fall through to "Open record →" pointing at the internal page.
+                // A.2.3 Item 4 — portal strip. When the listing is published
+                // on a portal, return one action per active portal so the
+                // single-detail CTA block renders them as a row of pill-style
+                // buttons. When the listing is sold or has no portal URLs at
+                // all, fall through to the internal "Open record →" button.
                 if (typeof recId !== 'number') return [];
-                const portalUrl   = record.preferred_public_url || null;
                 const internalUrl = record.internal_url || PROPERTY_SHOW_URL_TPL.replace('__ID__', String(recId));
                 const isSold      = record.status === 'sold';
+                const urls        = record.public_listing_urls || {};
+                const portalDefs  = [
+                    { key: 'p24', label: 'P24', tint: '#dc2626' },
+                    { key: 'pp',  label: 'PP',  tint: '#1d4ed8' },
+                    { key: 'hfc', label: 'HFC', tint: '#00d4aa' },
+                ];
+                const activePortals = portalDefs.filter(p => urls[p.key]);
 
-                if (portalUrl && !isSold) {
-                    return [{
-                        key:       'pitch_launched',
-                        label:     'Open listing →',
-                        iconLabel: 'Open listing on portal',
-                        iconSvg:   ICON_OPEN,
-                        style:     'primary',
-                        destUrl:   portalUrl,
+                if (!isSold && activePortals.length > 0) {
+                    return activePortals.map(p => ({
+                        key:       'listing_opened',
+                        label:     p.label,
+                        iconLabel: 'Open listing on ' + p.label,
+                        iconSvg:   portalPillSvg(p.label, p.tint),
+                        style:     'portal-pill',
+                        portalTint: p.tint,
+                        destUrl:   urls[p.key],
                         newTab:    true,
-                        logPayload:{ ...baseLog, action: 'pitch_launched', record_id: recId },
-                    }];
+                        logPayload:{ ...baseLog, action: 'listing_opened', record_id: recId, portal: p.key },
+                    }));
                 }
+
                 // Sold or unsyndicated — internal record only.
                 return [{
                     key:       'pitch_launched',
-                    label:     isSold ? 'Open record →' : 'Open record →',
+                    label:     'Open record →',
                     iconLabel: 'Open property record',
                     iconSvg:   ICON_OPEN,
                     style:     'secondary',
@@ -644,6 +698,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Inline SVGs — 16x16, currentColor. Kept inline so we don't depend on
     // an icon font load order on the standalone map page.
+    // A.2.3 Item 4 — coloured text pill used by the portal strip (P24/PP/HFC).
+    // Rendered as inline HTML (not an SVG) so the icon-strip helper can drop
+    // it in via innerHTML alongside the other inline SVGs.
+    function portalPillSvg(label, tint) {
+        return '<span style="display:inline-flex;align-items:center;justify-content:center;'
+            + 'background:' + tint + ';color:#fff;font-weight:700;font-size:11px;'
+            + 'letter-spacing:0.5px;padding:3px 7px;border-radius:4px;line-height:1;">'
+            + label + '</span>';
+    }
+
     const ICON_PITCH      = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4 20-7Z"></path></svg>';
     const ICON_WHATSAPP   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"></path></svg>';
     const ICON_COMPARABLE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"></path><path d="M3 9h18M9 3v18"></path></svg>';
@@ -1047,21 +1111,48 @@ document.addEventListener('DOMContentLoaded', function () {
             host.innerHTML = '';
             return;
         }
-        host.innerHTML = acts.map(act => {
-            const stylePrimary = 'background:#00d4aa;color:#0f172a;border:1px solid #00d4aa;';
-            const styleSecondary = 'background:transparent;color:#00d4aa;border:1px solid #00d4aa;';
-            const styleStr = act.style === 'secondary' ? styleSecondary : stylePrimary;
-            const disabled = !act.destUrl && !act.awaitServerRedirect;
-            return '<a href="' + escapeAttr(act.destUrl || '#') + '" '
-                + 'data-map-action="' + escapeAttr(act.key) + '" '
-                + (act.newTab ? 'target="_blank" rel="noopener" ' : '')
-                + (disabled ? 'aria-disabled="true" ' : '')
-                + 'style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;padding:8px 12px;border-radius:6px;font-size:0.8125rem;font-weight:600;text-decoration:none;transition:opacity 150ms;'
-                +    styleStr + (disabled ? 'opacity:0.5;cursor:not-allowed;' : '') + '">'
-                + '<span style="display:inline-flex;align-items:center;">' + act.iconSvg + '</span>'
-                + '<span>' + escapeHtml(act.label) + '</span>'
-                + '</a>';
-        }).join('');
+
+        // A.2.3 Item 4 — when actions are portal pills (HFC active listing),
+        // render them as a HORIZONTAL strip with a leading "View listing on:"
+        // label. Other action types stay in the vertical full-width layout.
+        const isPortalStrip = acts.every(a => a.style === 'portal-pill');
+        if (isPortalStrip) {
+            host.style.flexDirection = 'row';
+            host.style.alignItems    = 'center';
+            host.style.flexWrap      = 'wrap';
+            host.innerHTML =
+                '<span style="font-size:0.75rem;color:var(--text-muted);margin-right:4px;">View listing on:</span>'
+                + acts.map(act =>
+                    '<a href="' + escapeAttr(act.destUrl || '#') + '" '
+                    + 'data-map-action="' + escapeAttr(act.key) + '" '
+                    + (act.newTab ? 'target="_blank" rel="noopener" ' : '')
+                    + 'title="' + escapeAttr(act.iconLabel) + '" '
+                    + 'style="display:inline-flex;align-items:center;justify-content:center;padding:4px;border-radius:4px;text-decoration:none;border:1px solid transparent;transition:border-color 150ms;" '
+                    + 'onmouseover="this.style.borderColor=\'#00d4aa\';" '
+                    + 'onmouseout="this.style.borderColor=\'transparent\';">'
+                    + act.iconSvg
+                    + '</a>'
+                ).join('');
+        } else {
+            host.style.flexDirection = 'column';
+            host.style.alignItems    = 'stretch';
+            host.style.flexWrap      = 'nowrap';
+            host.innerHTML = acts.map(act => {
+                const stylePrimary = 'background:#00d4aa;color:#0f172a;border:1px solid #00d4aa;';
+                const styleSecondary = 'background:transparent;color:#00d4aa;border:1px solid #00d4aa;';
+                const styleStr = act.style === 'secondary' ? styleSecondary : stylePrimary;
+                const disabled = !act.destUrl && !act.awaitServerRedirect;
+                return '<a href="' + escapeAttr(act.destUrl || '#') + '" '
+                    + 'data-map-action="' + escapeAttr(act.key) + '" '
+                    + (act.newTab ? 'target="_blank" rel="noopener" ' : '')
+                    + (disabled ? 'aria-disabled="true" ' : '')
+                    + 'style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;padding:8px 12px;border-radius:6px;font-size:0.8125rem;font-weight:600;text-decoration:none;transition:opacity 150ms;'
+                    +    styleStr + (disabled ? 'opacity:0.5;cursor:not-allowed;' : '') + '">'
+                    + '<span style="display:inline-flex;align-items:center;">' + act.iconSvg + '</span>'
+                    + '<span>' + escapeHtml(act.label) + '</span>'
+                    + '</a>';
+            }).join('');
+        }
 
         // Wire activity-log firing on click. Default <a> handles tab vs same-tab.
         host.querySelectorAll('[data-map-action]').forEach((link, idx) => {

@@ -411,11 +411,42 @@ class Property extends Model
         return [
             'p24' => $this->buildP24Url(),
             'pp'  => $this->buildPpUrl(),
-            // HFC website per-listing URL pattern not yet confirmed —
-            // returns null until Johan locks the template. A 3-line addition
-            // here when ready (e.g. https://hfcoastal.co.za/listing/{slug}-{id}).
-            'hfc' => null,
+            'hfc' => $this->isOnHfcWebsite() ? $this->buildHfcUrl() : null,
         ];
+    }
+
+    /**
+     * PLACEHOLDER (A.2.3 Item 4) — until the HFC website integration writes
+     * back a per-listing syndication status, assume any active mandate for
+     * agency_id=1 is published on hfcoastal.co.za.
+     *
+     * TODO post-PropCon takeover: replace with an
+     * `hfc_website_syndication_status === 'active'` check on the model.
+     */
+    public function isOnHfcWebsite(): bool
+    {
+        return $this->status === 'active' && (int) $this->agency_id === 1;
+    }
+
+    /**
+     * Compose the canonical hfcoastal.co.za listing URL. Pattern (live):
+     *   https://www.hfcoastal.co.za/listing/{listing_id}/{type}-{transaction}-in-{suburb}-{city}-{province}
+     *
+     * `listing_id` falls back to the CoreX property id when the HFC website
+     * hasn't written back its own ref yet — same placeholder approach as
+     * isOnHfcWebsite() above.
+     */
+    public function buildHfcUrl(): string
+    {
+        $listingId   = $this->hfc_website_ref ?? $this->id;
+        $type        = \Illuminate\Support\Str::slug($this->property_type ?? 'property');
+        $transaction = $this->listing_type === 'rental' ? 'to-let' : 'for-sale';
+        $suburb      = \Illuminate\Support\Str::slug($this->suburb ?? '');
+        $city        = \Illuminate\Support\Str::slug($this->city ?? $this->town ?? '');
+        $province    = \Illuminate\Support\Str::slug($this->province ?? 'kwazulu-natal');
+
+        $slug = "{$type}-{$transaction}-in-{$suburb}-{$city}-{$province}";
+        return "https://www.hfcoastal.co.za/listing/{$listingId}/{$slug}";
     }
 
     /**

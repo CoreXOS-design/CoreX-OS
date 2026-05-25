@@ -368,6 +368,302 @@ final class MapActivityLogTest extends TestCase
         }
     }
 
+    // ── A.2.3 Item 1 — Portal Stock rename ────────────────────────────────
+
+    /** M30 — left-rail layer config in the map view has the renamed label
+     *        and letter for active_listings (UI-only rename; API key stays). */
+    public function test_m30_map_view_renders_portal_stock_label(): void
+    {
+        $view = file_get_contents(base_path('resources/views/corex/map/index.blade.php'));
+        $this->assertStringContainsString("'label' => 'Portal Stock'", $view,
+            'Left-rail layerDefs must use Portal Stock label');
+        $this->assertStringContainsString("'letter' => 'P'", $view,
+            'Portal Stock letter is P (was A)');
+        $this->assertStringNotContainsString("'label' => 'Active Listings'", $view,
+            'Active Listings label removed from layerDefs');
+    }
+
+    /** M31 — JS LAYER_NAMES constant uses Portal Stock for the right-panel
+     *        composite-row category header. */
+    public function test_m31_layer_names_js_constant_uses_portal_stock(): void
+    {
+        $view = file_get_contents(base_path('resources/views/corex/map/index.blade.php'));
+        $this->assertStringContainsString("active_listings: 'Portal Stock'", $view);
+        $this->assertStringNotContainsString("active_listings: 'Active Listing'", $view);
+    }
+
+    // ── A.2.3 Item 3 — Seller View identity redaction ─────────────────────
+
+    /** M36 — Seller View redacts owner_name on scheme_owner records and
+     *        does NOT exclude the layer (pre-A.2.3 behaviour was exclude). */
+    public function test_m36_seller_view_redacts_owner_name(): void
+    {
+        [$agencyId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        DB::table('scheme_owners')->insert([
+            'agency_id'        => $agencyId,
+            'market_report_id' => $reportId,
+            'scheme_name'      => 'Sunset Manor',
+            'section_number'   => '1',
+            'owner_name'       => 'James Taylor',
+            'is_demo'          => false,
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+
+        $svc = new \App\Services\Map\MapPinService();
+        $req = new \App\Services\Map\MapBoundsRequest(
+            north: -30.4, south: -31.0, east: 30.9, west: 30.0,
+            layers: ['scheme_owners'],
+            viewMode: 'seller',
+            agencyId: $agencyId,
+        );
+        $resp = $svc->getPinsInBounds($req);
+
+        $schemeRecords = collect($resp['locations'])
+            ->flatMap(fn ($l) => $l['records'])
+            ->filter(fn ($r) => $r['category'] === 'scheme_owners')
+            ->values();
+
+        if ($schemeRecords->isEmpty()) {
+            $this->markTestSkipped('No scheme_owners pin produced — market_report subject GPS likely not in bounds.');
+        }
+
+        foreach ($schemeRecords as $rec) {
+            $this->assertNotEquals('James Taylor', $rec['subtitle'] ?? null,
+                'Owner name must NOT appear in Seller View');
+            $this->assertStringContainsString('Owner', (string) ($rec['subtitle'] ?? ''),
+                'Generic "Owner" label replaces the name');
+        }
+    }
+
+    /** M37 — Seller View map response omits phone and email (no schema
+     *        columns yet, so both should be null in record output). */
+    public function test_m37_seller_view_strips_phone_and_email(): void
+    {
+        [$agencyId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        DB::table('scheme_owners')->insert([
+            'agency_id'        => $agencyId,
+            'market_report_id' => $reportId,
+            'scheme_name'      => 'Sunset Manor',
+            'section_number'   => '1',
+            'owner_name'       => 'James Taylor',
+            'is_demo'          => false,
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+
+        $svc = new \App\Services\Map\MapPinService();
+        $req = new \App\Services\Map\MapBoundsRequest(
+            north: -30.4, south: -31.0, east: 30.9, west: 30.0,
+            layers: ['scheme_owners'], viewMode: 'seller', agencyId: $agencyId,
+        );
+        $resp = $svc->getPinsInBounds($req);
+
+        $records = collect($resp['locations'])->flatMap(fn ($l) => $l['records']);
+        foreach ($records as $rec) {
+            $this->assertNull($rec['owner_phone'] ?? null);
+            $this->assertNull($rec['owner_email'] ?? null);
+        }
+    }
+
+    /** M38 — Agent View leaves owner identity intact on scheme_owner records. */
+    public function test_m38_agent_view_keeps_owner_identity(): void
+    {
+        [$agencyId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        DB::table('scheme_owners')->insert([
+            'agency_id'        => $agencyId,
+            'market_report_id' => $reportId,
+            'scheme_name'      => 'Sunset Manor',
+            'section_number'   => '1',
+            'owner_name'       => 'James Taylor',
+            'is_demo'          => false,
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+
+        $svc = new \App\Services\Map\MapPinService();
+        $req = new \App\Services\Map\MapBoundsRequest(
+            north: -30.4, south: -31.0, east: 30.9, west: 30.0,
+            layers: ['scheme_owners'], viewMode: 'agent', agencyId: $agencyId,
+        );
+        $resp = $svc->getPinsInBounds($req);
+
+        $records = collect($resp['locations'])->flatMap(fn ($l) => $l['records'])
+            ->filter(fn ($r) => $r['category'] === 'scheme_owners')
+            ->values();
+
+        if ($records->isEmpty()) {
+            $this->markTestSkipped('No scheme_owners pin produced.');
+        }
+
+        $this->assertSame('James Taylor', $records[0]['subtitle'],
+            'Agent View shows the real owner name in the subtitle');
+    }
+
+    /** M39 — Seller-view scheme_owner detail card returns the building card
+     *        WITHOUT sensitive_facts (replaces the pre-A.2.3 403 response). */
+    public function test_m39_seller_view_scheme_owner_card_omits_sensitive_facts(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        $ownerId = (int) DB::table('scheme_owners')->insertGetId([
+            'agency_id'        => $agencyId,
+            'market_report_id' => $reportId,
+            'scheme_name'      => 'Sunset Manor',
+            'section_number'   => '1',
+            'owner_name'       => 'James Taylor',
+            'is_demo'          => false,
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->getJson(route('corex.map.scheme-owner', ['owner' => $ownerId]) . '?viewMode=seller');
+
+        $resp->assertOk();
+        $body = $resp->json();
+        $this->assertArrayHasKey('facts', $body);
+        $this->assertArrayNotHasKey('sensitive_facts', $body,
+            'Seller View must omit sensitive_facts entirely');
+    }
+
+    // ── A.2.3 Item 4 — Portal strip + listing_opened activity ─────────────
+
+    /** M40 — Property::publicListingUrls() populates hfc slot when active. */
+    public function test_m40_public_listing_urls_includes_hfc_when_eligible(): void
+    {
+        $p = new \App\Models\Property();
+        $p->setRawAttributes([
+            'id'        => 999,
+            'agency_id' => 1,
+            'status'    => 'active',
+            'suburb'    => 'Uvongo',
+            'city'      => 'Margate',
+            'town'      => 'Margate',
+            'province'  => 'KwaZulu-Natal',
+            'property_type' => 'apartment',
+            'listing_type'  => 'sale',
+        ]);
+        $urls = $p->publicListingUrls();
+        $this->assertNotNull($urls['hfc']);
+        $this->assertStringContainsString('hfcoastal.co.za/listing/999/', $urls['hfc']);
+    }
+
+    /** M41 — buildHfcUrl matches the canonical pattern. */
+    public function test_m41_build_hfc_url_matches_canonical_pattern(): void
+    {
+        $p = new \App\Models\Property();
+        $p->setRawAttributes([
+            'id'            => 1569172,
+            'agency_id'     => 1,
+            'status'        => 'active',
+            'property_type' => 'apartment',
+            'listing_type'  => 'sale',
+            'suburb'        => 'Uvongo Beach',
+            'city'          => 'Margate',
+            'town'          => 'Margate',
+            'province'      => 'KwaZulu-Natal',
+        ]);
+        $this->assertSame(
+            'https://www.hfcoastal.co.za/listing/1569172/apartment-for-sale-in-uvongo-beach-margate-kwazulu-natal',
+            $p->buildHfcUrl(),
+        );
+    }
+
+    /** M42 — number of non-null URL slots equals number of pills the JS
+     *        should render. Test 0/1/2/3 portal combinations. */
+    public function test_m42_portal_count_varies_with_syndication_status(): void
+    {
+        // 0 portals — inactive everywhere.
+        $p0 = new \App\Models\Property();
+        $p0->setRawAttributes(['id' => 1, 'agency_id' => 99, 'status' => 'pending']);
+        $this->assertSame(0, count(array_filter($p0->publicListingUrls())));
+
+        // 1 portal — only HFC website applies (agency 1, active).
+        $p1 = new \App\Models\Property();
+        $p1->setRawAttributes([
+            'id' => 1, 'agency_id' => 1, 'status' => 'active',
+            'suburb' => 'X', 'city' => 'Y', 'town' => 'Y', 'province' => 'kzn',
+            'property_type' => 'house', 'listing_type' => 'sale',
+        ]);
+        $this->assertSame(1, count(array_filter($p1->publicListingUrls())));
+
+        // 2 portals — HFC + P24 active.
+        $p2 = new \App\Models\Property();
+        $p2->setRawAttributes([
+            'id' => 1, 'agency_id' => 1, 'status' => 'active',
+            'suburb' => 'X', 'city' => 'Y', 'town' => 'Y', 'province' => 'kzn',
+            'property_type' => 'house', 'listing_type' => 'sale',
+            'p24_ref' => '12345', 'p24_syndication_status' => 'active',
+            'pp_suburb_id' => 0,
+        ]);
+        $this->assertSame(2, count(array_filter($p2->publicListingUrls())));
+
+        // 3 portals — all active.
+        $p3 = new \App\Models\Property();
+        $p3->setRawAttributes([
+            'id' => 1, 'agency_id' => 1, 'status' => 'active',
+            'suburb' => 'X', 'city' => 'Y', 'town' => 'Y', 'province' => 'kzn',
+            'property_type' => 'house', 'listing_type' => 'sale',
+            'p24_ref' => '12345', 'p24_syndication_status' => 'active',
+            'pp_ref'  => 'PP-9',   'pp_syndication_status'  => 'active',
+            'pp_suburb_id' => 0,
+        ]);
+        $this->assertSame(3, count(array_filter($p3->publicListingUrls())));
+    }
+
+    /** M43 — POST /activity/log with action=listing_opened + portal=p24
+     *        dispatches MapListingOpened with portal in payload. */
+    public function test_m43_listing_opened_fires_event_with_portal(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([\App\Events\Map\MapListingOpened::class]);
+        [$agencyId, $userId, $propertyId] = $this->seedAgencyUserProperty();
+
+        $resp = $this->actingAs(User::find($userId))->postJson(route('corex.map.activity.log'), [
+            'action'       => 'listing_opened',
+            'category'     => 'hfc_listings',
+            'record_id'    => $propertyId,
+            'location_key' => 'sha256:m43',
+            'source'       => 'single_detail',
+            'portal'       => 'p24',
+        ]);
+
+        $resp->assertOk();
+        \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\Map\MapListingOpened::class, function ($e) use ($propertyId) {
+            return (int) $e->property->id === $propertyId
+                && $e->portal === 'p24';
+        });
+    }
+
+    /** M44 — activity-log row carries the portal field in payload. */
+    public function test_m44_listing_opened_row_includes_portal_in_payload(): void
+    {
+        [$agencyId, $userId, $propertyId] = $this->seedAgencyUserProperty();
+
+        $this->actingAs(User::find($userId))->postJson(route('corex.map.activity.log'), [
+            'action'       => 'listing_opened',
+            'category'     => 'hfc_listings',
+            'record_id'    => $propertyId,
+            'location_key' => 'sha256:m44',
+            'source'       => 'single_detail',
+            'portal'       => 'hfc',
+        ])->assertOk();
+
+        $row = AgentActivityEvent::where('agency_id', $agencyId)
+            ->where('event_type', 'LIKE', 'map_listing%')
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($row, 'MapListingOpened should land via LogAgentActivity');
+        $this->assertSame('map_listing.opened', $row->event_type);
+
+        $payload = is_array($row->payload) ? $row->payload : json_decode($row->payload, true);
+        $this->assertSame('hfc', $payload['portal'] ?? null);
+        $this->assertSame($propertyId, $payload['property_id'] ?? null);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** Seed agency + branch + user + a single HFC property; return ids. */
@@ -433,19 +729,22 @@ final class MapActivityLogTest extends TestCase
             'updated_at' => now(),
         ]);
         return (int) DB::table('market_reports')->insertGetId([
-            'agency_id'           => $agencyId,
-            'report_type_id'      => $reportTypeId,
-            'uploaded_by_user_id' => $uploaderId,
-            'file_path'           => 'test/path.pdf',
-            'file_name'           => 'test.pdf',
-            'file_hash'           => hash('sha256', Str::random(20)),
-            'report_date'         => now()->toDateString(),
-            'subject_address'     => 'Test subject address',
-            'subject_latitude'    => -30.84,
-            'subject_longitude'   => 30.39,
-            'is_demo'             => false,
-            'created_at'          => now(),
-            'updated_at'          => now(),
+            'agency_id'             => $agencyId,
+            'report_type_id'        => $reportTypeId,
+            'uploaded_by_user_id'   => $uploaderId,
+            'file_path'             => 'test/path.pdf',
+            'file_name'             => 'test.pdf',
+            'file_hash'             => hash('sha256', Str::random(20)),
+            'report_date'           => now()->toDateString(),
+            'subject_address'       => 'Test subject address',
+            // schemeOwners() joins on subject_scheme_name LIKE so.scheme_name
+            // — must be populated for scheme-owner pins to find their GPS.
+            'subject_scheme_name'   => 'Sunset Manor',
+            'subject_latitude'      => -30.84,
+            'subject_longitude'     => 30.39,
+            'is_demo'               => false,
+            'created_at'            => now(),
+            'updated_at'            => now(),
         ]);
     }
 

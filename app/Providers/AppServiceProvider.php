@@ -191,6 +191,8 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Map\MapCmaOpened::class,
             // Phase A.2.1 — "Prospect Now" from competitor active listings.
             \App\Events\Map\MapProspectLaunched::class,
+            // Phase A.2.3 — portal-strip click on an HFC listing.
+            \App\Events\Map\MapListingOpened::class,
         ] as $micActivityEvent) {
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }

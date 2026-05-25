@@ -72,8 +72,11 @@ final class MapPinService
             'sold_comps'      => fn () => $this->soldComps($req, $perLayerLimit),
             'active_listings' => fn () => $this->activeListings($req, $perLayerLimit),
             'mic_subjects'    => fn () => $this->micSubjects($req, $perLayerLimit),
-            // Scheme Owners — Agent View only.
-            'scheme_owners'   => fn () => $req->isSellerView() ? [[], 0] : $this->schemeOwners($req, $perLayerLimit),
+            // A.2.3 Item 3 — Sectional schemes now appear in Seller View too,
+            // but with owner identity redacted at the toRecord boundary below.
+            // (Pre-A.2.3 the whole layer was suppressed in Seller View — that
+            // was over-cautious and hid useful scheme metadata.)
+            'scheme_owners'   => fn () => $this->schemeOwners($req, $perLayerLimit),
         ];
 
         foreach ($sources as $key => $fetch) {
@@ -86,6 +89,13 @@ final class MapPinService
             $totals[$key]      = $total;
             if ($total > count($pins)) {
                 $cappedLayers[] = $key;
+            }
+
+            // A.2.3 — redact scheme-owner identity in Seller View. The pin
+            // still appears (building location, scheme name, unit count) but
+            // owner_name becomes "Owner" and phone/email are stripped.
+            if ($key === 'scheme_owners' && $req->isSellerView()) {
+                $pins = $this->redactSchemeOwnerIdentity($pins);
             }
 
             // Normalise into the record shape the grouper expects.
@@ -112,6 +122,29 @@ final class MapPinService
      * Map a V1 pin payload from a per-layer fetcher into the V2 record shape
      * the grouper + frontend expect.
      */
+    /**
+     * A.2.3 Item 3 — POPIA-safe scheme owner pins for Seller View.
+     *
+     * Replaces the owner identity bits (name, phone, email) with a generic
+     * "Owner" label so the agent can still see the building + section number
+     * in the right-panel composite list without exposing personal info to
+     * a seller-side viewer.
+     *
+     * @param array<int, array<string, mixed>> $pins
+     * @return array<int, array<string, mixed>>
+     */
+    private function redactSchemeOwnerIdentity(array $pins): array
+    {
+        foreach ($pins as &$pin) {
+            $pin['subtitle']    = 'Owner';   // was the owner's name
+            $pin['owner_name']  = 'Owner';
+            $pin['owner_phone'] = null;
+            $pin['owner_email'] = null;
+        }
+        unset($pin);
+        return $pins;
+    }
+
     private function toRecord(string $category, array $pin): array
     {
         // For grouping the parser needs an address — pull from the V1 title
@@ -142,6 +175,8 @@ final class MapPinService
             'tracked_property_id'  => $pin['tracked_property_id']  ?? null,
             'owner_phone'          => $pin['owner_phone']          ?? null,
             'owner_email'          => $pin['owner_email']          ?? null,
+            // A.2.3 Item 4 — full {p24,pp,hfc} URL map for the portal strip.
+            'public_listing_urls'  => $pin['public_listing_urls']  ?? null,
         ];
     }
 
@@ -166,7 +201,7 @@ final class MapPinService
         // A.2.1 — fetch the columns the URL accessor needs so we can hand
         // the client a preferred_public_url + status without round-tripping.
         $rows = $q->select([
-                'id', 'address', 'property_type', 'price', 'status',
+                'id', 'agency_id', 'address', 'property_type', 'price', 'status',
                 'latitude', 'longitude', 'suburb', 'city', 'town', 'province',
                 'pp_ref', 'p24_ref', 'pp_syndication_status', 'p24_syndication_status',
                 'pp_suburb_id', 'listing_type',
@@ -179,11 +214,18 @@ final class MapPinService
             // Hydrate just enough of a Property to call the accessor — avoids
             // an N+1 reload of every row through Eloquent.
             $p = new \App\Models\Property();
-            $p->forceFill([
+            // setRawAttributes lets isOnHfcWebsite() see the raw id (forceFill
+            // doesn't set the primary key on an unsaved model).
+            $p->setRawAttributes([
+                'id'                       => $r->id,
+                'agency_id'                => $r->agency_id,
+                'status'                   => $r->status,
                 'address'                  => $r->address,
                 'suburb'                   => $r->suburb,
                 'city'                     => $r->town ?? $r->city,
+                'town'                     => $r->town,
                 'province'                 => $r->province,
+                'property_type'            => $r->property_type,
                 'pp_ref'                   => $r->pp_ref,
                 'p24_ref'                  => $r->p24_ref,
                 'pp_syndication_status'    => $r->pp_syndication_status,
@@ -208,6 +250,9 @@ final class MapPinService
                 'status'               => (string) ($r->status ?? ''),
                 'preferred_public_url' => $p->preferredPublicListingUrl(),
                 'internal_url'         => route('corex.properties.show', $r->id),
+                // A.2.3 Item 4 — full per-portal map so the JS can render a
+                // portal strip (one icon per active portal).
+                'public_listing_urls'  => $p->publicListingUrls(),
             ];
         })->all();
 

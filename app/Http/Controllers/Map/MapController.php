@@ -348,13 +348,16 @@ final class MapController extends Controller
         return response()->json($card);
     }
 
-    /** GET /corex/map/scheme-owner/{owner} — Agent View only. */
+    /** GET /corex/map/scheme-owner/{owner} — building facts in Seller View,
+     *  building + owner facts in Agent View. */
     public function schemeOwnerCard(Request $request, SchemeOwner $owner): JsonResponse
     {
         $this->assertSameAgency($request, $owner->agency_id);
-        if ($request->query('viewMode', 'agent') !== 'agent') {
-            return response()->json(['error' => 'Forbidden in Seller View'], 403);
-        }
+        // A.2.3 Item 3 — Seller View no longer returns 403. The card surfaces
+        // the building / scheme / section facts (which are public knowledge
+        // from the title deed) and omits the sensitive_facts array entirely
+        // so owner identity never crosses the wire.
+        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
 
         $matching = MarketReport::query()
             ->withoutGlobalScopes()
@@ -366,7 +369,7 @@ final class MapController extends Controller
 
         $card = [
             'title'    => trim(($owner->scheme_name ?? '') . ($owner->section_number ? ' § ' . $owner->section_number : '')),
-            'subtitle' => 'Scheme owner',
+            'subtitle' => $isAgentView ? 'Scheme owner' : 'Sectional Scheme unit',
             'address'  => $matching?->subject_address,
             'lat'      => $matching?->subject_latitude !== null ? (float) $matching->subject_latitude : null,
             'lng'      => $matching?->subject_longitude !== null ? (float) $matching->subject_longitude : null,
@@ -377,13 +380,19 @@ final class MapController extends Controller
                 $owner->ss_year       ? ['label' => 'SS Year', 'value' => (string) $owner->ss_year] : null,
             ]),
             'relationships' => [],
-            'sensitive_facts' => array_filter([
+        ];
+
+        if ($isAgentView) {
+            $card['sensitive_facts'] = array_filter([
                 $owner->owner_name      ? ['label' => 'Owner',   'value' => $owner->owner_name] : null,
                 $owner->owner_id_number ? ['label' => 'ID',      'value' => $owner->owner_id_number] : null,
                 $owner->owner_phone     ? ['label' => 'Phone',   'value' => $owner->owner_phone] : null,
                 $owner->owner_email     ? ['label' => 'Email',   'value' => $owner->owner_email] : null,
-            ]),
-        ];
+            ]);
+        }
+        // In Seller View, sensitive_facts is absent — the right-panel JS
+        // already gates on its presence so no further client change needed.
+
         return response()->json($card);
     }
 
