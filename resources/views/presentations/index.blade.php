@@ -9,7 +9,7 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Presentations</h1>
-                <p class="text-sm text-white/60">Seller presentations, valuations and pricing analysis.</p>
+                <p class="text-sm text-white/60">Seller presentations, evaluations and pricing analysis.</p>
             </div>
             <div class="flex items-center gap-2">
                 @if(\Illuminate\Support\Facades\Route::has('admin.p24-suburbs.index'))

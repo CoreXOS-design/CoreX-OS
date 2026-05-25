@@ -78,9 +78,9 @@
             </div>
         </div>
 
-        {{-- Column 2: Valuations --}}
+        {{-- Column 2: Evaluations --}}
         <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
-            <div class="text-[10px] uppercase tracking-wider font-semibold mb-2" style="color: var(--text-muted);">Valuations</div>
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-2" style="color: var(--text-muted);">Evaluations</div>
             <div class="space-y-2 text-xs">
                 @if($cmaSnapshot['municipal_value'])
                     <div>

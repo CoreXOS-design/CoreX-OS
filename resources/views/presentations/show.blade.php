@@ -2700,7 +2700,7 @@
             $docTypeLabels = [
                 'suburb_stats'   => 'Suburb Report',
                 'vicinity_sales' => 'Vicinity Sales Report',
-                'cma'            => 'CMA Valuation Report',
+                'cma'            => 'CMA Evaluation Report',
                 'market_article' => 'Market Article',
                 'other'          => 'Other',
             ];
@@ -2848,9 +2848,9 @@
                         @endphp
 
                         @if($hasDocExtract && $upload->type === 'cma')
-                            {{-- ── CMA Valuation Summary Card ── --}}
+                            {{-- ── CMA Evaluation Summary Card ── --}}
                             <div class="mt-2 bg-emerald-50 rounded-lg px-3 py-2 text-xs text-gray-700 space-y-1">
-                                <div class="font-semibold text-[#0f172a]">CMA Valuation Summary</div>
+                                <div class="font-semibold text-[#0f172a]">CMA Evaluation Summary</div>
                                 @if(isset($uFields['cma.lower_range']) || isset($uFields['cma.middle_range']) || isset($uFields['cma.upper_range']))
                                     <div>
                                         <span class="text-gray-500">Price Range:</span>

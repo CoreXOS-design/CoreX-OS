@@ -84,9 +84,9 @@
             </div>
         </div>
 
-        {{-- Valuation card --}}
+        {{-- Evaluation card --}}
         <div class="p-4 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[10px] uppercase tracking-wider font-semibold mb-2" style="color: var(--text-muted);">Valuation</div>
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-2" style="color: var(--text-muted);">Evaluation</div>
             <div class="text-sm space-y-2" style="color: var(--text-primary);">
                 @if($tp->municipal_valuation)
                     <div>
@@ -112,7 +112,7 @@
                 @endif
                 @if(!$tp->municipal_valuation && !$tp->last_known_asking_price && !$tp->last_known_sold_price)
                     <div class="text-xs italic" style="color: var(--text-muted);">
-                        No valuation data accumulated yet.
+                        No evaluation data accumulated yet.
                     </div>
                 @endif
             </div>

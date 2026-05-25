@@ -395,6 +395,84 @@ class Property extends Model
     }
 
     /**
+     * Phase A.2.1 — public-facing ad URLs across the portals we syndicate to.
+     * Returns one slot per portal; null when that portal isn't currently
+     * activated or doesn't have a working URL pattern.
+     *
+     * URL composition lives here (single source of truth) — see the legacy
+     * inline Alpine helpers in resources/views/corex/properties/show.blade.php
+     * which used to compute these client-side. Map "Open listing →" and any
+     * future "View on portal" CTA pull from this accessor.
+     *
+     * @return array{p24:?string, pp:?string, hfc:?string}
+     */
+    public function publicListingUrls(): array
+    {
+        return [
+            'p24' => $this->buildP24Url(),
+            'pp'  => $this->buildPpUrl(),
+            // HFC website per-listing URL pattern not yet confirmed —
+            // returns null until Johan locks the template. A 3-line addition
+            // here when ready (e.g. https://hfcoastal.co.za/listing/{slug}-{id}).
+            'hfc' => null,
+        ];
+    }
+
+    /**
+     * Pick the best public URL for "Open listing" actions. Priority:
+     * P24 active > PP active > company website > null.
+     */
+    public function preferredPublicListingUrl(): ?string
+    {
+        $urls = $this->publicListingUrls();
+        return $urls['p24'] ?? $urls['pp'] ?? $urls['hfc'] ?? null;
+    }
+
+    /**
+     * P24 slug-composed direct listing URL. Returns null unless we have an
+     * activated p24_ref. Sandbox vs production picked from p24_syndication_status
+     * to stay consistent with the legacy inline JS — only 'active' listings
+     * earn a real URL; in-flight states (submitted, pending) don't yet point
+     * at a live page on P24.
+     */
+    private function buildP24Url(): ?string
+    {
+        if (empty($this->p24_ref) || $this->p24_syndication_status !== 'active') {
+            return null;
+        }
+        $slugify = static function (?string $s): string {
+            $s = (string) ($s ?? '');
+            $s = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $s) ?? '');
+            return trim($s, '-') ?: 'property';
+        };
+        $section = $this->listing_type === 'rental' ? 'to-rent' : 'for-sale';
+        $domain  = 'www.property24.com';
+        return sprintf(
+            'https://%s/%s/%s/%s/%s/%s/%s',
+            $domain,
+            $section,
+            $slugify($this->suburb),
+            $slugify($this->city),
+            $slugify($this->province),
+            $this->pp_suburb_id ?? '0',
+            $this->p24_ref,
+        );
+    }
+
+    /**
+     * Private Property search-by-ref fallback. PP doesn't return a direct
+     * listing URL from syndication, so we hop through their search page.
+     * Returns null unless the listing is activated.
+     */
+    private function buildPpUrl(): ?string
+    {
+        if (empty($this->pp_ref) || $this->pp_syndication_status !== 'active') {
+            return null;
+        }
+        return 'https://www.privateproperty.co.za/search?q=' . urlencode((string) $this->pp_ref);
+    }
+
+    /**
      * The list of gallery tags currently available on this property.
      *
      * Tags are derived from the property's `spaces_json` (preferred) or

@@ -189,6 +189,8 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Map\MapContactOwnerLaunched::class,
             \App\Events\Map\MapComparableAdded::class,
             \App\Events\Map\MapCmaOpened::class,
+            // Phase A.2.1 — "Prospect Now" from competitor active listings.
+            \App\Events\Map\MapProspectLaunched::class,
         ] as $micActivityEvent) {
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }

@@ -1932,7 +1932,7 @@
                                                    class="mt-0.5">
                                             <div>
                                                 <div class="text-sm font-medium" style="color:var(--text-primary);">Radius (recommended)</div>
-                                                <div class="text-[11px]" style="color:var(--text-muted);">Match by great-circle distance from the subject property. Honest valuation default — distance is the strongest single predictor.</div>
+                                                <div class="text-[11px]" style="color:var(--text-muted);">Match by great-circle distance from the subject property. Honest evaluation default — distance is the strongest single predictor.</div>
                                             </div>
                                         </label>
                                         <label class="flex items-start gap-2 cursor-pointer">

@@ -587,7 +587,7 @@ class AnalysisDataService
 
         $benchmarks = [
             [
-                'label'     => 'vs CMA Valuation (' . $cmaSelectedRange . ')',
+                'label'     => 'vs CMA Evaluation (' . $cmaSelectedRange . ')',
                 'benchmark' => $cmaValue,
                 'thresholds' => ['warning' => 5, 'danger' => 15],
             ],

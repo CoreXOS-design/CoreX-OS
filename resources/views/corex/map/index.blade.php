@@ -59,7 +59,7 @@
                         ['key' => 'sold_comps',      'label' => 'Sold Comps',      'colour' => '#3b82f6', 'letter' => 'S'],
                         ['key' => 'active_listings', 'label' => 'Active Listings', 'colour' => '#f59e0b', 'letter' => 'A'],
                         ['key' => 'mic_subjects',    'label' => 'MIC Subjects',    'colour' => '#64748b', 'letter' => 'M'],
-                        ['key' => 'scheme_owners',   'label' => 'Scheme Owners',   'colour' => '#8b5cf6', 'letter' => 'O', 'sensitive' => true],
+                        ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#8b5cf6', 'letter' => 'O', 'sensitive' => true],
                     ];
                 @endphp
                 @foreach($layerDefs as $l)
@@ -281,7 +281,7 @@ document.addEventListener('DOMContentLoaded', function () {
         sold_comps:      'Sold Comp',
         active_listings: 'Active Listing',
         mic_subjects:    'MIC Subject',
-        scheme_owners:   'Scheme Owner',
+        scheme_owners:   'Sectional Scheme',
     };
 
     // Composite pin palette — neutral slate so it reads as "multiple sources here"
@@ -500,63 +500,86 @@ document.addEventListener('DOMContentLoaded', function () {
 
         switch (record.category) {
             case 'hfc_listings': {
+                // A.2.1 — "Open listing →" smart-picks the activated portal URL
+                // (P24 → PP → HFC website) served by Property::preferredPublicListingUrl().
+                // When no external URL exists (most demo data is unsyndicated)
+                // we fall through to "Open record →" pointing at the internal page.
                 if (typeof recId !== 'number') return [];
-                const showUrl = PROPERTY_SHOW_URL_TPL.replace('__ID__', String(recId));
-                const waUrl   = PROPERTY_OUTREACH_TPL.replace('__ID__', String(recId));
-                return [
-                    {
+                const portalUrl   = record.preferred_public_url || null;
+                const internalUrl = record.internal_url || PROPERTY_SHOW_URL_TPL.replace('__ID__', String(recId));
+                const isSold      = record.status === 'sold';
+
+                if (portalUrl && !isSold) {
+                    return [{
                         key:       'pitch_launched',
-                        label:     'Pitch this property →',
-                        iconLabel: 'Pitch this property',
-                        iconSvg:   ICON_PITCH,
+                        label:     'Open listing →',
+                        iconLabel: 'Open listing on portal',
+                        iconSvg:   ICON_OPEN,
                         style:     'primary',
-                        destUrl:   showUrl,
+                        destUrl:   portalUrl,
+                        newTab:    true,
                         logPayload:{ ...baseLog, action: 'pitch_launched', record_id: recId },
-                    },
-                    {
-                        key:       'whatsapp_launched',
-                        label:     'WhatsApp this property →',
-                        iconLabel: 'WhatsApp this property',
-                        iconSvg:   ICON_WHATSAPP,
-                        style:     'secondary',
-                        destUrl:   waUrl,
-                        logPayload:{ ...baseLog, action: 'whatsapp_launched', record_id: recId },
-                    },
-                ];
+                    }];
+                }
+                // Sold or unsyndicated — internal record only.
+                return [{
+                    key:       'pitch_launched',
+                    label:     isSold ? 'Open record →' : 'Open record →',
+                    iconLabel: 'Open property record',
+                    iconSvg:   ICON_OPEN,
+                    style:     'secondary',
+                    destUrl:   internalUrl,
+                    newTab:    false,
+                    logPayload:{ ...baseLog, action: 'pitch_launched', record_id: recId },
+                }];
             }
 
             case 'sold_comps': {
-                // Sold comps from MIC have a "comp_ref" like "mrcr:123" — that's
-                // what the activity log expects. Navigation target is the
-                // source report (relationships in the detail card already
-                // surfaces this, but the explicit CTA is the spec).
-                const ref = String(recId);
-                const reportLink = record.deep_link || record.detail_url || null;
+                // A.2.1 — "Open evaluation →" deep-links to the comp's source
+                // market report. Returns null when no parent report (e.g. deals).
+                const reportId = record.parent_report_id || null;
+                const url = reportId ? MIC_REPORT_SHOW_TPL.replace('__ID__', String(reportId)) : null;
                 return [{
-                    key:       'comparable_added',
-                    label:     'Use as comparable →',
-                    iconLabel: 'Use as comparable',
-                    iconSvg:   ICON_COMPARABLE,
+                    key:       'cma_opened',
+                    label:     'Open evaluation →',
+                    iconLabel: 'Open evaluation report',
+                    iconSvg:   ICON_OPEN,
                     style:     'secondary',
-                    destUrl:   reportLink,
-                    logPayload:{ ...baseLog, action: 'comparable_added', record_id: ref },
+                    destUrl:   url,
+                    newTab:    true,
+                    // The activity event is still cma_opened because that's
+                    // semantically what the click does — opens the evaluation
+                    // report. The record_id we log is the integer report id.
+                    logPayload: reportId
+                        ? { ...baseLog, action: 'cma_opened', record_id: reportId }
+                        : { ...baseLog, action: 'comparable_added', record_id: String(recId) },
                 }];
             }
 
             case 'active_listings': {
-                // Competitor listing — agent's next move is to find the owner.
-                // Suburb is best-effort: take it off record.subtitle if present.
+                // A.2.1 — "Prospect Now →" lands in MIC Opportunities for the
+                // matching TrackedProperty. The server resolves the tp_id from
+                // address/GPS via TrackedPropertyMatchOrCreateService and
+                // returns redirect_url in the activity-log response.
                 return [{
-                    key:       'find_owner',
-                    label:     'Find owner →',
-                    iconLabel: 'Find owner',
+                    key:       'prospect_launched',
+                    label:     'Prospect Now →',
+                    iconLabel: 'Prospect this property',
                     iconSvg:   ICON_FIND,
-                    style:     'secondary',
-                    destUrl:   MIC_OPPORTUNITIES_URL,
-                    // Comparable_added is the closest activity-event match for
-                    // "find owner from a comp" — both record intent on a comp
-                    // row. Future A.6 may add a dedicated find_owner event.
-                    logPayload:{ ...baseLog, action: 'comparable_added', record_id: String(recId) },
+                    style:     'primary',
+                    destUrl:   MIC_OPPORTUNITIES_URL, // fallback if server doesn't resolve a tp
+                    newTab:    false,
+                    awaitServerRedirect: true, // tells the click handler to wait for redirect_url
+                    logPayload: {
+                        ...baseLog,
+                        action:              'prospect_launched',
+                        record_id:           String(recId),
+                        tracked_property_id: record.tracked_property_id ?? null,
+                        address:             record.title || null,
+                        latitude:            record.lat ?? null,
+                        longitude:           record.lng ?? null,
+                        suburb:              record.suburb || null,
+                    },
                 }];
             }
 
@@ -565,11 +588,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 const reportUrl = MIC_REPORT_SHOW_TPL.replace('__ID__', String(recId));
                 return [{
                     key:       'cma_opened',
-                    label:     'Open valuation →',
-                    iconLabel: 'Open valuation',
+                    label:     'Open evaluation →',
+                    iconLabel: 'Open evaluation',
                     iconSvg:   ICON_OPEN,
                     style:     'primary',
                     destUrl:   reportUrl,
+                    newTab:    true,
                     logPayload:{ ...baseLog, action: 'cma_opened', record_id: recId },
                 }];
             }
@@ -577,8 +601,9 @@ document.addEventListener('DOMContentLoaded', function () {
             case 'scheme_owners': {
                 if (typeof recId !== 'number') return [];
                 // Scheme owners aren't Contacts yet — open a wa.me deep link
-                // when the source carries a phone. If not, the agent at least
-                // sees the panel info and can take it from there.
+                // when the source carries a phone. If not, the button is
+                // disabled (destUrl=null) and the agent uses the right panel
+                // detail to copy the contact details manually.
                 const phone = record.owner_phone || null;
                 const waText = encodeURIComponent('Hi — I noticed your unit at ' + (record.title || 'your building') + ' and wondered if you have a moment to chat.');
                 const waUrl  = phone ? 'https://wa.me/' + phone.replace(/\D/g, '') + '?text=' + waText : null;
@@ -589,6 +614,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     iconSvg:   ICON_WHATSAPP,
                     style:     'primary',
                     destUrl:   waUrl,
+                    newTab:    false,
                     logPayload:{ ...baseLog, action: 'contact_owner_launched', record_id: recId, channel: 'whatsapp' },
                 }];
             }
@@ -841,14 +867,22 @@ document.addEventListener('DOMContentLoaded', function () {
     function openCompositeList(loc) {
         panelParentComposite = loc;
 
-        // Title = the canonical street address (geocode_target if available),
-        // subtitle = "Suburb · N records at this address".
-        const headline = loc.geocode_target
-            ? loc.geocode_target.toUpperCase()
-            : (loc.records[0]?.title || '').toUpperCase();
+        // A.2.1 — header reframe. When every record at this location is a
+        // sectional scheme owner, headline becomes the scheme name + "N units"
+        // — feels like a building card, not a coordinate list. Otherwise the
+        // canonical street address.
+        const allSchemeOwners = (loc.records || []).every(r => r.category === 'scheme_owners');
+        let headline, subline;
+        if (allSchemeOwners && loc.records.length > 0) {
+            const schemeName = String(loc.records[0].title || '').split(' § ')[0].trim() || 'Sectional Scheme';
+            headline = schemeName.toUpperCase();
+            subline  = loc.record_count + ' unit' + (loc.record_count === 1 ? '' : 's');
+        } else {
+            headline = (loc.geocode_target || loc.records[0]?.title || '').toUpperCase();
+            subline  = loc.record_count + ' record' + (loc.record_count === 1 ? '' : 's') + ' at this address';
+        }
         document.getElementById('detail-title').textContent = headline;
-        document.getElementById('detail-subtitle').textContent =
-            loc.record_count + ' record' + (loc.record_count === 1 ? '' : 's') + ' at this address';
+        document.getElementById('detail-subtitle').textContent = subline;
 
         // Show composite view, hide single view.
         document.getElementById('detail-composite-list').style.display = 'block';
@@ -885,6 +919,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     +    'data-map-action="' + escapeAttr(act.key) + '" '
                     +    'data-action-idx="' + globalIdx + ':' + aIdx + '" '
                     +    'title="' + escapeAttr(act.iconLabel) + '" '
+                    +    (act.newTab ? 'target="_blank" rel="noopener" ' : '')
                     +    (act.destUrl ? '' : 'aria-disabled="true" ')
                     +    'style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;color:var(--text-muted);text-decoration:none;transition:all 150ms;" '
                     +    'onmouseover="this.style.color=\'#00d4aa\';this.style.background=\'color-mix(in srgb, #00d4aa 10%, transparent)\';" '
@@ -932,8 +967,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const acts = actionsForRecord(rec, 'composite_row', loc.location_key);
                 const act  = acts[aIdx];
                 if (!act) return;
-                fireActivityLog(act.logPayload);
-                if (!act.destUrl) e.preventDefault();
+                handleActionClick(e, act);
             });
         });
 
@@ -951,8 +985,16 @@ document.addEventListener('DOMContentLoaded', function () {
         const backBtn = document.getElementById('detail-back-btn');
         if (parent) {
             backBtn.style.display = 'flex';
-            const back = parent.record_count + ' record' + (parent.record_count === 1 ? '' : 's')
-                + ' at ' + (parent.geocode_target || parent.records[0]?.title || 'this address');
+            const schemeOnly = (parent.records || []).every(r => r.category === 'scheme_owners');
+            let back;
+            if (schemeOnly && parent.records.length > 0) {
+                const schemeName = String(parent.records[0].title || '').split(' § ')[0].trim() || 'Sectional Scheme';
+                back = parent.record_count + ' unit' + (parent.record_count === 1 ? '' : 's')
+                    + ' at ' + schemeName;
+            } else {
+                back = parent.record_count + ' record' + (parent.record_count === 1 ? '' : 's')
+                    + ' at ' + (parent.geocode_target || parent.records[0]?.title || 'this address');
+            }
             document.getElementById('detail-back-label').textContent = back;
         } else {
             backBtn.style.display = 'none';
@@ -1009,9 +1051,10 @@ document.addEventListener('DOMContentLoaded', function () {
             const stylePrimary = 'background:#00d4aa;color:#0f172a;border:1px solid #00d4aa;';
             const styleSecondary = 'background:transparent;color:#00d4aa;border:1px solid #00d4aa;';
             const styleStr = act.style === 'secondary' ? styleSecondary : stylePrimary;
-            const disabled = !act.destUrl;
+            const disabled = !act.destUrl && !act.awaitServerRedirect;
             return '<a href="' + escapeAttr(act.destUrl || '#') + '" '
                 + 'data-map-action="' + escapeAttr(act.key) + '" '
+                + (act.newTab ? 'target="_blank" rel="noopener" ' : '')
                 + (disabled ? 'aria-disabled="true" ' : '')
                 + 'style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;padding:8px 12px;border-radius:6px;font-size:0.8125rem;font-weight:600;text-decoration:none;transition:opacity 150ms;'
                 +    styleStr + (disabled ? 'opacity:0.5;cursor:not-allowed;' : '') + '">'
@@ -1023,11 +1066,55 @@ document.addEventListener('DOMContentLoaded', function () {
         // Wire activity-log firing on click. Default <a> handles tab vs same-tab.
         host.querySelectorAll('[data-map-action]').forEach((link, idx) => {
             const act = acts[idx];
-            link.addEventListener('click', (e) => {
-                if (!act.destUrl) { e.preventDefault(); return; }
-                fireActivityLog(act.logPayload);
-            });
+            link.addEventListener('click', (e) => handleActionClick(e, act));
         });
+    }
+
+    /**
+     * Unified click handler for both the composite-row icon strip and the
+     * single-detail CTA buttons. Three paths:
+     *  1) act.awaitServerRedirect=true (prospect_launched) — block default
+     *     navigation, fire activity log synchronously, await the server's
+     *     redirect_url (tracked-property match-or-create result), then
+     *     navigate. Fallback to destUrl when the server doesn't return one.
+     *  2) act.destUrl present — fire activity log fire-and-forget and let
+     *     the browser's default <a> navigation proceed.
+     *  3) No destUrl — preventDefault (link is disabled).
+     */
+    async function handleActionClick(e, act) {
+        if (act.awaitServerRedirect) {
+            e.preventDefault();
+            try {
+                const resp = await fetch(MAP_ACTIVITY_URL, {
+                    method:      'POST',
+                    headers:     {
+                        'Accept':       'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': CSRF_TOKEN,
+                    },
+                    credentials: 'same-origin',
+                    body:        JSON.stringify(act.logPayload),
+                });
+                if (resp.ok) {
+                    const body = await resp.json();
+                    const url = body.redirect_url || act.destUrl;
+                    if (url) {
+                        if (act.newTab) window.open(url, '_blank', 'noopener');
+                        else window.location.href = url;
+                        return;
+                    }
+                }
+            } catch (err) { /* fall through to destUrl fallback */ }
+            if (act.destUrl) {
+                if (act.newTab) window.open(act.destUrl, '_blank', 'noopener');
+                else window.location.href = act.destUrl;
+            }
+            return;
+        }
+        if (!act.destUrl) { e.preventDefault(); return; }
+        fireActivityLog(act.logPayload);
+        // newTab handled by the anchor's target=_blank attribute; default
+        // <a> navigation continues.
     }
 
     function renderCard(card) {

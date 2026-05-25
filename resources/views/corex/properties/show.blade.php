@@ -898,6 +898,8 @@
                                 'matterportId'    => $property->matterport_id ?? '',
                                 'ppDelayUntil'    => $property->pp_delay_until ? $property->pp_delay_until->format('d M Y') : '',
                                 'ppDelayUntilRaw' => $property->pp_delay_until ? $property->pp_delay_until->toIso8601String() : '',
+                                // A.2.1 — single source of truth for the public URL lives on Property.
+                                'publicUrl'       => $property->publicListingUrls()['pp'] ?? '',
                             ];
                         @endphp
                         <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-3">
@@ -1098,6 +1100,8 @@
                                 'ppDelayUntil'    => $property->pp_delay_until ? $property->pp_delay_until->format('d M Y') : '',
                                 'resolvedP24AgencyId'    => $resolvedP24AgencyId ?? '',
                                 'resolvedP24AgencyLabel' => $resolvedP24AgencyLabel ?? '',
+                                // A.2.1 — single source of truth for the public URL lives on Property.
+                                'publicUrl'              => $property->publicListingUrls()['p24'] ?? '',
                             ];
                         @endphp
                         <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-3 mt-2">
@@ -5605,7 +5609,10 @@ function ppSyndication(config) {
         },
 
         ppListingUrl() {
-            return this.ppRef ? `https://www.privateproperty.co.za/search?q=${this.ppRef}` : '#';
+            // A.2.1 — sourced from Property::publicListingUrls()['pp'] server-side.
+            // Falls through to the legacy search-by-ref pattern if the server
+            // hasn't populated publicUrl (e.g. status not 'active' yet).
+            return this.publicUrl || (this.ppRef ? `https://www.privateproperty.co.za/search?q=${this.ppRef}` : '#');
         },
 
         showMessage(msg, type = 'success') {
@@ -5894,6 +5901,10 @@ function p24Syndication(config) {
             return styles[this.status] || styles[''];
         },
         p24ListingUrl() {
+            // A.2.1 — single source of truth lives on Property::publicListingUrls()['p24'].
+            // Server-rendered URL when status is 'active'. Sandbox testing still
+            // computes locally because the sandbox domain isn't in the accessor.
+            if (this.publicUrl) return this.publicUrl;
             const domain = this.isSandbox ? 'www.exdev.property24-test.com' : 'www.property24.com';
             const slug = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'property';
             const section = this.listingType === 'rental' ? 'to-rent' : 'for-sale';

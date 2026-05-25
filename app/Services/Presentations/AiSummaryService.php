@@ -468,7 +468,7 @@ TXT;
 
         $c = $facts['cma'] ?? [];
         if (!empty($c['lower']) || !empty($c['upper'])) {
-            $out[] = 'CMA Valuation Range: ' . $this->zar($c['lower']) . ' to ' . $this->zar($c['upper'])
+            $out[] = 'CMA Evaluation Range: ' . $this->zar($c['lower']) . ' to ' . $this->zar($c['upper'])
                 . (!empty($c['middle']) ? ' (middle ' . $this->zar($c['middle']) . ')' : '');
         }
 

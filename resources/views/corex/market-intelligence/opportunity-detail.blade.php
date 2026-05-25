@@ -134,7 +134,7 @@
         </div>
 
         <div style="padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
-            <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Valuation</div>
+            <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">Evaluation</div>
             <div style="font-size: 0.8125rem; color: var(--text-primary);">
                 @if($tp->municipal_valuation)
                     <div style="margin-bottom: 4px;">
@@ -149,7 +149,7 @@
                     </div>
                 @endif
                 @if(!$tp->municipal_valuation && !$tp->last_known_asking_price)
-                    <span style="font-size: 0.75rem; font-style: italic; color: var(--text-muted);">No valuation accumulated yet.</span>
+                    <span style="font-size: 0.75rem; font-style: italic; color: var(--text-muted);">No evaluation accumulated yet.</span>
                 @endif
             </div>
         </div>

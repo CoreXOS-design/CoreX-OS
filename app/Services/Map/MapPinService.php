@@ -134,6 +134,14 @@ final class MapPinService
             'sensitive'  => $pin['sensitive'] ?? false,
             'price'      => $pin['price']     ?? null,
             'date'       => $pin['date']      ?? null,
+            // A.2.1 — per-category extras used by actionsForRecord() in the JS.
+            'status'               => $pin['status']               ?? null,
+            'preferred_public_url' => $pin['preferred_public_url'] ?? null,
+            'internal_url'         => $pin['internal_url']         ?? null,
+            'parent_report_id'     => $pin['parent_report_id']     ?? null,
+            'tracked_property_id'  => $pin['tracked_property_id']  ?? null,
+            'owner_phone'          => $pin['owner_phone']          ?? null,
+            'owner_email'          => $pin['owner_email']          ?? null,
         ];
     }
 
@@ -155,23 +163,53 @@ final class MapPinService
 
         $total = (clone $q)->count();
 
-        $rows = $q->select(['id', 'address', 'property_type', 'price', 'latitude', 'longitude'])
+        // A.2.1 — fetch the columns the URL accessor needs so we can hand
+        // the client a preferred_public_url + status without round-tripping.
+        $rows = $q->select([
+                'id', 'address', 'property_type', 'price', 'status',
+                'latitude', 'longitude', 'suburb', 'city', 'town', 'province',
+                'pp_ref', 'p24_ref', 'pp_syndication_status', 'p24_syndication_status',
+                'pp_suburb_id', 'listing_type',
+            ])
             ->orderBy('id')
             ->limit($limit)
             ->get();
 
-        $pins = $rows->map(fn ($r) => [
-            'id'         => (int) $r->id,
-            'layer'      => 'hfc_listings',
-            'lat'        => (float) $r->latitude,
-            'lng'        => (float) $r->longitude,
-            'title'      => $r->address ?: 'Property #' . $r->id,
-            'subtitle'   => $this->formatPropertySubtitle($r),
-            'price'      => $r->price !== null ? (int) $r->price : null,
-            'date'       => null,
-            'detail_url' => route('corex.properties.map-card', ['property' => $r->id]),
-            'sensitive'  => false,
-        ])->all();
+        $pins = $rows->map(function ($r) {
+            // Hydrate just enough of a Property to call the accessor — avoids
+            // an N+1 reload of every row through Eloquent.
+            $p = new \App\Models\Property();
+            $p->forceFill([
+                'address'                  => $r->address,
+                'suburb'                   => $r->suburb,
+                'city'                     => $r->town ?? $r->city,
+                'province'                 => $r->province,
+                'pp_ref'                   => $r->pp_ref,
+                'p24_ref'                  => $r->p24_ref,
+                'pp_syndication_status'    => $r->pp_syndication_status,
+                'p24_syndication_status'   => $r->p24_syndication_status,
+                'pp_suburb_id'             => $r->pp_suburb_id,
+                'listing_type'             => $r->listing_type,
+            ]);
+
+            return [
+                'id'                   => (int) $r->id,
+                'layer'                => 'hfc_listings',
+                'lat'                  => (float) $r->latitude,
+                'lng'                  => (float) $r->longitude,
+                'title'                => $r->address ?: 'Property #' . $r->id,
+                'subtitle'             => $this->formatPropertySubtitle($r),
+                'price'                => $r->price !== null ? (int) $r->price : null,
+                'date'                 => null,
+                'detail_url'           => route('corex.properties.map-card', ['property' => $r->id]),
+                'sensitive'            => false,
+                // A.2.1 — context the JS actionsForRecord() needs for the
+                // smart Open-listing button.
+                'status'               => (string) ($r->status ?? ''),
+                'preferred_public_url' => $p->preferredPublicListingUrl(),
+                'internal_url'         => route('corex.properties.show', $r->id),
+            ];
+        })->all();
 
         $pins = $this->applyRadiusFilter($pins, $req);
         return [$pins, $total];
@@ -227,6 +265,8 @@ final class MapPinService
                 DB::raw('COALESCE(mrcr.latitude, mr_scheme.subject_latitude) as latitude'),
                 DB::raw('COALESCE(mrcr.longitude, mr_scheme.subject_longitude) as longitude'),
                 'mrcr.scheme_name', 'mrcr.section_number',
+                // A.2.1 — parent report id surfaces "Open evaluation".
+                'mrcr.market_report_id',
             ]);
         $this->applyDemoFilter($mrcrQ, $req, 'mrcr.is_demo');
         $this->applyDateFilter($mrcrQ, $req, 'mrcr.sale_date');
@@ -241,16 +281,17 @@ final class MapPinService
                 ? trim($r->scheme_name . ($r->section_number ? ' § ' . $r->section_number : ''))
                 : ($r->address ?? 'Comp #' . $r->id);
             $combined[$key] = [
-                'id'         => 'mrcr:' . $r->id,
-                'layer'      => 'sold_comps',
-                'lat'        => (float) $r->latitude,
-                'lng'        => (float) $r->longitude,
-                'title'      => $title,
-                'subtitle'   => $this->formatSoldSubtitle($price, $r->sale_date),
-                'price'      => $price,
-                'date'       => $r->sale_date,
-                'detail_url' => route('corex.map.sold', ['layerId' => 'mrcr:' . $r->id]),
-                'sensitive'  => false,
+                'id'               => 'mrcr:' . $r->id,
+                'layer'            => 'sold_comps',
+                'lat'              => (float) $r->latitude,
+                'lng'              => (float) $r->longitude,
+                'title'            => $title,
+                'subtitle'         => $this->formatSoldSubtitle($price, $r->sale_date),
+                'price'            => $price,
+                'date'             => $r->sale_date,
+                'detail_url'       => route('corex.map.sold', ['layerId' => 'mrcr:' . $r->id]),
+                'sensitive'        => false,
+                'parent_report_id' => (int) $r->market_report_id,
             ];
         }
 
@@ -389,6 +430,9 @@ final class MapPinService
                 DB::raw('COALESCE(mrcr.latitude, mr_scheme.subject_latitude) as latitude'),
                 DB::raw('COALESCE(mrcr.longitude, mr_scheme.subject_longitude) as longitude'),
                 'mrcr.scheme_name', 'mrcr.section_number',
+                // A.2.1 — parent report id surfaces "Open evaluation" if the
+                // agent wants the source report instead of the prospect flow.
+                'mrcr.market_report_id',
             ]);
         $this->applyDemoFilter($mrcrQ, $req, 'mrcr.is_demo');
         $this->applyPriceFilter($mrcrQ, $req, 'mrcr.list_price');
@@ -402,16 +446,17 @@ final class MapPinService
                 ? trim($r->scheme_name . ($r->section_number ? ' § ' . $r->section_number : ''))
                 : ($r->address ?? 'Listing #' . $r->id);
             $combined[$key] = [
-                'id'         => 'mrcr:' . $r->id,
-                'layer'      => 'active_listings',
-                'lat'        => (float) $r->latitude,
-                'lng'        => (float) $r->longitude,
-                'title'      => $title,
-                'subtitle'   => $this->formatActiveSubtitle($price, $r->days_on_market),
-                'price'      => $price,
-                'date'       => null,
-                'detail_url' => route('corex.map.active', ['layerId' => 'mrcr:' . $r->id]),
-                'sensitive'  => false,
+                'id'               => 'mrcr:' . $r->id,
+                'layer'            => 'active_listings',
+                'lat'              => (float) $r->latitude,
+                'lng'              => (float) $r->longitude,
+                'title'            => $title,
+                'subtitle'         => $this->formatActiveSubtitle($price, $r->days_on_market),
+                'price'            => $price,
+                'date'             => null,
+                'detail_url'       => route('corex.map.active', ['layerId' => 'mrcr:' . $r->id]),
+                'sensitive'        => false,
+                'parent_report_id' => (int) $r->market_report_id,
             ];
         }
 

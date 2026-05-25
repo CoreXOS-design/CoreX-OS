@@ -200,7 +200,7 @@
 <div class="footer">
     Prepared by {{ $agentName }} &middot; Home Finders Coastal &middot; {{ now()->format('d M Y') }}
     <br>
-    This analysis is based on publicly available data and independent CMA valuation. All values in South African Rand (ZAR).
+    This analysis is based on publicly available data and independent CMA evaluation. All values in South African Rand (ZAR).
 </div>
 
 </body>

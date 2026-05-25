@@ -326,7 +326,7 @@ final class MapController extends Controller
             $report->subject_scheme_name ? ['label' => 'Scheme', 'value' => $report->subject_scheme_name] : null,
             $report->subject_section_number ? ['label' => 'Section', 'value' => (string) $report->subject_section_number] : null,
             $report->subject_extent_m2 ? ['label' => 'Extent', 'value' => $report->subject_extent_m2 . ' m²'] : null,
-            $munRow ? ['label' => 'Municipal valuation', 'value' => 'R ' . number_format((int) $munRow->metric_value_numeric, 0, '.', ' ') . ($munRow->metric_date ? ' (' . substr($munRow->metric_date, 0, 4) . ')' : '')] : null,
+            $munRow ? ['label' => 'Municipal evaluation', 'value' => 'R ' . number_format((int) $munRow->metric_value_numeric, 0, '.', ' ') . ($munRow->metric_date ? ' (' . substr($munRow->metric_date, 0, 4) . ')' : '')] : null,
             ['label' => 'Imported', 'value' => optional($report->created_at)->format('M Y') ?: '—'],
             ['label' => 'Report type', 'value' => $report->reportType?->display_name ?? '—'],
         ]);

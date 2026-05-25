@@ -251,7 +251,7 @@
                     $secs=[
                         ['property','Property Information',[['Province','KwaZulu-Natal'],['Suburb','Newlands East'],['Street','198 John Dory Drive'],['ERF','1438'],['Stand Size','363 m²'],['Extension','Newlands Ext 16'],['Portion','0']]],
                         ['sale','Sale Information',[['Title Deed','T4788/1997'],['Sale Date','22 Aug 1996'],['Transfer Date','21 Feb 1997'],['Purchase Amount','R 12 900'],['Bond Amount','R 0'],['Bond Holder','—']]],
-                        ['muni','Municipal Valuation',[['Valuation','R 750 000'],['Valuation Date','1 Jul 2017']]],
+                        ['muni','Municipal Evaluation',[['Evaluation','R 750 000'],['Evaluation Date','1 Jul 2017']]],
                         ['serv','Servitudes / Endorsements',[]],
                         ['transfer','Transfer History',[['Date','22 Aug 1996'],['Price','R 12 900'],['Bond','R 0'],['Title Deed','T4788/1997']]],
                         ['street','Street Summary',[['2019 — 2 sales','Avg R 787 500'],['2020 — 0 sales','—'],['2021 — 2 sales','Avg R 622 500']]],

@@ -400,7 +400,7 @@
         }
         if (note) {
             if (overpriced) {
-                note.textContent = 'Above CMA valuation';
+                note.textContent = 'Above CMA evaluation';
                 note.classList.remove('hidden', 'text-emerald-500');
                 note.classList.add('text-red-500');
             } else {
@@ -435,7 +435,7 @@
             var rangeName = range.charAt(0).toUpperCase() + range.slice(1);
             var labelEl = card.querySelector('.insight-label');
             if (labelEl) {
-                if (type === 'cma') labelEl.textContent = 'vs CMA Valuation (' + range + ')';
+                if (type === 'cma') labelEl.textContent = 'vs CMA Evaluation (' + range + ')';
                 else labelEl.textContent = 'vs Vicinity Range (' + range + ')';
             }
 

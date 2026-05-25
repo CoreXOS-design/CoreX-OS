@@ -8,12 +8,15 @@ use App\Events\Map\MapCmaOpened;
 use App\Events\Map\MapComparableAdded;
 use App\Events\Map\MapContactOwnerLaunched;
 use App\Events\Map\MapPitchLaunched;
+use App\Events\Map\MapProspectLaunched;
 use App\Events\Map\MapWhatsAppLaunched;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\MarketReports\MarketReport;
 use App\Models\MarketReports\SchemeOwner;
 use App\Models\Property;
+use App\Models\Prospecting\TrackedProperty;
+use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -50,11 +53,21 @@ final class MapActivityController extends Controller
             'action'       => ['required', Rule::in([
                 'pitch_launched', 'whatsapp_launched', 'contact_owner_launched',
                 'comparable_added', 'cma_opened',
+                // Phase A.2.1 — Prospect Now from competitor active listings.
+                'prospect_launched',
             ])],
-            'category'     => ['required', 'string', 'max:40'],
-            'record_id'    => ['required'],   // int OR string ref — validated per-action below
-            'location_key' => ['required', 'string', 'max:120'],
-            'source'       => ['required', Rule::in(['composite_row', 'single_detail'])],
+            'category'             => ['required', 'string', 'max:40'],
+            'record_id'            => ['required'],   // int OR string ref — validated per-action below
+            'location_key'         => ['required', 'string', 'max:120'],
+            'source'               => ['required', Rule::in(['composite_row', 'single_detail'])],
+            // prospect_launched optional inputs — when tracked_property_id is
+            // already known the client passes it through; otherwise the
+            // controller calls match-or-create using the address/GPS facts.
+            'tracked_property_id'  => ['sometimes', 'nullable', 'integer'],
+            'address'              => ['sometimes', 'nullable', 'string', 'max:255'],
+            'latitude'             => ['sometimes', 'nullable', 'numeric'],
+            'longitude'            => ['sometimes', 'nullable', 'numeric'],
+            'suburb'               => ['sometimes', 'nullable', 'string', 'max:120'],
         ]);
 
         $user = $request->user();
@@ -63,12 +76,17 @@ final class MapActivityController extends Controller
             return response()->json(['error' => 'No agency context.'], 403);
         }
 
+        // Extras carry per-action server-resolved context — e.g. for
+        // prospect_launched the match-or-create result (tracked_property_id +
+        // redirect_url) so the client can navigate to opportunities.show.
+        $extras = [];
         $event = match ($data['action']) {
             'pitch_launched'         => $this->pitchLaunched($data, $agencyId, $user->id),
             'whatsapp_launched'      => $this->whatsAppLaunched($data, $agencyId, $user->id),
             'contact_owner_launched' => $this->contactOwnerLaunched($data, $agencyId, $user->id),
             'comparable_added'       => $this->comparableAdded($data, $agencyId, $user->id),
             'cma_opened'             => $this->cmaOpened($data, $agencyId, $user->id),
+            'prospect_launched'      => $this->prospectLaunched($data, $agencyId, $user->id, $extras),
         };
 
         if ($event === null) {
@@ -77,10 +95,10 @@ final class MapActivityController extends Controller
 
         event($event);
 
-        return response()->json([
+        return response()->json(array_merge([
             'logged'   => true,
             'event_id' => $event->eventId,
-        ]);
+        ], $extras));
     }
 
     private function pitchLaunched(array $data, int $agencyId, int $userId): ?MapPitchLaunched
@@ -181,6 +199,74 @@ final class MapActivityController extends Controller
             actingUserId: $userId,
             locationKey:  (string) $data['location_key'],
             source:       (string) $data['source'],
+        );
+    }
+
+    /**
+     * Phase A.2.1 — "Prospect Now" on a competitor active listing.
+     *
+     * The client passes through:
+     *   - tracked_property_id when known (prospecting_listings has it pre-resolved
+     *     ~100% of the time per the investigation),
+     *   - OR address + lat/lng + suburb when not (active_listings from
+     *     market_report_comp_rows / presentation_active_listings — no FK).
+     *
+     * When tracked_property_id is null we call the universal match-or-create
+     * service (CLAUDE.md non-negotiable #10) using the provided facts. The
+     * resolved tp_id then flows back to the client via $extras so it can
+     * redirect to market-intelligence.opportunities.show.
+     */
+    private function prospectLaunched(array $data, int $agencyId, int $userId, array &$extras): ?MapProspectLaunched
+    {
+        $tp = null;
+
+        if (!empty($data['tracked_property_id'])) {
+            $tp = TrackedProperty::withoutGlobalScopes()
+                ->where('id', (int) $data['tracked_property_id'])
+                ->where('agency_id', $agencyId)
+                ->first();
+        }
+
+        if ($tp === null) {
+            // Resolve via match-or-create. The map carries minimal facts —
+            // address, GPS, suburb — same shape every other ingestion path
+            // produces.
+            $facts = array_filter([
+                'address'   => $data['address']   ?? null,
+                'latitude'  => isset($data['latitude'])  ? (float) $data['latitude']  : null,
+                'longitude' => isset($data['longitude']) ? (float) $data['longitude'] : null,
+                'suburb'    => $data['suburb']    ?? null,
+            ], static fn ($v) => $v !== null && $v !== '');
+
+            if (empty($facts)) {
+                return null;
+            }
+
+            try {
+                $tp = app(TrackedPropertyMatchOrCreateService::class)->matchOrCreate(
+                    agencyId:     $agencyId,
+                    facts:        $facts,
+                    source:       [
+                        'type' => 'map_prospect_launch',
+                        'ref'  => (string) ($data['record_id'] ?? $data['location_key']),
+                        'payload' => null,
+                    ],
+                    actorUserId: $userId,
+                );
+            } catch (\Throwable $e) {
+                return null;
+            }
+        }
+
+        $extras['tracked_property_id'] = (int) $tp->id;
+        $extras['redirect_url']        = route('market-intelligence.opportunities.show', $tp);
+
+        return new MapProspectLaunched(
+            trackedProperty: $tp,
+            agencyId:        $agencyId,
+            actingUserId:    $userId,
+            locationKey:     (string) $data['location_key'],
+            source:          (string) $data['source'],
         );
     }
 }

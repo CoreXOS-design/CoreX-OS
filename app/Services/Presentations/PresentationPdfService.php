@@ -719,11 +719,11 @@ a:hover { text-decoration: underline; }
         <div class="label">Your Asking Price</div>
         <div class="value"><?= $zar($askingPrice) ?></div>
         <?php if ($askVsCmaPct !== null): ?>
-        <div class="sub"><?= $pct($askVsCmaPct) ?> vs CMA valuation</div>
+        <div class="sub"><?= $pct($askVsCmaPct) ?> vs CMA evaluation</div>
         <?php endif ?>
     </div>
     <div class="metric-card highlight">
-        <div class="label">CMA Valuation (<?= $esc(ucfirst($cma['selected_range'] ?? 'middle')) ?>)</div>
+        <div class="label">CMA Evaluation (<?= $esc(ucfirst($cma['selected_range'] ?? 'middle')) ?>)</div>
         <div class="value"><?= $zar($cma['selected_value'] ?? $cmaMiddle) ?></div>
         <div class="sub">Independent market assessment</div>
     </div>
@@ -873,7 +873,7 @@ a:hover { text-decoration: underline; }
         <?php if ($subject['purchase_price']): ?><tr><td>Purchase Price</td><td class="num"><?= $zar($subject['purchase_price']) ?></td></tr><?php endif ?>
         <?php if ($subject['indexed_value']): ?><tr><td>Indexed Value</td><td class="num"><?= $zar($subject['indexed_value']) ?></td></tr><?php endif ?>
         <?php if ($subject['cagr']): ?><tr><td>CAGR</td><td class="num"><?= number_format($subject['cagr'], 2) ?>%</td></tr><?php endif ?>
-        <?php if ($subject['municipal_value']): ?><tr><td>Municipal Valuation<?php if ($subject['municipal_year']): ?> (<?= $esc($subject['municipal_year']) ?>)<?php endif ?></td><td class="num"><?= $zar($subject['municipal_value']) ?></td></tr><?php endif ?>
+        <?php if ($subject['municipal_value']): ?><tr><td>Municipal Evaluation<?php if ($subject['municipal_year']): ?> (<?= $esc($subject['municipal_year']) ?>)<?php endif ?></td><td class="num"><?= $zar($subject['municipal_value']) ?></td></tr><?php endif ?>
     </tbody>
 </table>
 </div>
