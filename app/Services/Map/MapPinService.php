@@ -185,16 +185,26 @@ final class MapPinService
     {
         $q = DB::table('properties')
             ->whereNull('deleted_at')
-            ->where('agency_id', $req->agencyId)
             ->whereNotNull('latitude')->whereNotNull('longitude')
             ->whereBetween('latitude',  [$req->south, $req->north])
             ->whereBetween('longitude', [$req->west,  $req->east]);
+
+        // A.3.1 — scope (my / agency / all) + extended filters.
+        $this->applyScopeFilter($q, $req, 'agency_id', 'agent_id');
 
         $this->applyDemoFilter($q, $req, 'is_demo');
         $this->applyPropertyTypeFilter($q, $req, 'property_type');
         $this->applyTypeFilter($q, $req, 'property_type');
         $this->applyBedroomsFilter($q, $req, 'beds');
         $this->applyPriceFilter($q, $req, 'price');
+
+        // A.3.1 — extended filters. Columns are HFC properties-table specific.
+        $this->applyRangeFilter($q, $req->bedroomsMin,  $req->bedroomsMax,  'beds');
+        $this->applyRangeFilter($q, $req->bathroomsMin, $req->bathroomsMax, 'baths');
+        $this->applyRangeFilter($q, $req->standMin,     $req->standMax,     'erf_size_m2');
+        $this->applyRangeFilter($q, $req->buildingMin,  $req->buildingMax,  'size_m2');
+        $this->applyStatusFilter($q, $req, 'status');
+        $this->applySearchFilter($q, $req, ['address', 'title', 'complex_name', 'suburb']);
 
         $total = (clone $q)->count();
 
@@ -299,7 +309,6 @@ final class MapPinService
                 }
             })
             ->whereNull('mrcr.deleted_at')
-            ->where('mr.agency_id', $req->agencyId)
             ->where('mrcr.row_type', 'comp')
             ->whereNotNull('mrcr.sale_price')
             ->whereRaw('COALESCE(mrcr.latitude, mr_scheme.subject_latitude) IS NOT NULL')
@@ -313,10 +322,17 @@ final class MapPinService
                 // A.2.1 — parent report id surfaces "Open evaluation".
                 'mrcr.market_report_id',
             ]);
+        // A.3.1 — scope on the parent market_reports row (comp rows have no
+        // agent_id of their own — 'my' falls back to 'agency' here).
+        $this->applyScopeFilter($mrcrQ, $req, 'mr.agency_id');
         $this->applyDemoFilter($mrcrQ, $req, 'mrcr.is_demo');
         $this->applyDateFilter($mrcrQ, $req, 'mrcr.sale_date');
+        $this->applySoldWindowFilter($mrcrQ, $req, 'mrcr.sale_date');
         $this->applyPriceFilter($mrcrQ, $req, 'mrcr.sale_price');
         $this->applyTypeFilter($mrcrQ, $req, 'mrcr.property_type');
+        // A.3.1 — comp rows have only `extent_m2` (stand size). No beds/baths.
+        $this->applyRangeFilter($mrcrQ, $req->standMin, $req->standMax, 'mrcr.extent_m2');
+        $this->applySearchFilter($mrcrQ, $req, ['mrcr.address', 'mrcr.scheme_name']);
 
         foreach ($mrcrQ->limit($limit)->get() as $r) {
             $key = $this->dedupeKey($r->address ?? $r->scheme_name ?? '', $r->sale_date ?? '');
@@ -345,13 +361,14 @@ final class MapPinService
         $pscQ = DB::table('presentation_sold_comps as psc')
             ->join('presentations as p', 'p.id', '=', 'psc.presentation_id')
             ->whereNull('psc.deleted_at')
-            ->where('p.agency_id', $req->agencyId)
             ->whereNotNull('psc.raw_row_json')
             ->select([
                 'psc.id', 'psc.sold_date as sale_date', 'psc.sold_price_inc as sale_price',
                 'psc.raw_row_json', 'psc.suburb',
             ]);
+        $this->applyScopeFilter($pscQ, $req, 'p.agency_id');
         $this->applyDateFilter($pscQ, $req, 'psc.sold_date');
+        $this->applySoldWindowFilter($pscQ, $req, 'psc.sold_date');
         $this->applyPriceFilter($pscQ, $req, 'psc.sold_price_inc');
 
         foreach ($pscQ->limit($limit * 2)->get() as $r) {
@@ -395,7 +412,6 @@ final class MapPinService
         $dealsQ = DB::table('deals as d')
             ->join('properties as p', 'p.id', '=', 'd.property_id')
             ->whereNull('d.deleted_at')
-            ->where('d.agency_id', $req->agencyId)
             ->whereNotNull('d.property_id')
             ->whereNotNull('d.registration_date')
             ->where(function ($q) {
@@ -410,9 +426,18 @@ final class MapPinService
                 'd.sale_price', 'd.property_value', 'd.property_address',
                 'p.address as prop_address', 'p.latitude', 'p.longitude',
             ]);
+        // A.3.1 — scope on deals + property's agent_id ('my' = current
+        // agent's HFC sales).
+        $this->applyScopeFilter($dealsQ, $req, 'd.agency_id', 'p.agent_id');
         $this->applyDemoFilter($dealsQ, $req, 'd.is_demo');
-        $this->applyDateFilter($dealsQ, $req, 'd.sale_date');
+        $this->applyDateFilter($dealsQ, $req, 'd.registration_date');
+        $this->applySoldWindowFilter($dealsQ, $req, 'd.registration_date');
         $this->applyPriceFilter($dealsQ, $req, 'd.sale_price');
+        $this->applyRangeFilter($dealsQ, $req->bedroomsMin,  $req->bedroomsMax,  'p.beds');
+        $this->applyRangeFilter($dealsQ, $req->bathroomsMin, $req->bathroomsMax, 'p.baths');
+        $this->applyRangeFilter($dealsQ, $req->standMin,     $req->standMax,     'p.erf_size_m2');
+        $this->applyRangeFilter($dealsQ, $req->buildingMin,  $req->buildingMax,  'p.size_m2');
+        $this->applySearchFilter($dealsQ, $req, ['p.address', 'p.title', 'p.complex_name', 'p.suburb', 'd.property_address']);
 
         foreach ($dealsQ->limit($limit)->get() as $r) {
             $key = $this->dedupeKey($r->prop_address ?? $r->property_address ?? '', $r->sale_date ?? '');
@@ -464,7 +489,6 @@ final class MapPinService
                 }
             })
             ->whereNull('mrcr.deleted_at')
-            ->where('mr.agency_id', $req->agencyId)
             ->where('mrcr.row_type', 'listing')
             ->whereNotNull('mrcr.list_price')
             ->whereRaw('COALESCE(mrcr.latitude, mr_scheme.subject_latitude) IS NOT NULL')
@@ -479,9 +503,14 @@ final class MapPinService
                 // agent wants the source report instead of the prospect flow.
                 'mrcr.market_report_id',
             ]);
+        // A.3.1 — scope on parent market_reports.agency_id.
+        $this->applyScopeFilter($mrcrQ, $req, 'mr.agency_id');
         $this->applyDemoFilter($mrcrQ, $req, 'mrcr.is_demo');
         $this->applyPriceFilter($mrcrQ, $req, 'mrcr.list_price');
         $this->applyTypeFilter($mrcrQ, $req, 'mrcr.property_type');
+        $this->applyRangeFilter($mrcrQ, $req->standMin, $req->standMax, 'mrcr.extent_m2');
+        $this->applyRangeFilter($mrcrQ, $req->domMin,   $req->domMax,   'mrcr.days_on_market');
+        $this->applySearchFilter($mrcrQ, $req, ['mrcr.address', 'mrcr.scheme_name']);
 
         foreach ($mrcrQ->limit($limit)->get() as $r) {
             $key = $this->dedupeKey($r->address ?? $r->scheme_name ?? '', 'active');
@@ -509,12 +538,12 @@ final class MapPinService
         $palQ = DB::table('presentation_active_listings as pal')
             ->join('presentations as p', 'p.id', '=', 'pal.presentation_id')
             ->whereNull('pal.deleted_at')
-            ->where('p.agency_id', $req->agencyId)
             ->whereNotNull('pal.raw_row_json')
             ->select([
                 'pal.id', 'pal.list_price_inc as list_price',
                 'pal.raw_row_json', 'pal.suburb',
             ]);
+        $this->applyScopeFilter($palQ, $req, 'p.agency_id');
         $this->applyPriceFilter($palQ, $req, 'pal.list_price_inc');
 
         foreach ($palQ->limit($limit * 2)->get() as $r) {
@@ -562,7 +591,6 @@ final class MapPinService
     {
         $q = DB::table('market_reports')
             ->whereNull('deleted_at')
-            ->where('agency_id', $req->agencyId)
             ->whereNotNull('subject_latitude')->whereNotNull('subject_longitude')
             ->whereBetween('subject_latitude',  [$req->south, $req->north])
             ->whereBetween('subject_longitude', [$req->west,  $req->east])
@@ -575,7 +603,11 @@ final class MapPinService
                 'mrt.display_name as report_type_name',
                 'mrt.key as report_type_key',
             ]);
+        // A.3.1 — scope. market_reports has no per-row agent column, so 'my'
+        // falls back to 'agency'.
+        $this->applyScopeFilter($q, $req, 'market_reports.agency_id');
         $this->applyDemoFilter($q, $req, 'market_reports.is_demo');
+        $this->applySearchFilter($q, $req, ['market_reports.subject_address', 'market_reports.subject_scheme_name']);
 
         $total = (clone $q)->count();
         $rows = $q->orderByDesc('market_reports.id')->limit($limit)->get();
@@ -610,7 +642,6 @@ final class MapPinService
             })
             ->whereNull('so.deleted_at')
             ->whereNull('mr.deleted_at')
-            ->where('so.agency_id', $req->agencyId)
             ->whereNotNull('mr.subject_latitude')
             ->whereNotNull('mr.subject_longitude')
             ->whereBetween('mr.subject_latitude',  [$req->south, $req->north])
@@ -621,7 +652,10 @@ final class MapPinService
                 DB::raw('MIN(mr.subject_latitude) as latitude'),
                 DB::raw('MIN(mr.subject_longitude) as longitude'),
             ]);
+        // A.3.1 — scope on scheme_owners.agency_id. No per-row agent.
+        $this->applyScopeFilter($q, $req, 'so.agency_id');
         $this->applyDemoFilter($q, $req, 'so.is_demo');
+        $this->applySearchFilter($q, $req, ['so.scheme_name', 'so.owner_name']);
 
         $totalQ = DB::table('scheme_owners as so')
             ->join('market_reports as mr', function ($j) {
@@ -629,11 +663,12 @@ final class MapPinService
             })
             ->whereNull('so.deleted_at')
             ->whereNull('mr.deleted_at')
-            ->where('so.agency_id', $req->agencyId)
             ->whereNotNull('mr.subject_latitude')
             ->whereBetween('mr.subject_latitude',  [$req->south, $req->north])
             ->whereBetween('mr.subject_longitude', [$req->west,  $req->east]);
+        $this->applyScopeFilter($totalQ, $req, 'so.agency_id');
         $this->applyDemoFilter($totalQ, $req, 'so.is_demo');
+        $this->applySearchFilter($totalQ, $req, ['so.scheme_name', 'so.owner_name']);
         $total = $totalQ->distinct('so.id')->count('so.id');
 
         $rows = $q->orderBy('so.id')->limit($limit)->get();
@@ -693,6 +728,76 @@ final class MapPinService
         if ($req->dateToYear !== null) {
             $q->whereYear($column, '<=', $req->dateToYear);
         }
+    }
+
+    /**
+     * A.3.1 — Stock Scope narrowing.
+     *   'my'     → agency_id = req->agencyId AND agent_id = req->actorUserId
+     *              (falls back to 'agency' for layers without a per-row agent
+     *              column — see $agentColumn=null)
+     *   'agency' → agency_id = req->agencyId (default)
+     *   'all'    → no agency narrowing (controller gates this on role)
+     */
+    private function applyScopeFilter($q, MapBoundsRequest $req, string $agencyColumn, ?string $agentColumn = null): void
+    {
+        $scope = $req->scope ?? 'agency';
+        if ($scope === 'all') {
+            return;
+        }
+        $q->where($agencyColumn, $req->agencyId);
+        if ($scope === 'my' && $req->actorUserId && $agentColumn !== null) {
+            $q->where($agentColumn, $req->actorUserId);
+        }
+    }
+
+    /** A.3.1 — generic min/max range narrowing. Skipped when both null. */
+    private function applyRangeFilter($q, ?int $min, ?int $max, string $column): void
+    {
+        if ($min !== null) $q->where($column, '>=', $min);
+        if ($max !== null) $q->where($column, '<=', $max);
+    }
+
+    /** A.3.1 — multi-select listing status (active, sold, draft, ...). */
+    private function applyStatusFilter($q, MapBoundsRequest $req, string $column): void
+    {
+        if (empty($req->listingStatus)) return;
+        $q->whereIn($column, $req->listingStatus);
+    }
+
+    /**
+     * A.3.1 — free-text LIKE search across the supplied columns. Case-
+     * insensitive, single needle, OR-combined across the column list.
+     * Columns that look numeric (agent_id) are skipped — search is meant
+     * for human text. Callers pass display columns only.
+     */
+    private function applySearchFilter($q, MapBoundsRequest $req, array $columns): void
+    {
+        if ($req->search === null || trim($req->search) === '') return;
+        $needle = '%' . mb_strtolower(trim($req->search)) . '%';
+        $q->where(function ($sub) use ($needle, $columns) {
+            foreach ($columns as $col) {
+                $sub->orWhereRaw('LOWER(' . $col . ') LIKE ?', [$needle]);
+            }
+        });
+    }
+
+    /**
+     * A.3.1 — sold-date window for sold comps (3mo / 6mo / 12mo / 24mo / all).
+     * 'all' or null is a no-op.
+     */
+    private function applySoldWindowFilter($q, MapBoundsRequest $req, string $column): void
+    {
+        if ($req->soldWindow === null || $req->soldWindow === 'all') return;
+        $months = match ($req->soldWindow) {
+            '3mo'  => 3,
+            '6mo'  => 6,
+            '12mo' => 12,
+            '24mo' => 24,
+            default => null,
+        };
+        if ($months === null) return;
+        $cutoff = \Carbon\CarbonImmutable::now()->subMonths($months)->toDateString();
+        $q->where($column, '>=', $cutoff);
     }
 
     /**

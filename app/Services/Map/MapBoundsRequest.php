@@ -54,6 +54,33 @@ final class MapBoundsRequest
         public readonly ?float $radiusCenterLat = null,
         public readonly ?float $radiusCenterLng = null,
         public readonly ?int   $radiusM         = null,
+        // Phase A.3.1 — stock scope. 'my' (responsible agent = current user)
+        // / 'agency' (current agency only — default) / 'all' (no agency
+        // narrowing, admin-only). Service layer enforces actor-id wiring
+        // since this struct doesn't carry user id.
+        public readonly ?string $scope = null,
+        public readonly ?int    $actorUserId = null,
+        // Phase A.3.1 — free-text search across address / scheme / agent /
+        // agency / portal_ref / contact name (Agent View only for the last).
+        // Case-insensitive LIKE on each layer's per-source columns.
+        public readonly ?string $search = null,
+        // Phase A.3.1 — extra range filters. Each is null when not narrowed
+        // (no filter); pairs may set just min or just max.
+        public readonly ?int    $bedroomsMin   = null,
+        public readonly ?int    $bedroomsMax   = null,
+        public readonly ?int    $bathroomsMin  = null,
+        public readonly ?int    $bathroomsMax  = null,
+        public readonly ?int    $standMin      = null,
+        public readonly ?int    $standMax      = null,
+        public readonly ?int    $buildingMin   = null,
+        public readonly ?int    $buildingMax   = null,
+        /** @var string[] Listing status enum values (active, sold, draft, ...). */
+        public readonly array   $listingStatus = [],
+        // Phase A.3.1 — sold-date window for sold comps / sold properties.
+        // Values: '3mo' | '6mo' | '12mo' | '24mo' | 'all'.
+        public readonly ?string $soldWindow    = null,
+        public readonly ?int    $domMin        = null,
+        public readonly ?int    $domMax        = null,
     ) {}
 
     public function hasRadiusFilter(): bool

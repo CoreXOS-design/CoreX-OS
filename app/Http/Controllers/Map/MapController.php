@@ -69,7 +69,31 @@ final class MapController extends Controller
             'radiusCenterLat' => 'sometimes|nullable|numeric|between:-90,90',
             'radiusCenterLng' => 'sometimes|nullable|numeric|between:-180,180',
             'radiusM'         => 'sometimes|nullable|integer|min:50|max:50000',
+            // Phase A.3.1 — Search + filter overhaul.
+            'scope'           => 'sometimes|nullable|string|in:my,agency,all',
+            'search'          => 'sometimes|nullable|string|max:120',
+            'bedroomsMin'     => 'sometimes|nullable|integer|min:0|max:20',
+            'bedroomsMax'     => 'sometimes|nullable|integer|min:0|max:20',
+            'bathroomsMin'    => 'sometimes|nullable|integer|min:0|max:20',
+            'bathroomsMax'    => 'sometimes|nullable|integer|min:0|max:20',
+            'standMin'        => 'sometimes|nullable|integer|min:0|max:1000000',
+            'standMax'        => 'sometimes|nullable|integer|min:0|max:1000000',
+            'buildingMin'     => 'sometimes|nullable|integer|min:0|max:100000',
+            'buildingMax'     => 'sometimes|nullable|integer|min:0|max:100000',
+            'listingStatus'   => 'sometimes|array',
+            'listingStatus.*' => 'string|in:active,available,for_sale,to_let,draft,sold',
+            'soldWindow'      => 'sometimes|nullable|string|in:3mo,6mo,12mo,24mo,all',
+            'domMin'          => 'sometimes|nullable|integer|min:0|max:10000',
+            'domMax'          => 'sometimes|nullable|integer|min:0|max:10000',
         ]);
+
+        // Phase A.3.1 — 'all' scope is admin-only (owner role). Silently
+        // downgrade for non-admins so the JSON contract stays clean (no 403
+        // on a stale saved-search payload).
+        $scope = $validated['scope'] ?? null;
+        if ($scope === 'all' && !($request->user()?->isEffectiveOwner() ?? false)) {
+            $scope = 'agency';
+        }
 
         $user = $request->user();
         // Phase 3g hotfix #2 — System Owners have agency_id=NULL on the
@@ -111,6 +135,22 @@ final class MapController extends Controller
                 FILTER_VALIDATE_BOOLEAN,
                 FILTER_NULL_ON_FAILURE,
             ) ?? true,
+            // Phase A.3.1 — Search + filter overhaul.
+            scope:         $scope,
+            actorUserId:   (int) $user->id,
+            search:        $validated['search'] ?? null,
+            bedroomsMin:   isset($validated['bedroomsMin'])  ? (int) $validated['bedroomsMin']  : null,
+            bedroomsMax:   isset($validated['bedroomsMax'])  ? (int) $validated['bedroomsMax']  : null,
+            bathroomsMin:  isset($validated['bathroomsMin']) ? (int) $validated['bathroomsMin'] : null,
+            bathroomsMax:  isset($validated['bathroomsMax']) ? (int) $validated['bathroomsMax'] : null,
+            standMin:      isset($validated['standMin'])     ? (int) $validated['standMin']     : null,
+            standMax:      isset($validated['standMax'])     ? (int) $validated['standMax']     : null,
+            buildingMin:   isset($validated['buildingMin'])  ? (int) $validated['buildingMin']  : null,
+            buildingMax:   isset($validated['buildingMax'])  ? (int) $validated['buildingMax']  : null,
+            listingStatus: $validated['listingStatus']       ?? [],
+            soldWindow:    $validated['soldWindow']          ?? null,
+            domMin:        isset($validated['domMin']) ? (int) $validated['domMin'] : null,
+            domMax:        isset($validated['domMax']) ? (int) $validated['domMax'] : null,
         );
 
         $startedAt = microtime(true);

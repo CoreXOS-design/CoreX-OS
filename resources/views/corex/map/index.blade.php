@@ -49,39 +49,72 @@
     {{-- ── Body ──────────────────────────────────────────────────────────── --}}
     <div style="display: flex; flex: 1; overflow: hidden;">
 
-        {{-- Left rail --}}
-        <aside id="map-left-rail" style="width: 240px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 12px; overflow-y: auto;">
-            <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 8px;">Layers</div>
-            <div id="layer-list">
-                @php
-                    $layerDefs = [
-                        ['key' => 'hfc_listings',    'label' => 'HFC Listings',    'colour' => '#00d4aa', 'letter' => 'H'],
-                        ['key' => 'sold_comps',      'label' => 'Sold Comps',      'colour' => '#3b82f6', 'letter' => 'S'],
-                        ['key' => 'active_listings', 'label' => 'Portal Stock',    'colour' => '#f59e0b', 'letter' => 'P', 'title' => 'Portal Stock — competitor listings captured from Property24 and Private Property'],
-                        ['key' => 'mic_subjects',    'label' => 'MIC Subjects',    'colour' => '#64748b', 'letter' => 'M'],
-                        ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#8b5cf6', 'letter' => 'O', 'sensitive' => true],
-                    ];
-                @endphp
-                @foreach($layerDefs as $l)
-                <label data-layer="{{ $l['key'] }}"
-                       @if($l['sensitive'] ?? false) data-sensitive="1" @endif
-                       @if(!empty($l['title'])) title="{{ $l['title'] }}" @endif
-                       style="display: flex; align-items: center; gap: 8px; padding: 6px 6px; border-radius: 4px; cursor: pointer; font-size: 0.8125rem;">
-                    <input type="checkbox" checked data-layer-cb="{{ $l['key'] }}" style="margin: 0;">
-                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: {{ $l['colour'] }}; color: #fff; border-radius: 50%; font-size: 0.6875rem; font-weight: 700;">{{ $l['letter'] }}</span>
-                    <span style="flex: 1; color: var(--text-primary);">{{ $l['label'] }}</span>
-                    <span data-layer-count="{{ $l['key'] }}" style="font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums;">—</span>
-                </label>
-                @endforeach
+        {{-- Left rail. Phase A.3.1 — restructured into scope-first layout:
+             stock-scope pills → compact layer icons → search → collapsible
+             filter sections (<details>) → Apply / Clear. --}}
+        <aside id="map-left-rail" style="width: 260px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 12px; overflow-y: auto;">
+
+            @php
+                $mapUser    = auth()->user();
+                $mapIsOwner = $mapUser?->isEffectiveOwner() ?? false;
+                $mapDefaultScope = $mapIsOwner ? 'agency' : 'my';
+            @endphp
+
+            {{-- Phase A.3.1 — Stock Scope pills. Default 'my' for agents,
+                 'agency' for owners; 'all' visible only for owners. --}}
+            <div style="margin-bottom: 12px;">
+                <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Stock scope</div>
+                <div id="scope-pills" data-default="{{ $mapDefaultScope }}" data-owner="{{ $mapIsOwner ? '1' : '0' }}"
+                     style="display: inline-flex; width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
+                    <button type="button" data-scope="my"     class="scope-pill" style="flex: 1; padding: 5px 6px; font-size: 0.75rem; font-weight: 500; background: transparent; color: var(--text-secondary); border: 0; border-radius: 4px; cursor: pointer;">My</button>
+                    <button type="button" data-scope="agency" class="scope-pill" style="flex: 1; padding: 5px 6px; font-size: 0.75rem; font-weight: 500; background: transparent; color: var(--text-secondary); border: 0; border-radius: 4px; cursor: pointer;">Agency</button>
+                    @if($mapIsOwner)
+                    <button type="button" data-scope="all"    class="scope-pill" style="flex: 1; padding: 5px 6px; font-size: 0.75rem; font-weight: 500; background: transparent; color: var(--text-secondary); border: 0; border-radius: 4px; cursor: pointer;">All</button>
+                    @endif
+                </div>
             </div>
-            <div id="layer-cap-notice" style="display: none; margin-top: 10px; padding: 8px; font-size: 0.6875rem; color: var(--ds-amber, #d97706); background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border-radius: 4px;"></div>
+
+            {{-- Phase A.3.1 — compact layer icon row. Each icon is a toggle;
+                 hover shows the layer name + count. --}}
+            <div style="margin-bottom: 12px;">
+                <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
+                <div id="layer-list" style="display: flex; gap: 6px;">
+                    @php
+                        $layerDefs = [
+                            ['key' => 'hfc_listings',    'label' => 'HFC Listings',      'colour' => '#00d4aa', 'letter' => 'H'],
+                            ['key' => 'sold_comps',      'label' => 'Sold Comps',        'colour' => '#3b82f6', 'letter' => 'S'],
+                            ['key' => 'active_listings', 'label' => 'Portal Stock',      'colour' => '#f59e0b', 'letter' => 'P', 'title' => 'Portal Stock — competitor listings captured from Property24 and Private Property'],
+                            ['key' => 'mic_subjects',    'label' => 'MIC Subjects',      'colour' => '#64748b', 'letter' => 'M'],
+                            ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#8b5cf6', 'letter' => 'O', 'sensitive' => true],
+                        ];
+                    @endphp
+                    @foreach($layerDefs as $l)
+                    <button type="button" data-layer-toggle="{{ $l['key'] }}" data-on="1"
+                            @if($l['sensitive'] ?? false) data-sensitive="1" @endif
+                            title="{{ $l['title'] ?? $l['label'] }}"
+                            aria-label="Toggle {{ $l['label'] }}"
+                            style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: {{ $l['colour'] }}; color: #fff; border: 2px solid transparent; border-radius: 50%; font-size: 0.75rem; font-weight: 700; cursor: pointer;">
+                        {{ $l['letter'] }}
+                        <span data-layer-count="{{ $l['key'] }}"
+                              style="position: absolute; bottom: -4px; right: -4px; min-width: 14px; padding: 1px 3px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; font-size: 0.5625rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums;">—</span>
+                    </button>
+                    @endforeach
+                </div>
+                <div id="layer-cap-notice" style="display: none; margin-top: 8px; padding: 6px 8px; font-size: 0.625rem; color: var(--ds-amber, #d97706); background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent); border-radius: 4px;"></div>
+            </div>
+
+            {{-- Phase A.3.1 — search input. 500ms debounce in JS. --}}
+            <div style="margin-bottom: 12px;">
+                <input type="text" id="filter-search" placeholder="Search address / scheme / agent…" autocomplete="off"
+                       style="width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text-primary); font-size: 0.8125rem; box-sizing: border-box;">
+            </div>
 
             {{-- Phase 3g V2 Part A — display mode radio. --}}
-            <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
-                <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 8px;">Display mode</div>
-                <div id="display-mode-group" style="display: flex; flex-direction: column; gap: 4px;">
-                    @foreach(['pins' => 'Pins', 'heatmap' => 'Heatmap', 'both' => 'Both'] as $key => $label)
-                    <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 0.8125rem;">
+            <div style="margin-bottom: 12px;">
+                <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Display mode</div>
+                <div id="display-mode-group" style="display: flex; gap: 8px;">
+                    @foreach(['pins' => 'Pins', 'heatmap' => 'Heat', 'both' => 'Both'] as $key => $label)
+                    <label style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.75rem;">
                         <input type="radio" name="display-mode" value="{{ $key }}" {{ $key === 'pins' ? 'checked' : '' }} style="margin: 0;">
                         <span style="color: var(--text-primary);">{{ $label }}</span>
                     </label>
@@ -89,60 +122,120 @@
                 </div>
             </div>
 
-            {{-- Phase 3g V2 Part B — filters section, collapsible. --}}
-            <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
-                <button id="filters-toggle" type="button"
-                        style="display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 0; background: none; border: 0; cursor: pointer; text-align: left; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">
-                    <span id="filters-caret" style="display: inline-block; transition: transform 150ms;">▸</span>
-                    <span style="flex: 1;">Filters</span>
-                    <span id="filters-count" style="display: none; font-size: 0.625rem; padding: 1px 6px; background: var(--brand-button); color: #fff; border-radius: 999px; text-transform: none; letter-spacing: 0;">0</span>
-                </button>
-                <div id="filters-body" style="display: none; margin-top: 10px;">
-                    <div style="margin-bottom: 12px;">
-                        <div style="font-size: 0.6875rem; color: var(--text-secondary); margin-bottom: 4px;">Date range</div>
-                        <div style="display: flex; gap: 6px; align-items: center; font-size: 0.75rem;">
-                            <input type="number" id="filter-year-from" min="2018" max="2030" value="{{ now()->year - 5 }}" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
-                            <span style="color: var(--text-muted);">to</span>
-                            <input type="number" id="filter-year-to" min="2018" max="2030" value="{{ now()->year }}" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
-                        </div>
-                    </div>
+            {{-- Phase A.3.1 — collapsible filter sections via native <details>. --}}
+            <div id="filters-body" style="margin-bottom: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
 
-                    <div style="margin-bottom: 12px;">
-                        <div style="font-size: 0.6875rem; color: var(--text-secondary); margin-bottom: 4px;">Property type</div>
-                        <div style="display: flex; flex-direction: column; gap: 3px; font-size: 0.75rem;">
-                            @foreach(['house' => 'House', 'sectional' => 'Apartment / Sectional', 'townhouse' => 'Townhouse', 'vacant' => 'Vacant Land'] as $val => $label)
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                <input type="checkbox" data-filter-type="{{ $val }}" checked style="margin: 0;">
-                                <span style="color: var(--text-primary);">{{ $label }}</span>
-                            </label>
-                            @endforeach
-                        </div>
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Property type</summary>
+                    <div style="display: flex; flex-direction: column; gap: 3px; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        @foreach(['house' => 'House', 'sectional' => 'Apartment / Sectional', 'townhouse' => 'Townhouse', 'vacant' => 'Vacant Land'] as $val => $label)
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="checkbox" data-filter-type="{{ $val }}" checked style="margin: 0;">
+                            <span style="color: var(--text-primary);">{{ $label }}</span>
+                        </label>
+                        @endforeach
                     </div>
+                </details>
 
-                    <div style="margin-bottom: 12px;">
-                        <div style="font-size: 0.6875rem; color: var(--text-secondary); margin-bottom: 4px;">Price band (R)</div>
-                        <div style="display: flex; gap: 6px; align-items: center; font-size: 0.75rem;">
-                            <input type="number" id="filter-price-min" min="0" max="10000000" step="100000" value="0" style="width: 88px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
-                            <span style="color: var(--text-muted);">–</span>
-                            <input type="number" id="filter-price-max" min="0" max="10000000" step="100000" value="10000000" style="width: 88px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
-                        </div>
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Bedrooms</summary>
+                    <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <input type="number" id="filter-bedrooms-min" min="0" max="20" placeholder="min" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <span style="color: var(--text-muted);">–</span>
+                        <input type="number" id="filter-bedrooms-max" min="0" max="20" placeholder="max" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
+                </details>
 
-                    <div style="margin-bottom: 12px;">
-                        <div style="font-size: 0.6875rem; color: var(--text-secondary); margin-bottom: 4px;">Bedrooms</div>
-                        <div id="filter-bedrooms" style="display: flex; gap: 4px;">
-                            @foreach([1, 2, 3, 4, 5] as $b)
-                            <button type="button" data-bed="{{ $b }}" class="bed-pill" data-on="1"
-                                style="padding: 4px 8px; font-size: 0.75rem; font-weight: 500; background: var(--brand-button); color: #fff; border: 0; border-radius: 4px; cursor: pointer;">{{ $b === 5 ? '5+' : $b }}</button>
-                            @endforeach
-                        </div>
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Bathrooms</summary>
+                    <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <input type="number" id="filter-bathrooms-min" min="0" max="20" placeholder="min" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <span style="color: var(--text-muted);">–</span>
+                        <input type="number" id="filter-bathrooms-max" min="0" max="20" placeholder="max" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
                     </div>
+                </details>
 
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Price (R)</summary>
+                    <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <input type="number" id="filter-price-min" min="0" max="100000000" step="100000" placeholder="min" style="width: 90px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <span style="color: var(--text-muted);">–</span>
+                        <input type="number" id="filter-price-max" min="0" max="100000000" step="100000" placeholder="max" style="width: 90px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                    </div>
+                </details>
+
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Stand size (m²)</summary>
+                    <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <input type="number" id="filter-stand-min" min="0" max="1000000" step="50" placeholder="min" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <span style="color: var(--text-muted);">–</span>
+                        <input type="number" id="filter-stand-max" min="0" max="1000000" step="50" placeholder="max" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                    </div>
+                </details>
+
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Building size (m²)</summary>
+                    <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <input type="number" id="filter-building-min" min="0" max="100000" step="10" placeholder="min" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <span style="color: var(--text-muted);">–</span>
+                        <input type="number" id="filter-building-max" min="0" max="100000" step="10" placeholder="max" style="width: 80px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                    </div>
+                </details>
+
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Listing status</summary>
+                    <div style="display: flex; flex-direction: column; gap: 3px; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        @foreach(['active' => 'Active', 'sold' => 'Sold', 'draft' => 'Draft'] as $val => $label)
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="checkbox" data-filter-status="{{ $val }}" style="margin: 0;">
+                            <span style="color: var(--text-primary);">{{ $label }}</span>
+                        </label>
+                        @endforeach
+                    </div>
+                </details>
+
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Sold date window</summary>
+                    <div style="padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <select id="filter-sold-window" style="width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                            <option value="">All sold</option>
+                            <option value="3mo">Last 3 months</option>
+                            <option value="6mo">Last 6 months</option>
+                            <option value="12mo">Last 12 months</option>
+                            <option value="24mo">Last 24 months</option>
+                        </select>
+                    </div>
+                </details>
+
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Days on market</summary>
+                    <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <input type="number" id="filter-dom-min" min="0" max="10000" placeholder="min" style="width: 70px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <span style="color: var(--text-muted);">–</span>
+                        <input type="number" id="filter-dom-max" min="0" max="10000" placeholder="max" style="width: 70px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                    </div>
+                </details>
+
+                <details class="map-filter-block" style="margin-bottom: 4px;">
+                    <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Date range (year)</summary>
+                    <div style="display: flex; gap: 6px; align-items: center; padding: 6px 4px 8px; font-size: 0.75rem;">
+                        <input type="number" id="filter-year-from" min="2018" max="2030" placeholder="{{ now()->year - 5 }}" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                        <span style="color: var(--text-muted);">to</span>
+                        <input type="number" id="filter-year-to"   min="2018" max="2030" placeholder="{{ now()->year }}" style="width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-2); color: var(--text-primary); font-size: 0.75rem;">
+                    </div>
+                </details>
+
+                <div style="display: flex; gap: 6px; margin-top: 10px;">
+                    <button type="button" id="filter-apply"
+                        style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 600; color: #0f172a; background: var(--brand-button); border: 0; border-radius: 4px; cursor: pointer;">
+                        Apply
+                    </button>
                     <button type="button" id="filter-clear"
-                        style="width: 100%; padding: 6px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">
-                        Clear filters
+                        style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">
+                        Clear all
                     </button>
                 </div>
+                <div id="filters-count-strip" style="display: none; margin-top: 8px; padding: 4px 8px; font-size: 0.6875rem; color: var(--text-muted); background: var(--surface-2); border-radius: 4px; text-align: center;"></div>
             </div>
 
             {{-- Phase 3h Step 10 — demo data toggle. Default ON locally + on
@@ -307,67 +400,121 @@ document.addEventListener('DOMContentLoaded', function () {
     if (demoToggleEl) demoToggleEl.checked = includeDemo;
 
     // Phase 3g V2 — display mode + filter state.
+    // Phase A.3.1 — extended with scope, search, range filters.
     const CURRENT_YEAR = {{ now()->year }};
+    const SCOPE_DEFAULT = document.getElementById('scope-pills')?.dataset.default || 'agency';
+    const SCOPE_IS_OWNER = (document.getElementById('scope-pills')?.dataset.owner === '1');
     const FILTER_DEFAULTS = {
-        yearFrom: CURRENT_YEAR - 5,
-        yearTo:   CURRENT_YEAR,
+        scope:    SCOPE_DEFAULT,
+        search:   '',
+        yearFrom: null,
+        yearTo:   null,
         types:    ['house','sectional','townhouse','vacant'],
-        priceMin: 0,
-        priceMax: 10000000,
-        bedrooms: [1,2,3,4,5],
+        priceMin: null,
+        priceMax: null,
+        bedroomsMin:  null,
+        bedroomsMax:  null,
+        bathroomsMin: null,
+        bathroomsMax: null,
+        standMin:     null,
+        standMax:     null,
+        buildingMin:  null,
+        buildingMax:  null,
+        listingStatus: [],
+        soldWindow:    '',
+        domMin: null,
+        domMax: null,
     };
     let displayMode = localStorage.getItem('corex.map.display_mode') || 'pins';
     let filters = loadFiltersFromStorage();
     let heatLayer = null;
 
+    function isStr(v) { return typeof v === 'string'; }
+    function isNum(v) { return Number.isInteger(v); }
     function loadFiltersFromStorage() {
         try {
-            const raw = localStorage.getItem('corex.map.filters_v1');
-            if (!raw) return { ...FILTER_DEFAULTS };
+            const raw = localStorage.getItem('corex.map.filters_v2');
+            if (!raw) return { ...FILTER_DEFAULTS, types: [...FILTER_DEFAULTS.types], listingStatus: [] };
             const f = JSON.parse(raw);
-            return {
-                yearFrom: Number.isInteger(f.yearFrom) ? f.yearFrom : FILTER_DEFAULTS.yearFrom,
-                yearTo:   Number.isInteger(f.yearTo)   ? f.yearTo   : FILTER_DEFAULTS.yearTo,
-                types:    Array.isArray(f.types)    && f.types.length    ? f.types    : [...FILTER_DEFAULTS.types],
-                priceMin: Number.isInteger(f.priceMin) ? f.priceMin : FILTER_DEFAULTS.priceMin,
-                priceMax: Number.isInteger(f.priceMax) ? f.priceMax : FILTER_DEFAULTS.priceMax,
-                bedrooms: Array.isArray(f.bedrooms) && f.bedrooms.length ? f.bedrooms : [...FILTER_DEFAULTS.bedrooms],
-            };
+            const out = { ...FILTER_DEFAULTS };
+            // Carry forward known keys, defaulting through when missing/wrong type.
+            if (isStr(f.scope) && ['my','agency','all'].includes(f.scope)) out.scope = f.scope;
+            if (!SCOPE_IS_OWNER && out.scope === 'all') out.scope = 'agency';
+            if (isStr(f.search))    out.search   = f.search;
+            if (isNum(f.yearFrom))  out.yearFrom = f.yearFrom;
+            if (isNum(f.yearTo))    out.yearTo   = f.yearTo;
+            out.types = Array.isArray(f.types) && f.types.length ? f.types : [...FILTER_DEFAULTS.types];
+            ['priceMin','priceMax','bedroomsMin','bedroomsMax','bathroomsMin','bathroomsMax',
+             'standMin','standMax','buildingMin','buildingMax','domMin','domMax']
+                .forEach(k => { if (isNum(f[k])) out[k] = f[k]; });
+            out.listingStatus = Array.isArray(f.listingStatus) ? f.listingStatus : [];
+            if (isStr(f.soldWindow) && ['','3mo','6mo','12mo','24mo'].includes(f.soldWindow)) out.soldWindow = f.soldWindow;
+            return out;
         } catch (e) {
-            return { ...FILTER_DEFAULTS };
+            return { ...FILTER_DEFAULTS, types: [...FILTER_DEFAULTS.types], listingStatus: [] };
         }
     }
     function persistFilters() {
-        localStorage.setItem('corex.map.filters_v1', JSON.stringify(filters));
+        localStorage.setItem('corex.map.filters_v2', JSON.stringify(filters));
     }
     function countActiveFilters() {
         let n = 0;
-        if (filters.yearFrom !== FILTER_DEFAULTS.yearFrom) n++;
-        if (filters.yearTo   !== FILTER_DEFAULTS.yearTo)   n++;
+        if (filters.scope !== SCOPE_DEFAULT) n++;
+        if (filters.search) n++;
+        if (filters.yearFrom !== null) n++;
+        if (filters.yearTo   !== null) n++;
         if (filters.types.length !== FILTER_DEFAULTS.types.length) n++;
-        if (filters.priceMin !== FILTER_DEFAULTS.priceMin) n++;
-        if (filters.priceMax !== FILTER_DEFAULTS.priceMax) n++;
-        if (filters.bedrooms.length !== FILTER_DEFAULTS.bedrooms.length) n++;
+        ['priceMin','priceMax','bedroomsMin','bedroomsMax','bathroomsMin','bathroomsMax',
+         'standMin','standMax','buildingMin','buildingMax','domMin','domMax']
+            .forEach(k => { if (filters[k] !== null) n++; });
+        if (filters.listingStatus.length > 0) n++;
+        if (filters.soldWindow) n++;
         return n;
     }
     function syncFilterUi() {
-        document.getElementById('filter-year-from').value = filters.yearFrom;
-        document.getElementById('filter-year-to').value   = filters.yearTo;
+        // Scope pills.
+        document.querySelectorAll('#scope-pills .scope-pill').forEach(btn => {
+            const active = btn.dataset.scope === filters.scope;
+            btn.style.background = active ? 'var(--brand-button)' : 'transparent';
+            btn.style.color      = active ? '#fff' : 'var(--text-secondary)';
+        });
+        // Search.
+        const searchEl = document.getElementById('filter-search');
+        if (searchEl && searchEl.value !== filters.search) searchEl.value = filters.search;
+        // Year range.
+        document.getElementById('filter-year-from').value = filters.yearFrom ?? '';
+        document.getElementById('filter-year-to').value   = filters.yearTo ?? '';
+        // Property types.
         document.querySelectorAll('[data-filter-type]').forEach(cb => {
             cb.checked = filters.types.includes(cb.dataset.filterType);
         });
-        document.getElementById('filter-price-min').value = filters.priceMin;
-        document.getElementById('filter-price-max').value = filters.priceMax;
-        document.querySelectorAll('#filter-bedrooms .bed-pill').forEach(btn => {
-            const on = filters.bedrooms.includes(parseInt(btn.dataset.bed, 10));
-            btn.dataset.on = on ? '1' : '0';
-            btn.style.background = on ? 'var(--brand-button)' : 'var(--surface-2)';
-            btn.style.color = on ? '#fff' : 'var(--text-secondary)';
+        // Numeric range inputs — paired (id_min, id_max) → state keys minK/maxK.
+        const numericMap = [
+            ['filter-price-min', 'priceMin'], ['filter-price-max', 'priceMax'],
+            ['filter-bedrooms-min', 'bedroomsMin'], ['filter-bedrooms-max', 'bedroomsMax'],
+            ['filter-bathrooms-min', 'bathroomsMin'], ['filter-bathrooms-max', 'bathroomsMax'],
+            ['filter-stand-min', 'standMin'], ['filter-stand-max', 'standMax'],
+            ['filter-building-min', 'buildingMin'], ['filter-building-max', 'buildingMax'],
+            ['filter-dom-min', 'domMin'], ['filter-dom-max', 'domMax'],
+        ];
+        numericMap.forEach(([id, key]) => {
+            const el = document.getElementById(id);
+            if (el) el.value = filters[key] ?? '';
         });
+        // Listing status.
+        document.querySelectorAll('[data-filter-status]').forEach(cb => {
+            cb.checked = filters.listingStatus.includes(cb.dataset.filterStatus);
+        });
+        // Sold window.
+        const soldEl = document.getElementById('filter-sold-window');
+        if (soldEl) soldEl.value = filters.soldWindow || '';
+        // Active-filter chip count.
         const cnt = countActiveFilters();
-        const badge = document.getElementById('filters-count');
-        badge.textContent = String(cnt);
-        badge.style.display = cnt > 0 ? 'inline-block' : 'none';
+        const chip = document.getElementById('filters-count-strip');
+        if (chip) {
+            chip.textContent = cnt + ' filter' + (cnt === 1 ? '' : 's') + ' active';
+            chip.style.display = cnt > 0 ? 'block' : 'none';
+        }
     }
     const enabledLayers = new Set([
         'hfc_listings', 'sold_comps', 'active_listings', 'mic_subjects', 'scheme_owners',
@@ -937,13 +1084,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function boundsKey(b) {
-        const filterFp = [
-            filters.yearFrom, filters.yearTo,
-            filters.types.slice().sort().join(','),
-            filters.priceMin, filters.priceMax,
-            filters.bedrooms.slice().sort().join(','),
-        ].join(':');
-        return [b.south, b.west, b.north, b.east, viewMode, includeDemo ? '1' : '0', displayMode, filterFp, Array.from(enabledLayers).sort().join(',')]
+        // Phase A.3.1 — fingerprint covers scope/search/all new range filters
+        // so a filter change always busts the cache.
+        const fp = JSON.stringify({
+            sc: filters.scope, q: filters.search,
+            yf: filters.yearFrom, yt: filters.yearTo,
+            tp: filters.types.slice().sort(),
+            pn: filters.priceMin, px: filters.priceMax,
+            bdn: filters.bedroomsMin, bdx: filters.bedroomsMax,
+            btn: filters.bathroomsMin, btx: filters.bathroomsMax,
+            sn: filters.standMin, sx: filters.standMax,
+            bn: filters.buildingMin, bx: filters.buildingMax,
+            ls: filters.listingStatus.slice().sort(),
+            sw: filters.soldWindow,
+            dn: filters.domMin, dx: filters.domMax,
+        });
+        return [b.south, b.west, b.north, b.east, viewMode, includeDemo ? '1' : '0', displayMode, fp, Array.from(enabledLayers).sort().join(',')]
             .map(v => typeof v === 'number' ? v.toFixed(4) : v).join('|');
     }
 
@@ -1083,16 +1239,31 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Filters — only send when narrowed beyond defaults so the URL stays
         // clean in the common case.
-        if (filters.yearFrom !== FILTER_DEFAULTS.yearFrom) params.set('dateFromYear', String(filters.yearFrom));
-        if (filters.yearTo   !== FILTER_DEFAULTS.yearTo)   params.set('dateToYear',   String(filters.yearTo));
+        if (filters.scope && filters.scope !== 'agency') params.set('scope', filters.scope);
+        if (filters.search) params.set('search', filters.search);
+        if (filters.yearFrom !== null) params.set('dateFromYear', String(filters.yearFrom));
+        if (filters.yearTo   !== null) params.set('dateToYear',   String(filters.yearTo));
         if (filters.types.length !== FILTER_DEFAULTS.types.length) {
             filters.types.forEach(t => params.append('propertyTypes[]', t));
         }
-        if (filters.priceMin !== FILTER_DEFAULTS.priceMin) params.set('priceMin', String(filters.priceMin));
-        if (filters.priceMax !== FILTER_DEFAULTS.priceMax) params.set('priceMax', String(filters.priceMax));
-        if (filters.bedrooms.length !== FILTER_DEFAULTS.bedrooms.length) {
-            filters.bedrooms.forEach(b => params.append('bedrooms[]', String(b)));
+        if (filters.priceMin !== null) params.set('priceMin', String(filters.priceMin));
+        if (filters.priceMax !== null) params.set('priceMax', String(filters.priceMax));
+        // Phase A.3.1 — range filters.
+        const rangePairs = [
+            ['bedroomsMin','bedroomsMax'],
+            ['bathroomsMin','bathroomsMax'],
+            ['standMin','standMax'],
+            ['buildingMin','buildingMax'],
+            ['domMin','domMax'],
+        ];
+        rangePairs.forEach(([lo, hi]) => {
+            if (filters[lo] !== null) params.set(lo, String(filters[lo]));
+            if (filters[hi] !== null) params.set(hi, String(filters[hi]));
+        });
+        if (filters.listingStatus.length > 0) {
+            filters.listingStatus.forEach(s => params.append('listingStatus[]', s));
         }
+        if (filters.soldWindow) params.set('soldWindow', filters.soldWindow);
 
         setLoading(true);
         try {
@@ -1576,11 +1747,21 @@ document.addEventListener('DOMContentLoaded', function () {
     function escapeAttr(s) { return escapeHtml(s); }
 
     // ── Toggles ───────────────────────────────────────────────────────────
-    document.querySelectorAll('[data-layer-cb]').forEach(cb => {
-        cb.addEventListener('change', e => {
-            const key = e.target.dataset.layerCb;
-            if (e.target.checked) enabledLayers.add(key);
-            else enabledLayers.delete(key);
+    // Phase A.3.1 — compact icon-row toggles (replaces label+checkbox row).
+    function paintLayerBtn(btn) {
+        const on = btn.dataset.on === '1';
+        btn.style.opacity = on ? '1' : '0.35';
+        btn.style.borderColor = on ? 'transparent' : 'var(--border)';
+    }
+    document.querySelectorAll('[data-layer-toggle]').forEach(btn => {
+        paintLayerBtn(btn);
+        btn.addEventListener('click', () => {
+            const key = btn.dataset.layerToggle;
+            const on  = btn.dataset.on !== '1';
+            btn.dataset.on = on ? '1' : '0';
+            paintLayerBtn(btn);
+            if (on) enabledLayers.add(key);
+            else    enabledLayers.delete(key);
 
             // A.1.2 fix — triple-defence so a toggle never visibly fails:
             // (1) immediate client-side re-render from the last payload so
@@ -1666,59 +1847,100 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    // Phase 3g V2 — filters: collapse toggle + change handlers + clear button.
-    const filtersToggleBtn = document.getElementById('filters-toggle');
-    const filtersBody      = document.getElementById('filters-body');
-    const filtersCaret     = document.getElementById('filters-caret');
-    filtersToggleBtn.addEventListener('click', () => {
-        const open = filtersBody.style.display === 'block';
-        filtersBody.style.display = open ? 'none' : 'block';
-        filtersCaret.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
+    // Phase A.3.1 — Stock Scope pills.
+    document.querySelectorAll('#scope-pills .scope-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.scope;
+            if (target === filters.scope) return;
+            if (target === 'all' && !SCOPE_IS_OWNER) return;
+            filters.scope = target;
+            persistFilters();
+            syncFilterUi();
+            cache.length = 0;
+            fetchPins();
+        });
     });
 
-    function onFilterChange() {
-        const yf = parseInt(document.getElementById('filter-year-from').value, 10);
-        const yt = parseInt(document.getElementById('filter-year-to').value, 10);
+    // Phase A.3.1 — pull current state from the inputs. Called by Apply +
+    // the search debounce.
+    function readFiltersFromUi() {
+        const intOrNull = (id) => {
+            const v = document.getElementById(id)?.value;
+            const n = parseInt(v, 10);
+            return (v === '' || !Number.isFinite(n)) ? null : n;
+        };
         const types = Array.from(document.querySelectorAll('[data-filter-type]'))
             .filter(cb => cb.checked).map(cb => cb.dataset.filterType);
-        const pMin = parseInt(document.getElementById('filter-price-min').value, 10);
-        const pMax = parseInt(document.getElementById('filter-price-max').value, 10);
-        const beds = Array.from(document.querySelectorAll('#filter-bedrooms .bed-pill'))
-            .filter(b => b.dataset.on === '1').map(b => parseInt(b.dataset.bed, 10));
+        const listingStatus = Array.from(document.querySelectorAll('[data-filter-status]'))
+            .filter(cb => cb.checked).map(cb => cb.dataset.filterStatus);
+        const sw = document.getElementById('filter-sold-window')?.value || '';
+        const search = (document.getElementById('filter-search')?.value || '').trim();
 
-        filters = {
-            yearFrom: Number.isInteger(yf) ? yf : FILTER_DEFAULTS.yearFrom,
-            yearTo:   Number.isInteger(yt) ? yt : FILTER_DEFAULTS.yearTo,
+        return {
+            scope:    filters.scope,
+            search:   search,
+            yearFrom: intOrNull('filter-year-from'),
+            yearTo:   intOrNull('filter-year-to'),
             types:    types.length ? types : [...FILTER_DEFAULTS.types],
-            priceMin: Number.isInteger(pMin) ? pMin : FILTER_DEFAULTS.priceMin,
-            priceMax: Number.isInteger(pMax) ? pMax : FILTER_DEFAULTS.priceMax,
-            bedrooms: beds.length ? beds : [...FILTER_DEFAULTS.bedrooms],
+            priceMin:     intOrNull('filter-price-min'),
+            priceMax:     intOrNull('filter-price-max'),
+            bedroomsMin:  intOrNull('filter-bedrooms-min'),
+            bedroomsMax:  intOrNull('filter-bedrooms-max'),
+            bathroomsMin: intOrNull('filter-bathrooms-min'),
+            bathroomsMax: intOrNull('filter-bathrooms-max'),
+            standMin:     intOrNull('filter-stand-min'),
+            standMax:     intOrNull('filter-stand-max'),
+            buildingMin:  intOrNull('filter-building-min'),
+            buildingMax:  intOrNull('filter-building-max'),
+            listingStatus,
+            soldWindow:   ['','3mo','6mo','12mo','24mo'].includes(sw) ? sw : '',
+            domMin:       intOrNull('filter-dom-min'),
+            domMax:       intOrNull('filter-dom-max'),
         };
+    }
+
+    function applyFilters() {
+        filters = readFiltersFromUi();
         persistFilters();
         syncFilterUi();
         cache.length = 0;
         fetchPins();
     }
 
-    ['filter-year-from','filter-year-to','filter-price-min','filter-price-max'].forEach(id => {
-        document.getElementById(id).addEventListener('change', onFilterChange);
-    });
-    document.querySelectorAll('[data-filter-type]').forEach(cb => cb.addEventListener('change', onFilterChange));
-    document.querySelectorAll('#filter-bedrooms .bed-pill').forEach(btn => {
-        btn.addEventListener('click', () => {
-            btn.dataset.on = btn.dataset.on === '1' ? '0' : '1';
-            const on = btn.dataset.on === '1';
-            btn.style.background = on ? 'var(--brand-button)' : 'var(--surface-2)';
-            btn.style.color      = on ? '#fff' : 'var(--text-secondary)';
-            onFilterChange();
-        });
-    });
+    // Apply button — primary commit gesture.
+    document.getElementById('filter-apply').addEventListener('click', applyFilters);
+
+    // Clear All — reset to defaults (preserves scope per role default).
     document.getElementById('filter-clear').addEventListener('click', () => {
-        filters = { ...FILTER_DEFAULTS, types: [...FILTER_DEFAULTS.types], bedrooms: [...FILTER_DEFAULTS.bedrooms] };
+        filters = { ...FILTER_DEFAULTS, types: [...FILTER_DEFAULTS.types], listingStatus: [] };
         persistFilters();
         syncFilterUi();
         cache.length = 0;
         fetchPins();
+    });
+
+    // Search input — 500ms debounce per spec.
+    let searchDebounceTimer = null;
+    const searchInput = document.getElementById('filter-search');
+    if (searchInput) {
+        searchInput.value = filters.search;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(applyFilters, 500);
+        });
+    }
+
+    // Enter inside a numeric input or checkbox change in a <details> block —
+    // commit via Apply path so the user doesn't have to chase the button.
+    document.querySelectorAll('#filters-body input, #filters-body select').forEach(el => {
+        const evt = (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) || el.tagName === 'SELECT'
+            ? 'change' : 'change';
+        el.addEventListener(evt, applyFilters);
+        if (el.type === 'number' || el.type === 'text') {
+            el.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); applyFilters(); }
+            });
+        }
     });
 
     syncFilterUi();
