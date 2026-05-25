@@ -66,6 +66,8 @@ class User extends Authenticatable
         'tax_clearance_expiry',
         'website',
         'theme',
+        'portal_show_api_token',
+        'portal_show_social_accounts',
 
         // Private Property integration
         'pp_unique_agent_id',
@@ -116,6 +118,8 @@ class User extends Authenticatable
         'paye_value' => 'decimal:2',
 
         'sliding_enabled' => 'boolean',
+        'portal_show_api_token' => 'boolean',
+        'portal_show_social_accounts' => 'boolean',
         'sliding_tier1_cut_percent' => 'decimal:2',
         'sliding_tier2_cut_percent' => 'decimal:2',
         'sliding_tier3_cut_percent' => 'decimal:2',

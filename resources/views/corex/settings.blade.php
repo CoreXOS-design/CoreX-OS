@@ -49,6 +49,7 @@
                 'label' => 'My Preferences',
                 'items' => [
                     ['key'=>'user', 'label'=>'Profile & Account', 'type'=>'section'],
+                    ['key'=>'my-portal', 'label'=>'My Portal', 'type'=>'section', 'keywords'=>'api token chrome extension social media facebook instagram visibility'],
                 ],
             ],
             [
@@ -449,6 +450,58 @@
              USER SETTINGS TAB
              Contains: User Management, Roles & Permissions, Designations
              ============================================================ --}}
+        {{-- ============================================================
+             MY PORTAL — per-user visibility prefs for /my-portal sections
+             ============================================================ --}}
+        <div x-show="activeSection === 'my-portal'" x-cloak class="p-6 space-y-5">
+            <div>
+                <h3 class="text-base font-bold" style="color:var(--text-primary);">My Portal</h3>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">Choose which sections appear on your <a href="{{ route('agent.portal') }}#profile" style="color:var(--brand-icon);">My Portal → Profile</a> page. Turning a section off hides it from view but does not delete any data.</p>
+            </div>
+
+            <form method="POST" action="{{ route('corex.settings.my-portal.update') }}" class="space-y-3">
+                @csrf
+
+                @php
+                    $portalToggles = [
+                        [
+                            'name'  => 'portal_show_api_token',
+                            'title' => 'API Token & CoreX Chrome Extension',
+                            'desc'  => 'Used by the CoreX Chrome extension to authenticate with CoreX. Includes the generate-token button and extension download links.',
+                            'value' => (bool) auth()->user()->portal_show_api_token,
+                        ],
+                        [
+                            'name'  => 'portal_show_social_accounts',
+                            'title' => 'Social Media Accounts',
+                            'desc'  => 'Connect or disconnect your Facebook and Instagram accounts for marketing posts.',
+                            'value' => (bool) auth()->user()->portal_show_social_accounts,
+                        ],
+                    ];
+                @endphp
+
+                @foreach($portalToggles as $t)
+                <label class="flex items-start justify-between gap-4 rounded-md p-4 cursor-pointer"
+                       style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $t['title'] }}</div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted);">{{ $t['desc'] }}</div>
+                    </div>
+                    <span class="relative inline-flex flex-shrink-0" style="width:38px; height:22px;">
+                        <input type="checkbox" name="{{ $t['name'] }}" value="1" {{ $t['value'] ? 'checked' : '' }}
+                               class="peer sr-only">
+                        <span class="absolute inset-0 rounded-full transition-colors peer-checked:bg-[var(--brand-button)]"
+                              style="background:var(--border);"></span>
+                        <span class="absolute top-0.5 left-0.5 w-[18px] h-[18px] rounded-full bg-white shadow transition-transform peer-checked:translate-x-4"></span>
+                    </span>
+                </label>
+                @endforeach
+
+                <div class="pt-2">
+                    <button type="submit" class="corex-btn-primary text-sm">Save Preferences</button>
+                </div>
+            </form>
+        </div>
+
         <div x-show="activeSection === 'user'" x-cloak class="p-6 space-y-6">
 
             {{-- Links: User Mgmt + Roles --}}
@@ -498,9 +551,14 @@
             @endphp
 
             {{-- Section A: Primary Compliance Officer --}}
-            <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Primary Compliance Officer (Section 43)</h3>
-                <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+            <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <button type="button" @click="open = !open"
+                        class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
+                        style="background:var(--surface-2); color:var(--text-primary);">
+                    <span>Primary Compliance Officer (Section 43)</span>
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div x-show="open" x-cloak x-transition class="p-4" style="border-top:1px solid var(--border); background:var(--surface);">
                     @if($currentPrimary)
                     <div class="flex items-start justify-between mb-3">
                         <div>
@@ -590,9 +648,14 @@
             </div>
 
             {{-- Section B: MLROs / Reporting Officers --}}
-            <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">MLROs / Reporting Officers (PCC 5C)</h3>
-                <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+            <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <button type="button" @click="open = !open"
+                        class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
+                        style="background:var(--surface-2); color:var(--text-primary);">
+                    <span>MLROs / Reporting Officers (PCC 5C)</span>
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div x-show="open" x-cloak x-transition class="p-4" style="border-top:1px solid var(--border); background:var(--surface);">
                     <div class="text-xs font-semibold mb-2" style="color:var(--text-secondary);">Select users who can perform FICA compliance reviews and approvals</div>
                     <form method="POST" action="{{ route('corex.settings.fica-officers.mlros') }}">
                         @csrf
@@ -613,8 +676,14 @@
 
             {{-- Designations (inline) --}}
             @permission('manage_designations')
-            <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Designations</h3>
+            <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <button type="button" @click="open = !open"
+                        class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
+                        style="background:var(--surface-2); color:var(--text-primary);">
+                    <span>Designations</span>
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div x-show="open" x-cloak x-transition class="p-4" style="border-top:1px solid var(--border); background:var(--surface);">
 
                 {{-- Add designation --}}
                 <div class="p-4 rounded-md mb-3" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -687,157 +756,9 @@
                         @endforelse
                     </div>
                 </div>
+                </div>
             </div>
             @endpermission
-
-            {{-- Social Media Accounts --}}
-            <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Social Media Accounts</h3>
-                <p class="text-xs mb-4" style="color:var(--text-secondary);">Connect your <strong>Facebook Page</strong> or Instagram Business account to publish property listings directly from CoreX. Facebook requires a Page (not a personal profile) — create one at <span style="color:var(--text-primary);">facebook.com/pages/create</span> if you don't have one yet.</p>
-
-                {{-- Token expiry warning --}}
-                @if(isset($socialAccountExpiringSoon) && $socialAccountExpiringSoon)
-                <div class="flex items-start gap-3 rounded-md border px-4 py-3 mb-4 text-sm"
-                     x-data="{ show: true }" x-show="show"
-                     style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0 mt-0.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
-                    <div class="flex-1">Your Facebook connection expires soon. Please reconnect to avoid interruptions to your property marketing.</div>
-                    <button @click="show = false" class="flex-shrink-0" style="color: var(--ds-amber);">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-                    </button>
-                </div>
-                @endif
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-                    {{-- Facebook Card --}}
-                    @php $fbSocial = isset($agentSocialAccounts) ? $agentSocialAccounts->firstWhere('platform', 'facebook') : null; @endphp
-                    <div class="rounded-md p-4 space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-md flex items-center justify-center flex-shrink-0" style="background:#1877f222;">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#1877f2" class="w-5 h-5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Facebook</div>
-                                @if($fbSocial)
-                                <div class="text-xs truncate" style="color:var(--text-muted);">{{ $fbSocial->platform_page_name }}</div>
-                                @endif
-                            </div>
-                            @if($fbSocial)
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">Connected</span>
-                            @else
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-muted);">Not Connected</span>
-                            @endif
-                        </div>
-
-                        @if($fbSocial)
-                        <div class="text-xs space-y-1" style="color:var(--text-secondary);">
-                            <div>Page: <span style="color:var(--text-primary);">{{ $fbSocial->platform_page_name }}</span></div>
-                            <div>Connected: <span style="color:var(--text-primary);">{{ $fbSocial->created_at->format('d M Y') }}</span></div>
-                            @if($fbSocial->token_expires_at)
-                            <div>Expires: <span style="color:var(--text-primary);">{{ $fbSocial->token_expires_at->format('d M Y') }}</span></div>
-                            @endif
-                        </div>
-                        <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">
-                            @csrf
-                            <input type="hidden" name="platform" value="facebook">
-                            <button type="submit" onclick="return confirm('Disconnect Facebook? This will stop all Facebook publishing.')"
-                                    class="text-xs px-3 py-1.5 rounded-md font-medium" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 20%, transparent);">
-                                Disconnect Facebook
-                            </button>
-                        </form>
-                        @else
-                        @if(\Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
-                        <a href="{{ route('corex.social.oauth.redirect', ['platform' => 'facebook']) }}"
-                           class="inline-flex items-center gap-2 text-xs px-4 py-2 rounded-md font-semibold no-underline"
-                           style="background:#1877f2; color:#fff;">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" class="w-3.5 h-3.5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                            Connect Facebook
-                        </a>
-                        @endif
-                        @endif
-                    </div>
-
-                    {{-- Instagram Card --}}
-                    @php $igSocial = isset($agentSocialAccounts) ? $agentSocialAccounts->firstWhere('platform', 'instagram') : null; @endphp
-                    <div class="rounded-md p-4 space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-md flex items-center justify-center flex-shrink-0" style="background:#e1306c22;">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e1306c" class="w-5 h-5"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Instagram</div>
-                                @if($igSocial)
-                                <div class="text-xs truncate" style="color:var(--text-muted);">{{ $igSocial->platform_page_name }}</div>
-                                @endif
-                            </div>
-                            @if($igSocial)
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">Connected</span>
-                            @else
-                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-muted);">Not Connected</span>
-                            @endif
-                        </div>
-
-                        @if($igSocial)
-                        <div class="text-xs space-y-1" style="color:var(--text-secondary);">
-                            <div>Account: <span style="color:var(--text-primary);">{{ $igSocial->platform_page_name }}</span></div>
-                            <div>Connected: <span style="color:var(--text-primary);">{{ $igSocial->created_at->format('d M Y') }}</span></div>
-                            @if($igSocial->token_expires_at)
-                            <div>Expires: <span style="color:var(--text-primary);">{{ $igSocial->token_expires_at->format('d M Y') }}</span></div>
-                            @endif
-                        </div>
-                        <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">
-                            @csrf
-                            <input type="hidden" name="platform" value="instagram">
-                            <button type="submit" onclick="return confirm('Disconnect Instagram?')"
-                                    class="text-xs px-3 py-1.5 rounded-md font-medium" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 20%, transparent);">
-                                Disconnect Instagram
-                            </button>
-                        </form>
-                        @else
-                        @if(\Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
-                        <a href="{{ route('corex.social.oauth.redirect', ['platform' => 'instagram']) }}"
-                           class="inline-flex items-center gap-2 text-xs px-4 py-2 rounded-md font-semibold no-underline"
-                           style="background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888); color:#fff;">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" class="w-3.5 h-3.5"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
-                            Connect Instagram
-                        </a>
-                        @endif
-                        @endif
-                    </div>
-                </div>
-
-                {{-- How to connect (collapsible) --}}
-                <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                    <button type="button" @click="open = !open"
-                            class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
-                            style="background:var(--surface-2); color:var(--text-primary);">
-                        <span>How to connect</span>
-                        <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                    </button>
-                    <div x-show="open" x-cloak x-transition class="p-4 space-y-5 text-xs" style="color:var(--text-secondary); border-top:1px solid var(--border);">
-                        <div>
-                            <div class="font-bold mb-2" style="color:#1877f2;">Facebook</div>
-                            <ol class="list-decimal list-inside space-y-1.5">
-                                <li><span class="font-semibold" style="color:var(--text-primary);">You need a Facebook Page, not a personal profile.</span> Facebook's API does not allow posting to personal profiles. Create your agent Page at facebook.com/pages/create (type: Public Figure → Real Estate Agent), e.g. "Your Name | HF Coastal".</li>
-                                <li>You must be an Admin of the Page to connect it.</li>
-                                <li>Click "Connect Facebook" — you will be redirected to Facebook to log in and grant permissions.</li>
-                                <li>You will be redirected back to CoreX automatically. The connected Page name will appear here.</li>
-                                <li><span class="font-semibold" style="color:var(--text-primary);">Note:</span> Your access token is valid for 60 days — CoreX will remind you to reconnect before it expires.</li>
-                            </ol>
-                        </div>
-                        <div>
-                            <div class="font-bold mb-2" style="color:#e1306c;">Instagram</div>
-                            <ol class="list-decimal list-inside space-y-1.5">
-                                <li>Your Instagram account must be a Business or Creator account (not a personal account).</li>
-                                <li>Your Instagram Business account must be linked to your Facebook Page inside Facebook Settings before connecting here.</li>
-                                <li>Once your Facebook Page is connected above, click "Connect Instagram".</li>
-                                <li>CoreX will automatically find the Instagram Business account linked to your Facebook Page.</li>
-                                <li>If Instagram shows "Not Found", go to Facebook Settings → Linked Accounts and ensure your Instagram is connected there first.</li>
-                            </ol>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
         </div>
 
