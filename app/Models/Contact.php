@@ -29,7 +29,7 @@ class Contact extends Model
         'contact_type_id', 'contact_source_id', 'created_by_user_id',
         'client_user_id',
         'first_name', 'last_name', 'phone', 'email', 'notes',
-        'birthday', 'id_number', 'address',
+        'birthday', 'id_number', 'id_number_captured_at', 'id_number_source', 'address',
         'loaded_at', 'modified_at', 'last_contacted_at',
         'whatsapp_count', 'email_count',
         'bank_name', 'bank_account_name', 'bank_account_number',
@@ -43,8 +43,9 @@ class Contact extends Model
     ];
 
     protected $casts = [
-        'birthday'          => 'date',
-        'loaded_at'         => 'datetime',
+        'birthday'              => 'date',
+        'id_number_captured_at' => 'datetime',
+        'loaded_at'             => 'datetime',
         'modified_at'       => 'datetime',
         'last_contacted_at' => 'datetime',
         'is_buyer'          => 'boolean',

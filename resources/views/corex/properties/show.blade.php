@@ -3725,6 +3725,16 @@
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
+                            {{-- A.2.5 — optional SA ID number with client-side hint. --}}
+                            <div class="sm:col-span-2">
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
+                                <input type="text" name="id_number" inputmode="numeric" maxlength="13"
+                                       pattern="\d{13}" placeholder="e.g. 7610025020081"
+                                       title="13 digits — empty is fine"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
+                            </div>
                         </div>
                         <button type="submit"
                                 :disabled="submitting"

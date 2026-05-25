@@ -535,7 +535,7 @@ document.addEventListener('DOMContentLoaded', function () {
      *     logPayload: { action, category, record_id, source, location_key }
      *   }
      */
-    function actionsForRecord(record, sourceContext, locationKey) {
+    function actionsForRecord(record, sourceContext, locationKey, card) {
         const recId = record.id;
         const baseLog = {
             category:     record.category,
@@ -611,19 +611,22 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             case 'active_listings': {
-                // A.2.1 — "Prospect Now →" lands in MIC Opportunities for the
-                // matching TrackedProperty. The server resolves the tp_id from
-                // address/GPS via TrackedPropertyMatchOrCreateService and
-                // returns redirect_url in the activity-log response.
-                return [{
+                // A.2.5 — collision detection. card.prospect_status tells us
+                // HFC's existing relationship to this address; we pick the
+                // CTA accordingly. When the card hasn't loaded yet (composite-
+                // row icons), default to the "available" path — the agent
+                // hits the same collision check at click time via the
+                // prospect_launched activity-log endpoint.
+                const ps = (card && card.prospect_status) ? card.prospect_status : { status: 'available' };
+                const prospectAction = {
                     key:       'prospect_launched',
                     label:     'Prospect Now →',
                     iconLabel: 'Prospect this property',
                     iconSvg:   ICON_FIND,
                     style:     'primary',
-                    destUrl:   MIC_OPPORTUNITIES_URL, // fallback if server doesn't resolve a tp
+                    destUrl:   MIC_OPPORTUNITIES_URL,
                     newTab:    false,
-                    awaitServerRedirect: true, // tells the click handler to wait for redirect_url
+                    awaitServerRedirect: true,
                     logPayload: {
                         ...baseLog,
                         action:              'prospect_launched',
@@ -634,7 +637,99 @@ document.addEventListener('DOMContentLoaded', function () {
                         longitude:           record.lng ?? null,
                         suburb:              record.suburb || null,
                     },
-                }];
+                };
+
+                switch (ps.status) {
+                    case 'held': {
+                        const openUrl = PROPERTY_SHOW_URL_TPL.replace('__ID__', String(ps.property_id || 0));
+                        return [{
+                            key:       'open_property',
+                            label:     'Open property record →',
+                            iconLabel: 'Already on HFC books — open record',
+                            iconSvg:   ICON_OPEN,
+                            style:     'primary',
+                            destUrl:   openUrl,
+                            newTab:    false,
+                            banner:    { tone: 'info', text: 'Already on HFC books' },
+                            logPayload:{ ...baseLog, action: 'listing_opened', record_id: ps.property_id, portal: 'hfc' },
+                        }];
+                    }
+                    case 'own_draft': {
+                        const openUrl = PROPERTY_SHOW_URL_TPL.replace('__ID__', String(ps.property_id || 0));
+                        const days = ps.days_in_state ?? 0;
+                        return [{
+                            key:       'open_property',
+                            label:     'Continue your draft (' + days + 'd) →',
+                            iconLabel: 'Continue draft',
+                            iconSvg:   ICON_OPEN,
+                            style:     'primary',
+                            destUrl:   openUrl,
+                            newTab:    false,
+                            logPayload:{ ...baseLog, action: 'listing_opened', record_id: ps.property_id, portal: 'hfc' },
+                        }];
+                    }
+                    case 'other_draft': {
+                        const agent = ps.agent_name || 'another agent';
+                        const days  = ps.days_in_state ?? 0;
+                        const state = ps.state_label || 'draft';
+                        return [
+                            {
+                                key:       'coordinate_with',
+                                label:     'Coordinate with ' + agent + ' (' + days + 'd in ' + state + ')',
+                                iconLabel: 'Coordinate with this agent',
+                                iconSvg:   ICON_WHATSAPP,
+                                style:     'primary',
+                                destUrl:   '#', // no nav — clicking opens an info toast
+                                newTab:    false,
+                                disableNav: true,
+                                logPayload:{ ...baseLog, action: 'prospect_launched', record_id: String(recId) },
+                            },
+                            {
+                                key:       'prospect_override',
+                                label:     'Override and prospect anyway',
+                                iconLabel: 'Override coordination + prospect',
+                                iconSvg:   ICON_FIND,
+                                style:     'secondary',
+                                destUrl:   null,
+                                newTab:    false,
+                                // Tells handleActionClick to open the override
+                                // modal (collects reason) → fires prospect_override
+                                // activity event → then proceeds with the
+                                // normal prospect_launched flow.
+                                overrideProspect: {
+                                    propertyId:        ps.property_id,
+                                    originalAgentId:   ps.original_agent_id ?? null,
+                                    originalAgentName: ps.agent_name ?? null,
+                                    daysInState:       days,
+                                    locationKey,
+                                    sourceContext,
+                                    prospectPayload:   prospectAction.logPayload,
+                                },
+                            },
+                        ];
+                    }
+                    case 'previously_sold': {
+                        return [
+                            { ...prospectAction,
+                              label:  'New prospect anyway →',
+                              banner: { tone: 'warn',
+                                        text: 'Previously sold by HFC' + (ps.sale_date ? ' (' + ps.sale_date + ')' : '') },
+                            },
+                        ];
+                    }
+                    case 'previously_held': {
+                        return [
+                            { ...prospectAction,
+                              label:  'Prospect anyway →',
+                              banner: { tone: 'warn',
+                                        text: 'Previously held by HFC' + (ps.expired_at ? ' (expired ' + ps.expired_at + ')' : '') + (ps.agent_name ? ' by ' + ps.agent_name : '') },
+                            },
+                        ];
+                    }
+                    case 'available':
+                    default:
+                        return [prospectAction];
+                }
             }
 
             case 'mic_subjects': {
@@ -719,17 +814,118 @@ document.addEventListener('DOMContentLoaded', function () {
     // A.2.4 — brief "Copied ✓" toast. Anchored to the right panel; auto
     // dismisses after 1.5s. Uses inline DOM injection to avoid pulling in
     // a global toast library on the standalone map page.
+    // A.2.5 — extended to a generic info-toast helper.
     let copyToastEl = null;
-    function toastCopied() {
+    function toastCopied() { _toast('Copied ✓', 1500); }
+    function toastInfo(msg) { _toast(msg, 2500); }
+    function _toast(text, ms) {
         if (!copyToastEl) {
             copyToastEl = document.createElement('div');
-            copyToastEl.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#0f172a;color:#fff;padding:8px 14px;border-radius:6px;font-size:0.8125rem;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,.25);z-index:9999;opacity:0;transition:opacity 150ms;pointer-events:none;';
+            copyToastEl.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#0f172a;color:#fff;padding:8px 14px;border-radius:6px;font-size:0.8125rem;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,.25);z-index:9999;opacity:0;transition:opacity 150ms;pointer-events:none;max-width:320px;';
             document.body.appendChild(copyToastEl);
         }
-        copyToastEl.textContent = 'Copied ✓';
+        copyToastEl.textContent = text;
         copyToastEl.style.opacity = '1';
         clearTimeout(copyToastEl._t);
-        copyToastEl._t = setTimeout(() => { copyToastEl.style.opacity = '0'; }, 1500);
+        copyToastEl._t = setTimeout(() => { copyToastEl.style.opacity = '0'; }, ms);
+    }
+
+    /**
+     * A.2.5 — "Override and prospect anyway" modal. Builds a one-shot DOM
+     * modal asking the agent why they're stepping on another agent's
+     * draft. ≥ 20 chars required. On confirm:
+     *   1. POST prospect_override to /map/activity/log (BM audit trail)
+     *   2. POST prospect_launched (the original action) via the same
+     *      awaitServerRedirect flow the available-state CTA would use
+     *   3. Navigate to opportunities.show
+     */
+    function openProspectOverrideModal(act) {
+        // Remove an existing modal if the agent rapidly opens twice.
+        const existing = document.getElementById('map-prospect-override-modal');
+        if (existing) existing.remove();
+
+        const op = act.overrideProspect;
+        const wrap = document.createElement('div');
+        wrap.id = 'map-prospect-override-modal';
+        wrap.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);padding:24px;';
+        wrap.innerHTML =
+            '<div style="background:var(--surface);border-radius:8px;max-width:480px;width:100%;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,0.5);">'
+            +   '<h3 style="font-size:1rem;font-weight:600;color:var(--text-primary);margin:0 0 8px 0;">Override coordination</h3>'
+            +   '<p style="font-size:0.8125rem;color:var(--text-muted);margin:0 0 14px 0;line-height:1.4;">'
+            +     'Why are you overriding ' + escapeHtml(op.originalAgentName || 'this agent') + '\'s draft? '
+            +     'This reason is logged for Branch Manager visibility.'
+            +   '</p>'
+            +   '<textarea id="override-reason-input" rows="4" placeholder="Minimum 20 characters — be specific." '
+            +     'style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-family:inherit;font-size:0.8125rem;resize:vertical;box-sizing:border-box;"></textarea>'
+            +   '<div id="override-reason-counter" style="font-size:0.6875rem;color:var(--text-muted);margin-top:4px;text-align:right;">0 / 20</div>'
+            +   '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">'
+            +     '<button type="button" id="override-cancel" style="padding:8px 16px;font-size:0.8125rem;font-weight:500;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text-primary);cursor:pointer;">Cancel</button>'
+            +     '<button type="button" id="override-confirm" disabled style="padding:8px 16px;font-size:0.8125rem;font-weight:600;background:#00d4aa;border:1px solid #00d4aa;border-radius:6px;color:#0f172a;cursor:not-allowed;opacity:0.4;">Confirm override</button>'
+            +   '</div>'
+            + '</div>';
+        document.body.appendChild(wrap);
+
+        const ta      = wrap.querySelector('#override-reason-input');
+        const counter = wrap.querySelector('#override-reason-counter');
+        const confirm = wrap.querySelector('#override-confirm');
+        const cancel  = wrap.querySelector('#override-cancel');
+
+        ta.addEventListener('input', () => {
+            const len = ta.value.trim().length;
+            counter.textContent = len + ' / 20';
+            const ok = len >= 20;
+            confirm.disabled = !ok;
+            confirm.style.cursor = ok ? 'pointer' : 'not-allowed';
+            confirm.style.opacity = ok ? '1' : '0.4';
+        });
+
+        cancel.addEventListener('click', () => wrap.remove());
+        wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+
+        confirm.addEventListener('click', async () => {
+            const reason = ta.value.trim();
+            if (reason.length < 20) return;
+
+            // 1) Audit the override decision.
+            try {
+                await fetch(MAP_ACTIVITY_URL, {
+                    method:  'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        action:              'prospect_override',
+                        category:            'active_listings',
+                        record_id:           String(op.prospectPayload.record_id || ''),
+                        location_key:        op.locationKey || '',
+                        source:              op.sourceContext || 'single_detail',
+                        property_id:         op.propertyId,
+                        original_agent_id:   op.originalAgentId,
+                        original_agent_name: op.originalAgentName,
+                        days_in_state:       op.daysInState,
+                        override_reason:     reason,
+                    }),
+                });
+            } catch (err) { /* swallow — audit failure must not block the prospect */ }
+
+            wrap.remove();
+
+            // 2) Now fire the actual prospect_launched + redirect.
+            try {
+                const resp = await fetch(MAP_ACTIVITY_URL, {
+                    method:  'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(op.prospectPayload),
+                });
+                if (resp.ok) {
+                    const body = await resp.json();
+                    const url = body.redirect_url || MIC_OPPORTUNITIES_URL;
+                    window.location.href = url;
+                }
+            } catch (err) { /* if launch fails the override audit is still recorded */ }
+        });
+
+        setTimeout(() => ta.focus(), 50);
     }
 
     function currentBounds() {
@@ -1099,6 +1295,10 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('detail-composite-list').style.display = 'none';
         document.getElementById('detail-single').style.display = 'block';
 
+        // A.2.5 — local "card just loaded" reference. CTA renderer reads
+        // prospect_status off this for the active_listings collision logic.
+        let loadedCard = null;
+
         document.getElementById('detail-title').textContent = record.title || '';
         document.getElementById('detail-subtitle').textContent = record.subtitle || '';
         document.getElementById('detail-facts').innerHTML = '<div style="font-size:0.75rem;color:var(--text-muted);">Loading…</div>';
@@ -1114,7 +1314,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 const fullUrl = url + (url.includes('?') ? '&' : '?') + 'viewMode=' + viewMode;
                 const resp = await fetch(fullUrl, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
                 if (resp.ok) {
-                    renderCard(await resp.json());
+                    loadedCard = await resp.json();
+                    renderCard(loadedCard);
                 } else {
                     document.getElementById('detail-facts').innerHTML =
                         '<div style="color:var(--ds-red,#dc2626);font-size:0.75rem;">Could not load details.</div>';
@@ -1128,16 +1329,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 '<div style="font-size:0.75rem;color:var(--text-muted);">No detail card available for this record.</div>';
         }
 
-        // Phase A.2 — CTAs render regardless of card load success.
-        renderSingleDetailCtas(record, locationKey);
+        // A.2.5 — pass the loaded card (carries prospect_status for Portal
+        // Stock) into the CTA renderer so the collision states can pick the
+        // right CTA. CTAs still render on card-load failure (with no card).
+        renderSingleDetailCtas(record, locationKey, loadedCard);
     }
 
     /**
      * Render the primary/secondary CTAs in the single-detail panel and wire
      * each one to fire its activity log POST + default <a> navigation.
      */
-    function renderSingleDetailCtas(record, locationKey) {
-        const acts = actionsForRecord(record, 'single_detail', locationKey);
+    function renderSingleDetailCtas(record, locationKey, card) {
+        const acts = actionsForRecord(record, 'single_detail', locationKey, card);
         const host = document.getElementById('detail-ctas');
         if (acts.length === 0) {
             host.innerHTML = '';
@@ -1169,12 +1372,26 @@ document.addEventListener('DOMContentLoaded', function () {
             host.style.flexDirection = 'column';
             host.style.alignItems    = 'stretch';
             host.style.flexWrap      = 'nowrap';
+            // A.2.5 — actions may carry a banner descriptor that renders ABOVE
+            // the CTA (used by collision states: "Already on HFC books",
+            // "Previously sold by HFC", etc.).
             host.innerHTML = acts.map(act => {
-                const stylePrimary = 'background:#00d4aa;color:#0f172a;border:1px solid #00d4aa;';
+                const stylePrimary   = 'background:#00d4aa;color:#0f172a;border:1px solid #00d4aa;';
                 const styleSecondary = 'background:transparent;color:#00d4aa;border:1px solid #00d4aa;';
                 const styleStr = act.style === 'secondary' ? styleSecondary : stylePrimary;
-                const disabled = !act.destUrl && !act.awaitServerRedirect;
-                return '<a href="' + escapeAttr(act.destUrl || '#') + '" '
+                const disabled = !act.destUrl && !act.awaitServerRedirect && !act.overrideProspect;
+                let html = '';
+                if (act.banner) {
+                    const tones = {
+                        info: { bg: 'rgba(14,165,233,0.10)', border: '#0ea5e9', color: '#0ea5e9' },
+                        warn: { bg: 'rgba(245,158,11,0.10)', border: '#d97706', color: '#d97706' },
+                    };
+                    const t = tones[act.banner.tone] || tones.info;
+                    html += '<div style="padding:8px 10px;border-radius:6px;font-size:0.75rem;font-weight:500;background:' + t.bg + ';border:1px solid ' + t.border + ';color:' + t.color + ';">'
+                        +     escapeHtml(act.banner.text)
+                        + '</div>';
+                }
+                html += '<a href="' + escapeAttr(act.destUrl || '#') + '" '
                     + 'data-map-action="' + escapeAttr(act.key) + '" '
                     + (act.newTab ? 'target="_blank" rel="noopener" ' : '')
                     + (disabled ? 'aria-disabled="true" ' : '')
@@ -1183,6 +1400,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     + '<span style="display:inline-flex;align-items:center;">' + act.iconSvg + '</span>'
                     + '<span>' + escapeHtml(act.label) + '</span>'
                     + '</a>';
+                return html;
             }).join('');
         }
 
@@ -1205,6 +1423,24 @@ document.addEventListener('DOMContentLoaded', function () {
      *  3) No destUrl — preventDefault (link is disabled).
      */
     async function handleActionClick(e, act) {
+        // A.2.5 — "Override and prospect anyway" → open the reason modal
+        // first. After the agent supplies ≥ 20 chars and confirms, fire
+        // prospect_override (audit), then proceed to the standard
+        // awaitServerRedirect prospect launch.
+        if (act.overrideProspect) {
+            e.preventDefault();
+            openProspectOverrideModal(act);
+            return;
+        }
+        // A.2.5 — "Coordinate with X" placeholder click. The action carries
+        // disableNav to keep the user in the panel; we show a small toast
+        // and log the click for visibility.
+        if (act.disableNav) {
+            e.preventDefault();
+            if (act.logPayload) fireActivityLog(act.logPayload);
+            toastInfo('Coordination panel coming soon — message the agent directly for now.');
+            return;
+        }
         if (act.awaitServerRedirect) {
             e.preventDefault();
             try {

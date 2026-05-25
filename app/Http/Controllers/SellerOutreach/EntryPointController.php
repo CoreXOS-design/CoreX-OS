@@ -109,7 +109,11 @@ final class EntryPointController extends Controller
             'last_name'  => 'nullable|string|max:100',
             'phone'      => 'nullable|string|max:30',
             'email'      => 'nullable|email|max:255',
+            // A.2.5 — optional SA ID number with format + checksum validation.
+            'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
         ]);
+
+        $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
 
         if (empty($validated['phone']) && empty($validated['email'])) {
             return back()
@@ -120,22 +124,38 @@ final class EntryPointController extends Controller
         $existing = $this->findExistingContact($agencyId, $validated);
         $isNew = $existing === null;
 
-        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing) {
+        $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber) {
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
-            $contact = $existing ?: Contact::create([
-                'agency_id'          => $agencyId,
-                'branch_id'          => $branchId,
-                'first_name'         => $validated['first_name'],
+            $contact = $existing ?: Contact::create(array_filter([
+                'agency_id'             => $agencyId,
+                'branch_id'             => $branchId,
+                'first_name'            => $validated['first_name'],
                 // contacts.last_name is NOT NULL in the schema — store an empty
                 // string when the agent skipped it. The spec's S3 dedupe only
                 // needs first_name + phone/email anyway.
-                'last_name'          => $validated['last_name'] ?? '',
-                'phone'              => $validated['phone'] ?? null,
-                'email'              => $validated['email'] ?? null,
-                'created_by_user_id' => $request->user()->id,
-            ]);
+                'last_name'             => $validated['last_name'] ?? '',
+                'phone'                 => $validated['phone'] ?? null,
+                'email'                 => $validated['email'] ?? null,
+                'created_by_user_id'    => $request->user()->id,
+                // A.2.5 — POPIA audit. captured_at + source are only set when
+                // the agent actually filled in the ID; null otherwise.
+                'id_number'             => $idNumber,
+                'id_number_captured_at' => $idNumber ? now() : null,
+                'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
+            ], static fn ($v) => $v !== null && $v !== ''));
+
+            // If the contact ALREADY existed (deduped) but the agent supplied
+            // an ID at this entry point, capture-fill it on the existing row
+            // when previously absent — never overwrite.
+            if ($existing && $idNumber && empty($existing->id_number)) {
+                $existing->update([
+                    'id_number'             => $idNumber,
+                    'id_number_captured_at' => now(),
+                    'id_number_source'      => 'seller_outreach_entry',
+                ]);
+            }
 
             $property = $this->promoteListingToProperty($agencyId, $listing, $request->user());
 

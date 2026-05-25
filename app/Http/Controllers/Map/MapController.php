@@ -13,6 +13,7 @@ use App\Models\PresentationSoldComp;
 use App\Models\Property;
 use App\Services\Map\MapBoundsRequest;
 use App\Services\Map\MapPinService;
+use App\Services\Map\MapProspectStatusService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -617,6 +618,16 @@ final class MapController extends Controller
             // Agent name / agency captured by MRCR rows — none on schema today.
             $card['sensitive_facts'] = [];
         }
+
+        // A.2.5 — Portal Stock collision check: tell the client whether HFC
+        // already has this address before "Prospect Now" is offered.
+        $card['prospect_status'] = $this->resolveProspectStatus($request, [
+            'address'   => $row->address,
+            'latitude'  => $row->latitude !== null ? (float) $row->latitude : null,
+            'longitude' => $row->longitude !== null ? (float) $row->longitude : null,
+            'suburb'    => $row->suburb_normalised ?? null,
+        ], (int) $row->agency_id);
+
         return $card;
     }
 
@@ -685,7 +696,35 @@ final class MapController extends Controller
                 !empty($raw['agent_email']) ? ['label' => 'Agent email',  'value' => $raw['agent_email'], 'copyable' => true] : null,
             ]));
         }
+
+        // A.2.5 — Portal Stock collision check (same as MRCR branch).
+        $card['prospect_status'] = $this->resolveProspectStatus($request, [
+            'address'   => $raw['address'] ?? null,
+            'latitude'  => isset($raw['latitude'])  ? (float) $raw['latitude']  : null,
+            'longitude' => isset($raw['longitude']) ? (float) $raw['longitude'] : null,
+            'suburb'    => $row->suburb ?? null,
+        ], (int) $row->agency_id);
+
         return $card;
+    }
+
+    /**
+     * Phase A.2.5 — collision detector wrapper. Returns the prospect_status
+     * dict for the right-panel client to switch on. Failure-isolated: a
+     * lookup hiccup never breaks the card.
+     */
+    private function resolveProspectStatus(Request $request, array $facts, int $agencyId): array
+    {
+        try {
+            $user = $request->user();
+            if (!$user) return ['status' => 'available'];
+            return app(MapProspectStatusService::class)->resolve($facts, $agencyId, (int) $user->id);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('resolveProspectStatus failed', [
+                'err' => $e->getMessage(),
+            ]);
+            return ['status' => 'available'];
+        }
     }
 
     private function splitLayerId(string $layerId): array

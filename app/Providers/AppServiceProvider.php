@@ -195,6 +195,8 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Map\MapListingOpened::class,
             // Phase A.2.4 — Copy ID click on a sensitive fact (PII audit).
             \App\Events\Map\MapIdCopied::class,
+            // Phase A.2.5 — agent overrode a coordinate-with-X prompt.
+            \App\Events\Map\MapProspectOverride::class,
         ] as $micActivityEvent) {
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }

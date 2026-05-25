@@ -98,8 +98,14 @@ class PropertyContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'role'            => 'nullable|string|max:50',
+            // A.2.5 — optional ID number with SA-format validation.
+            'id_number'       => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
             'bypass_duplicate_check' => 'nullable|boolean',
         ]);
+
+        // A.2.5 — normalise + audit-tag the ID when supplied.
+        $idNumber = isset($data['id_number']) ? preg_replace('/\s+/', '', (string) $data['id_number']) : null;
+        unset($data['id_number']);  // we'll add it back together with audit fields after the dupe guard
 
         $role = $data['role'] ?? null;
         unset($data['role']);
@@ -153,6 +159,13 @@ class PropertyContactController extends Controller
 
         unset($data['bypass_duplicate_check']);
         $data['created_by_user_id'] = $user->id;
+
+        // A.2.5 — re-attach the ID + POPIA audit fields.
+        if ($idNumber) {
+            $data['id_number']             = $idNumber;
+            $data['id_number_captured_at'] = now();
+            $data['id_number_source']      = 'property_inline_create';
+        }
 
         $contact = Contact::create($data);
         $property->contacts()->attach($contact->id, ['role' => $role]);

@@ -11,6 +11,7 @@ use App\Events\Map\MapIdCopied;
 use App\Events\Map\MapListingOpened;
 use App\Events\Map\MapPitchLaunched;
 use App\Events\Map\MapProspectLaunched;
+use App\Events\Map\MapProspectOverride;
 use App\Events\Map\MapWhatsAppLaunched;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
@@ -61,6 +62,8 @@ final class MapActivityController extends Controller
                 'listing_opened',
                 // Phase A.2.4 — Copy ID click on a sensitive fact (PII audit).
                 'id_copied',
+                // Phase A.2.5 — override coordinate-with-X collision warning.
+                'prospect_override',
             ])],
             'category'             => ['required', 'string', 'max:40'],
             'record_id'            => ['required'],   // int OR string ref — validated per-action below
@@ -76,6 +79,12 @@ final class MapActivityController extends Controller
             'suburb'               => ['sometimes', 'nullable', 'string', 'max:120'],
             // A.2.3 — portal strip on HFC listings.
             'portal'               => ['sometimes', 'nullable', Rule::in(['p24', 'pp', 'hfc'])],
+            // A.2.5 — override reason text (≥ 20 chars enforced when action=prospect_override).
+            'property_id'          => ['sometimes', 'nullable', 'integer'],
+            'override_reason'      => ['sometimes', 'nullable', 'string', 'min:20', 'max:1000'],
+            'original_agent_id'    => ['sometimes', 'nullable', 'integer'],
+            'original_agent_name'  => ['sometimes', 'nullable', 'string', 'max:120'],
+            'days_in_state'        => ['sometimes', 'nullable', 'integer'],
         ]);
 
         $user = $request->user();
@@ -97,6 +106,7 @@ final class MapActivityController extends Controller
             'prospect_launched'      => $this->prospectLaunched($data, $agencyId, $user->id, $extras),
             'listing_opened'         => $this->listingOpened($data, $agencyId, $user->id),
             'id_copied'              => $this->idCopied($data, $agencyId, $user->id),
+            'prospect_override'      => $this->prospectOverride($data, $agencyId, $user->id),
         };
 
         if ($event === null) {
@@ -193,6 +203,39 @@ final class MapActivityController extends Controller
             actingUserId: $userId,
             locationKey:  (string) $data['location_key'],
             source:       (string) $data['source'],
+        );
+    }
+
+    /**
+     * Phase A.2.5 — agent overrode the coordinate-with-X collision prompt.
+     * Reason is required (≥ 20 chars, validated at request boundary).
+     * The override fires MapProspectOverride for BM oversight + then the
+     * caller separately dispatches prospect_launched as usual — this
+     * endpoint only audits the override decision; it does not perform the
+     * subsequent navigation.
+     */
+    private function prospectOverride(array $data, int $agencyId, int $userId): ?MapProspectOverride
+    {
+        if (empty($data['override_reason']) || empty($data['property_id'])) {
+            return null;
+        }
+
+        $property = Property::withoutGlobalScopes()
+            ->where('id', (int) $data['property_id'])
+            ->where('agency_id', $agencyId)
+            ->first();
+        if (!$property) return null;
+
+        return new MapProspectOverride(
+            property:           $property,
+            agencyId:           $agencyId,
+            actingUserId:       $userId,
+            originalAgentId:    isset($data['original_agent_id']) ? (int) $data['original_agent_id'] : null,
+            originalAgentName:  $data['original_agent_name'] ?? null,
+            daysInState:        (int) ($data['days_in_state'] ?? 0),
+            reason:             (string) $data['override_reason'],
+            locationKey:        (string) $data['location_key'],
+            source:             (string) $data['source'],
         );
     }
 

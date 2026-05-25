@@ -103,6 +103,27 @@ final class TrackedPropertyMatchOrCreateService
     }
 
     /**
+     * Phase A.2.5 — read-only equivalent of matchOrCreate(). Returns an
+     * existing TrackedProperty when one of the 5 strategies finds a match,
+     * or null without creating anything. Used by the prospect-collision
+     * detector on Portal Stock cards: we need to know if HFC already has
+     * this address without accidentally minting a TP from a hover.
+     *
+     * Wraps resolveMatch() so future strategy changes apply to both paths.
+     *
+     * @param array<string, mixed> $facts   Same shape as matchOrCreate.
+     * @param array<string, mixed> $source  Same shape as matchOrCreate. Defaults
+     *                                      to an empty source to bypass the
+     *                                      source-ref strategy when the caller
+     *                                      doesn't have one (matching purely on
+     *                                      GPS / erf / address tokens).
+     */
+    public function findExistingMatch(int $agencyId, array $facts, array $source = []): ?TrackedProperty
+    {
+        return $this->resolveMatch($agencyId, $facts, $source);
+    }
+
+    /**
      * 5-strategy resolution. First match wins. Returns null on no match.
      *
      * All queries bypass the global AgencyScope and filter by the explicit
