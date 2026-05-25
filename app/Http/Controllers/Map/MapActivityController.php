@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Map;
 use App\Events\Map\MapCmaOpened;
 use App\Events\Map\MapComparableAdded;
 use App\Events\Map\MapContactOwnerLaunched;
+use App\Events\Map\MapIdCopied;
 use App\Events\Map\MapListingOpened;
 use App\Events\Map\MapPitchLaunched;
 use App\Events\Map\MapProspectLaunched;
@@ -58,6 +59,8 @@ final class MapActivityController extends Controller
                 'prospect_launched',
                 // Phase A.2.3 — portal-strip click on an HFC listing.
                 'listing_opened',
+                // Phase A.2.4 — Copy ID click on a sensitive fact (PII audit).
+                'id_copied',
             ])],
             'category'             => ['required', 'string', 'max:40'],
             'record_id'            => ['required'],   // int OR string ref — validated per-action below
@@ -93,6 +96,7 @@ final class MapActivityController extends Controller
             'cma_opened'             => $this->cmaOpened($data, $agencyId, $user->id),
             'prospect_launched'      => $this->prospectLaunched($data, $agencyId, $user->id, $extras),
             'listing_opened'         => $this->listingOpened($data, $agencyId, $user->id),
+            'id_copied'              => $this->idCopied($data, $agencyId, $user->id),
         };
 
         if ($event === null) {
@@ -185,6 +189,23 @@ final class MapActivityController extends Controller
         // permission when the agent actually adds the comp.
         return new MapComparableAdded(
             compRef:      (string) $data['record_id'],
+            agencyId:     $agencyId,
+            actingUserId: $userId,
+            locationKey:  (string) $data['location_key'],
+            source:       (string) $data['source'],
+        );
+    }
+
+    /**
+     * Phase A.2.4 — Copy ID click on a sensitive fact. Logs the click for
+     * PII audit; never sees the actual ID value (the value lives only in
+     * the agent's clipboard, copied client-side from the data attribute).
+     */
+    private function idCopied(array $data, int $agencyId, int $userId): ?MapIdCopied
+    {
+        return new MapIdCopied(
+            recordId:     (string) $data['record_id'],
+            category:     (string) $data['category'],
             agencyId:     $agencyId,
             actingUserId: $userId,
             locationKey:  (string) $data['location_key'],

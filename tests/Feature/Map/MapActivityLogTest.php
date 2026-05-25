@@ -664,6 +664,281 @@ final class MapActivityLogTest extends TestCase
         $this->assertSame($propertyId, $payload['property_id'] ?? null);
     }
 
+    // ── A.2.4 — toggle live-refresh + rich detail panel + Copy ID ─────────
+
+    /** M45 — pin endpoint accepts viewMode=seller and redacts scheme records. */
+    public function test_m45_pin_endpoint_with_seller_view_redacts_scheme_owners(): void
+    {
+        [$agencyId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        DB::table('scheme_owners')->insert([
+            'agency_id' => $agencyId, 'market_report_id' => $reportId,
+            'scheme_name' => 'Sunset Manor', 'section_number' => '1',
+            'owner_name' => 'James Taylor', 'is_demo' => false,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $svc = new \App\Services\Map\MapPinService();
+        $req = new \App\Services\Map\MapBoundsRequest(
+            north: -30.4, south: -31.0, east: 30.9, west: 30.0,
+            layers: ['scheme_owners'], viewMode: 'seller', agencyId: $agencyId,
+        );
+        $resp = $svc->getPinsInBounds($req);
+        $records = collect($resp['locations'])->flatMap(fn ($l) => $l['records']);
+        if ($records->isEmpty()) {
+            $this->markTestSkipped('No scheme_owners pins produced.');
+        }
+        foreach ($records as $rec) {
+            $this->assertNotEquals('James Taylor', $rec['subtitle']);
+        }
+    }
+
+    /** M46 — pin endpoint with viewMode=agent returns full owner identity. */
+    public function test_m46_pin_endpoint_with_agent_view_keeps_identity(): void
+    {
+        [$agencyId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        DB::table('scheme_owners')->insert([
+            'agency_id' => $agencyId, 'market_report_id' => $reportId,
+            'scheme_name' => 'Sunset Manor', 'section_number' => '1',
+            'owner_name' => 'James Taylor', 'is_demo' => false,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $svc = new \App\Services\Map\MapPinService();
+        $req = new \App\Services\Map\MapBoundsRequest(
+            north: -30.4, south: -31.0, east: 30.9, west: 30.0,
+            layers: ['scheme_owners'], viewMode: 'agent', agencyId: $agencyId,
+        );
+        $resp = $svc->getPinsInBounds($req);
+        $records = collect($resp['locations'])->flatMap(fn ($l) => $l['records'])
+            ->filter(fn ($r) => $r['category'] === 'scheme_owners')->values();
+        if ($records->isEmpty()) {
+            $this->markTestSkipped('No scheme_owners pins produced.');
+        }
+        $this->assertSame('James Taylor', $records[0]['subtitle']);
+    }
+
+    /** M47 — map view JS contains the panel re-fetch hook on view toggle. */
+    public function test_m47_map_view_re_fetches_open_panel_on_view_toggle(): void
+    {
+        $view = file_get_contents(base_path('resources/views/corex/map/index.blade.php'));
+        // The toggle handler explicitly re-opens single_detail with the same
+        // record + parent + location_key so the new viewMode applies.
+        $this->assertStringContainsString("panelState === 'single_detail'", $view,
+            'toggle handler must inspect panel state for live re-fetch');
+        $this->assertStringContainsString('openSingleDetail(panelCurrentRecord', $view,
+            'toggle handler must re-call openSingleDetail with the current record');
+    }
+
+    /** M48 — schemeOwnerCard Agent View returns enriched facts + sensitive_facts. */
+    public function test_m48_scheme_owner_card_agent_view_enriched(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        $ownerId = (int) DB::table('scheme_owners')->insertGetId([
+            'agency_id' => $agencyId, 'market_report_id' => $reportId,
+            'scheme_name' => 'Atlantis', 'section_number' => '1',
+            'flat_number' => '1A', 'scheme_ss_number' => 'SS123/2019',
+            'owner_name' => 'James Taylor', 'extent_m2' => 85,
+            'property_type' => 'apartment',
+            'is_demo' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->getJson(route('corex.map.scheme-owner', ['owner' => $ownerId]) . '?viewMode=agent');
+        $resp->assertOk();
+
+        $body = $resp->json();
+        $factLabels      = array_column($body['facts'], 'label');
+        $sensitiveLabels = array_column($body['sensitive_facts'] ?? [], 'label');
+
+        $this->assertContains('Scheme', $factLabels);
+        $this->assertContains('Section', $factLabels);
+        $this->assertContains('Flat', $factLabels);
+        $this->assertContains('SS number', $factLabels);
+        $this->assertContains('Floor area', $factLabels);
+        $this->assertContains('Property type', $factLabels);
+        $this->assertContains('Owner', $sensitiveLabels);
+    }
+
+    /** M49 — same endpoint in Seller View has facts but no sensitive_facts key. */
+    public function test_m49_scheme_owner_card_seller_view_omits_sensitive(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        $ownerId = (int) DB::table('scheme_owners')->insertGetId([
+            'agency_id' => $agencyId, 'market_report_id' => $reportId,
+            'scheme_name' => 'Atlantis', 'section_number' => '1',
+            'owner_name' => 'James Taylor', 'is_demo' => false,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->getJson(route('corex.map.scheme-owner', ['owner' => $ownerId]) . '?viewMode=seller');
+        $resp->assertOk();
+
+        $body = $resp->json();
+        $this->assertNotEmpty($body['facts'], 'Building facts visible in Seller View');
+        $this->assertArrayNotHasKey('sensitive_facts', $body,
+            'Seller View must omit sensitive_facts entirely');
+    }
+
+    /** M50 — soldCardFromMrcr returns R/m² (computed when missing) + property
+     *        type + condition fields. */
+    public function test_m51_sold_comp_mrcr_card_shows_rich_fields_with_r_per_m2(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        $compId = (int) DB::table('market_report_comp_rows')->insertGetId([
+            'market_report_id' => $reportId,
+            'agency_id'        => $agencyId,
+            'row_index'        => 1,
+            'row_type'         => 'comp',
+            'address'          => '15 Bairn Street',
+            'property_type'    => 'apartment',
+            'extent_m2'        => 80,
+            'sale_date'        => '2024-05-15',
+            'sale_price'       => 1_200_000,
+            'r_per_m2'         => null,  // forces compute path
+            'condition'        => 'good',
+            'days_on_market'   => 45,
+            'latitude'         => -30.84,
+            'longitude'        => 30.39,
+            'is_demo'          => false,
+            'created_at'       => now(),
+            'updated_at'       => now(),
+        ]);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->getJson(route('corex.map.sold', ['layerId' => 'mrcr:' . $compId]) . '?viewMode=agent');
+        $resp->assertOk();
+
+        $labels = array_column($resp->json('facts'), 'label');
+        $values = array_column($resp->json('facts'), 'value');
+
+        $this->assertContains('R/m²', $labels, 'R/m² label must be present');
+        $this->assertContains('Property type', $labels);
+        $this->assertContains('Condition', $labels);
+        $this->assertContains('Days on market', $labels);
+        // Computed R/m² = 1_200_000 / 80 = 15_000 → "R 15 000"
+        $this->assertContains('R 15 000', $values);
+    }
+
+    /** M50 — Portal Stock detail (activeCardFromPal) surfaces captured_at,
+     *        days on portal, portal source, "Open on portal" relationship. */
+    public function test_m50_portal_stock_pal_card_shows_capture_metadata(): void
+    {
+        // PAL cards need a presentation row. Skip if presentations table
+        // requires more setup than this minimal test seeds.
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+
+        // Minimal presentation row — used by the join in activeCardFromPal.
+        $presentationId = (int) DB::table('presentations')->insertGetId([
+            'agency_id'           => $agencyId,
+            'branch_id'           => $agencyId,
+            'created_by_user_id'  => $userId,
+            'title'               => 'Test Presentation',
+            'created_at'          => now(),
+            'updated_at'          => now(),
+        ]);
+
+        $palId = (int) DB::table('presentation_active_listings')->insertGetId([
+            'presentation_id'    => $presentationId,
+            'list_price_inc'     => 1_500_000,
+            'beds'               => 2, 'baths' => 2, 'size_m2' => 75,
+            'suburb'             => 'Margate',
+            'property_type'      => 'apartment',
+            'listing_date'       => now()->subDays(20)->toDateString(),
+            'raw_row_json'       => json_encode([
+                'address'        => '12 Marine Drive, Margate',
+                'days_on_market' => 20,
+                'portal_source'  => 'p24',
+                'portal_ref'     => 'P24-12345',
+                'portal_url'     => 'https://www.property24.com/listing/12345',
+                'agent_name'     => 'Test Agent',
+                'agency_name'    => 'Test Agency',
+            ]),
+            'extraction_method'  => 'email_import',
+            'parser_version'     => 'test-v1',
+            'first_seen_at'      => now()->subDays(20),
+            'last_seen_at'       => now(),
+            'is_active'          => true,
+            'is_demo'            => false,
+            'created_at'         => now(),
+        ]);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->getJson(route('corex.map.active', ['layerId' => 'pal:' . $palId]) . '?viewMode=agent');
+        $resp->assertOk();
+
+        $labels = array_column($resp->json('facts'), 'label');
+        $this->assertContains('Days on portal', $labels);
+        $this->assertContains('Captured at', $labels);
+        $this->assertContains('Portal', $labels);
+        $this->assertContains('Capture method', $labels);
+
+        $relUrls = array_column($resp->json('relationships'), 'url');
+        $this->assertContains('https://www.property24.com/listing/12345', $relUrls,
+            'Portal URL surfaces as a relationship link');
+
+        // Agent name lives in sensitive_facts.
+        $sensitiveLabels = array_column($resp->json('sensitive_facts') ?? [], 'label');
+        $this->assertContains('Listing agent', $sensitiveLabels);
+    }
+
+    /** M52 — micSubjectCard surfaces report metadata. */
+    public function test_m52_mic_subject_card_shows_report_metadata(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+
+        $resp = $this->actingAs(User::find($userId))
+            ->getJson(route('corex.map.mic-subject', ['report' => $reportId]) . '?viewMode=agent');
+        $resp->assertOk();
+
+        $labels = array_column($resp->json('facts'), 'label');
+        $this->assertContains('Report type', $labels);
+        $this->assertContains('Report date', $labels);
+        $this->assertContains('GPS', $labels);
+        $this->assertContains('Pulled at', $labels);
+    }
+
+    /** M53 — POST id_copied dispatches MapIdCopied event + writes to
+     *        agent_activity_events. */
+    public function test_m53_copy_id_fires_activity_event(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+        $reportId = $this->seedMarketReport($agencyId);
+        $ownerId = (int) DB::table('scheme_owners')->insertGetId([
+            'agency_id' => $agencyId, 'market_report_id' => $reportId,
+            'scheme_name' => 'Atlantis', 'owner_name' => 'X', 'is_demo' => false,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->actingAs(User::find($userId))->postJson(route('corex.map.activity.log'), [
+            'action'       => 'id_copied',
+            'category'     => 'scheme_owners',
+            'record_id'    => (string) $ownerId,
+            'location_key' => 'sha256:m53',
+            'source'       => 'single_detail',
+        ])->assertOk();
+
+        $row = AgentActivityEvent::where('agency_id', $agencyId)
+            ->where('event_type', 'LIKE', 'map_id%')
+            ->latest('id')->first();
+        $this->assertNotNull($row);
+        $this->assertSame('map_id.copied', $row->event_type);
+    }
+
+    /** M54 — maskIdNumber masks all but last 4 digits. */
+    public function test_m54_id_number_masking_helper(): void
+    {
+        $this->assertSame('*********9085', \App\Http\Controllers\Map\MapController::maskIdNumber('8901015009085'));
+        $this->assertSame('1234',          \App\Http\Controllers\Map\MapController::maskIdNumber('1234'),    'Short IDs unchanged');
+        $this->assertSame('**5678',        \App\Http\Controllers\Map\MapController::maskIdNumber('125678'),  'Always reveals last 4');
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** Seed agency + branch + user + a single HFC property; return ids. */

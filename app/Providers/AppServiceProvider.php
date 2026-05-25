@@ -193,6 +193,8 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Map\MapProspectLaunched::class,
             // Phase A.2.3 — portal-strip click on an HFC listing.
             \App\Events\Map\MapListingOpened::class,
+            // Phase A.2.4 — Copy ID click on a sensitive fact (PII audit).
+            \App\Events\Map\MapIdCopied::class,
         ] as $micActivityEvent) {
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }

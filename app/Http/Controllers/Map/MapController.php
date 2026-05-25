@@ -308,11 +308,11 @@ final class MapController extends Controller
         return response()->json($card);
     }
 
-    /** GET /corex/map/mic-subject/{report} */
+    /** GET /corex/map/mic-subject/{report} — A.2.4 enrichment: full metadata
+     *  (report type / period / GPS / data-points count / pulled-at). */
     public function micSubjectCard(Request $request, MarketReport $report): JsonResponse
     {
         $this->assertSameAgency($request, $report->agency_id);
-        $viewMode = $request->query('viewMode', 'agent');
 
         $munRow = DB::table('market_data_points')
             ->whereNull('deleted_at')
@@ -321,15 +321,29 @@ final class MapController extends Controller
             ->orderByDesc('id')
             ->first(['metric_value_numeric', 'metric_date']);
 
-        $facts = array_filter([
+        $gps = ($report->subject_latitude !== null && $report->subject_longitude !== null)
+            ? sprintf('%.5f, %.5f', (float) $report->subject_latitude, (float) $report->subject_longitude)
+            : null;
+
+        $pulledAt = $report->parse_completed_at ?? $report->created_at;
+        $period   = $report->radius_metres ? round($report->radius_metres / 1000, 1) . ' km radius' : null;
+
+        $facts = array_values(array_filter([
             ['label' => 'Subject address', 'value' => $report->subject_address ?: '—'],
-            $report->subject_scheme_name ? ['label' => 'Scheme', 'value' => $report->subject_scheme_name] : null,
-            $report->subject_section_number ? ['label' => 'Section', 'value' => (string) $report->subject_section_number] : null,
-            $report->subject_extent_m2 ? ['label' => 'Extent', 'value' => $report->subject_extent_m2 . ' m²'] : null,
-            $munRow ? ['label' => 'Municipal evaluation', 'value' => 'R ' . number_format((int) $munRow->metric_value_numeric, 0, '.', ' ') . ($munRow->metric_date ? ' (' . substr($munRow->metric_date, 0, 4) . ')' : '')] : null,
-            ['label' => 'Imported', 'value' => optional($report->created_at)->format('M Y') ?: '—'],
+            $report->subject_scheme_name      ? ['label' => 'Scheme',     'value' => $report->subject_scheme_name] : null,
+            $report->subject_section_number   ? ['label' => 'Section',    'value' => (string) $report->subject_section_number] : null,
+            $report->subject_extent_m2        ? ['label' => 'Extent',     'value' => $report->subject_extent_m2 . ' m²'] : null,
+            $munRow                            ? ['label' => 'Municipal evaluation', 'value' => 'R ' . number_format((int) $munRow->metric_value_numeric, 0, '.', ' ') . ($munRow->metric_date ? ' (' . substr($munRow->metric_date, 0, 4) . ')' : '')] : null,
+            $report->source_suburb            ? ['label' => 'Source suburb', 'value' => $report->source_suburb] : null,
+            $report->source_town              ? ['label' => 'Source town',   'value' => $report->source_town] : null,
+            $gps                              ? ['label' => 'GPS',        'value' => $gps] : null,
+            $report->report_date              ? ['label' => 'Report date', 'value' => \Carbon\Carbon::parse($report->report_date)->format('j M Y')] : null,
+            $period                           ? ['label' => 'Search radius', 'value' => $period] : null,
+            $report->data_points_count        ? ['label' => 'Data points', 'value' => number_format((int) $report->data_points_count)] : null,
             ['label' => 'Report type', 'value' => $report->reportType?->display_name ?? '—'],
-        ]);
+            $report->parser_version           ? ['label' => 'Parser',     'value' => $report->parser_version] : null,
+            $pulledAt                          ? ['label' => 'Pulled at',  'value' => \Carbon\Carbon::parse($pulledAt)->format('j M Y H:i')] : null,
+        ]));
 
         $card = [
             'title'    => $report->subject_address ?: 'Report #' . $report->id,
@@ -337,26 +351,27 @@ final class MapController extends Controller
             'address'  => $report->subject_address,
             'lat'      => $report->subject_latitude !== null ? (float) $report->subject_latitude : null,
             'lng'      => $report->subject_longitude !== null ? (float) $report->subject_longitude : null,
-            'facts'    => array_values($facts),
+            'facts'    => $facts,
             'relationships' => array_filter([
                 ['label' => 'Open report', 'url' => route('market-intelligence.reports.show', $report)],
             ]),
         ];
-        if ($viewMode === 'agent') {
+        // MIC subjects carry no PII — sensitive_facts stays empty regardless
+        // of view mode (kept for client-side gating consistency).
+        if ($request->query('viewMode', 'agent') === 'agent') {
             $card['sensitive_facts'] = [];
         }
         return response()->json($card);
     }
 
-    /** GET /corex/map/scheme-owner/{owner} — building facts in Seller View,
-     *  building + owner facts in Agent View. */
+    /** GET /corex/map/scheme-owner/{owner} — A.2.4 enrichment.
+     *  Building + section + extent + property type in facts; owner identity
+     *  (name, ID, phone, email, bond, dates) in sensitive_facts (Agent View
+     *  only). Fields that don't exist on the schema (phone/email/ID/bond)
+     *  remain placeholders — they activate when those columns land. */
     public function schemeOwnerCard(Request $request, SchemeOwner $owner): JsonResponse
     {
         $this->assertSameAgency($request, $owner->agency_id);
-        // A.2.3 Item 3 — Seller View no longer returns 403. The card surfaces
-        // the building / scheme / section facts (which are public knowledge
-        // from the title deed) and omits the sensitive_facts array entirely
-        // so owner identity never crosses the wire.
         $isAgentView = $request->query('viewMode', 'agent') === 'agent';
 
         $matching = MarketReport::query()
@@ -367,33 +382,81 @@ final class MapController extends Controller
             ->orderByDesc('id')
             ->first(['id', 'subject_latitude', 'subject_longitude', 'subject_address']);
 
+        // Length of ownership — computed when purchase_date exists (column
+        // not yet on schema; falls through gracefully).
+        $lengthYears = null;
+        if (isset($owner->purchase_date) && $owner->purchase_date) {
+            try {
+                $purchase = \Carbon\Carbon::parse($owner->purchase_date);
+                $lengthYears = round(now()->diffInDays($purchase) / 365.25, 1);
+            } catch (\Throwable) { /* ignore */ }
+        }
+
         $card = [
             'title'    => trim(($owner->scheme_name ?? '') . ($owner->section_number ? ' § ' . $owner->section_number : '')),
             'subtitle' => $isAgentView ? 'Scheme owner' : 'Sectional Scheme unit',
             'address'  => $matching?->subject_address,
             'lat'      => $matching?->subject_latitude !== null ? (float) $matching->subject_latitude : null,
             'lng'      => $matching?->subject_longitude !== null ? (float) $matching->subject_longitude : null,
-            'facts'    => array_filter([
-                $owner->scheme_name   ? ['label' => 'Scheme',  'value' => $owner->scheme_name] : null,
-                $owner->section_number ? ['label' => 'Section', 'value' => (string) $owner->section_number] : null,
-                $owner->ss_number     ? ['label' => 'SS No',   'value' => $owner->ss_number] : null,
-                $owner->ss_year       ? ['label' => 'SS Year', 'value' => (string) $owner->ss_year] : null,
-            ]),
+            'facts'    => array_values(array_filter([
+                $owner->scheme_name        ? ['label' => 'Scheme',        'value' => $owner->scheme_name] : null,
+                $owner->section_number     ? ['label' => 'Section',       'value' => (string) $owner->section_number] : null,
+                $owner->flat_number        ? ['label' => 'Flat',          'value' => (string) $owner->flat_number] : null,
+                $owner->scheme_ss_number   ? ['label' => 'SS number',     'value' => $owner->scheme_ss_number] : null,
+                $owner->extent_m2          ? ['label' => 'Floor area',    'value' => $owner->extent_m2 . ' m²'] : null,
+                $owner->property_type      ? ['label' => 'Property type', 'value' => $owner->property_type] : null,
+                $matching?->subject_address ? ['label' => 'Building address', 'value' => $matching->subject_address] : null,
+            ])),
             'relationships' => [],
         ];
 
         if ($isAgentView) {
-            $card['sensitive_facts'] = array_filter([
-                $owner->owner_name      ? ['label' => 'Owner',   'value' => $owner->owner_name] : null,
-                $owner->owner_id_number ? ['label' => 'ID',      'value' => $owner->owner_id_number] : null,
-                $owner->owner_phone     ? ['label' => 'Phone',   'value' => $owner->owner_phone] : null,
-                $owner->owner_email     ? ['label' => 'Email',   'value' => $owner->owner_email] : null,
-            ]);
+            // Sensitive identity + financial facts. Each row is conditional
+            // on the underlying column being populated — null rows hidden.
+            // Phone / email / ID / bond fields read off the model
+            // dynamically; they're null until those columns are added.
+            $idNumber = $owner->owner_id_number ?? null;
+
+            $card['sensitive_facts'] = array_values(array_filter([
+                $owner->owner_name      ? ['label' => 'Owner', 'value' => $owner->owner_name] : null,
+                $idNumber               ? [
+                    'label'       => 'ID number',
+                    'value'       => self::maskIdNumber((string) $idNumber),
+                    'value_raw'   => (string) $idNumber,
+                    'copyable'    => true,
+                    'va_lookup'   => true,
+                ] : null,
+                $owner->owner_phone     ? ['label' => 'Phone', 'value' => $owner->owner_phone, 'copyable' => true] : null,
+                $owner->owner_email     ? ['label' => 'Email', 'value' => $owner->owner_email, 'copyable' => true] : null,
+                isset($owner->purchase_date) && $owner->purchase_date
+                    ? ['label' => 'Date acquired', 'value' => \Carbon\Carbon::parse($owner->purchase_date)->format('j M Y')] : null,
+                isset($owner->purchase_price) && $owner->purchase_price
+                    ? ['label' => 'Purchase price', 'value' => 'R ' . number_format((int) $owner->purchase_price, 0, '.', ' ')] : null,
+                $lengthYears                ? ['label' => 'Length of ownership', 'value' => $lengthYears . ' years'] : null,
+                isset($owner->bond_holder) && $owner->bond_holder
+                    ? ['label' => 'Bond holder', 'value' => $owner->bond_holder] : null,
+                isset($owner->bond_amount) && $owner->bond_amount
+                    ? ['label' => 'Bond amount', 'value' => 'R ' . number_format((int) $owner->bond_amount, 0, '.', ' ')] : null,
+                isset($owner->bond_date) && $owner->bond_date
+                    ? ['label' => 'Bond date',  'value' => \Carbon\Carbon::parse($owner->bond_date)->format('j M Y')] : null,
+            ]));
         }
-        // In Seller View, sensitive_facts is absent — the right-panel JS
-        // already gates on its presence so no further client change needed.
 
         return response()->json($card);
+    }
+
+    /**
+     * Mask all but last 4 digits of an ID/passport number for visual display.
+     * Example: "8901015009085" → "*********9085".
+     *
+     * Public + static so M54 can assert the contract without instantiating
+     * the controller or hitting the DB.
+     */
+    public static function maskIdNumber(string $id): string
+    {
+        $len = strlen($id);
+        if ($len <= 4) return $id;
+        return str_repeat('*', $len - 4) . substr($id, -4);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -411,7 +474,14 @@ final class MapController extends Controller
         if (!$row) return null;
         $this->assertSameAgency($request, (int) $row->agency_id);
 
-        return [
+        // A.2.4 — enrich with every column the row carries.
+        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+        $rPerM2 = $row->r_per_m2;
+        if (!$rPerM2 && $row->sale_price && $row->extent_m2) {
+            $rPerM2 = (int) round(((int) $row->sale_price) / max(1, (int) $row->extent_m2));
+        }
+
+        $card = [
             'title'    => $row->scheme_name
                 ? trim($row->scheme_name . ($row->section_number ? ' § ' . $row->section_number : ''))
                 : ($row->address ?: 'Comp #' . $row->id),
@@ -419,18 +489,31 @@ final class MapController extends Controller
             'address'  => $row->address,
             'lat'      => $row->latitude !== null ? (float) $row->latitude : null,
             'lng'      => $row->longitude !== null ? (float) $row->longitude : null,
-            'facts'    => array_filter([
-                ['label' => 'Sale price', 'value' => $row->sale_price ? 'R ' . number_format((int) $row->sale_price, 0, '.', ' ') : '—'],
-                ['label' => 'Sale date',  'value' => $row->sale_date ?: '—'],
-                $row->extent_m2 ? ['label' => 'Extent', 'value' => $row->extent_m2 . ' m²'] : null,
-                $row->r_per_m2  ? ['label' => 'R/m²',   'value' => 'R ' . number_format((int) $row->r_per_m2, 0, '.', ' ')] : null,
+            'facts'    => array_values(array_filter([
+                $row->sale_price                  ? ['label' => 'Sale price', 'value' => 'R ' . number_format((int) $row->sale_price, 0, '.', ' ')] : null,
+                $row->sale_date                   ? ['label' => 'Sale date',  'value' => \Carbon\Carbon::parse($row->sale_date)->format('j M Y')] : null,
+                $row->property_type               ? ['label' => 'Property type', 'value' => $row->property_type] : null,
+                $row->extent_m2                   ? ['label' => 'Extent', 'value' => $row->extent_m2 . ' m²'] : null,
+                $rPerM2                            ? ['label' => 'R/m²',   'value' => 'R ' . number_format((int) $rPerM2, 0, '.', ' ')] : null,
+                $row->estimated_value             ? ['label' => 'Estimated value', 'value' => 'R ' . number_format((int) $row->estimated_value, 0, '.', ' ')] : null,
+                $row->municipal_valuation         ? ['label' => 'Municipal evaluation', 'value' => 'R ' . number_format((int) $row->municipal_valuation, 0, '.', ' ') . ($row->municipal_valuation_year ? ' (' . $row->municipal_valuation_year . ')' : '')] : null,
+                $row->condition                   ? ['label' => 'Condition', 'value' => $row->condition] : null,
+                $row->days_on_market              ? ['label' => 'Days on market', 'value' => (string) $row->days_on_market] : null,
                 $row->distance_to_subject_m !== null ? ['label' => 'From subject', 'value' => $row->distance_to_subject_m . ' m'] : null,
-            ]),
+                $row->suburb_normalised           ? ['label' => 'Suburb', 'value' => $row->suburb_normalised] : null,
+                $row->ss_number                   ? ['label' => 'SS No', 'value' => $row->ss_number] : null,
+                ['label' => 'Source', 'value' => 'CMA Info report'],
+            ])),
             'relationships' => array_filter([
-                ['label' => 'Open source report', 'url' => route('market-intelligence.reports.show', $row->market_report_id)],
+                ['label' => 'Open evaluation report', 'url' => route('market-intelligence.reports.show', $row->market_report_id)],
             ]),
-            'sensitive_facts' => [],
         ];
+        if ($isAgentView) {
+            // Buyer / seller / bond details would land in sensitive_facts when
+            // those columns ever populate. None are on the current MRCR schema.
+            $card['sensitive_facts'] = [];
+        }
+        return $card;
     }
 
     private function soldCardFromPsc(Request $request, int $id): ?array
@@ -447,22 +530,49 @@ final class MapController extends Controller
         $this->assertSameAgency($request, (int) $row->agency_id);
 
         $raw = is_string($row->raw_row_json) ? (json_decode($row->raw_row_json, true) ?: []) : ((array) $row->raw_row_json ?: []);
-        return [
+        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+
+        // A.2.4 — compute R/m² and surface every available field from the
+        // base columns + raw_row_json blob.
+        $price = $row->sold_price_inc ? (int) $row->sold_price_inc : null;
+        $size  = $row->size_m2 ? (float) $row->size_m2 : null;
+        $rPerM2 = ($price && $size) ? (int) round($price / max(1, $size)) : null;
+
+        $card = [
             'title'    => $raw['address'] ?? 'Comp #' . $row->id,
             'subtitle' => 'Comparable sale (presentation)',
             'address'  => $raw['address'] ?? null,
             'lat'      => $raw['latitude'] ?? null,
             'lng'      => $raw['longitude'] ?? null,
-            'facts'    => array_filter([
-                ['label' => 'Sale price', 'value' => $row->sold_price_inc ? 'R ' . number_format((int) $row->sold_price_inc, 0, '.', ' ') : '—'],
-                ['label' => 'Sale date',  'value' => $row->sold_date ?: '—'],
-                $row->size_m2 ? ['label' => 'Extent', 'value' => $row->size_m2 . ' m²'] : null,
-            ]),
+            'facts'    => array_values(array_filter([
+                $price                            ? ['label' => 'Sale price', 'value' => 'R ' . number_format($price, 0, '.', ' ')] : null,
+                $row->sold_date                   ? ['label' => 'Sale date',  'value' => \Carbon\Carbon::parse($row->sold_date)->format('j M Y')] : null,
+                $row->property_type               ? ['label' => 'Property type', 'value' => $row->property_type] : null,
+                $row->beds                        ? ['label' => 'Bedrooms',  'value' => (string) $row->beds] : null,
+                $row->baths                       ? ['label' => 'Bathrooms', 'value' => (string) $row->baths] : null,
+                $size                              ? ['label' => 'Extent', 'value' => $size . ' m²'] : null,
+                $rPerM2                            ? ['label' => 'R/m²',   'value' => 'R ' . number_format($rPerM2, 0, '.', ' ')] : null,
+                $row->suburb                      ? ['label' => 'Suburb', 'value' => $row->suburb] : null,
+                $row->listed_date                 ? ['label' => 'Listed date', 'value' => \Carbon\Carbon::parse($row->listed_date)->format('j M Y')] : null,
+                !empty($raw['days_on_market'])    ? ['label' => 'Days on market', 'value' => (string) $raw['days_on_market']] : null,
+                !empty($raw['agency_name'])       ? ['label' => 'Listing agency', 'value' => $raw['agency_name']] : null,
+                ['label' => 'Source', 'value' => 'Presentation comp upload'],
+                $row->parser_version              ? ['label' => 'Parser', 'value' => $row->parser_version] : null,
+                $row->created_at                  ? ['label' => 'Pulled at', 'value' => \Carbon\Carbon::parse($row->created_at)->format('j M Y')] : null,
+            ])),
             'relationships' => array_filter([
                 $row->presentation_id ? ['label' => 'Open presentation', 'url' => route('presentations.show', $row->presentation_id)] : null,
             ]),
-            'sensitive_facts' => [],
         ];
+        if ($isAgentView) {
+            $card['sensitive_facts'] = array_values(array_filter([
+                // Buyer / seller / agent name from raw JSON if present.
+                !empty($raw['buyer_name'])  ? ['label' => 'Buyer',  'value' => $raw['buyer_name']]  : null,
+                !empty($raw['seller_name']) ? ['label' => 'Seller', 'value' => $raw['seller_name']] : null,
+                !empty($raw['agent_name'])  ? ['label' => 'Listing agent', 'value' => $raw['agent_name']] : null,
+            ]));
+        }
+        return $card;
     }
 
     private function activeCardFromMrcr(Request $request, int $id): ?array
@@ -477,24 +587,37 @@ final class MapController extends Controller
         if (!$row) return null;
         $this->assertSameAgency($request, (int) $row->agency_id);
 
-        return [
+        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+
+        // A.2.4 — enrich Portal Stock detail (from MIC report row_type=listing).
+        $card = [
             'title'    => $row->scheme_name
                 ? trim($row->scheme_name . ($row->section_number ? ' § ' . $row->section_number : ''))
                 : ($row->address ?: 'Listing #' . $row->id),
-            'subtitle' => 'Active listing',
+            'subtitle' => 'Portal Stock listing',
             'address'  => $row->address,
             'lat'      => $row->latitude !== null ? (float) $row->latitude : null,
             'lng'      => $row->longitude !== null ? (float) $row->longitude : null,
-            'facts'    => array_filter([
-                ['label' => 'List price', 'value' => $row->list_price ? 'R ' . number_format((int) $row->list_price, 0, '.', ' ') : '—'],
-                $row->days_on_market ? ['label' => 'Days on market', 'value' => (string) $row->days_on_market] : null,
-                $row->extent_m2 ? ['label' => 'Extent', 'value' => $row->extent_m2 . ' m²'] : null,
-            ]),
+            'facts'    => array_values(array_filter([
+                $row->list_price                  ? ['label' => 'List price',   'value' => 'R ' . number_format((int) $row->list_price, 0, '.', ' ')] : null,
+                $row->days_on_market              ? ['label' => 'Days on market', 'value' => (string) $row->days_on_market] : null,
+                $row->property_type               ? ['label' => 'Property type', 'value' => $row->property_type] : null,
+                $row->extent_m2                   ? ['label' => 'Extent', 'value' => $row->extent_m2 . ' m²'] : null,
+                $row->municipal_valuation         ? ['label' => 'Municipal evaluation', 'value' => 'R ' . number_format((int) $row->municipal_valuation, 0, '.', ' ') . ($row->municipal_valuation_year ? ' (' . $row->municipal_valuation_year . ')' : '')] : null,
+                $row->condition                   ? ['label' => 'Condition',   'value' => $row->condition] : null,
+                $row->ss_number                   ? ['label' => 'SS number',   'value' => $row->ss_number] : null,
+                $row->distance_to_subject_m !== null ? ['label' => 'From subject', 'value' => $row->distance_to_subject_m . ' m'] : null,
+                ['label' => 'Source', 'value' => 'CMA Info report'],
+            ])),
             'relationships' => array_filter([
-                ['label' => 'Open source report', 'url' => route('market-intelligence.reports.show', $row->market_report_id)],
+                ['label' => 'Open evaluation report', 'url' => route('market-intelligence.reports.show', $row->market_report_id)],
             ]),
-            'sensitive_facts' => [],
         ];
+        if ($isAgentView) {
+            // Agent name / agency captured by MRCR rows — none on schema today.
+            $card['sensitive_facts'] = [];
+        }
+        return $card;
     }
 
     private function activeCardFromPal(Request $request, int $id): ?array
@@ -509,22 +632,60 @@ final class MapController extends Controller
         $this->assertSameAgency($request, (int) $row->agency_id);
 
         $raw = is_string($row->raw_row_json) ? (json_decode($row->raw_row_json, true) ?: []) : ((array) $row->raw_row_json ?: []);
-        return [
+        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+
+        // Days on portal — prefer raw_row_json (most accurate) then computed
+        // from first_seen_at/last_seen_at if those make it onto PAL.
+        $daysOnPortal = $raw['days_on_market'] ?? null;
+        if ($daysOnPortal === null && $row->first_seen_at) {
+            $daysOnPortal = (int) \Carbon\Carbon::parse($row->first_seen_at)->diffInDays(now());
+        }
+
+        // Portal URL if captured — surfaces "Open on P24/PP" relationship link.
+        $portalUrl = $raw['portal_url'] ?? $raw['source_url'] ?? null;
+        $portalKey = $raw['portal_source'] ?? null;
+        $portalLabel = match ($portalKey) {
+            'p24'  => 'Open on Property24',
+            'pp'   => 'Open on Private Property',
+            default => 'Open portal listing',
+        };
+
+        $card = [
             'title'    => $raw['address'] ?? 'Listing #' . $row->id,
-            'subtitle' => 'Active listing (presentation)',
+            'subtitle' => 'Portal Stock listing',
             'address'  => $raw['address'] ?? null,
             'lat'      => $raw['latitude'] ?? null,
             'lng'      => $raw['longitude'] ?? null,
-            'facts'    => array_filter([
-                ['label' => 'List price', 'value' => $row->list_price_inc ? 'R ' . number_format((int) $row->list_price_inc, 0, '.', ' ') : '—'],
-                isset($raw['days_on_market']) ? ['label' => 'Days on market', 'value' => (string) $raw['days_on_market']] : null,
-                $row->size_m2 ? ['label' => 'Extent', 'value' => $row->size_m2 . ' m²'] : null,
-            ]),
-            'relationships' => array_filter([
+            'facts'    => array_values(array_filter([
+                $row->list_price_inc              ? ['label' => 'Asking price', 'value' => 'R ' . number_format((int) $row->list_price_inc, 0, '.', ' ')] : null,
+                $daysOnPortal                      ? ['label' => 'Days on portal', 'value' => (string) $daysOnPortal] : null,
+                $row->listing_date                ? ['label' => 'Listed date', 'value' => \Carbon\Carbon::parse($row->listing_date)->format('j M Y')] : null,
+                $row->property_type               ? ['label' => 'Property type', 'value' => $row->property_type] : null,
+                $row->beds                        ? ['label' => 'Bedrooms', 'value' => (string) $row->beds] : null,
+                $row->baths                       ? ['label' => 'Bathrooms', 'value' => (string) $row->baths] : null,
+                $row->size_m2                     ? ['label' => 'Extent', 'value' => $row->size_m2 . ' m²'] : null,
+                $row->suburb                      ? ['label' => 'Suburb', 'value' => $row->suburb] : null,
+                !empty($raw['portal_source'])     ? ['label' => 'Portal',     'value' => strtoupper($raw['portal_source'])] : null,
+                !empty($raw['portal_ref'])        ? ['label' => 'Portal ref', 'value' => $raw['portal_ref']] : null,
+                !empty($raw['agency_name'])       ? ['label' => 'Listing agency', 'value' => $raw['agency_name']] : null,
+                $row->extraction_method           ? ['label' => 'Capture method', 'value' => $row->extraction_method] : null,
+                $row->first_seen_at               ? ['label' => 'Captured at', 'value' => \Carbon\Carbon::parse($row->first_seen_at)->format('j M Y')] : null,
+                $row->last_seen_at                ? ['label' => 'Last seen at', 'value' => \Carbon\Carbon::parse($row->last_seen_at)->format('j M Y')] : null,
+                $row->data_quality_score          ? ['label' => 'Data quality', 'value' => $row->data_quality_score] : null,
+            ])),
+            'relationships' => array_values(array_filter([
+                $portalUrl ? ['label' => $portalLabel, 'url' => $portalUrl] : null,
                 $row->presentation_id ? ['label' => 'Open presentation', 'url' => route('presentations.show', $row->presentation_id)] : null,
-            ]),
-            'sensitive_facts' => [],
+            ])),
         ];
+        if ($isAgentView) {
+            $card['sensitive_facts'] = array_values(array_filter([
+                !empty($raw['agent_name'])  ? ['label' => 'Listing agent', 'value' => $raw['agent_name']] : null,
+                !empty($raw['agent_phone']) ? ['label' => 'Agent phone',  'value' => $raw['agent_phone'], 'copyable' => true] : null,
+                !empty($raw['agent_email']) ? ['label' => 'Agent email',  'value' => $raw['agent_email'], 'copyable' => true] : null,
+            ]));
+        }
+        return $card;
     }
 
     private function splitLayerId(string $layerId): array

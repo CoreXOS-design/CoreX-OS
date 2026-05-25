@@ -713,6 +713,24 @@ document.addEventListener('DOMContentLoaded', function () {
     const ICON_COMPARABLE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"></path><path d="M3 9h18M9 3v18"></path></svg>';
     const ICON_FIND       = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>';
     const ICON_OPEN       = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><path d="M15 3h6v6"></path><path d="m10 14 11-11"></path></svg>';
+    // A.2.4 — copy icon for sensitive-fact rows.
+    const ICON_COPY       = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+
+    // A.2.4 — brief "Copied ✓" toast. Anchored to the right panel; auto
+    // dismisses after 1.5s. Uses inline DOM injection to avoid pulling in
+    // a global toast library on the standalone map page.
+    let copyToastEl = null;
+    function toastCopied() {
+        if (!copyToastEl) {
+            copyToastEl = document.createElement('div');
+            copyToastEl.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#0f172a;color:#fff;padding:8px 14px;border-radius:6px;font-size:0.8125rem;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,.25);z-index:9999;opacity:0;transition:opacity 150ms;pointer-events:none;';
+            document.body.appendChild(copyToastEl);
+        }
+        copyToastEl.textContent = 'Copied ✓';
+        copyToastEl.style.opacity = '1';
+        clearTimeout(copyToastEl._t);
+        copyToastEl._t = setTimeout(() => { copyToastEl.style.opacity = '0'; }, 1500);
+    }
 
     function currentBounds() {
         const b = map.getBounds();
@@ -909,14 +927,22 @@ document.addEventListener('DOMContentLoaded', function () {
     // reference to the parent location so the back arrow can return.
     const detailPanel = document.getElementById('map-detail-panel');
     let panelParentComposite = null; // last composite_list location (for back-nav)
+    // A.2.4 — track the currently-open panel state so a view-mode toggle can
+    // re-fetch and re-render WITHOUT losing the user's place.
+    let panelState = 'closed';        // 'closed' | 'composite_list' | 'single_detail'
+    let panelCurrentRecord = null;    // record dict shown in single_detail (if any)
+    let panelCurrentLocationKey = null;
 
     function setPanelOpen(open) {
         detailPanel.style.transform = open ? 'translateX(0)' : 'translateX(100%)';
+        if (!open) panelState = 'closed';
     }
 
     document.getElementById('detail-close-btn').addEventListener('click', () => {
         setPanelOpen(false);
         panelParentComposite = null;
+        panelCurrentRecord = null;
+        panelCurrentLocationKey = null;
         document.getElementById('detail-back-btn').style.display = 'none';
     });
 
@@ -930,6 +956,9 @@ document.addEventListener('DOMContentLoaded', function () {
      */
     function openCompositeList(loc) {
         panelParentComposite = loc;
+        panelState = 'composite_list';
+        panelCurrentRecord = null;
+        panelCurrentLocationKey = loc.location_key;
 
         // A.2.1 — header reframe. When every record at this location is a
         // sectional scheme owner, headline becomes the scheme name + "N units"
@@ -1046,6 +1075,9 @@ document.addEventListener('DOMContentLoaded', function () {
      */
     async function openSingleDetail(record, parent, locationKey) {
         panelParentComposite = parent;
+        panelState = 'single_detail';
+        panelCurrentRecord = record;
+        panelCurrentLocationKey = locationKey;
         const backBtn = document.getElementById('detail-back-btn');
         if (parent) {
             backBtn.style.display = 'flex';
@@ -1228,14 +1260,65 @@ document.addEventListener('DOMContentLoaded', function () {
             || '<div style="font-size:0.75rem;color:var(--text-muted);">No facts available.</div>';
 
         if (card.sensitive_facts && card.sensitive_facts.length > 0) {
-            const sensitiveHtml = card.sensitive_facts.map(f =>
-                '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:0.8125rem;">'
-                + '<span style="color:var(--text-muted);">' + escapeHtml(f.label) + '</span>'
-                + '<span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(String(f.value)) + '</span>'
+            // A.2.4 — facts may carry {copyable, va_lookup, value_raw} so
+            // we render Copy ID / Lookup via VA action buttons inline.
+            const sensitiveHtml = card.sensitive_facts.map((f, idx) =>
+                '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:0.8125rem;">'
+                +   '<span style="color:var(--text-muted);">' + escapeHtml(f.label) + '</span>'
+                +   '<span style="display:inline-flex;align-items:center;gap:6px;min-width:0;">'
+                +     '<span style="color:var(--text-primary);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(String(f.value)) + '</span>'
+                +     (f.copyable
+                        ? '<button type="button" class="map-copy-btn" data-fact-idx="' + idx + '" '
+                            + 'title="Copy" '
+                            + 'style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;transition:all 150ms;font-size:11px;line-height:1;" '
+                            + 'onmouseover="this.style.color=\'#00d4aa\';this.style.borderColor=\'#00d4aa\';" '
+                            + 'onmouseout="this.style.color=\'var(--text-muted)\';this.style.borderColor=\'var(--border)\';">'
+                            + ICON_COPY + '</button>'
+                        : '')
+                +     (f.va_lookup
+                        ? '<button type="button" class="map-va-btn" data-fact-idx="' + idx + '" '
+                            + 'title="Lookup via Virtual Agent (coming soon)" '
+                            + 'style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:not-allowed;opacity:0.55;font-size:9px;font-weight:700;line-height:1;">'
+                            + 'VA</button>'
+                        : '')
+                +   '</span>'
                 + '</div>'
             ).join('');
             document.getElementById('detail-sensitive-facts').innerHTML = sensitiveHtml;
             document.getElementById('detail-sensitive').style.display = 'block';
+
+            // Wire copy buttons. Each one copies the unmasked value to
+            // clipboard, toasts "Copied ✓", and fires the id_copied
+            // activity-log event when the fact is an ID (va_lookup=true).
+            document.querySelectorAll('.map-copy-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const idx = parseInt(btn.dataset.factIdx, 10);
+                    const fact = card.sensitive_facts[idx];
+                    if (!fact) return;
+                    const raw = fact.value_raw ?? fact.value;
+                    try {
+                        await navigator.clipboard.writeText(String(raw));
+                        toastCopied();
+                    } catch (err) {
+                        // Best-effort fallback for older browsers.
+                        const ta = document.createElement('textarea');
+                        ta.value = String(raw); document.body.appendChild(ta);
+                        ta.select(); document.execCommand('copy'); ta.remove();
+                        toastCopied();
+                    }
+                    if (fact.va_lookup && panelCurrentRecord) {
+                        // ID copy → log to agent_activity_events for PII audit.
+                        fireActivityLog({
+                            action:       'id_copied',
+                            category:     panelCurrentRecord.category,
+                            record_id:    String(panelCurrentRecord.id),
+                            location_key: panelCurrentLocationKey || '',
+                            source:       'single_detail',
+                        });
+                    }
+                });
+            });
         }
 
         const relsHtml = (card.relationships || []).map(r =>
@@ -1300,13 +1383,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 b.style.background = active ? 'var(--brand-button)' : 'transparent';
                 b.style.color = active ? '#fff' : 'var(--text-secondary)';
             });
-            // Hide scheme_owners layer entry in seller view (it'll be empty anyway).
-            document.querySelectorAll('[data-sensitive="1"]').forEach(el => {
-                el.style.display = target === 'seller' ? 'none' : 'flex';
-            });
+            // A.2.4 — sectional schemes stay visible in Seller View (identity
+            // is redacted server-side). Pre-A.2.3 we hid the layer entry; that
+            // CSS hide is removed now.
+
             // Clear cache (server response shape differs) + refetch.
             cache.length = 0;
             fetchPins();
+
+            // A.2.4 — if a record detail or composite list is currently open,
+            // re-fetch with the new view mode so the redaction applies LIVE.
+            if (panelState === 'single_detail' && panelCurrentRecord) {
+                openSingleDetail(panelCurrentRecord, panelParentComposite, panelCurrentLocationKey);
+            } else if (panelState === 'composite_list' && panelParentComposite) {
+                // Composite list is built from the in-memory location object —
+                // a fresh fetch updates that location with the new view's
+                // records the next time the user opens it. No immediate
+                // re-render needed; the list shows what's already in memory
+                // until the fetch lands and the user clicks the pin again.
+                // (Closing + reopening the composite isn't worth the flicker.)
+            }
         });
     });
 
@@ -1403,7 +1499,9 @@ document.addEventListener('DOMContentLoaded', function () {
             b.style.color = active ? '#fff' : 'var(--text-secondary)';
         });
         document.getElementById('seller-banner').style.display = 'block';
-        document.querySelectorAll('[data-sensitive="1"]').forEach(el => el.style.display = 'none');
+        // A.2.4 — legacy "hide [data-sensitive=1] layer entry in seller view"
+        // line removed. Sectional schemes are visible in Seller View now;
+        // owner identity is redacted server-side in MapPinService.
     }
     if (baseLayerKey === 'satellite') {
         document.querySelectorAll('#base-layer-toggle .base-pill').forEach(b => {
