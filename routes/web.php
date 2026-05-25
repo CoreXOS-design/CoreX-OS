@@ -1721,6 +1721,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.mlros');
     Route::post('/settings/fica-officers/{appointment}/end', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'endAppointment'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.end');
+
+    // ── Phase 9c-2 — Information Officer Appointments (POPIA s55) ──
+    Route::post('/settings/information-officers/primary', [\App\Http\Controllers\Compliance\InformationOfficerAppointmentsController::class, 'savePrimary'])
+        ->middleware('permission:manage_information_officer')->name('corex.settings.information-officers.primary');
+    Route::post('/settings/information-officers/deputies', [\App\Http\Controllers\Compliance\InformationOfficerAppointmentsController::class, 'saveDeputies'])
+        ->middleware('permission:manage_information_officer')->name('corex.settings.information-officers.deputies');
+    Route::post('/settings/information-officers/{appointment}/end', [\App\Http\Controllers\Compliance\InformationOfficerAppointmentsController::class, 'endAppointment'])
+        ->middleware('permission:manage_information_officer')->name('corex.settings.information-officers.end');
     Route::put('/settings/agency', [CoreXSettingsController::class, 'updateAgency'])->middleware('permission:access_settings')->name('corex.settings.agency.update');
 
     // Split Branches toggle (Agency Settings tab)

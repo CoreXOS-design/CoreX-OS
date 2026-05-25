@@ -604,6 +604,131 @@
             </div>
             @endpermission
 
+            {{-- Phase 9c-2: Information Officers (POPIA s55) — mirrors FICA pattern --}}
+            @permission('manage_information_officer')
+            @php
+                $currentInfoPrimary = \App\Models\Compliance\InformationOfficerAppointment::currentPrimary($settingsAgencyId);
+                $infoPrimaryHistory = \App\Models\Compliance\InformationOfficerAppointment::where('agency_id', $settingsAgencyId)
+                    ->primary()->whereNotNull('ended_on')->orderByDesc('ended_on')->get();
+                $activeDeputyIOs = \App\Models\Compliance\InformationOfficerAppointment::where('agency_id', $settingsAgencyId)
+                    ->deputies()->active()->get();
+                $activeDeputyIOUserIds = $activeDeputyIOs->pluck('user_id')->filter()->toArray();
+            @endphp
+
+            {{-- Primary Information Officer --}}
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Primary Information Officer (POPIA s55)</h3>
+                <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @if($currentInfoPrimary)
+                    <div class="flex items-start justify-between mb-3">
+                        <div>
+                            <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $currentInfoPrimary->full_name }}</div>
+                            <div class="text-xs mt-0.5" style="color:var(--text-muted);">
+                                {{ $currentInfoPrimary->title }} — appointed {{ $currentInfoPrimary->appointed_on->format('d M Y') }}
+                                @if($currentInfoPrimary->id_number) | ID: {{ $currentInfoPrimary->id_number }} @endif
+                            </div>
+                        </div>
+                        <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold" style="background: color-mix(in srgb, var(--ds-green) 15%, transparent); color: var(--ds-green); border-radius:6px;">Active</span>
+                    </div>
+                    @else
+                    <div class="mb-3 px-3 py-2 text-xs font-semibold" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); border-radius:6px; color: var(--ds-crimson);">
+                        No Information Officer appointed. POPIA s55 requires every responsible party to designate an IO.
+                    </div>
+                    @endif
+
+                    <div class="mb-2 px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); border-radius:6px; color: var(--text-primary);">
+                        The Information Officer is the contact for all data-subject queries + Information Regulator submissions. Their details appear on the published privacy policy.
+                    </div>
+
+                    <form method="POST" action="{{ route('corex.settings.information-officers.primary') }}" enctype="multipart/form-data" class="space-y-3 mt-3">
+                        @csrf
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Link to user</label>
+                                <select name="user_id" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                                    <option value="">-- External person --</option>
+                                    @foreach($agencyUsers as $u)
+                                    <option value="{{ $u->id }}">{{ $u->name }} ({{ $u->email }})</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Full Name *</label>
+                                <input type="text" name="full_name" required class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">ID Number</label>
+                                <input type="text" name="id_number" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Cell</label>
+                                <input type="text" name="cell" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Email</label>
+                                <input type="email" name="email" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Appointed On *</label>
+                                <input type="date" name="appointed_on" value="{{ now()->format('Y-m-d') }}" required class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Appointment Letter (PDF)</label>
+                                <input type="file" name="appointment_letter" accept=".pdf" class="w-full px-2 py-1.5 text-xs border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Notes</label>
+                            <textarea name="notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
+                        </div>
+                        <button type="submit" class="corex-btn-primary text-xs">Appoint Information Officer</button>
+                    </form>
+
+                    @if($infoPrimaryHistory->isNotEmpty())
+                    <div x-data="{ showInfoHistory: false }" class="mt-3">
+                        <button @click="showInfoHistory = !showInfoHistory" class="text-xs font-semibold flex items-center gap-1" style="color:var(--text-muted);">
+                            <svg class="w-3 h-3 transition-transform" :class="showInfoHistory && 'rotate-90'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 5 7 7-7 7"/></svg>
+                            Previous appointments ({{ $infoPrimaryHistory->count() }})
+                        </button>
+                        <div x-show="showInfoHistory" x-cloak class="mt-2 space-y-1">
+                            @foreach($infoPrimaryHistory as $prev)
+                            <div class="flex items-center justify-between px-2 py-1 text-xs" style="background:var(--surface); border-radius:6px;">
+                                <span style="color:var(--text-primary);">{{ $prev->full_name }}</span>
+                                <span style="color:var(--text-muted);">{{ $prev->appointed_on->format('d M Y') }} — {{ $prev->ended_on->format('d M Y') }}</span>
+                            </div>
+                            @endforeach
+                        </div>
+                    </div>
+                    @endif
+                </div>
+            </div>
+
+            {{-- Deputy Information Officers --}}
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Deputy Information Officers (POPIA s56)</h3>
+                <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="text-xs font-semibold mb-2" style="color:var(--text-secondary);">Designate deputies who may handle POPIA requests when the primary IO is unavailable</div>
+                    <form method="POST" action="{{ route('corex.settings.information-officers.deputies') }}">
+                        @csrf
+                        <div class="space-y-1 max-h-48 overflow-y-auto mb-3 rounded-md p-2" style="border:1px solid var(--border); background:var(--surface);">
+                            @foreach($agencyUsers as $u)
+                            <label class="flex items-center gap-2 py-1 px-1 text-sm cursor-pointer hover:bg-white/5 rounded">
+                                <input type="checkbox" name="deputy_user_ids[]" value="{{ $u->id }}" {{ in_array($u->id, $activeDeputyIOUserIds) ? 'checked' : '' }} style="accent-color: #0d9488;">
+                                <span style="color:var(--text-primary);">{{ $u->name }}</span>
+                                <span class="text-xs" style="color:var(--text-muted);">{{ $u->role }}</span>
+                            </label>
+                            @endforeach
+                        </div>
+                        <button type="submit" class="corex-btn-primary text-xs">Save Deputy IOs</button>
+                    </form>
+                </div>
+            </div>
+            @endpermission
+
             {{-- Designations (inline) --}}
             @permission('manage_designations')
             <div>

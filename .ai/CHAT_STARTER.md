@@ -1,6 +1,6 @@
 # CoreX OS — Chat Starter
 > Auto-maintained by VS Code per CLAUDE.md rule. Paste into a new Claude chat to load context.
-> Last updated: 2026-05-25 by prompt-G (Phase 9c-1 PPRA number per agency + branch)
+> Last updated: 2026-05-25 by prompt-H (Phase 9c-2 Information Officer appointments)
 
 <!-- ============================================================ -->
 <!-- STABLE SECTION — rarely changes                              -->
@@ -64,7 +64,7 @@
 - **Branch `feature/map-workspace-overhaul`** — MIC collision fix landed (A.3.4); Tonight: M22 test fix + universal-signature audit + Phase 9c investigation + three small fixes (419 / CMA logo / Tools logo) shipped on same branch.
 - **Phase 9c — POPIA blockers** — three-part build in flight.
   - **9c-1 PPRA number ✅** — `agencies.ppra_number` + `branches.ppra_number` columns added (nullable string(32)). Settings UI fields wired in agency + branch panels (PPRA above FFC). Render fixed: `corex-document.blade.php` mislabel ("PPRA" was reading `ffc_no`) corrected; PPRA + FFC now render as separate lines with branch→agency cascade and a `[not configured]` placeholder when missing. Email agent-footer gains a PPRA line beneath FFC. RCR export-pdf relabel done. Population: Tinker after deploy (HFC numbers TBD per branch).
-  - **9c-2 Information Officer** — pending (mirror FICA appointment pattern).
+  - **9c-2 Information Officer ✅** — `information_officer_appointments` table mirrors FICA pattern verbatim (primary + deputies, soft delete, auto-end-old-primary boot hook). Model `App\Models\Compliance\InformationOfficerAppointment` with `currentPrimary()` / `activeDeputiesFor()` static helpers. Controller mirrors `FicaOfficerAppointmentsController`. Agency model gains `currentInformationOfficer()` + `allActiveInformationOfficers()`. Admin UI panel under Compliance Settings (POPIA s55 + s56). Permission: `manage_information_officer`. 5 tests cover lifecycle. Population: Tinker after deploy with Elize's user_id.
   - **9c-3 Privacy policy / Company Documents** — pending (admin-managed content, public `/legal/{token}` link, mirrors `presentation_dispatches` token pattern).
 - **Next:** Andre — Staging deploy + live DB pull after batch lands. Figure-matching audit on staging.
 
@@ -92,6 +92,8 @@
 
 ## 4. Recent decisions log (last 15, newest top)
 
+- **2026-05-25** — Phase 9c-2 (Information Officer) shipped: `information_officer_appointments` mirrors FICA pattern (primary + deputies, auto-end-old-primary). Admin UI under Compliance Settings, permission `manage_information_officer`, 5 lifecycle tests passing.
+- **2026-05-25** — CDS template-creation investigation completed; report at `.ai/audits/cds-template-creation-investigation-2026-05-25.md`. 125 templates total (28 CDS, 3 hand-crafted, 22 importer, 72 legacy). 71% multi-tenant safe. April hand-crafted-Blade decision stands. Brief ready for tomorrow's joint session.
 - **2026-05-25** — Phase 9c-1 (PPRA number) shipped: agencies + branches columns + settings UI + corex-document mislabel fix + agent-footer + RCR export. Branch-overrides-agency cascade verified via Tinker.
 - **2026-05-25** — Presentations V2 phases 4–7 audit completed; report at `.ai/audits/presentations-v2-phases-4-7-audit-2026-05-25.md`. All four phases ✅ fully built; moved into section 3.1 LIVE. End-to-end "4-month-old link → banner → refresh request → agent notified" flow operational.
 - **2026-05-25** — POPIA columns investigation completed; report at `.ai/audits/popia-columns-investigation-2026-05-25.md`. Conclusion: `ffc_no` ≠ PPRA reg number (legally distinct under PPA 22/2019). Phase 9c rename-vs-add decision = ADD new column.
@@ -104,8 +106,6 @@
 - **2026-05-25** — 1 Aug live target locked. Weekly cadence: 26 May staging stable → 2 June bug-hunt week 1 (Cindy/Rochelle/Gerda/Shawn) → 9 June feature freeze → 16 June stability → 23 June PropCon notice decision → 30 June 30-day notice → 1 Aug live.
 - **2026-05-25** — Demo stays separate (synthetic Uvongo data, midnight reseed). Staging is proving ground with live DB.
 - **2026-05-25** — Workflow: lightweight verification per prompt, full M1-MN sweep + dev-check every 3rd prompt or on explicit ask.
-- **2026-05-25** — Map modes locked: Opportunities / Analyse / Seller / Buyer (Opportunities + Analyse align with MIC tabs).
-- **2026-05-25** — A.3 + A.2.7 + M22 test + MIC investigation landed.
 - **2026-04-29** — Architecture: Claude owns template design centrally. Hand-crafted Blade with declarative metadata, bypass CDS UI. Templates 116/117/119 first under this model.
 
 ## 5. Outstanding small fixes (none blocking)

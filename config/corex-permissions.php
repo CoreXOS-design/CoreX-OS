@@ -122,6 +122,7 @@ return [
         ['key' => 'edit_rmcp',                   'label' => 'Edit RMCP Drafts',                'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 21],
         ['key' => 'approve_rmcp',                'label' => 'Approve RMCP (Board)',             'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 22],
         ['key' => 'manage_compliance_officer',   'label' => 'Manage Compliance Officer',       'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 23],
+        ['key' => 'manage_information_officer',  'label' => 'Manage Information Officer (POPIA)','section' => 'compliance',     'type' => 'action',  'module' => 'rmcp',             'sort_order' => 24],
 
         // ── Employee Screening ──
         ['key' => 'manage_employee_screenings', 'label' => 'Manage Employee Screenings',    'section' => 'compliance',       'type' => 'action',  'module' => 'screening',        'sort_order' => 30],
@@ -500,7 +501,7 @@ return [
                 'access_compliance', 'manage_compliance', 'view_compliance_reports',
                 'compliance.view', 'compliance.manage',
                 'verify_user_documents', 'access_compliance_dashboard',
-                'access_rmcp', 'edit_rmcp', 'manage_compliance_officer',
+                'access_rmcp', 'edit_rmcp', 'manage_compliance_officer', 'manage_information_officer',
                 'manage_employee_screenings', 'view_own_screening', 'manage_branch_compliance',
                 'edit_user_ppra_status',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',

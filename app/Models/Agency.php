@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Compliance\FicaOfficerAppointment;
+use App\Models\Compliance\InformationOfficerAppointment;
 use App\Models\Compliance\RmcpVersion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -286,6 +287,28 @@ class Agency extends Model
         return $this->hasOne(FicaOfficerAppointment::class)
             ->where('role', FicaOfficerAppointment::ROLE_PRIMARY)
             ->whereNull('ended_on');
+    }
+
+    // ── Information Officer (POPIA s55) ──
+
+    public function informationOfficerAppointments(): HasMany
+    {
+        return $this->hasMany(InformationOfficerAppointment::class);
+    }
+
+    /** Returns the active primary IO's User (or null). */
+    public function currentInformationOfficer(): ?\App\Models\User
+    {
+        return InformationOfficerAppointment::currentPrimary($this->id)?->user;
+    }
+
+    /** Returns active primary + deputies as a Collection of appointment rows. */
+    public function allActiveInformationOfficers(): \Illuminate\Database\Eloquent\Collection
+    {
+        return InformationOfficerAppointment::where('agency_id', $this->id)
+            ->whereNull('ended_on')
+            ->orderByRaw("FIELD(role, '" . InformationOfficerAppointment::ROLE_PRIMARY . "', '" . InformationOfficerAppointment::ROLE_DEPUTY . "')")
+            ->get();
     }
 
     // ── Payroll ──
