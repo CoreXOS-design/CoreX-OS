@@ -445,7 +445,8 @@ class Property24ListingMapper
         $city     = trim((string) ($property->town ?? $property->city ?? ''));
         $province = $this->normaliseProvince($property->province ?? '');
 
-        $client = app(Property24ApiClient::class);
+        $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
+        $client = new Property24ApiClient($agency);
 
         // Build province candidate list — if we know the province, try it first,
         // then fall through ALL SA provinces so suburbs like Sandton (Gauteng)
@@ -551,7 +552,12 @@ class Property24ListingMapper
 
     private function resolveContactAgentIds(Property $property, int $agencyId): array
     {
-        $client = app(Property24ApiClient::class);
+        // Build an agency-scoped client so credentials come from the property's
+        // agency row (not the now-empty .env). Without this the client falls
+        // back to env creds, authenticates as nobody, and returns zero agents
+        // — which P24 then rejects as "must have one or more agents".
+        $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
+        $client = new Property24ApiClient($agency);
         // Scope the lookup to the property's resolved agency — otherwise a
         // property under agency B would pull agents from agency A's feed.
         $result = $client->getAgents((string) $agencyId);

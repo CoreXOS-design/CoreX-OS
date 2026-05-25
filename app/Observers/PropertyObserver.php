@@ -215,7 +215,8 @@ class PropertyObserver
             $p24Status = Property24ListingMapper::getP24Status($property->status, $property->p24_ref);
 
             try {
-                $client = app(Property24ApiClient::class);
+                $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
+                $client = new Property24ApiClient($agency);
                 $client->setListingStatus($property->id, (int) $property->p24_ref, $p24Status);
 
                 Log::channel('property24')->info("Status auto-synced for property #{$property->id}: {$p24Status}");
@@ -277,7 +278,8 @@ class PropertyObserver
         // Withdraw from P24 if syndicated
         if ($property->p24_syndication_enabled && $property->p24_ref) {
             try {
-                $client = app(Property24ApiClient::class);
+                $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
+                $client = new Property24ApiClient($agency);
                 $client->setListingStatus($property->id, (int) $property->p24_ref, 'Withdrawn');
                 Log::channel('property24')->info("Property #{$property->id} withdrawn from P24 (deleted)");
             } catch (\Exception $e) {
