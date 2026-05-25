@@ -499,6 +499,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.confirm');
     Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
     Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.download');
+    Route::get('/tools/pdf-splitter/properties/search', [PdfSplitterController::class, 'searchProperties'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.search');
 
     // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
     Route::middleware('permission:access_pdf_suite')->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {

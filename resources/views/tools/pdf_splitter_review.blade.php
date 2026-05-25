@@ -222,6 +222,52 @@
         </div>
     @endif
 
+    {{-- Property link (optional) --}}
+    <div x-data="splitterPropertyPicker()" class="rounded-md p-4 mb-4"
+         style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
+        <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
+                Link split documents to a property (optional)
+            </label>
+            <template x-if="selected">
+                <button type="button" @click="clear()" class="text-xs underline" style="color: var(--text-secondary);">Clear</button>
+            </template>
+        </div>
+
+        <template x-if="!selected">
+            <div class="relative">
+                <input type="text" x-model="q" @input.debounce.250="search()" @focus="search()"
+                       placeholder="Search property by address, suburb, ref…"
+                       class="w-full px-3 py-2 rounded-md text-sm"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <div x-show="results.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-10 max-h-72 overflow-y-auto"
+                     style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    <template x-for="r in results" :key="r.id">
+                        <button type="button" @click="pick(r)"
+                                class="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                                style="color: var(--text-primary);">
+                            <div x-text="r.label"></div>
+                            <div class="text-xs" style="color: var(--text-muted);" x-text="r.ref ? ('Ref: ' + r.ref) : ''"></div>
+                        </button>
+                    </template>
+                </div>
+                <div x-show="searching" class="absolute right-3 top-2.5 text-xs" style="color: var(--text-muted);">…</div>
+            </div>
+        </template>
+
+        <template x-if="selected">
+            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
+                 style="background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="text-sm" style="color: var(--text-primary);">
+                    <span x-text="selected.label"></span>
+                    <span class="text-xs ml-2" style="color: var(--text-muted);" x-text="selected.ref ? ('Ref: ' + selected.ref) : ''"></span>
+                </div>
+            </div>
+        </template>
+
+        <input type="hidden" name="property_id" :value="selected ? selected.id : ''" form="spr-form">
+    </div>
+
     {{-- Keyboard legend --}}
     <div class="legend">
         <span class="legend-title">Shortcuts</span>
@@ -330,8 +376,10 @@
             </table>
         </div>
 
-        <div class="bottom-bar">
-            <button type="submit" class="btn-gen">&#x2913;&nbsp; Generate ZIP</button>
+        <div class="bottom-bar" x-data>
+            <button type="submit" class="btn-gen">
+                &#x2913;&nbsp; <span x-text="$store.splitterPicker.selected ? 'ZIP &amp; Link' : 'ZIP'">ZIP</span>
+            </button>
             <a href="{{ route('tools.pdf_splitter.index') }}" class="btn-back">&larr; Upload a different PDF</a>
         </div>
     </form>
@@ -493,5 +541,34 @@
     // Pre-select page 1 so keyboard shortcuts work immediately
     selectOnly(1);
 })();
+</script>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.store('splitterPicker', { selected: null });
+
+    Alpine.data('splitterPropertyPicker', () => ({
+        q: '',
+        results: [],
+        searching: false,
+        get selected() { return Alpine.store('splitterPicker').selected; },
+        set selected(v) { Alpine.store('splitterPicker').selected = v; },
+        async search() {
+            const q = this.q.trim();
+            if (q.length < 2) { this.results = []; return; }
+            this.searching = true;
+            try {
+                const res = await fetch(`{{ route('tools.pdf_splitter.properties.search') }}?q=${encodeURIComponent(q)}`, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                this.results = res.ok ? await res.json() : [];
+            } catch (e) { this.results = []; }
+            finally { this.searching = false; }
+        },
+        pick(r) { this.selected = r; this.q = ''; this.results = []; },
+        clear() { this.selected = null; },
+    }));
+});
 </script>
 @endsection

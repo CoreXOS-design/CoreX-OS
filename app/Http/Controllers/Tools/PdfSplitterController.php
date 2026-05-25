@@ -3,6 +3,9 @@
 namespace App\Http\Controllers\Tools;
 
 use App\Http\Controllers\Controller;
+use App\Models\Document;
+use App\Models\DocumentType;
+use App\Models\Property;
 use App\Models\SplitterDocType;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +48,30 @@ class PdfSplitterController extends Controller
     public function index()
     {
         return view('tools.pdf_splitter');
+    }
+
+    /**
+     * Lightweight property typeahead for the review screen.
+     * Scoped to the user's visible properties.
+     */
+    public function searchProperties(Request $request)
+    {
+        $q = trim((string) $request->input('q', ''));
+        if (strlen($q) < 2) {
+            return response()->json([]);
+        }
+
+        $rows = Property::query()
+            ->visibleTo($request->user())
+            ->searchAddress($q)
+            ->limit(12)
+            ->get(['id', 'address', 'suburb', 'city', 'title', 'property_number']);
+
+        return response()->json($rows->map(fn ($p) => [
+            'id'    => $p->id,
+            'label' => trim(($p->title ?: $p->address) . ($p->suburb ? ' — ' . $p->suburb : '')),
+            'ref'   => $p->property_number,
+        ]));
     }
 
     public function run(Request $request)
@@ -369,6 +396,20 @@ class PdfSplitterController extends Controller
         $zip->addFromString($base . '__summary.txt', $summary);
         $zip->close();
 
+        // Optionally link each split PDF to a Property's drive.
+        $linkedCount = 0;
+        $linkedProperty = null;
+        $propertyId = (int) $request->input('property_id');
+        if ($propertyId > 0) {
+            $linkedProperty = Property::query()
+                ->visibleTo($request->user())
+                ->find($propertyId);
+
+            if ($linkedProperty) {
+                $linkedCount = $this->linkOutputsToProperty($linkedProperty, $outFiles);
+            }
+        }
+
         // Cleanup tmp PNGs/TXTs; originals + output PDFs are kept
         Storage::disk('local')->deleteDirectory($tmpRel);
         session()->forget('splitter_manifest_id');
@@ -379,9 +420,78 @@ class PdfSplitterController extends Controller
             'splitter_last_zip_name' => basename($zipAbsNorm),
         ]);
 
-        return redirect()
+        $redirect = redirect()
             ->route('tools.pdf_splitter.index')
             ->with('splitter_download_url', route('tools.pdf_splitter.download'));
+
+        if ($linkedProperty && $linkedCount > 0) {
+            $redirect->with('status', "ZIP generated and {$linkedCount} document(s) linked to {$linkedProperty->address}.");
+        }
+
+        return $redirect;
+    }
+
+    /**
+     * Copy each split output into the property's drive as Document records,
+     * tagged with a DocumentType when the splitter label slug matches.
+     * Returns the number of files linked.
+     */
+    private function linkOutputsToProperty(Property $property, array $outFiles): int
+    {
+        $publicDisk = Storage::disk('public');
+        $dir = "properties/{$property->id}/files";
+        if (! $publicDisk->exists($dir)) {
+            $publicDisk->makeDirectory($dir);
+        }
+
+        // slug → DocumentType id (cached)
+        $typeMap = DocumentType::query()
+            ->whereIn('slug', collect($outFiles)->map(fn ($f) => $this->labelFromFilename(basename($f)))->filter()->unique()->values())
+            ->pluck('id', 'slug')
+            ->toArray();
+
+        $count = 0;
+        foreach ($outFiles as $abs) {
+            if (! is_file($abs)) continue;
+
+            $labelSlug = $this->labelFromFilename(basename($abs));
+            $filename  = basename($abs);
+            $relPath   = $dir . '/' . Str::random(8) . '_' . $filename;
+
+            // Copy file into public disk
+            $stream = @fopen($abs, 'rb');
+            if (! $stream) continue;
+            $publicDisk->put($relPath, $stream);
+            if (is_resource($stream)) { @fclose($stream); }
+
+            $doc = Document::create([
+                'original_name'    => $filename,
+                'storage_path'     => $relPath,
+                'disk'             => 'public',
+                'mime_type'        => 'application/pdf',
+                'size'             => @filesize($abs) ?: null,
+                'document_type_id' => $typeMap[$labelSlug] ?? null,
+                'source_type'      => 'pdf_splitter',
+                'uploaded_by'      => auth()->id(),
+            ]);
+
+            $doc->properties()->attach($property->id);
+            $count++;
+        }
+
+        return $count;
+    }
+
+    /**
+     * Extract the label slug from a splitter output filename:
+     * "base__label.pdf" → "label"
+     */
+    private function labelFromFilename(string $filename): ?string
+    {
+        if (! preg_match('/__([a-z0-9_]+)\.pdf$/i', $filename, $m)) {
+            return null;
+        }
+        return strtolower($m[1]);
     }
 
     // =========================================================================
