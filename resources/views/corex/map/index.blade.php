@@ -1076,9 +1076,18 @@ document.addEventListener('DOMContentLoaded', function () {
             const key = e.target.dataset.layerCb;
             if (e.target.checked) enabledLayers.add(key);
             else enabledLayers.delete(key);
-            // Re-render in place from the last payload — applyLayerFilters()
-            // re-derives composite flags from the filtered records.
+
+            // A.1.2 fix — triple-defence so a toggle never visibly fails:
+            // (1) immediate client-side re-render from the last payload so
+            //     the user sees the change inside one frame,
+            // (2) bust the LRU cache because boundsKey includes the
+            //     enabledLayers fingerprint and the response shape changes
+            //     when layers are excluded,
+            // (3) trigger a fresh fetch so the server-side filter is the
+            //     authoritative source of truth on the next bounds change.
             if (lastPayload) renderPayload(lastPayload);
+            cache.length = 0;
+            fetchPins();
         });
     });
 

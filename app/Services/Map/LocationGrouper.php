@@ -129,25 +129,40 @@ final class LocationGrouper
      * Compute the grouping key for a record. Returns null when no usable
      * basis exists (no address, no GPS).
      *
+     * **Precedence (A.1.1 fix — was reversed in initial A.1 ship):**
+     *   1. GPS rounded to 5dp (~1m precision) — primary, because every
+     *      mappable record by definition has lat/lng, and two records sharing
+     *      the same building rarely disagree on coordinates.
+     *   2. geocode_target as fallback — only consulted when lat/lng are null
+     *      (ungeocoded TPs etc.).
+     *
+     * Why the swap: the initial geocode_target-first design produced spurious
+     * duplicate pins when two records at identical GPS happened to parse to
+     * different geocode_target strings (e.g. Property "Highland Park, 12" →
+     * "highland park, shelly beach" vs MIC report "Highland Park" → "highland
+     * park"). With GPS as the authority both collapse to one composite pin —
+     * the spec's intended behaviour.
+     *
      * Key prefix encodes the basis so the response can report it back:
-     *   "geo:2587 colin road, uvongo"  — when geocode_target was derivable
-     *   "gps:-30.84012:30.39125"       — when we had to fall back to coords
+     *   "gps:-30.87953:30.36548" — primary, the common case
+     *   "geo:sunset manor"       — fallback, no GPS available
      */
     private function keyFor(array $rec): ?string
     {
+        if (isset($rec['lat'], $rec['lng'])
+            && is_numeric($rec['lat']) && is_numeric($rec['lng'])
+            && (float) $rec['lat'] !== 0.0 && (float) $rec['lng'] !== 0.0) {
+            return sprintf('gps:%.5f:%.5f', (float) $rec['lat'], (float) $rec['lng']);
+        }
+
         $address = $rec['address'] ?? null;
         $suburb  = $rec['suburb']  ?? null;
-
         if (is_string($address) && trim($address) !== '') {
             $parsed = AddressNormaliser::parse($address, is_string($suburb) ? $suburb : null);
             $target = $parsed['geocode_target'];
             if (is_string($target) && trim($target) !== '') {
                 return 'geo:' . mb_strtolower(trim($target));
             }
-        }
-
-        if (isset($rec['lat'], $rec['lng'])) {
-            return sprintf('gps:%.5f:%.5f', (float) $rec['lat'], (float) $rec['lng']);
         }
 
         return null;

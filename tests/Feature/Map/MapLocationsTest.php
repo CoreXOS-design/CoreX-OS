@@ -47,7 +47,9 @@ final class MapLocationsTest extends TestCase
         $this->assertSame('hfc_listings', $locs[0]['primary_category'], 'HFC outranks scheme_owners');
         $this->assertContains('hfc_listings', $locs[0]['categories_present']);
         $this->assertContains('scheme_owners', $locs[0]['categories_present']);
-        $this->assertSame('geocode_target', $locs[0]['grouping_basis']);
+        // A.1.1 — GPS-primary grouping. All three records share lat/lng,
+        // so they collapse via the gps: key (no longer via geocode_target).
+        $this->assertSame('gps', $locs[0]['grouping_basis']);
     }
 
     /** M2 — distinct addresses stay un-grouped; each is a single-record location. */
@@ -161,6 +163,135 @@ final class MapLocationsTest extends TestCase
 
         // Primary record is the HFC listing (priority 1000 > scheme_owners 200).
         $this->assertSame('hfc_listings', $loc['records'][0]['category']);
+    }
+
+    // ── Part 1 bug-fix coverage (A.1.1 + A.1.2) ──────────────────────────
+
+    /** M12 — A.1.1 fix. Two records at *identical* GPS but parsing to
+     *        different geocode_target strings now collapse to ONE composite
+     *        location (the Highland Park / Sunset Manor § N case found in
+     *        live data). Pre-fix this was the duplicate-pin bug. */
+    public function test_m12_same_gps_different_geocode_targets_collapse(): void
+    {
+        $grouper = new LocationGrouper();
+
+        $records = [
+            // Same lat/lng, parser produces a different geocode_target for
+            // each because their raw addresses differ. With GPS-primary they
+            // group cleanly.
+            $this->record('a', 1, 'Highland Park, 12', 'hfc_listings',
+                address: 'Highland Park, 12', lat: -30.7945098, lng: 30.4144902),
+            $this->record('b', 2, 'Highland Park',     'mic_subjects',
+                address: 'Highland Park',     lat: -30.7945098, lng: 30.4144902),
+        ];
+
+        $locs = $grouper->group($records);
+
+        $this->assertCount(1, $locs, 'same-GPS records must group regardless of parsed address divergence');
+        $this->assertSame(2, $locs[0]['record_count']);
+        $this->assertSame('gps', $locs[0]['grouping_basis']);
+    }
+
+    /** M13 — A.1.1 fallback. Records with lat/lng = 0.0 (Phase 3f's "not
+     *        yet resolved" sentinel — actual null is filtered upstream)
+     *        STILL group by their parsed geocode_target. This is the safety
+     *        net for legacy / partially-geocoded data. */
+    public function test_m13_zero_gps_groups_via_geocode_target_fallback(): void
+    {
+        $grouper = new LocationGrouper();
+
+        $records = [
+            // lat/lng = 0.0 — keyFor() rejects these as GPS-mappable and
+            // falls through to the geocode_target branch.
+            ['id' => 1, 'category' => 'hfc_listings',  'title' => '2587 Colin Road, Uvongo',
+             'address' => '2587 Colin Road, Uvongo', 'lat' => 0.0, 'lng' => 0.0, 'detail_url' => '/x/1'],
+            ['id' => 2, 'category' => 'scheme_owners', 'title' => 'Topanga § 12',
+             'address' => '2587 Colin Road, Uvongo', 'lat' => 0.0, 'lng' => 0.0, 'detail_url' => '/x/2'],
+        ];
+
+        $locs = $grouper->group($records);
+
+        $this->assertCount(1, $locs, 'fallback grouping by geocode_target when GPS unusable');
+        $this->assertSame(2, $locs[0]['record_count']);
+        $this->assertSame('geocode_target', $locs[0]['grouping_basis']);
+    }
+
+    /** M14 — distant records (>100m apart) stay as SEPARATE locations even
+     *        when their parsed geocode_target happens to match. 5dp rounding
+     *        ≈1m, so any pin pair more than ~2m apart hashes differently. */
+    public function test_m14_records_200m_apart_remain_separate(): void
+    {
+        $grouper = new LocationGrouper();
+
+        $records = [
+            // ~200m apart along the latitude axis (~0.002° ≈ 220m at the
+            // equator; close enough on the KZN coast).
+            $this->record('a', 1, '2587 Colin Road', 'hfc_listings', lat: -30.84000, lng: 30.39000),
+            $this->record('b', 2, '2587 Colin Road', 'hfc_listings', lat: -30.84200, lng: 30.39000),
+        ];
+
+        $locs = $grouper->group($records);
+
+        $this->assertCount(2, $locs, 'records 200m apart must NOT merge — 5dp rounding keeps them separate');
+        $this->assertSame(1, $locs[0]['record_count']);
+        $this->assertSame(1, $locs[1]['record_count']);
+    }
+
+    /** M15 — server-side layer filter. Requesting only sold_comps excludes
+     *        hfc_listings rows from the response entirely (the underlying
+     *        per-layer fetcher is never invoked, so the records list can't
+     *        contain HFC entries). */
+    public function test_m15_pin_endpoint_excludes_records_of_inactive_categories(): void
+    {
+        [$agencyId] = $this->makeTwoAgencies();
+        $userA = $this->makeUserInAgency($agencyId);
+
+        // Insert one HFC property — should not appear when layers=[sold_comps].
+        $this->insertProperty([
+            'agency_id'     => $agencyId, 'branch_id' => $agencyId, 'agent_id' => $userA->id,
+            'address'       => '18 Golf Course Road', 'suburb' => 'Uvongo',
+            'latitude'      => -30.84, 'longitude' => 30.39,
+            'price'         => 1_200_000, 'property_type' => 'house',
+        ]);
+
+        $svc = new \App\Services\Map\MapPinService();
+        $req = $this->bounds(agencyId: $agencyId, layers: ['sold_comps']);
+        $resp = $svc->getPinsInBounds($req);
+
+        $cats = collect($resp['locations'])
+            ->flatMap(fn ($l) => collect($l['records'])->pluck('category'))
+            ->unique()->values()->all();
+
+        $this->assertNotContains('hfc_listings', $cats, 'HFC excluded when layer not requested');
+        $this->assertArrayNotHasKey('hfc_listings', $resp['layer_counts'],
+            'unrequested layers are not fetched, so absent from layer_counts');
+    }
+
+    /** M16 — the locations returned for a layer-filtered request have
+     *        records[] containing ONLY records of requested categories. This
+     *        is the purity guarantee the client-side renderer relies on. */
+    public function test_m16_locations_records_pure_for_layer_filter(): void
+    {
+        [$agencyId] = $this->makeTwoAgencies();
+        $userA = $this->makeUserInAgency($agencyId);
+
+        $this->insertProperty([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId, 'agent_id' => $userA->id,
+            'address'   => '18 Golf Course Road', 'suburb' => 'Uvongo',
+            'latitude'  => -30.84, 'longitude' => 30.39, 'price' => 1_200_000, 'property_type' => 'house',
+        ]);
+
+        $svc = new \App\Services\Map\MapPinService();
+        $req = $this->bounds(agencyId: $agencyId, layers: ['hfc_listings']);
+        $resp = $svc->getPinsInBounds($req);
+
+        $this->assertNotEmpty($resp['locations']);
+        foreach ($resp['locations'] as $loc) {
+            foreach ($loc['records'] as $rec) {
+                $this->assertSame('hfc_listings', $rec['category'],
+                    'record leaked from a disabled layer');
+            }
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
