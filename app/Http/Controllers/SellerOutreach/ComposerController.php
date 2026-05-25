@@ -9,6 +9,7 @@ use App\Models\Contact;
 use App\Models\Property;
 use App\Models\SellerOutreach\SellerOutreachSend;
 use App\Models\SellerOutreach\SellerOutreachTemplate;
+use App\Services\Map\MapProspectStatusService;
 use App\Services\SellerOutreach\SellerOutreachComposerService;
 use App\Services\SellerOutreach\SellerOutreachSenderService;
 use Illuminate\Http\Request;
@@ -30,6 +31,7 @@ final class ComposerController extends Controller
     public function __construct(
         private readonly SellerOutreachComposerService $composer,
         private readonly SellerOutreachSenderService $sender,
+        private readonly MapProspectStatusService $prospectStatus = new MapProspectStatusService(),
     ) {}
 
     public function show(Request $request, Contact $contact)
@@ -85,6 +87,16 @@ final class ComposerController extends Controller
             );
         }
 
+        // A.3.4 — resolve prospect status for each linked property so the
+        // picker can surface collision badges. ≤2 linked properties per
+        // contact (per loadLinkedProperties() comment), so calling resolve()
+        // per row is cheap — no batching layer needed.
+        $propertyStatuses = $this->resolveStatusesForPicker(
+            $linkedProperties,
+            $agencyId,
+            (int) $request->user()->id,
+        );
+
         return view('seller-outreach.compose', [
             'contact'            => $contact,
             'property'           => $property,
@@ -93,7 +105,27 @@ final class ComposerController extends Controller
             'availableTemplates' => $availableTemplates,
             'context'            => $context,
             'agencyId'           => $agencyId,
+            'propertyStatuses'   => $propertyStatuses,
         ]);
+    }
+
+    /**
+     * A.3.4 — batch-resolve prospect status for the picker's properties.
+     * Returns [property_id => statusArray] so the view can keyed-lookup.
+     */
+    private function resolveStatusesForPicker($linkedProperties, int $agencyId, int $userId): array
+    {
+        $out = [];
+        foreach ($linkedProperties as $p) {
+            $facts = [
+                'address'   => $p->address ?? null,
+                'latitude'  => $p->latitude !== null ? (float) $p->latitude : null,
+                'longitude' => $p->longitude !== null ? (float) $p->longitude : null,
+                'suburb'    => $p->suburb ?? null,
+            ];
+            $out[(int) $p->id] = $this->prospectStatus->resolve($facts, $agencyId, $userId);
+        }
+        return $out;
     }
 
     public function submit(Request $request, Contact $contact)

@@ -1,13 +1,36 @@
-{{-- props: $contact, $property, $linkedProperties, $channel, $availableTemplates, $context --}}
+{{-- props: $contact, $property, $linkedProperties, $channel, $availableTemplates, $context, $propertyStatuses --}}
+
+@php
+    // A.3.4 — collision badges. Map each prospect-status to a label + tint
+    // so the picker shows the agent HFC's existing relationship to each
+    // candidate property at a glance. 'available' shows nothing (clean).
+    $statusBadgeMap = [
+        'available'       => null,
+        'held'            => ['label' => 'On HFC books',         'bg' => 'rgba(16,185,129,0.16)', 'fg' => '#10b981', 'tone' => 'positive'],
+        'own_draft'       => ['label' => 'Your draft',           'bg' => 'rgba(245,158,11,0.18)', 'fg' => '#d97706', 'tone' => 'caution'],
+        'other_draft'     => ['label' => 'Draft by colleague',   'bg' => 'rgba(220,38,38,0.16)',  'fg' => '#dc2626', 'tone' => 'block'],
+        'previously_sold' => ['label' => 'Previously sold',      'bg' => 'rgba(100,116,139,0.18)','fg' => '#64748b', 'tone' => 'soft'],
+        'previously_held' => ['label' => 'Previously held',      'bg' => 'rgba(100,116,139,0.18)','fg' => '#64748b', 'tone' => 'soft'],
+    ];
+
+    $statuses = $propertyStatuses ?? [];
+    $selectedStatus = $property ? ($statuses[(int) $property->id] ?? null) : null;
+    $selectedBadge  = $selectedStatus ? ($statusBadgeMap[$selectedStatus['status']] ?? null) : null;
+@endphp
 
 <div class="space-y-4">
 
     {{-- Property picker --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+         x-data="propertyPickerCollision({
+            statuses: @js(collect($statuses)->map(fn ($s) => $s['status'] ?? 'available')),
+            agentNames: @js(collect($statuses)->map(fn ($s) => $s['agent_name'] ?? null)),
+            currentPropertyId: {{ $property?->id ?? 'null' }},
+         })">
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
             Property this pitch is about
         </label>
-        <select @change="switchProperty($event.target.value)"
+        <select @change="onPickerChange($event.target.value)"
                 class="w-full px-3 py-2 text-sm rounded"
                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             @foreach($linkedProperties as $p)
@@ -16,12 +39,32 @@
                     $addr = $addr !== '' ? $addr : '(no address)';
                     $suburb = $p->suburb ?? '';
                     $price = ($p->price ?? 0) > 0 ? ' — R ' . number_format((float) $p->price, 0, '.', ',') : '';
+                    $badge = $statusBadgeMap[$statuses[(int) $p->id]['status'] ?? 'available'] ?? null;
+                    $badgeSuffix = $badge ? ' · ' . $badge['label'] : '';
                 @endphp
-                <option value="{{ $p->id }}" @selected($property && (int) $property->id === (int) $p->id)>
-                    {{ $addr }}{{ $suburb !== '' ? ', ' . $suburb : '' }}{{ $price }}
+                <option value="{{ $p->id }}" @selected($property && (int) $property->id === (int) $p->id)
+                        data-prospect-status="{{ $statuses[(int) $p->id]['status'] ?? 'available' }}">
+                    {{ $addr }}{{ $suburb !== '' ? ', ' . $suburb : '' }}{{ $price }}{{ $badgeSuffix }}
                 </option>
             @endforeach
         </select>
+
+        @if($selectedBadge)
+            <div class="mt-2 inline-flex items-center gap-2 px-2 py-1 rounded text-xs font-semibold"
+                 data-prospect-status-badge="{{ $selectedStatus['status'] }}"
+                 style="background: {{ $selectedBadge['bg'] }}; color: {{ $selectedBadge['fg'] }};">
+                <span>{{ $selectedBadge['label'] }}</span>
+                @if(in_array($selectedStatus['status'], ['own_draft', 'other_draft'], true) && !empty($selectedStatus['agent_name']))
+                    <span style="opacity: 0.85;">· {{ $selectedStatus['agent_name'] }}</span>
+                @endif
+                @if(!empty($selectedStatus['days_in_state']))
+                    <span style="opacity: 0.85;">· {{ $selectedStatus['days_in_state'] }}d</span>
+                @endif
+                @if(!empty($selectedStatus['sale_date']))
+                    <span style="opacity: 0.85;">· {{ $selectedStatus['sale_date'] }}</span>
+                @endif
+            </div>
+        @endif
     </div>
 
     {{-- Channel toggle --}}

@@ -73,6 +73,7 @@
                     'channel'            => $channel,
                     'availableTemplates' => $availableTemplates,
                     'context'            => $context,
+                    'propertyStatuses'   => $propertyStatuses ?? [],
                 ])
             </div>
             <div class="lg:col-span-2">
@@ -140,6 +141,50 @@ function composerState(init) {
             } finally {
                 this.sending = false;
             }
+        },
+    };
+}
+
+// A.3.4 — picker-side collision gate. Selecting an `other_draft` property
+// prompts before reloading the page with the new property_id. All other
+// statuses (available, held, own_draft, previously_sold, previously_held)
+// reload without friction — the badge below the picker conveys the state.
+function propertyPickerCollision(init) {
+    return {
+        statuses: init.statuses || {},
+        agentNames: init.agentNames || {},
+        currentPropertyId: init.currentPropertyId,
+        onPickerChange(newPropertyId) {
+            const status = this.statuses[String(newPropertyId)]
+                       ?? this.statuses[Number(newPropertyId)]
+                       ?? 'available';
+            if (status === 'other_draft') {
+                const agent = this.agentNames[String(newPropertyId)]
+                          ?? this.agentNames[Number(newPropertyId)]
+                          ?? 'another agent';
+                const ok = window.confirm(
+                    agent + ' has a draft on this property. Coordinate with them before pitching. '
+                    + 'Are you sure you want to use this property?'
+                );
+                if (!ok) {
+                    // Roll the dropdown back to the previously-selected property.
+                    const sel = document.querySelector('select[data-property-picker], select');
+                    // Native select reset — find the option for currentPropertyId
+                    // and re-select it without firing change.
+                    const selects = document.querySelectorAll('select');
+                    selects.forEach(s => {
+                        const opt = s.querySelector('option[value="' + this.currentPropertyId + '"]');
+                        if (opt) s.value = String(this.currentPropertyId);
+                    });
+                    return;
+                }
+            }
+            // Reuse composerState's switchProperty by triggering its handler.
+            const url = new URL(window.location.href);
+            url.searchParams.set('property_id', newPropertyId);
+            url.searchParams.delete('body');
+            url.searchParams.delete('subject');
+            window.location.href = url.toString();
         },
     };
 }

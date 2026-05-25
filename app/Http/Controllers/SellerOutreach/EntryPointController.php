@@ -4,14 +4,18 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\SellerOutreach;
 
+use App\Events\Map\MapProspectLaunched;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Property;
+use App\Models\Prospecting\TrackedProperty;
+use App\Services\Map\MapProspectStatusService;
 use App\Services\Prospecting\PitchLockConflictException;
 use App\Services\Prospecting\ProspectingClaimService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 
 /**
  * Entry-point controller for the seller-outreach composer.
@@ -30,6 +34,10 @@ final class EntryPointController extends Controller
 {
     /** Pivot roles considered "seller-side" for outreach. */
     private const SELLER_ROLES = ['seller', 'owner', 'landlord', 'lessor'];
+
+    public function __construct(
+        private readonly MapProspectStatusService $prospectStatus = new MapProspectStatusService(),
+    ) {}
 
     public function fromProperty(Request $request, Property $property)
     {
@@ -69,6 +77,15 @@ final class EntryPointController extends Controller
             ->whereNull('deleted_at')
             ->first();
         abort_if(!$listing, 404);
+
+        // A.3.4 — prospect-collision detection. Before the temp-lock fires
+        // (which would tie up the listing for the next 30 minutes), check
+        // whether HFC already has a relationship to this address. The same
+        // service drives the map's Portal Stock Prospect Now flow.
+        $collision = $this->resolveCollisionForListing($listing, $agencyId, (int) $request->user()->id);
+        if ($collision !== null) {
+            return $collision;
+        }
 
         // Temp lock: prevent two agents from pitching the same listing concurrently.
         // The lock auto-expires after the agency-configured window (default 30 min)
@@ -452,5 +469,111 @@ final class EntryPointController extends Controller
             : ($user->agency_id ?? null);
         abort_if($id === null, 403, 'No agency context — super_admin without an active agency cannot compose pitches.');
         return (int) $id;
+    }
+
+    /**
+     * A.3.4 — apply the map's 6-state prospect-collision rules to a
+     * MIC-initiated pitch attempt. Returns a redirect Response when the
+     * agent must be diverted (held / own_draft / other_draft); returns
+     * null for available, previously_sold, previously_held — those three
+     * proceed to the normal contact-capture flow with a warning flash on
+     * the "previously_" branches.
+     */
+    private function resolveCollisionForListing(
+        object $listing,
+        int $agencyId,
+        int $currentUserId,
+    ): ?\Symfony\Component\HttpFoundation\Response {
+        // prospecting_listings carries address + suburb but no GPS columns.
+        // When a TrackedProperty is linked we lift lat/lng from there so the
+        // resolver can use GPS-proximity matching (Strategy 2) — otherwise
+        // fall back to the normalised-address chain (Strategies 4/5).
+        $lat = null;
+        $lng = null;
+        if (!empty($listing->tracked_property_id)) {
+            $tpGps = DB::table('tracked_properties')
+                ->where('id', (int) $listing->tracked_property_id)
+                ->where('agency_id', $agencyId)
+                ->first(['latitude', 'longitude']);
+            if ($tpGps) {
+                $lat = $tpGps->latitude !== null ? (float) $tpGps->latitude : null;
+                $lng = $tpGps->longitude !== null ? (float) $tpGps->longitude : null;
+            }
+        }
+
+        $facts = [
+            'address'   => $listing->address ?? null,
+            'latitude'  => $lat,
+            'longitude' => $lng,
+            'suburb'    => $listing->suburb ?? null,
+        ];
+
+        $status = $this->prospectStatus->resolve($facts, $agencyId, $currentUserId);
+
+        switch ($status['status']) {
+            case 'held':
+                return redirect()
+                    ->route('corex.properties.show', ['property' => $status['property_id']])
+                    ->with('warning', "This property is already on HFC's books — opened the existing record instead of starting a new prospect.");
+
+            case 'own_draft':
+                $days = (int) ($status['days_in_state'] ?? 0);
+                return redirect()
+                    ->route('corex.properties.show', ['property' => $status['property_id']])
+                    ->with('info', "You already have a draft on this property ({$days} days). Continuing your draft.");
+
+            case 'other_draft':
+                $agent = $status['agent_name'] ?? 'another agent';
+                $days  = (int) ($status['days_in_state'] ?? 0);
+                $state = $status['state_label'] ?? 'draft';
+                return redirect()
+                    ->route('market-intelligence.work')
+                    ->with('warning', "{$agent} has a draft on this property ({$days} days in {$state}). Coordinate with them before prospecting. To override, use the map's override flow.");
+
+            case 'previously_sold':
+                $date = $status['sale_date'] ?? null;
+                session()->flash('warning', $date
+                    ? "Previously sold by HFC on {$date}. Continuing as new prospect."
+                    : 'Previously sold by HFC. Continuing as new prospect.');
+                $this->fireMicProspectLaunched($listing, $agencyId, $currentUserId);
+                return null;
+
+            case 'previously_held':
+                $expired = $status['expired_at'] ?? null;
+                session()->flash('warning', $expired
+                    ? "Previously held by HFC (mandate ended {$expired}). Continuing as new prospect."
+                    : 'Previously held by HFC. Continuing as new prospect.');
+                $this->fireMicProspectLaunched($listing, $agencyId, $currentUserId);
+                return null;
+
+            case 'available':
+            default:
+                $this->fireMicProspectLaunched($listing, $agencyId, $currentUserId);
+                return null;
+        }
+    }
+
+    /**
+     * Fire MapProspectLaunched with source='mic_entry_point' so the audit
+     * trail attributes the MIC-initiated launch to the correct surface.
+     * Skips silently when no TrackedProperty is linked to the listing —
+     * the downstream pitch send will produce its own audit row.
+     */
+    private function fireMicProspectLaunched(object $listing, int $agencyId, int $currentUserId): void
+    {
+        $tpId = $listing->tracked_property_id ?? null;
+        if (!$tpId) return;
+        $tp = TrackedProperty::withoutGlobalScopes()
+            ->where('id', (int) $tpId)
+            ->where('agency_id', $agencyId)
+            ->first();
+        if (!$tp) return;
+        Event::dispatch(new MapProspectLaunched(
+            trackedProperty: $tp,
+            agencyId:        $agencyId,
+            actingUserId:    $currentUserId,
+            locationKey:     'mic_entry:listing_' . (int) $listing->id,
+            source:          'mic_entry_point',
+        ));
     }
 }
