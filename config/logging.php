@@ -73,6 +73,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Phase 11a — geocoding rate-limit + backfill activity log.
+        'geocoding' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/geocoding.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'days' => 30,
+            'replace_placeholders' => true,
+        ],
+
         // Custom channel for CoreX runtime deprecation warnings (e.g. the
         // buyer_preferences-table listener from spec D11 Phase 1). Daily
         // rotating files at storage/logs/deprecation-YYYY-MM-DD.log, 30-day

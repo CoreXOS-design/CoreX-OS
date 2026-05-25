@@ -180,3 +180,12 @@ Schedule::job(new \App\Jobs\Prospecting\FlagStaleClaimsJob())
     ->onOneServer()
     ->withoutOverlapping()
     ->name('flag-stale-claims');
+
+// ── Geocoding cache hygiene (Phase 11a B) ──
+// Daily: hard-delete rows past expires_at (90-day success TTL, 7-day failure TTL).
+Schedule::command('geo:cache-purge')
+    ->dailyAt('03:00')
+    ->timezone('Africa/Johannesburg')
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->name('geo-cache-purge');

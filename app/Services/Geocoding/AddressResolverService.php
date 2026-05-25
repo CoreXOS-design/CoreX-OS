@@ -85,21 +85,43 @@ final class AddressResolverService
             return $this->cacheAndReturn($normalised, $address, $portalResult, $suburbNorm);
         }
 
-        // ── 4. Google Geocoding ─────────────────────────────────────────────
-        $googleKey = config('services.google.geocoding_api_key');
+        // ── 4. Google Geocoding (rate-limited per Phase 11a) ────────────────
+        $googleKey = config('services.google.geocoding_api_key') ?: config('geo.geocoding.google_api_key');
         if (!empty($googleKey)) {
-            $googleResult = $this->callGoogle($normalised, (string) $googleKey);
-            if ($googleResult !== null) {
-                return $this->cacheAndReturn($normalised, $address, $googleResult, $suburbNorm);
+            /** @var GeocodeRateLimiter $limiter */
+            $limiter = app(GeocodeRateLimiter::class);
+            if ($limiter->canGeocode()) {
+                $googleResult = $this->callGoogle($normalised, (string) $googleKey);
+                // Record AFTER the call. Definitive failures still consume
+                // quota (Google bills failed-but-attempted). Transient nulls
+                // are recorded too — they hit the same upstream endpoint.
+                $limiter->recordCall();
+                if ($googleResult !== null) {
+                    return $this->cacheAndReturn($normalised, $address, $googleResult, $suburbNorm);
+                }
+                // null = transient error → don't cache, retry next time.
+            } else {
+                Log::channel('geocoding')->info('Google skipped — daily cap reached', [
+                    'normalised' => $normalised,
+                    'remaining'  => $limiter->getRemainingToday(),
+                ]);
             }
-            // Note: $googleResult === null = transient error → don't cache, retry next time.
         }
 
-        // ── 5. Nominatim ────────────────────────────────────────────────────
+        // ── 5. Nominatim (also rate-limited; free but politeness matters) ──
         if (config('services.nominatim.enabled')) {
-            $nomResult = $this->callNominatim($normalised);
-            if ($nomResult !== null) {
-                return $this->cacheAndReturn($normalised, $address, $nomResult, $suburbNorm);
+            /** @var GeocodeRateLimiter $limiter */
+            $limiter = app(GeocodeRateLimiter::class);
+            if ($limiter->canGeocode()) {
+                $nomResult = $this->callNominatim($normalised);
+                $limiter->recordCall();
+                if ($nomResult !== null) {
+                    return $this->cacheAndReturn($normalised, $address, $nomResult, $suburbNorm);
+                }
+            } else {
+                Log::channel('geocoding')->info('Nominatim skipped — daily cap reached', [
+                    'normalised' => $normalised,
+                ]);
             }
         }
 

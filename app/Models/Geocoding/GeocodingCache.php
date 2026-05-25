@@ -29,6 +29,7 @@ final class GeocodingCache extends Model
         'latitude',
         'longitude',
         'confidence',
+        'google_location_type',
         'source',
         'source_ref',
         'resolved_address',
@@ -36,11 +37,19 @@ final class GeocodingCache extends Model
         'suburb_normalised',
         'failure_reason',
         'last_attempted_at',
+        // Phase 11a additions
+        'hit_count',
+        'last_hit_at',
+        'expires_at',
     ];
 
     protected $casts = [
         'latitude'          => 'decimal:7',
         'longitude'         => 'decimal:7',
         'last_attempted_at' => 'datetime',
+        // Phase 11a
+        'hit_count'         => 'integer',
+        'last_hit_at'       => 'datetime',
+        'expires_at'        => 'datetime',
     ];
 }
