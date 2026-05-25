@@ -183,6 +183,12 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Property\PropertySgDocumentSaved::class,
             // Phase 9d — RCR submission lifecycle.
             \App\Events\Compliance\RcrSubmissionSubmitted::class,
+            // Phase A.2 — map workspace launches.
+            \App\Events\Map\MapPitchLaunched::class,
+            \App\Events\Map\MapWhatsAppLaunched::class,
+            \App\Events\Map\MapContactOwnerLaunched::class,
+            \App\Events\Map\MapComparableAdded::class,
+            \App\Events\Map\MapCmaOpened::class,
         ] as $micActivityEvent) {
             Event::listen($micActivityEvent, \App\Listeners\Activity\LogAgentActivity::class);
         }

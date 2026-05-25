@@ -226,6 +226,8 @@
                         <div id="detail-sensitive-facts"></div>
                     </div>
                     <div id="detail-relationships" style="margin-top: 14px;"></div>
+                    {{-- Phase A.2 — primary/secondary CTA(s), rendered per category by renderCtas(). --}}
+                    <div id="detail-ctas" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;"></div>
                 </div>
             </div>
         </aside>
@@ -253,6 +255,14 @@ document.addEventListener('DOMContentLoaded', function () {
     const HFC_BOUNDS = { south: -31.0, north: -30.4, west: 30.0, east: 30.9 };
     const PINS_URL = @json(route('corex.map.pins'));
     const CACHE_MAX = 5;
+
+    // Phase A.2 — endpoints + CSRF for activity logging + launches.
+    const MAP_ACTIVITY_URL = @json(route('corex.map.activity.log'));
+    const CSRF_TOKEN = document.querySelector('meta[name=csrf-token]')?.content || '';
+    const PROPERTY_SHOW_URL_TPL  = @json(route('corex.properties.show', ['property' => '__ID__']));
+    const PROPERTY_OUTREACH_TPL  = @json(route('seller-outreach.entry.from-property', ['property' => '__ID__']));
+    const MIC_REPORT_SHOW_TPL    = @json(route('market-intelligence.reports.show', ['report' => '__ID__']));
+    const MIC_OPPORTUNITIES_URL  = @json(route('market-intelligence.opportunities'));
 
     // Single-record category visuals — composite pins use the neutral scheme below.
     const LAYER_COLOURS = {
@@ -464,6 +474,156 @@ document.addEventListener('DOMContentLoaded', function () {
         return { ...payload, locations: out };
     }
 
+    /**
+     * Phase A.2 — derive the available actions for a record from its category.
+     * Returns an array of action descriptors. Each one is enough to render
+     * BOTH a CTA button (single_detail) and a quick-icon (composite_row).
+     *
+     * Shape:
+     *   {
+     *     key:        'pitch_launched' | 'whatsapp_launched' | ... ,
+     *     label:      'Pitch this property →',  // CTA button text
+     *     iconLabel:  'WhatsApp this property',  // quick-icon tooltip
+     *     iconSvg:    '<svg ...>',               // 16x16 inline svg
+     *     style:      'primary' | 'secondary',
+     *     destUrl:    '/corex/properties/123',   // navigation target
+     *     logPayload: { action, category, record_id, source, location_key }
+     *   }
+     */
+    function actionsForRecord(record, sourceContext, locationKey) {
+        const recId = record.id;
+        const baseLog = {
+            category:     record.category,
+            location_key: locationKey,
+            source:       sourceContext, // 'single_detail' | 'composite_row'
+        };
+
+        switch (record.category) {
+            case 'hfc_listings': {
+                if (typeof recId !== 'number') return [];
+                const showUrl = PROPERTY_SHOW_URL_TPL.replace('__ID__', String(recId));
+                const waUrl   = PROPERTY_OUTREACH_TPL.replace('__ID__', String(recId));
+                return [
+                    {
+                        key:       'pitch_launched',
+                        label:     'Pitch this property →',
+                        iconLabel: 'Pitch this property',
+                        iconSvg:   ICON_PITCH,
+                        style:     'primary',
+                        destUrl:   showUrl,
+                        logPayload:{ ...baseLog, action: 'pitch_launched', record_id: recId },
+                    },
+                    {
+                        key:       'whatsapp_launched',
+                        label:     'WhatsApp this property →',
+                        iconLabel: 'WhatsApp this property',
+                        iconSvg:   ICON_WHATSAPP,
+                        style:     'secondary',
+                        destUrl:   waUrl,
+                        logPayload:{ ...baseLog, action: 'whatsapp_launched', record_id: recId },
+                    },
+                ];
+            }
+
+            case 'sold_comps': {
+                // Sold comps from MIC have a "comp_ref" like "mrcr:123" — that's
+                // what the activity log expects. Navigation target is the
+                // source report (relationships in the detail card already
+                // surfaces this, but the explicit CTA is the spec).
+                const ref = String(recId);
+                const reportLink = record.deep_link || record.detail_url || null;
+                return [{
+                    key:       'comparable_added',
+                    label:     'Use as comparable →',
+                    iconLabel: 'Use as comparable',
+                    iconSvg:   ICON_COMPARABLE,
+                    style:     'secondary',
+                    destUrl:   reportLink,
+                    logPayload:{ ...baseLog, action: 'comparable_added', record_id: ref },
+                }];
+            }
+
+            case 'active_listings': {
+                // Competitor listing — agent's next move is to find the owner.
+                // Suburb is best-effort: take it off record.subtitle if present.
+                return [{
+                    key:       'find_owner',
+                    label:     'Find owner →',
+                    iconLabel: 'Find owner',
+                    iconSvg:   ICON_FIND,
+                    style:     'secondary',
+                    destUrl:   MIC_OPPORTUNITIES_URL,
+                    // Comparable_added is the closest activity-event match for
+                    // "find owner from a comp" — both record intent on a comp
+                    // row. Future A.6 may add a dedicated find_owner event.
+                    logPayload:{ ...baseLog, action: 'comparable_added', record_id: String(recId) },
+                }];
+            }
+
+            case 'mic_subjects': {
+                if (typeof recId !== 'number') return [];
+                const reportUrl = MIC_REPORT_SHOW_TPL.replace('__ID__', String(recId));
+                return [{
+                    key:       'cma_opened',
+                    label:     'Open valuation →',
+                    iconLabel: 'Open valuation',
+                    iconSvg:   ICON_OPEN,
+                    style:     'primary',
+                    destUrl:   reportUrl,
+                    logPayload:{ ...baseLog, action: 'cma_opened', record_id: recId },
+                }];
+            }
+
+            case 'scheme_owners': {
+                if (typeof recId !== 'number') return [];
+                // Scheme owners aren't Contacts yet — open a wa.me deep link
+                // when the source carries a phone. If not, the agent at least
+                // sees the panel info and can take it from there.
+                const phone = record.owner_phone || null;
+                const waText = encodeURIComponent('Hi — I noticed your unit at ' + (record.title || 'your building') + ' and wondered if you have a moment to chat.');
+                const waUrl  = phone ? 'https://wa.me/' + phone.replace(/\D/g, '') + '?text=' + waText : null;
+                return [{
+                    key:       'contact_owner_launched',
+                    label:     'Contact owner →',
+                    iconLabel: 'Contact owner',
+                    iconSvg:   ICON_WHATSAPP,
+                    style:     'primary',
+                    destUrl:   waUrl,
+                    logPayload:{ ...baseLog, action: 'contact_owner_launched', record_id: recId, channel: 'whatsapp' },
+                }];
+            }
+        }
+        return [];
+    }
+
+    /**
+     * Fire-and-forget POST to the map activity log endpoint. NEVER blocks
+     * the user from navigating — caller invokes this then proceeds.
+     */
+    function fireActivityLog(payload) {
+        try {
+            fetch(MAP_ACTIVITY_URL, {
+                method:      'POST',
+                headers:     {
+                    'Accept':       'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN,
+                },
+                credentials: 'same-origin',
+                keepalive:   true,
+                body:        JSON.stringify(payload),
+            }).catch(() => {}); // silent
+        } catch (e) { /* swallow */ }
+    }
+
+    // Inline SVGs — 16x16, currentColor. Kept inline so we don't depend on
+    // an icon font load order on the standalone map page.
+    const ICON_PITCH      = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4 20-7Z"></path></svg>';
+    const ICON_WHATSAPP   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"></path></svg>';
+    const ICON_COMPARABLE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"></path><path d="M3 9h18M9 3v18"></path></svg>';
+    const ICON_FIND       = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>';
+    const ICON_OPEN       = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><path d="M15 3h6v6"></path><path d="m10 14 11-11"></path></svg>';
+
     function currentBounds() {
         const b = map.getBounds();
         return {
@@ -533,7 +693,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else {
                     // Single-record click — go straight to the detail view,
                     // no back arrow (there's no list to go back to).
-                    openSingleDetail(loc.records[0], null);
+                    openSingleDetail(loc.records[0], null, loc.location_key);
                 }
             });
             cluster.addLayer(m);
@@ -716,25 +876,64 @@ document.addEventListener('DOMContentLoaded', function () {
 
             recs.forEach((rec, idx) => {
                 const globalIdx = loc.records.indexOf(rec);
-                html += '<button type="button" data-record-idx="' + globalIdx + '" '
-                    +     'style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;margin-bottom:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-family:inherit;">'
-                    +     '<span style="flex:1;min-width:0;">'
-                    +       '<div style="font-size:0.8125rem;font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(rec.title || '') + '</div>'
-                    +       (rec.subtitle ? '<div style="font-size:0.6875rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">' + escapeHtml(rec.subtitle) + '</div>' : '')
-                    +     '</span>'
-                    +     '<span style="color:var(--text-muted);font-size:0.875rem;">→</span>'
-                    + '</button>';
+                // Phase A.2 — quick-action icons per category. The row itself
+                // still drills into single_detail; the icons fire activity-log
+                // POSTs and navigate without entering the panel state machine.
+                const actions = actionsForRecord(rec, 'composite_row', loc.location_key);
+                const iconStrip = actions.map((act, aIdx) =>
+                    '<a href="' + escapeAttr(act.destUrl || '#') + '" '
+                    +    'data-map-action="' + escapeAttr(act.key) + '" '
+                    +    'data-action-idx="' + globalIdx + ':' + aIdx + '" '
+                    +    'title="' + escapeAttr(act.iconLabel) + '" '
+                    +    (act.destUrl ? '' : 'aria-disabled="true" ')
+                    +    'style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;color:var(--text-muted);text-decoration:none;transition:all 150ms;" '
+                    +    'onmouseover="this.style.color=\'#00d4aa\';this.style.background=\'color-mix(in srgb, #00d4aa 10%, transparent)\';" '
+                    +    'onmouseout="this.style.color=\'var(--text-muted)\';this.style.background=\'transparent\';">'
+                    +    act.iconSvg
+                    + '</a>'
+                ).join('');
+
+                html += '<div data-record-row="' + globalIdx + '" '
+                    +     'style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;margin-bottom:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;font-family:inherit;">'
+                    +     '<button type="button" data-record-idx="' + globalIdx + '" '
+                    +       'style="display:flex;flex:1;min-width:0;background:transparent;border:0;text-align:left;cursor:pointer;font-family:inherit;padding:0;">'
+                    +       '<span style="flex:1;min-width:0;">'
+                    +         '<div style="font-size:0.8125rem;font-weight:500;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(rec.title || '') + '</div>'
+                    +         (rec.subtitle ? '<div style="font-size:0.6875rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">' + escapeHtml(rec.subtitle) + '</div>' : '')
+                    +       '</span>'
+                    +     '</button>'
+                    +     (iconStrip ? '<span style="display:inline-flex;gap:2px;flex-shrink:0;" data-quick-actions="' + globalIdx + '">' + iconStrip + '</span>' : '')
+                    +     '<span style="color:var(--text-muted);font-size:0.875rem;flex-shrink:0;">→</span>'
+                    + '</div>';
             });
             html += '</div>';
         });
 
         document.getElementById('composite-records').innerHTML = html;
 
-        // Wire row clicks → single_detail with back arrow visible.
+        // Wire row clicks → single_detail (icons handled separately below).
         document.querySelectorAll('[data-record-idx]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const idx = parseInt(btn.dataset.recordIdx, 10);
-                openSingleDetail(loc.records[idx], loc);
+                openSingleDetail(loc.records[idx], loc, loc.location_key);
+            });
+        });
+
+        // Wire quick-icon clicks — fire activity log, then default <a>
+        // behaviour navigates. stopPropagation prevents the parent row from
+        // also opening the panel.
+        document.querySelectorAll('[data-map-action]').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // record_id sits on the action descriptor (via data-action-idx
+                // → records[recIdx] → actions[aIdx]); re-derive cheaply.
+                const [rIdx, aIdx] = link.dataset.actionIdx.split(':').map(n => parseInt(n, 10));
+                const rec = loc.records[rIdx];
+                const acts = actionsForRecord(rec, 'composite_row', loc.location_key);
+                const act  = acts[aIdx];
+                if (!act) return;
+                fireActivityLog(act.logPayload);
+                if (!act.destUrl) e.preventDefault();
             });
         });
 
@@ -745,8 +944,9 @@ document.addEventListener('DOMContentLoaded', function () {
      * Render single-record detail. When opened from a composite, `parent`
      * carries the parent location so the back arrow can restore the list.
      * `parent=null` for direct single-pin clicks (no back arrow shown).
+     * `locationKey` powers the Phase A.2 activity log on action launches.
      */
-    async function openSingleDetail(record, parent) {
+    async function openSingleDetail(record, parent, locationKey) {
         panelParentComposite = parent;
         const backBtn = document.getElementById('detail-back-btn');
         if (parent) {
@@ -767,27 +967,67 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('detail-relationships').innerHTML = '';
         document.getElementById('detail-sensitive').style.display = 'none';
         document.getElementById('detail-address').style.display = 'none';
+        document.getElementById('detail-ctas').innerHTML = '';
         setPanelOpen(true);
 
         const url = record.deep_link || record.detail_url;
-        if (!url) {
+        if (url) {
+            try {
+                const fullUrl = url + (url.includes('?') ? '&' : '?') + 'viewMode=' + viewMode;
+                const resp = await fetch(fullUrl, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                if (resp.ok) {
+                    renderCard(await resp.json());
+                } else {
+                    document.getElementById('detail-facts').innerHTML =
+                        '<div style="color:var(--ds-red,#dc2626);font-size:0.75rem;">Could not load details.</div>';
+                }
+            } catch (e) {
+                document.getElementById('detail-facts').innerHTML =
+                    '<div style="color:var(--ds-red,#dc2626);font-size:0.75rem;">' + escapeHtml(e.message || 'Error') + '</div>';
+            }
+        } else {
             document.getElementById('detail-facts').innerHTML =
                 '<div style="font-size:0.75rem;color:var(--text-muted);">No detail card available for this record.</div>';
+        }
+
+        // Phase A.2 — CTAs render regardless of card load success.
+        renderSingleDetailCtas(record, locationKey);
+    }
+
+    /**
+     * Render the primary/secondary CTAs in the single-detail panel and wire
+     * each one to fire its activity log POST + default <a> navigation.
+     */
+    function renderSingleDetailCtas(record, locationKey) {
+        const acts = actionsForRecord(record, 'single_detail', locationKey);
+        const host = document.getElementById('detail-ctas');
+        if (acts.length === 0) {
+            host.innerHTML = '';
             return;
         }
-        try {
-            const fullUrl = url + (url.includes('?') ? '&' : '?') + 'viewMode=' + viewMode;
-            const resp = await fetch(fullUrl, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
-            if (!resp.ok) {
-                document.getElementById('detail-facts').innerHTML =
-                    '<div style="color:var(--ds-red,#dc2626);font-size:0.75rem;">Could not load details.</div>';
-                return;
-            }
-            renderCard(await resp.json());
-        } catch (e) {
-            document.getElementById('detail-facts').innerHTML =
-                '<div style="color:var(--ds-red,#dc2626);font-size:0.75rem;">' + escapeHtml(e.message || 'Error') + '</div>';
-        }
+        host.innerHTML = acts.map(act => {
+            const stylePrimary = 'background:#00d4aa;color:#0f172a;border:1px solid #00d4aa;';
+            const styleSecondary = 'background:transparent;color:#00d4aa;border:1px solid #00d4aa;';
+            const styleStr = act.style === 'secondary' ? styleSecondary : stylePrimary;
+            const disabled = !act.destUrl;
+            return '<a href="' + escapeAttr(act.destUrl || '#') + '" '
+                + 'data-map-action="' + escapeAttr(act.key) + '" '
+                + (disabled ? 'aria-disabled="true" ' : '')
+                + 'style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;padding:8px 12px;border-radius:6px;font-size:0.8125rem;font-weight:600;text-decoration:none;transition:opacity 150ms;'
+                +    styleStr + (disabled ? 'opacity:0.5;cursor:not-allowed;' : '') + '">'
+                + '<span style="display:inline-flex;align-items:center;">' + act.iconSvg + '</span>'
+                + '<span>' + escapeHtml(act.label) + '</span>'
+                + '</a>';
+        }).join('');
+
+        // Wire activity-log firing on click. Default <a> handles tab vs same-tab.
+        host.querySelectorAll('[data-map-action]').forEach((link, idx) => {
+            const act = acts[idx];
+            link.addEventListener('click', (e) => {
+                if (!act.destUrl) { e.preventDefault(); return; }
+                fireActivityLog(act.logPayload);
+            });
+        });
     }
 
     function renderCard(card) {
