@@ -335,9 +335,15 @@
   {{-- Page Header --}}
   <div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-5">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div>
-        <h1 class="text-xl font-bold text-white leading-tight">Tools</h1>
-        <p class="text-sm text-white/60">Commission Calculator &middot; CMA Certificate &middot; History</p>
+      <div class="flex items-center gap-3">
+        @if(!empty($printSettings['logoUrl']))
+          <img src="{{ $printSettings['logoUrl'] }}" alt="{{ $printSettings['companyName'] ?? '' }}"
+               class="h-10 w-auto rounded bg-white p-1" style="object-fit: contain;">
+        @endif
+        <div>
+          <h1 class="text-xl font-bold text-white leading-tight">Tools</h1>
+          <p class="text-sm text-white/60">Commission Calculator &middot; CMA Certificate &middot; History</p>
+        </div>
       </div>
       <div class="flex items-center gap-3">
         <div id="activeAgentDisplay" class="text-sm text-white/80 font-medium">

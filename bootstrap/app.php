@@ -47,6 +47,23 @@ return Application::configure(basePath: dirname(__DIR__))
             return back()->with('error', $e->getMessage());
         });
 
+        // 419 session-expired UX: instead of the bare Laravel 419 page, send
+        // the user back to /dashboard with a flash message. The auth middleware
+        // on /dashboard will bounce them to login if their session is gone —
+        // login displays the same flash, then they continue post-sign-in.
+        // JSON callers (Alpine fetch, Chrome extension) get a structured 419.
+        $exceptions->render(function (TokenMismatchException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'ok'    => false,
+                    'error' => 'Your session expired — please sign in and continue.',
+                ], 419);
+            }
+            return redirect()
+                ->route('dashboard')
+                ->with('warning', 'Your session expired — please sign in and continue.');
+        });
+
         $exceptions->reportable(function (\Throwable $e) {
             try {
                 // Skip exceptions that don't need fault tracking

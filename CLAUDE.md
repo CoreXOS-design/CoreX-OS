@@ -177,6 +177,11 @@ The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, mis
       (git pull + php artisan migrate + view:clear + config:clear; reseed if
       data-shape changed) and verify parity against local. Report the demo
       verification result.
+   i. Update `.ai/CHAT_STARTER.md` — move items between sections
+      (LIVE / IN FLIGHT / SPECCED / PARKED) to reflect what landed, prepend a
+      dated entry to the Recent decisions log if a decision was made, remove
+      completed items from Outstanding small fixes, refresh the "Last updated
+      by" header. Keep total length under 350 lines.
 ```
 
 ---
