@@ -11,6 +11,23 @@
                 <h1 class="text-xl font-bold text-white leading-tight">PDF Suite</h1>
                 <p class="text-sm text-white/60">Eight tools for everything you need to do with a PDF — split, compress, merge, rotate, redact and more.</p>
             </div>
+            @permission('access_settings')
+                @if(\Illuminate\Support\Facades\Route::has('admin.splitter.doc-types.index'))
+                <a href="{{ route('admin.splitter.doc-types.index') }}"
+                   title="PDF Suite Settings"
+                   class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-white transition-colors"
+                   style="background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
+                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
+                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                    Settings
+                </a>
+                @endif
+            @endpermission
         </div>
     </div>
 
