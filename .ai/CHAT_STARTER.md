@@ -1,6 +1,6 @@
 # CoreX OS — Chat Starter
 > Auto-maintained by VS Code per CLAUDE.md rule. Paste into a new Claude chat to load context.
-> Last updated: 2026-05-25 by prompt-D (CLAUDE.md subagent file-write rule)
+> Last updated: 2026-05-25 by prompts-E+F (POPIA columns + Presentations V2 phases 4-7 audits)
 
 <!-- ============================================================ -->
 <!-- STABLE SECTION — rarely changes                              -->
@@ -57,11 +57,12 @@
 - **Commission & Revenue Share Engine** — 7 tables, bcmath, agent dashboard, principal P&L, sponsor tree
 - **Branch Isolation** — spec built, 14 prompts A–N
 - **Tax / Payroll** — SARS e@syFile IT3(a) submission for tax year ending Feb 2026
+- **Presentations V2 phases 4–7** — snapshot links + engagement tracking (FirstViewed + FlaggedAccess notifications) / teaser route + lead capture / send-to-recipient delivery (whatsapp + email, sticky defaults) / refresh-request flow with "data may be dated" banner (default 21d, agency-configurable 7–90), 3/10min rate limit, supersession auto-redirect. All 5 tables present (`presentation_snapshot_links`, `presentation_snapshot_views`, `presentation_teaser_leads`, `presentation_deliveries`, `presentation_refresh_requests`). End-to-end flow verified working today.
 
 ### 3.2 IN FLIGHT
 
 - **Branch `feature/map-workspace-overhaul`** — MIC collision fix landed (A.3.4); Tonight: M22 test fix + universal-signature audit + Phase 9c investigation + three small fixes (419 / CMA logo / Tools logo) shipped on same branch.
-- **Phase 9c — POPIA blockers** — investigation complete (2026-05-25). Findings: privacy policy page absent (no `/privacy` route, `agencies.popi_url` field exists but only rendered in email footer); Information Officer field NOT on `agencies` table (only `whistleblow_compliance_officer_email` free-text); agency PPRA number NOT on `agencies` (only `ffc_no` exists). Awaiting Johan's architectural decisions on per-agency vs system-wide privacy, IO as User FK vs free-text, PPRA scope (agency vs branch) before fix prompt.
+- **Phase 9c — POPIA blockers** — investigation complete (2026-05-25). Two reports filed: `.ai/audits/mic-prospect-collision-investigation-2026-05.md` (Phase 9c initial findings) + `.ai/audits/popia-columns-investigation-2026-05-25.md` (deep column mapping). **Sharpened finding:** `ffc_no` and PPRA number are legally distinct under PPA 22/2019 (FFC = annual practitioner licence; PPRA reg = agency permanent ID). A new `agencies.ppra_number` column IS genuinely needed — NOT a rename. Also: `popi_url` exists but NULL for HFC; no `information_officer_user_id` column. Awaiting Johan's decisions on (a) PPRA per-agency vs per-branch, (b) Information Officer as User FK vs free-text + per-agency or per-branch, (c) privacy policy per-agency external link vs system-wide CoreX-hosted page.
 - **Next:** Andre — Staging deploy + live DB pull after batch lands. Figure-matching audit on staging.
 
 ### 3.3 SPECCED / partial — not fully built
@@ -88,6 +89,8 @@
 
 ## 4. Recent decisions log (last 15, newest top)
 
+- **2026-05-25** — Presentations V2 phases 4–7 audit completed; report at `.ai/audits/presentations-v2-phases-4-7-audit-2026-05-25.md`. All four phases ✅ fully built; moved into section 3.1 LIVE. End-to-end "4-month-old link → banner → refresh request → agent notified" flow operational.
+- **2026-05-25** — POPIA columns investigation completed; report at `.ai/audits/popia-columns-investigation-2026-05-25.md`. Conclusion: `ffc_no` ≠ PPRA reg number (legally distinct under PPA 22/2019). Phase 9c rename-vs-add decision = ADD new column.
 - **2026-05-25** — CLAUDE.md tightened: subagents producing audit/report files MUST write to disk via file-write tools, not return content in chat only (response to tonight's universal-signature subagent that skipped the write step).
 - **2026-05-25** — Tonight's batch: 419 redirect + CMA cert logo + Tools page logo all shipped on `feature/map-workspace-overhaul`. Agency `logo_path` is now the canonical logo source for Tools (wins over stale `PerformanceSetting.company_logo_url`).
 - **2026-05-25** — Phase 9c investigation: privacy policy + Information Officer + agency PPRA number — findings reported, moved from PARKED to IN FLIGHT; awaiting architectural decisions before fix.
@@ -101,8 +104,6 @@
 - **2026-05-25** — A.3 + A.2.7 + M22 test + MIC investigation landed.
 - **2026-04-29** — Architecture: Claude owns template design centrally. Hand-crafted Blade with declarative metadata, bypass CDS UI. Templates 116/117/119 first under this model.
 - **2026-04-22** — FICA module live deploy with corrections cycle, agent doc upload, auto-file to contact drive.
-- **2026-03-21** — One-block-system-loops: template has one anchor per role, system renders N stacked signature blocks based on actual party count.
-- **2026-03-21** — E-sign sales documents legally allowed electronically.
 
 ## 5. Outstanding small fixes (none blocking)
 
@@ -110,7 +111,7 @@
 
 ## 6. Next likely move
 
-Tonight's batch (M22, A.3.4, 419 + CMA + Tools logo, signature audit, 9c investigation) is landed on `feature/map-workspace-overhaul`. Next: (1) Johan approves Phase 9c scope (privacy + IO + PPRA) — then VS Code writes the fix prompt; (2) merge feature branch → Staging; (3) Andre pulls live DB, walks map + MIC + e-sign on staging; (4) figure-matching audit; (5) decide whether universal-signature pre-fill (Layer 2) makes the 1 Aug cut. Bug-hunt week from 2 June.
+Branch `feature/map-workspace-overhaul` carries everything from tonight (A.3.4 MIC fix + M22 test + 419 + CMA + Tools logo + chat starter + 3 audit reports). Next when Johan returns: (1) decide Phase 9c scope — new `agencies.ppra_number` (per-agency or per-branch?), Information Officer (User FK vs free-text + scope?), privacy policy (per-agency external URL vs CoreX-hosted page?) — then VS Code writes the fix prompt; (2) merge feature branch → Staging; (3) Andre pulls live DB, walks map + MIC + e-sign on staging; (4) figure-matching audit; (5) decide whether universal-signature pre-fill (Layer 2) makes the 1 Aug cut. Presentations V2 phases 4–7 are LIVE — no action needed there. Bug-hunt week from 2 June.
 
 <!-- ============================================================ -->
 <!-- MAINTENANCE RULE FOR VS CODE                                 -->
