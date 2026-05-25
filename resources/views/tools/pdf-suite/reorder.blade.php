@@ -1,11 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<x-page-header title="Reorder / Delete Pages" subtitle="Rearrange or drop pages from a PDF." :flush="true">
-    <x-slot:actions>
-        <button type="submit" form="pdf-suite-form" class="corex-btn-primary text-sm">Apply &amp; Download</button>
-    </x-slot:actions>
-</x-page-header>
+<x-page-header title="Reorder / Delete Pages" subtitle="Rearrange or drop pages from a PDF." :flush="true" />
 @include('tools.pdf-suite._switcher')
 
 <div class="p-4 lg:p-8">
@@ -30,14 +26,15 @@
                 <div class="rounded-md p-6" style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
                     <h3 class="font-semibold text-base mb-1" style="color: var(--text-primary);">Reorder or delete pages</h3>
                     <p class="text-sm mb-5" style="color: var(--text-secondary);">Comma-separated page numbers (1-based).</p>
-                    <form id="pdf-suite-form" method="POST" action="{{ route('tools.pdf_suite.reorder.run') }}" enctype="multipart/form-data">
+                    <form id="pdf-suite-form" method="POST" action="{{ route('tools.pdf_suite.reorder.run') }}" enctype="multipart/form-data" x-data="{ hasFile: false }">
                         @csrf
                         <div class="mb-4">
                             <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">PDF File</label>
-                            <input type="file" name="pdf" accept="application/pdf" required class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                            <input type="file" name="pdf" accept="application/pdf" required @change="hasFile = $event.target.files.length > 0" class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
                         <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">New page order (CSV)</label>
-                        <input type="text" name="order" required placeholder="e.g. 1,2,4,5" class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="text" name="order" required placeholder="e.g. 1,2,4,5" class="w-full px-3 py-2.5 rounded-md text-sm mb-5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <button type="submit" :disabled="!hasFile" :class="hasFile ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'" class="text-sm w-full">Apply &amp; Download</button>
                     </form>
                 </div>
             </div>

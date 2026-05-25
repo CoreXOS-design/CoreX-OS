@@ -1,11 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<x-page-header title="PDF Redact" subtitle="Black out IDs and bank details — POPIA-safe true redaction." :flush="true">
-    <x-slot:actions>
-        <button type="submit" form="pdf-suite-form" class="corex-btn-primary text-sm">Redact &amp; Download</button>
-    </x-slot:actions>
-</x-page-header>
+<x-page-header title="PDF Redact" subtitle="Black out IDs and bank details — POPIA-safe true redaction." :flush="true" />
 @include('tools.pdf-suite._switcher')
 
 <div class="p-4 lg:p-8" x-data="redactPicker()">
@@ -31,11 +27,11 @@
                 <div class="rounded-md p-6" style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
                     <h3 class="font-semibold text-base mb-1" style="color: var(--text-primary);">Redact a PDF</h3>
                     <p class="text-sm mb-5" style="color: var(--text-secondary);">Add one or more rectangles. The page is rasterised before redaction.</p>
-                    <form id="pdf-suite-form" method="POST" action="{{ route('tools.pdf_suite.redact.run') }}" enctype="multipart/form-data" @submit="$refs.rectsField.value = JSON.stringify(rects)">
+                    <form id="pdf-suite-form" method="POST" action="{{ route('tools.pdf_suite.redact.run') }}" enctype="multipart/form-data" x-data="{ hasFile: false }" @submit="$refs.rectsField.value = JSON.stringify(rects)">
                         @csrf
                         <div class="mb-4">
                             <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">PDF File</label>
-                            <input type="file" name="pdf" accept="application/pdf" required class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                            <input type="file" name="pdf" accept="application/pdf" required @change="hasFile = $event.target.files.length > 0" class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
                         <input type="hidden" name="rects" x-ref="rectsField">
 
@@ -58,6 +54,7 @@
                             </template>
                         </div>
                         <button type="button" @click="rects.push({page:1,x:0,y:0,w:200,h:30})" class="corex-btn-outline text-xs">+ Add rectangle</button>
+                        <button type="submit" :disabled="!hasFile" :class="hasFile ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'" class="text-sm w-full mt-5">Redact &amp; Download</button>
                     </form>
                 </div>
             </div>
