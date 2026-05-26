@@ -402,16 +402,22 @@ class SigningController extends Controller
             || $signingRequest->completed_at !== null;
         $inAmendmentInitialing = $template->status === SignatureTemplate::STATUS_AMENDMENT_INITIALING;
 
-        // Phase 1B.9 (FIX 2) — Apply-to-all initials is an agent-only
-        // affordance. Recipients must initial each page individually for
-        // legal informed-consent reasons (each initial = explicit affirm).
-        // An "agent" here = either an authenticated CoreX user with
-        // document-management permission OR a signing-party whose role is
-        // 'agent' (the dispatching agent acting as a signer).
-        $authUser = $request->user();
-        $isAgent = ($authUser !== null && method_exists($authUser, 'hasPermission')
-                && $authUser->hasPermission('manage_documents'))
-            || $signingRequest->party_role === 'agent';
+        // CONSENT GATE — Apply-to-all initials is an agent-only affordance.
+        // Recipients must initial each page individually for legal informed-
+        // consent reasons (each initial = explicit affirm).
+        //
+        // The gate is `signingRequest.party_role === 'agent'` ALONE. The
+        // viewing browser session's permissions are NOT consulted: a
+        // dispatching agent who opens a recipient's signing link in their
+        // own browser (testing, screen-share, supervision) must NOT inherit
+        // the apply-to-all bypass — that token belongs to the recipient,
+        // and the recipient's per-page consent surface is what renders.
+        //
+        // The previous OR-with-hasPermission predicate (pre-2026-05-27) is
+        // the bug fixed by .ai/audits/esign-reset-investigation-2026-05-27.md
+        // Q4 — it conflated viewer permissions with token identity and
+        // exposed a legal bypass.
+        $isAgent = ($signingRequest->party_role === 'agent');
 
         return view('docuperfect.signatures.external.sign', [
             'request' => $signingRequest,
