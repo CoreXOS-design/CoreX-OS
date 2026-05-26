@@ -606,20 +606,53 @@ final class RoleBlockExpansionService
                 ];
                 return;
             }
-            // Iterate units in REVERSE document order so duplicating
-            // earlier units doesn't shift later units' DOM positions
-            // (each duplication inserts new siblings, bumping later
-            // sibling indices forward — reverse-order processing keeps
-            // every unit's parent reference stable when we mutate).
-            foreach (array_reverse($blockUnits) as $unit) {
-                $this->duplicateBlockForRecipients(
-                    $dom,
-                    $unit,
-                    $role,
-                    $recipients,
-                    $isSales,
-                    $recipientCount,
-                );
+            // Group consecutive block-units that share a parent into
+            // ONE recipient-instance group so the "Seller N: Name"
+            // sub-heading prints once per recipient at the top of the
+            // group, with all the group's lines rendered underneath —
+            // not once per block-unit.
+            //
+            // Template 111 example: cluster 1's two block units
+            // (address line + phone+email line) are sibling
+            // `<div class="corex-clause">`s under `<div class="corex-page">`.
+            // Pre-fix output:
+            //   Seller 1: James  /  address line  /
+            //   Seller 2: Steve  /  address line  /
+            //   Seller 1: James  /  phone+email line  /
+            //   Seller 2: Steve  /  phone+email line
+            // Post-fix output:
+            //   Seller 1: James  /  address line  /  phone+email line  /
+            //   Seller 2: Steve  /  address line  /  phone+email line
+            //
+            // Block units with different parents fall into separate
+            // groups (each a single-unit group) — falls back to the
+            // existing per-unit duplication shape for those, no
+            // regression for templates that don't share parents.
+            $unitGroups = $this->groupConsecutiveBlockUnits($blockUnits);
+            // Iterate groups in REVERSE document order so duplicating
+            // earlier groups doesn't shift later groups' DOM positions.
+            foreach (array_reverse($unitGroups) as $group) {
+                if (count($group) === 1) {
+                    // Single-unit group — existing duplication path
+                    // (one header per clone, one clone per recipient).
+                    $this->duplicateBlockForRecipients(
+                        $dom,
+                        $group[0],
+                        $role,
+                        $recipients,
+                        $isSales,
+                        $recipientCount,
+                    );
+                } else {
+                    $this->duplicateUnitGroupForRecipients(
+                        $dom,
+                        $group,
+                        $role,
+                        $recipients,
+                        $isSales,
+                        $recipientCount,
+                    );
+                }
             }
             return;
         }
@@ -723,6 +756,52 @@ final class RoleBlockExpansionService
             $units[] = $blockAncestor;
         }
         return $units;
+    }
+
+    /**
+     * Group consecutive block-units that share the same DOM parent into
+     * a single recipient-instance group. Within a group, ONE
+     * "Seller N: Name" sub-heading prints once at the top per recipient;
+     * all the group's lines render underneath that heading.
+     *
+     * Units with different parents fall into separate single-unit
+     * groups — preserves the existing per-unit duplication shape for
+     * templates that don't share parents.
+     *
+     * The detector already returns units in document order, so this
+     * pass is a simple linear walk: same parent as previous → extend
+     * current group; different parent → start a new group.
+     *
+     * @param  list<DOMElement> $units
+     * @return list<list<DOMElement>>  groups in document order
+     */
+    private function groupConsecutiveBlockUnits(array $units): array
+    {
+        if (empty($units)) {
+            return [];
+        }
+        $groups = [];
+        $currentGroup = [];
+        $currentParent = null;
+        foreach ($units as $unit) {
+            $parent = $unit->parentNode;
+            if ($currentParent === null) {
+                $currentParent = $parent;
+                $currentGroup = [$unit];
+                continue;
+            }
+            if ($parent === $currentParent) {
+                $currentGroup[] = $unit;
+            } else {
+                $groups[] = $currentGroup;
+                $currentGroup = [$unit];
+                $currentParent = $parent;
+            }
+        }
+        if (!empty($currentGroup)) {
+            $groups[] = $currentGroup;
+        }
+        return $groups;
     }
 
     /**
@@ -992,6 +1071,88 @@ final class RoleBlockExpansionService
     }
 
     /**
+     * Group-duplication path — when multiple block-units share a parent
+     * (e.g. address line + phone+email line both `<div class="corex-clause">`
+     * siblings under `<div class="corex-page">`), they form one
+     * recipient-instance group. For each recipient, clone EVERY unit
+     * in the group as a sequence; prepend the "Seller N: Name"
+     * sub-heading ONLY to the first clone in each recipient's
+     * sequence so the layout reads:
+     *
+     *   Seller 1: James
+     *     <address line clone>
+     *     <phone+email line clone>
+     *   Seller 2: Steve
+     *     <address line clone>
+     *     <phone+email line clone>
+     *
+     * Single-unit groups still flow through `duplicateBlockForRecipients`
+     * (one header per clone == one header per recipient anyway).
+     *
+     * @param  list<DOMElement>                  $groupUnits  consecutive sibling units
+     * @param  Collection<int, SignatureRequest> $recipients
+     */
+    private function duplicateUnitGroupForRecipients(
+        DOMDocument $dom,
+        array $groupUnits,
+        string $role,
+        Collection $recipients,
+        bool $isSales,
+        int $totalInstances,
+    ): void {
+        if (empty($groupUnits)) {
+            return;
+        }
+        $firstUnit = $groupUnits[0];
+        $parent = $firstUnit->parentNode;
+        if (!$parent instanceof DOMNode) {
+            return;
+        }
+        $allClones = [];
+        $n = 0;
+        foreach ($recipients as $recipient) {
+            $n++;
+            foreach ($groupUnits as $unitIdx => $unit) {
+                $clone = $unit->cloneNode(true);
+                if (!$clone instanceof DOMElement) {
+                    continue;
+                }
+                // Only the FIRST clone in this recipient's sequence
+                // gets the prepended "Seller N: Name" sub-heading.
+                // Subsequent clones in the group inherit the same
+                // identity stamps + per-instance data-field suffix
+                // (so the JS save endpoint, the editable-scope
+                // resolver, and the visual instance-wrapper class all
+                // still light up correctly) — they just don't print
+                // their own header.
+                $this->mutateCloneForInstance(
+                    $dom,
+                    $clone,
+                    $role,
+                    $n,
+                    $totalInstances,
+                    $recipient,
+                    $isSales,
+                    strippingForeignIndices: false,
+                    sourceInstanceIndex: 1,
+                    prependHeader: ($unitIdx === 0),
+                );
+                $allClones[] = $clone;
+            }
+        }
+        // Insert every clone (full recipient sequences in order)
+        // before the first original unit, then remove every original.
+        foreach ($allClones as $clone) {
+            $parent->insertBefore($clone, $firstUnit);
+        }
+        foreach ($groupUnits as $unit) {
+            if ($unit->parentNode === $parent) {
+                $parent->removeChild($unit);
+            }
+        }
+    }
+
+    /**
      * Case D.2 path — duplicate the idx=K subtree for instances K+1..N.
      *
      * @param  Collection<int, SignatureRequest> $recipients   (all recipients, ordered by role_index)
@@ -1055,6 +1216,7 @@ final class RoleBlockExpansionService
         bool $isSales,
         bool $strippingForeignIndices,
         int $sourceInstanceIndex = 1,
+        bool $prependHeader = true,
     ): void {
         $xpath = new DOMXPath($dom);
 
@@ -1116,7 +1278,14 @@ final class RoleBlockExpansionService
                 }
             }
         }
-        $this->prependSectionHeader($dom, $clone, $role, $instanceIndex, $totalInstances, $isSales, $recipient);
+        // Header gating — single-unit paths (duplicateBlockForRecipients,
+        // duplicateSubtreeForIndices) always prepend; the new group-
+        // duplication path prepends ONLY for the first clone in each
+        // recipient's sequence so consecutive same-role lines render
+        // under one shared "Seller N: Name" sub-heading.
+        if ($prependHeader) {
+            $this->prependSectionHeader($dom, $clone, $role, $instanceIndex, $totalInstances, $isSales, $recipient);
+        }
     }
 
     /**
