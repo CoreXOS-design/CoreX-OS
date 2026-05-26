@@ -97,10 +97,19 @@ class Template extends Model
      */
     public function canonicalFieldMappings(): array
     {
-        // Tier 1 — most recent draft for this template.
+        // Tier 1 — most recent IN-PROGRESS draft for this template.
+        //
+        // Filter on `status = 'draft'` so a previously-saved draft
+        // (status='saved') doesn't override the template's
+        // editor_state.mappings written by the same save. The
+        // status='saved' rows stay alive in the DB (so old browser
+        // URLs at /cds/builder/{saved_id} keep resolving) but they
+        // no longer outrank the freshly-saved editor_state in the
+        // canonical-accessor priority chain.
         if (\Illuminate\Support\Facades\Schema::hasTable('cds_drafts')) {
             $draft = \Illuminate\Support\Facades\DB::table('cds_drafts')
                 ->where('source_template_id', $this->id)
+                ->where('status', 'draft')
                 ->whereNull('deleted_at')
                 ->orderByDesc('updated_at')
                 ->first();

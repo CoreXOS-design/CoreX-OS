@@ -616,23 +616,22 @@ class TemplateController extends Controller
         }
 
         // E-sign reset Commit 5 (Q1) — draft lifecycle cleanup.
-        // The draft system should hold ONE in-progress draft per
-        // (user, template). The investigation found 5 CdsDraft rows
-        // for template 111 — every save left another saved draft
-        // behind, and the canonical accessor's tier-1 lookup could
-        // serve any of them. Soft-delete the applied draft AND any
-        // older saved/draft rows for the same (user, source_template)
-        // pair so the canonical accessor falls through cleanly to the
-        // freshly-saved editor_state next time.
+        //
+        // The draft is marked `saved` but NOT soft-deleted. Soft-deleting
+        // the draft (the original Commit 5 behaviour) had a critical side
+        // effect: any browser tab open at /docuperfect/templates/cds/
+        // builder/{draft_id} 404'd on the next refresh, because the
+        // route-model-binding `CdsDraft $draft` excludes trashed rows.
+        // That broke the walk Johan ran the day after the reset shipped.
+        //
+        // Walk-fix FIX 3 redesign — keep the draft row alive with
+        // status='saved'. The /cds/builder/{draft_id} URL still resolves
+        // (read-only view of the saved state); `edit()` still creates a
+        // fresh draft on each new editing session because it filters on
+        // `status='draft'`; `canonicalFieldMappings()` also filters tier
+        // 1 to `status='draft'` so saved drafts don't override the
+        // template's editor_state.mappings.
         $draft->update(['status' => 'saved']);
-        $draft->delete();
-        if ($draft->source_template_id) {
-            CdsDraft::where('user_id', $user->id)
-                ->where('source_template_id', $draft->source_template_id)
-                ->where('id', '!=', $draft->id)
-                ->whereNull('deleted_at')
-                ->update(['deleted_at' => now()]);
-        }
 
         // E-sign walk-fix FIX 3 — post-save redirect lands on the builder
         // page (via templates.edit), not templates.index. The walk-test

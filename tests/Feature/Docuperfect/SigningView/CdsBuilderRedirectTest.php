@@ -103,6 +103,69 @@ final class CdsBuilderRedirectTest extends TestCase
             'Post-save redirect must land on the CDS builder, not the template list — got ' . $finalPath);
     }
 
+    /**
+     * The regression guard COMMIT D should have shipped. The original
+     * `CdsBuilderRedirectTest` walked the redirect chain — which works
+     * because the chain produces a NEW draft id. It never asserted that
+     * the ORIGINAL draft url (the URL the agent's browser tab is sitting
+     * on) still resolves after the save. COMMIT 5's `$draft->delete()`
+     * soft-deleted that draft, so refreshing the tab 404'd.
+     *
+     * This test pins the contract: after cdsGenerate runs against draft
+     * X, /docuperfect/templates/cds/builder/X must still return 200.
+     * No more "save → refresh tab → 404".
+     */
+    public function test_saved_draft_url_still_resolves_after_save(): void
+    {
+        $user = $this->seedAgentWithTemplatePermissions();
+        $template = DocuperfectTemplate::create([
+            'name'           => 'Refresh Tab Template',
+            'render_type'    => 'web',
+            'template_type'  => 'cds',
+            'category'       => 'sales',
+            'signing_parties'=> ['owner_party'],
+            'field_mappings' => [],
+            'owner_id'       => $user->id,
+            'cds_json'       => ['sections' => []],
+        ]);
+        $draft = CdsDraft::create([
+            'user_id'            => $user->id,
+            'agency_id'          => $user->agency_id ?? 1,
+            'template_name'      => $template->name,
+            'cds_json'           => ['sections' => []],
+            'mappings'           => [],
+            'tags'               => [],
+            'tagged_html'        => '<p>Body</p>',
+            'settings'           => [],
+            'source_template_id' => $template->id,
+            'status'             => 'draft',
+        ]);
+
+        // Trigger the save.
+        $this
+            ->actingAs($user)
+            ->from('/docuperfect/templates/cds/builder/' . $draft->id)
+            ->post('/docuperfect/templates/cds/generate', [
+                'draft_id'      => $draft->id,
+                'template_name' => $template->name,
+                'is_esign'      => 1,
+                'party_mode'    => 'shared',
+                'allowed_delivery_modes' => 'esign',
+                'security_tier' => 'enhanced',
+                'signing_parties' => json_encode(['owner_party']),
+                'category'      => 'sales',
+                'document_type_id' => null,
+            ])->assertRedirect();
+
+        // The key assertion: the agent's stale browser-tab URL still
+        // resolves to a 200. Without the walk-fix this hit 404 because
+        // Commit 5 soft-deleted the draft on save.
+        $refresh = $this
+            ->actingAs($user)
+            ->get('/docuperfect/templates/cds/builder/' . $draft->id);
+        $refresh->assertStatus(200, 'Saved-draft URL must still resolve after save — browser tab refresh should not 404');
+    }
+
     private function seedAgentWithTemplatePermissions(): User
     {
         // Seed an owner-flagged role so PermissionService::userHasPermission
