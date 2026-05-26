@@ -447,6 +447,15 @@ final class InsertableBlockRenderer
      * record in template metadata. Best-effort fallback so a literal marker
      * never reaches the recipient. Catches OTHER_CONDITIONS, INCLUDED_ITEMS,
      * EXCLUDED_ITEMS, and CUSTOM:<label> forms.
+     *
+     * E-sign reset Q3 — tolerance: the regex now allows ANY non-tilde
+     * content between tildes (up to 200 chars to avoid runaway matching
+     * across unrelated `~~~~` runs). The captured text is passed through
+     * `normalisePurposeToken()` which strips HTML, normalises case +
+     * whitespace, and fuzzy-matches against the known purpose tokens so
+     * malformed markers like `~~~~<span>Other Contitions</span>~~~~`
+     * (embedded HTML + misspelling — both observed in live template 111)
+     * resolve to OTHER_CONDITIONS rather than rendering literally.
      */
     private function renderUnboundMarkers(
         string $html,
@@ -456,9 +465,15 @@ final class InsertableBlockRenderer
         ?string $currentPartyKey = null
     ): string {
         return preg_replace_callback(
-            '/~{4,}([A-Z_]+(?::[^~]+)?)~{4,}/',
+            '/~{4,}([^~]{1,200}?)~{4,}/s',
             function ($m) use ($doc, $context, $signingToken, $currentPartyKey) {
-                $token = $m[1];
+                $token = $this->normalisePurposeToken($m[1]);
+                if ($token === null) {
+                    // Unrecognisable marker text — leave the tildes in
+                    // place rather than emitting an empty insertable
+                    // block that confuses recipients.
+                    return $m[0];
+                }
                 $synthBlock = $this->synthBlockFromToken($token);
                 $conds = DocumentCondition::query()
                     ->where('signature_template_id', $doc->id)
@@ -472,6 +487,77 @@ final class InsertableBlockRenderer
             },
             $html
         );
+    }
+
+    /**
+     * Canonical purpose tokens that drive synthBlockFromToken() + the
+     * default-label map. Kept central so the tolerance logic + the
+     * synth map can't drift.
+     */
+    private const CANONICAL_PURPOSE_TOKENS = [
+        'OTHER_CONDITIONS',
+        'INCLUDED_ITEMS',
+        'EXCLUDED_ITEMS',
+    ];
+
+    /**
+     * Normalise a raw marker capture into a canonical purpose token.
+     *
+     * Pipeline:
+     *   1. Strip HTML tags + decode entities.
+     *   2. Trim, uppercase, collapse whitespace → underscore.
+     *   3. If the result starts with CUSTOM:, keep the label verbatim.
+     *   4. Exact match against CANONICAL_PURPOSE_TOKENS → use it.
+     *   5. Fuzzy match (Levenshtein ≤ 2 from a canonical) → assume that
+     *      token (covers misspellings like "OTHER_CONTITIONS").
+     *   6. If still no match, return the normalised token so the
+     *      synth-block fallback can render it as `custom_named` — the
+     *      recipient sees a labelled block (better than literal tildes).
+     *   7. Return null only when the input is empty after stripping —
+     *      that's the signal to keep the tildes untouched.
+     */
+    private function normalisePurposeToken(string $raw): ?string
+    {
+        $stripped = html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $cleaned  = trim($stripped);
+        if ($cleaned === '') {
+            return null;
+        }
+
+        // CUSTOM:<label> preserves the original label after the colon —
+        // strip HTML there too but keep mixed-case label.
+        if (preg_match('/^\s*custom\s*:\s*(.+)$/i', $cleaned, $cm)) {
+            $label = trim($cm[1]);
+            return $label === '' ? 'CUSTOM:Unnamed' : 'CUSTOM:' . $label;
+        }
+
+        $candidate = strtoupper(preg_replace('/\s+/', '_', $cleaned));
+        $candidate = preg_replace('/[^A-Z0-9_:]/', '', $candidate) ?? '';
+        if ($candidate === '') {
+            return null;
+        }
+
+        if (in_array($candidate, self::CANONICAL_PURPOSE_TOKENS, true)) {
+            return $candidate;
+        }
+
+        // Fuzzy match — catch common misspellings (typo'd one char,
+        // dropped underscore, etc.) without inviting unrelated tokens
+        // to collapse onto canonical ones.
+        $best = null;
+        $bestDistance = PHP_INT_MAX;
+        foreach (self::CANONICAL_PURPOSE_TOKENS as $canonical) {
+            $d = levenshtein($candidate, $canonical);
+            if ($d < $bestDistance) {
+                $bestDistance = $d;
+                $best = $canonical;
+            }
+        }
+        if ($best !== null && $bestDistance <= 2) {
+            return $best;
+        }
+
+        return $candidate;
     }
 
     /**

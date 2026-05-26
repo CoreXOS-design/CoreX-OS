@@ -927,6 +927,12 @@ function cdsEditor() {
         saveStatus: '',
         draftId: @json($draftId),
         csrfToken: '{{ csrf_token() }}',
+        // E-sign reset Q3 Layer A — populated by _validateMarkerTokens()
+        // pre-save. Each entry: { raw: string, suggestion: string }.
+        // Surfaced inline in the builder (see the marker-warnings UI
+        // partial) so the author can fix malformed `~~~~…~~~~` tokens
+        // before they reach a recipient.
+        markerWarnings: [],
 
         // CDS-specific data
         cdsJson: @json($cds),
@@ -1129,8 +1135,76 @@ function cdsEditor() {
             formEl.submit();
         },
 
+        // E-sign reset Q3 Layer A — surface a warning when the agent
+        // has typed something inside `~~~~…~~~~` that won't resolve
+        // to a canonical marker at render time. Doesn't block save
+        // (the agent might be using a CUSTOM: token that's legitimate)
+        // but flags malformed cases like `~~~~Other Contitions~~~~`
+        // or `~~~~<span>OTHER CONDITIONS</span>~~~~` so they get fixed
+        // at authoring time rather than at recipient-render time.
+        _validateMarkerTokens(taggedHtml) {
+            const canonical = ['OTHER_CONDITIONS', 'INCLUDED_ITEMS', 'EXCLUDED_ITEMS'];
+            const warnings = [];
+            const re = /~{4,}([^~]{1,200}?)~{4,}/gs;
+            let match;
+            while ((match = re.exec(taggedHtml)) !== null) {
+                const raw = match[1];
+                // Strip HTML and normalise like InsertableBlockRenderer's
+                // normalisePurposeToken() does on the server.
+                const tmp = document.createElement('div');
+                tmp.innerHTML = raw;
+                const stripped = (tmp.textContent || tmp.innerText || '').trim();
+                if (stripped === '') continue;
+                if (/^custom\s*:/i.test(stripped)) continue; // CUSTOM:<label> OK
+                const normalised = stripped
+                    .toUpperCase()
+                    .replace(/\s+/g, '_')
+                    .replace(/[^A-Z0-9_:]/g, '');
+                if (canonical.includes(normalised)) continue;
+                // Levenshtein for fuzzy-close tokens — surface a hint.
+                const close = canonical.find(c => this._levenshtein(normalised, c) <= 2);
+                warnings.push({
+                    raw: match[0],
+                    suggestion: close
+                        ? `Did you mean \`~~~~${close}~~~~\`?`
+                        : 'Marker text does not match a known purpose (OTHER_CONDITIONS, INCLUDED_ITEMS, EXCLUDED_ITEMS) — will render as a generic custom block.',
+                });
+            }
+            return warnings;
+        },
+
+        _levenshtein(a, b) {
+            if (a === b) return 0;
+            const m = a.length, n = b.length;
+            if (m === 0) return n;
+            if (n === 0) return m;
+            const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
+            for (let i = 0; i <= m; i++) dp[i][0] = i;
+            for (let j = 0; j <= n; j++) dp[0][j] = j;
+            for (let i = 1; i <= m; i++) {
+                for (let j = 1; j <= n; j++) {
+                    const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                    dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+                }
+            }
+            return dp[m][n];
+        },
+
         async _doSaveDraft(showToast) {
             this.draftSaving = true;
+            // Q3 Layer A — pre-save marker-token sanity check. Save still
+            // proceeds even if warnings fire — we don't want to block
+            // the agent's workflow — but the warnings surface in the
+            // builder so the author can clean them up before the
+            // template ever reaches a recipient's screen.
+            const taggedHtml = document.getElementById('docContainer')?.innerHTML ?? '';
+            const markerWarnings = this._validateMarkerTokens(taggedHtml);
+            if (markerWarnings.length > 0) {
+                this.markerWarnings = markerWarnings;
+                console.warn('[CDS builder] Malformed marker tokens detected:', markerWarnings);
+            } else {
+                this.markerWarnings = [];
+            }
             try {
                 const response = await fetch(this.draftSaveUrl, {
                     method: 'POST',

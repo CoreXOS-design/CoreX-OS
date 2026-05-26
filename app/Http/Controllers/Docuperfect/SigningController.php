@@ -251,6 +251,17 @@ class SigningController extends Controller
             // Fallback: web template without flattening — use iframe (legacy path)
             $isWebTemplate = true;
 
+            // E-sign reset Q3 Layer B — re-render merged_html when the
+            // template has been edited since the snapshot was captured.
+            // Closes the "served a stale snapshot" path identified in
+            // the audit (template 111 / document 399).
+            $rerendered = app(\App\Services\Docuperfect\MergedHtmlFreshnessGuard::class)
+                ->ensureFresh($document, $template);
+            if ($rerendered) {
+                $document->refresh();
+                $webTemplateData = $document->web_template_data ?? [];
+            }
+
             if (!empty($webTemplateData['merged_html'])) {
                 $webTemplateHtml = $webTemplateData['merged_html'];
             } else {
