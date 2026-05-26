@@ -88,6 +88,11 @@ class AmendmentController extends Controller
             $amendment
         );
 
+        // E-sign walk-fix FIX 4 — email the recipient that the agent
+        // has acted. Resolution code drives the email's subject + body
+        // tone (accepted / rejected / declined).
+        $this->notifyRecipientOfResolution($amendment, $user, 'approved', $amendment->new_text);
+
         return redirect()->back()->with('status', 'Amendment approved. Initialing cascade started.');
     }
 
@@ -107,6 +112,8 @@ class AmendmentController extends Controller
             $amendment,
             $validated['reason'] ?? null
         );
+
+        $this->notifyRecipientOfResolution($amendment, $user, 'rejected_change', null, $validated['reason'] ?? null);
 
         return redirect()->back()->with('status', 'Change rejected. Document returned to signing without this change.');
     }
@@ -128,6 +135,55 @@ class AmendmentController extends Controller
             $validated['reason'] ?? null
         );
 
+        $this->notifyRecipientOfResolution($amendment, $user, 'rejected_document', null, $validated['reason'] ?? null);
+
         return redirect()->back()->with('status', 'Document rejected. All parties notified. Terminal state.');
+    }
+
+    /**
+     * E-sign walk-fix FIX 4 — send the recipient an email when the
+     * agent resolves an amendment they raised. Drives the unlock for
+     * the flag-blocks-signing surface: when the recipient returns to
+     * the signing link, the lock evaluates the latest amendment
+     * status and (when no flags remain pending) restores the sign /
+     * initial buttons.
+     *
+     * Mail failures are logged but never block the resolution flow —
+     * the amendment record + audit log remain authoritative.
+     */
+    private function notifyRecipientOfResolution(
+        DocumentAmendment $amendment,
+        \App\Models\User $agent,
+        string $resolution,
+        ?string $finalText = null,
+        ?string $agentNote = null,
+    ): void {
+        $amendment->loadMissing(['template.document', 'amendedByRequest']);
+        $recipient = $amendment->amendedByRequest;
+        if ($recipient === null || empty($recipient->signer_email)) {
+            return;
+        }
+        $documentName = $amendment->template?->document?->name ?? 'Document';
+        $signingUrl   = route('signatures.external', $recipient->token);
+        try {
+            \Illuminate\Support\Facades\Mail::to($recipient->signer_email)
+                ->send((new \App\Mail\Signatures\AmendmentResolvedByAgent(
+                    recipientName: $recipient->signer_name ?? 'Signing party',
+                    documentName:  $documentName,
+                    agentName:     $agent->name ?? 'the agent',
+                    clauseRef:     (string) ($amendment->flag_clause_ref ?? $amendment->section_reference ?? '—'),
+                    resolution:    $resolution,
+                    agentNote:     $agentNote,
+                    finalText:     $finalText,
+                    signingUrl:    $signingUrl,
+                ))->fromAgent($agent));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send AmendmentResolvedByAgent email', [
+                'amendment_id' => $amendment->id,
+                'recipient_email' => $recipient->signer_email,
+                'resolution'   => $resolution,
+                'error'        => $e->getMessage(),
+            ]);
+        }
     }
 }

@@ -3371,6 +3371,36 @@ CSS;
             return $amendment;
         });
 
+        // E-sign walk-fix FIX 4 — legal trail. Send the recipient an
+        // email confirming their proposed amendments are under agent
+        // review. Critical line for legal compliance: "this document
+        // is NOT legally binding until the agent has resolved your
+        // amendments and you have completed signing." Failures here
+        // never block the flag persistence — the amendment is already
+        // safe in the database; the email is the recipient-facing
+        // confirmation only.
+        try {
+            $agent = $template->creator;
+            $documentName = $template->document->name ?? 'Document';
+            $signingUrl = route('signatures.external', $signingRequest->token);
+            \Illuminate\Support\Facades\Mail::to($signingRequest->signer_email)
+                ->send((new \App\Mail\Signatures\AmendmentSubmittedToAgent(
+                    recipientName:   $signingRequest->signer_name ?? 'Signing party',
+                    documentName:    $documentName,
+                    agentName:       $agent?->name ?? 'the agent',
+                    clauseRef:       $validated['clause_ref'],
+                    suggestedChange: $validated['suggested_change'],
+                    reason:          $validated['reason'] ?? null,
+                    signingUrl:      $signingUrl,
+                ))->fromAgent($agent));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to send AmendmentSubmittedToAgent email', [
+                'amendment_id' => $result->id,
+                'recipient_email' => $signingRequest->signer_email,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return response()->json([
             'ok'           => true,
             'amendment_id' => $result->id,

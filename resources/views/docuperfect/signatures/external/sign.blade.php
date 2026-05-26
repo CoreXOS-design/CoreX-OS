@@ -772,8 +772,39 @@
                 </template>
             </div>
 
-            {{-- Web Template Consent + Submit (only for live HTML signing) --}}
-            <template x-if="isWebTemplate">
+            {{-- Walk-fix FIX 4 — flag-blocks-signing.
+                 When the recipient has flagged any clause, the consent +
+                 submit surface is HIDDEN and a single "Amendments under
+                 review" CTA replaces it. No signature possible while the
+                 agent has not yet resolved the recipient's proposed
+                 amendments — informed-consent legal requirement.
+                 Surface unlocks automatically once the server marks the
+                 flags as resolved (status moves out of 'pending_review'). --}}
+            <template x-if="isWebTemplate && hasPendingRecipientFlags">
+                <div class="bg-amber-50 rounded-2xl shadow-sm border border-amber-300 p-5 space-y-3"
+                     data-flag-blocks-signing="active">
+                    <div class="flex items-start gap-3">
+                        <svg class="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M12 3v18M5 9l7-6 7 6"/>
+                        </svg>
+                        <div class="flex-1">
+                            <h3 class="text-base font-semibold text-amber-900 mb-1">
+                                Your proposed amendments are under review
+                            </h3>
+                            <p class="text-sm text-amber-800 leading-relaxed">
+                                You've flagged <span x-text="webClauseFlaggedItems.length"></span>
+                                clause<span x-show="webClauseFlaggedItems.length !== 1">s</span> for the agent to review. Signing is paused until the agent has resolved your proposed amendments. You'll receive an email when the agent acts — return to this link then to complete signing.
+                            </p>
+                            <p class="text-xs text-amber-700 mt-3">
+                                This document is not legally binding until the agent has resolved your amendments and you have completed signing.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            {{-- Web Template Consent + Submit (only for live HTML signing). Hidden by flag-blocks-signing above. --}}
+            <template x-if="isWebTemplate && !hasPendingRecipientFlags">
                 <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
                     <label id="consent-checkbox-label" class="flex items-start gap-3 cursor-pointer">
                         <input type="checkbox" x-model="webConsented"
@@ -2675,7 +2706,34 @@ function externalSign() {
         },
 
         get canSubmitWeb() {
+            // Walk-fix FIX 4 — when the recipient has flagged any
+            // clause, signing is locked until the agent has resolved
+            // the amendment. The recipient sees the locked surface
+            // (sign + initial actions hidden, "amendments under
+            // review" status banner). canSubmitWeb returning false
+            // also disables the submit button as a defence-in-depth
+            // gate alongside the template-level x-if guard below.
+            if (this.hasPendingRecipientFlags) return false;
             return this.webConsented && this.webIncompleteCount === 0;
+        },
+
+        /**
+         * Walk-fix FIX 4 — true when this recipient has at least one
+         * clause flag in `pending_review` status. Drives the lockout
+         * UI: hides sign / initial actions, swaps in the "amendments
+         * under review" CTA, and disables canSubmitWeb.
+         *
+         * Reads from webClauseFlaggedItems — pre-seeded from the
+         * server's persistedClauseFlags map for THIS recipient's
+         * party_role at page render, then live-updated when the
+         * recipient adds/removes flags during the session. The lock
+         * survives refreshes because the server re-seeds the same
+         * data on every page render.
+         */
+        get hasPendingRecipientFlags() {
+            const items = this.webClauseFlaggedItems || [];
+            if (!Array.isArray(items) || items.length === 0) return false;
+            return items.some(f => (f.status || 'pending_review') === 'pending_review');
         },
 
         // Legacy — replaced by _makeWebElementsInteractive()

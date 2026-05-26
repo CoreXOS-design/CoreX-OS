@@ -157,6 +157,43 @@ final class RealTemplate111EndToEndTest extends TestCase
     }
 
     /**
+     * Walk-fix FIX 4 — flag-blocks-signing. When the recipient has a
+     * pending clause flag, the signing surface must HIDE the consent +
+     * submit UI and show the "amendments under review" CTA instead.
+     * No signature possible while the agent hasn't resolved the
+     * amendment (informed-consent legal requirement).
+     */
+    public function test_flag_blocks_signing_renders_locked_cta_when_recipient_has_pending_flag(): void
+    {
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 2);
+        $seller1 = $this->recipient($session['recipients'], 'seller', 1);
+
+        // Seed a pending clause-flag for this recipient via the
+        // document's web_template_data, mirroring what flagClause()
+        // writes through (line 3351 of SigningController).
+        $document = $session['document'];
+        $webData = $document->web_template_data ?? [];
+        $webData['clause_flags'] = [
+            'seller' => [[
+                'clauseNum'    => '3.7',
+                'concern'      => 'I want a longer notice period',
+                'reason'       => null,
+                'amendment_id' => 9001,
+                'flagged_at'   => now()->toIso8601String(),
+                'status'       => 'pending_review',
+            ]],
+        ];
+        $document->update(['web_template_data' => $webData]);
+
+        $response = $this->asRecipient($seller1);
+        $response->assertOk();
+        $body = (string) $response->getContent();
+        // The locked-surface banner renders with the flag-blocks-signing
+        // marker attribute so the test pins the visible UI swap.
+        $this->assertStringContainsString('data-flag-blocks-signing="active"', $body);
+    }
+
+    /**
      * EXPECTED FAILURE until Commit 5. The canonical field-mappings
      * accessor doesn't exist yet — Commit 5 introduces it as the single
      * read site for field_mappings across the codebase, and the
