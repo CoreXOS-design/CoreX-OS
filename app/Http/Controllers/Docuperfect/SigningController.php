@@ -311,6 +311,18 @@ class SigningController extends Controller
                     $token,
                     $signingRequest->party_role
                 );
+
+            // Recipient Loop Engine — B2 stamping pass. Walk every
+            // data-field element and inject data-recipient-identity +
+            // data-role-token attributes so B3 can scope editable surfaces
+            // per recipient without parsing field names client-side.
+            $allRecipientsForTemplate = SignatureRequest::where('signature_template_id', $template->id)->get();
+            $webTemplateHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                ->stampIdentities(
+                    $webTemplateHtml,
+                    $allRecipientsForTemplate,
+                    $template->id,
+                );
         }
 
         // Build page image URLs — use flattened images when available (PDF path)
