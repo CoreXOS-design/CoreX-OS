@@ -80,15 +80,18 @@ final class CdsBuilderRedirectTest extends TestCase
         $resp->assertRedirect();
 
         // Follow the redirect chain. Every hop must be 200 or another 302
-        // — never 404.
+        // — never 404. Track the final URL ourselves since TestResponse
+        // doesn't expose the request it answered.
         $hops = 0;
         $current = $resp;
+        $finalPath = parse_url($resp->headers->get('Location') ?? '', PHP_URL_PATH) ?? '';
         while ($current->isRedirect() && $hops < 5) {
             $hops++;
             $target = $current->headers->get('Location');
             $this->assertNotEmpty($target, 'Redirect target must not be empty');
             // The target is a full URL — extract the path portion.
             $path = parse_url($target, PHP_URL_PATH) ?? $target;
+            $finalPath = $path;
             $current = $this->actingAs($user)->get($path);
             $this->assertNotSame(404, $current->getStatusCode(),
                 'Redirect chain hop ' . $hops . ' (' . $path . ') must not 404');
@@ -96,18 +99,32 @@ final class CdsBuilderRedirectTest extends TestCase
 
         // Final destination — must be 200 AND must be the CDS builder.
         $current->assertOk();
-        $final = $current->getRequest()->getRequestUri();
-        $this->assertStringContainsString('/templates/cds/builder/', $final,
-            'Post-save redirect must land on the CDS builder, not the template list — got ' . $final);
+        $this->assertStringContainsString('/templates/cds/builder/', $finalPath,
+            'Post-save redirect must land on the CDS builder, not the template list — got ' . $finalPath);
     }
 
     private function seedAgentWithTemplatePermissions(): User
     {
+        // Seed an owner-flagged role so PermissionService::userHasPermission
+        // shortcuts to true (the agent role in production has
+        // manage_templates by seed, but tests run RefreshDatabase against
+        // an empty permissions table — using an owner role is the
+        // smallest change that gives the test the right authorisation
+        // without hand-seeding the full RBAC matrix).
+        DB::table('roles')->insertOrIgnore([
+            'name' => 'test_template_owner',
+            'label' => 'Test Template Owner',
+            'is_owner' => true,
+            'can_be_deleted' => false,
+            'sort_order' => 999,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $userId = (int) DB::table('users')->insertGetId([
             'name' => 'Agent Tester',
             'email' => 't-' . Str::random(8) . '@x.test',
             'password' => bcrypt('p'),
-            'role' => 'agent',
+            'role' => 'test_template_owner',
             'is_admin' => 1,
             'agency_id' => 1,
             'created_at' => now(),
