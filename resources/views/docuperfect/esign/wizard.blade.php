@@ -713,9 +713,12 @@
                             <div class="flex items-center justify-between mb-1">
                                 <label class="block text-xs font-medium" style="color: var(--text-secondary);">
                                     <span x-text="fieldLabel(f)"></span>
-                                    <span class="ds-badge ml-1"
-                                          :class="isCreatorField(f) ? 'ds-badge-info' : 'ds-badge-warning'"
-                                          x-text="fieldRoleLabel(f)"></span>
+                                    {{-- Fix A — render one chip per role in editable_by (preserves array; pre-fix only first element rendered). --}}
+                                    <template x-for="(roleToken, ci) in fieldRoleTokens(f)" :key="f.id + '_' + ci + '_' + roleToken">
+                                        <span class="ds-badge ml-1"
+                                              :class="isCreatorRole(roleToken) ? 'ds-badge-info' : 'ds-badge-warning'"
+                                              x-text="getRoleLabel(roleToken)"></span>
+                                    </template>
                                 </label>
                                 <select @change="setFieldParty(f.id, $event.target.value)"
                                         class="text-xs rounded-md px-1.5 py-0.5 ml-2"
@@ -2150,9 +2153,25 @@ function esignWizard() {
             return ['creator', 'user', 'agent'].includes(role);
         },
 
+        isCreatorRole(role) {
+            return ['creator', 'user', 'agent'].includes(role);
+        },
+
         fieldRoleLabel(f) {
             const role = this.fieldPartyOverrides[f.id] || f.assignedTo || f.assigned_to || 'creator';
             return getRoleLabel(role);
+        },
+
+        // Fix A — returns ALL role tokens that may edit this field. When
+        // an override exists (agent narrowed the assignment via the SELECT),
+        // returns only the overridden role. Otherwise iterates the full
+        // editable_by array preserved by ESignWizardController.
+        fieldRoleTokens(f) {
+            const override = this.fieldPartyOverrides[f.id];
+            if (override) return [override];
+            if (Array.isArray(f.editableBy) && f.editableBy.length > 0) return f.editableBy;
+            const legacy = f.assignedTo || f.assigned_to || 'creator';
+            return [legacy];
         },
 
         highlightField(fieldId) {

@@ -3503,10 +3503,22 @@ class ESignWizardController extends Controller
             if (($m['mappingType'] ?? '') === 'manual') {
                 $source = 'manual';
             }
-            $editableBy = $m['filled_by'] ?? $m['editable_by'] ?? 'agent';
-            if (is_array($editableBy)) {
-                $editableBy = $editableBy[0] ?? 'agent';
+            // Fix A — preserve full editable_by array.
+            // Pre-fix this method collapsed the array to its first element so
+            // Step 5 only ever rendered ONE chip per field. The full array is
+            // now preserved as $editableByArray and emitted on the entry as
+            // `editableBy` (the new field the Step 5 chip render iterates).
+            // `assignedTo` keeps the legacy single-value contract (first
+            // element) so the existing 8+ JS call sites in wizard.blade.php
+            // and the field-party SELECT continue to work unchanged.
+            $rawEditableBy = $m['filled_by'] ?? $m['editable_by'] ?? 'agent';
+            $editableByArray = is_array($rawEditableBy)
+                ? array_values(array_filter($rawEditableBy, fn ($v) => is_string($v) && $v !== ''))
+                : (is_string($rawEditableBy) && $rawEditableBy !== '' ? [$rawEditableBy] : []);
+            if (empty($editableByArray)) {
+                $editableByArray = ['agent'];
             }
+            $editableBy = $editableByArray[0];
 
             // Label: derive from named field if this is a group member with no override
             $label = $m['label'] ?? $m['manualLabel'] ?? '';
@@ -3528,7 +3540,8 @@ class ESignWizardController extends Controller
                 'named_field_id'  => $namedFieldId,
                 'type'            => $m['type'] ?? 'placeholder',
                 'tag_type'        => $m['type'] ?? 'input',
-                'assignedTo'      => $editableBy,
+                'assignedTo'      => $editableBy,        // legacy single-value (first of editableBy)
+                'editableBy'      => $editableByArray,   // Fix A — full editable_by array for multi-chip render
                 'source'          => $source,
                 'mapping_type'    => $m['mappingType'] ?? $m['mapping_type'] ?? '',
             ];
