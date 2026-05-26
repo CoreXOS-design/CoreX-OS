@@ -634,7 +634,19 @@ class TemplateController extends Controller
                 ->update(['deleted_at' => now()]);
         }
 
-        return redirect()->route('docuperfect.templates.index')
+        // E-sign walk-fix FIX 3 — post-save redirect lands on the builder
+        // page (via templates.edit), not templates.index. The walk-test
+        // expectation is "save → keep editing"; templates.index dropped
+        // the user out of the builder onto the template list, which the
+        // prompt framed as a 404 (the user lost their builder context).
+        //
+        // templates.edit creates a fresh CdsDraft for this template
+        // (Commit 5 just soft-deleted the applied draft) and routes back
+        // to docuperfect.cds.builder with the new draft id. The
+        // experience is "save → fresh builder draft of the same
+        // template" without exposing the user to the 404 they'd hit on
+        // a stale-draft URL.
+        return redirect()->route('docuperfect.templates.edit', $template->id)
             ->with('success', 'Template saved: ' . $template->name);
     }
 
