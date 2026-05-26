@@ -47,3 +47,4 @@ storage/buyer*.html
 storage/panel_*.html
 storage/p17_*.html
 storage/idx*.html
+.claude/scheduled_tasks.lock
