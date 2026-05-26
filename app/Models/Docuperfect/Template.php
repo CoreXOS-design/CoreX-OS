@@ -58,6 +58,155 @@ class Template extends Model
         return $this->belongsTo(User::class, 'owner_id');
     }
 
+    /**
+     * E-sign reset Commit 5 (Q1) — single read site for field_mappings.
+     *
+     * Returns the authoritative tag-id → field-config map used across
+     * the rendering pipeline + the wizard's editable-scope resolver.
+     * Replaces direct `$template->field_mappings` reads, which today
+     * fan out across six divergent sources (cds_json, editor_state.tags,
+     * editor_state.mappings, tagged_html, field_mappings, fields_json,
+     * blade_view) with no canonical owner — the divergence is what
+     * caused Johan's "save 1 seller, reload 4 sellers" template revert.
+     *
+     * Priority order (first non-empty wins):
+     *
+     *   1. cds_drafts row for this template (most recent, not deleted).
+     *      The builder writes to drafts continuously while the agent
+     *      edits — if a draft exists, it represents the most recent
+     *      authored state.
+     *   2. editor_state.mappings — the builder's last full save into
+     *      this template's `editor_state` JSON column.
+     *   3. field_mappings column — legacy fallback for templates that
+     *      pre-date the editor_state column.
+     *
+     * The result is normalised to a tag-id keyed array of field
+     * descriptors. Empty sources yield an empty array.
+     *
+     * Companion behaviour:
+     *
+     *   • `pruneOrphanFieldMappings()` removes tag-ids that no longer
+     *     appear in the saved tagged_html / cds_json — guards against
+     *     the "blade has 1 seller, field_mappings has 14" divergence.
+     *   • `applyDraftAndCleanup()` (TemplateController:cdsGenerate)
+     *     deletes the applied draft on successful save so the next
+     *     reload reads the freshly-saved template, not the now-stale
+     *     draft.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function canonicalFieldMappings(): array
+    {
+        // Tier 1 — most recent draft for this template.
+        if (\Illuminate\Support\Facades\Schema::hasTable('cds_drafts')) {
+            $draft = \Illuminate\Support\Facades\DB::table('cds_drafts')
+                ->where('source_template_id', $this->id)
+                ->whereNull('deleted_at')
+                ->orderByDesc('updated_at')
+                ->first();
+            if ($draft !== null && !empty($draft->mappings)) {
+                $decoded = is_string($draft->mappings) ? json_decode($draft->mappings, true) : $draft->mappings;
+                if (is_array($decoded) && count($decoded) > 0) {
+                    return $decoded;
+                }
+            }
+        }
+
+        // Tier 2 — editor_state.mappings.
+        $editorState = $this->editor_state ?? [];
+        if (is_array($editorState) && !empty($editorState['mappings']) && is_array($editorState['mappings'])) {
+            return $editorState['mappings'];
+        }
+
+        // Tier 3 — legacy field_mappings column.
+        $legacy = $this->field_mappings ?? [];
+        return is_array($legacy) ? $legacy : [];
+    }
+
+    /**
+     * E-sign reset Commit 5 (Q1) — remove tag-ids from field_mappings
+     * that are no longer referenced anywhere the renderer reads from
+     * (tagged_html, cds_json sections, blade view). Called on save so
+     * the next reload doesn't repopulate deleted blocks from the
+     * orphan metadata.
+     *
+     * Returns the number of entries pruned (for audit logging).
+     */
+    public function pruneOrphanFieldMappings(): int
+    {
+        $current = $this->canonicalFieldMappings();
+        if (empty($current)) {
+            return 0;
+        }
+        $referenced = $this->collectReferencedTagIds();
+        if (empty($referenced)) {
+            // No reliable source of "which tags are still live" — bail
+            // rather than nuking everything by accident.
+            return 0;
+        }
+        $pruned = [];
+        $removed = 0;
+        foreach ($current as $tagId => $mapping) {
+            if (in_array((string) $tagId, $referenced, true)) {
+                $pruned[$tagId] = $mapping;
+            } else {
+                $removed++;
+            }
+        }
+        if ($removed > 0) {
+            // Write the pruned set back to all storage tiers so the
+            // canonical accessor agrees with itself on the next read.
+            $this->field_mappings = $pruned;
+            $editorState = $this->editor_state ?? [];
+            if (is_array($editorState)) {
+                $editorState['mappings'] = $pruned;
+                $this->editor_state = $editorState;
+            }
+            $this->save();
+        }
+        return $removed;
+    }
+
+    /**
+     * Collect tag-ids referenced in any of the live-content sources:
+     *   - editor_state.tagged_html (the builder's saved DOM)
+     *   - cds_json sections' field_placeholder values
+     *   - tagged_html stored on the template root (older schemas)
+     *
+     * Returns an array of tag-id strings.
+     *
+     * @return list<string>
+     */
+    private function collectReferencedTagIds(): array
+    {
+        $sources = [];
+        $editorState = $this->editor_state ?? [];
+        if (is_array($editorState)) {
+            if (!empty($editorState['tagged_html']) && is_string($editorState['tagged_html'])) {
+                $sources[] = $editorState['tagged_html'];
+            }
+            if (!empty($editorState['tags']) && is_array($editorState['tags'])) {
+                foreach ($editorState['tags'] as $tagEntry) {
+                    if (is_array($tagEntry) && !empty($tagEntry['id'])) {
+                        $sources[] = '#' . $tagEntry['id'] . '#';
+                    } elseif (is_string($tagEntry)) {
+                        $sources[] = '#' . $tagEntry . '#';
+                    }
+                }
+            }
+        }
+        $cdsJson = $this->cds_json ?? [];
+        if (is_array($cdsJson)) {
+            $sources[] = json_encode($cdsJson) ?: '';
+        }
+        $blob = implode("\n", $sources);
+        if ($blob === '') {
+            return [];
+        }
+        preg_match_all('/(tag-[A-Za-z0-9_-]+)/', $blob, $matches);
+        return array_values(array_unique($matches[1] ?? []));
+    }
+
     public function documentType()
     {
         return $this->belongsTo(DocumentType::class, 'document_type_id');

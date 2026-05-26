@@ -600,8 +600,39 @@ class TemplateController extends Controller
         // Clear compiled view cache so the e-sign wizard renders the fresh blade file
         Artisan::call('view:clear');
 
-        // Mark draft as saved
+        // E-sign reset Commit 5 (Q1) — drop tag-ids that no longer
+        // appear in the saved tagged_html / cds_json. Without this
+        // step a delete of "Seller 2" block in the visual builder
+        // leaves the 5 corresponding field_mappings entries behind,
+        // and the next builder load reads them and re-renders the
+        // deleted block — the bug Johan saw as "save 1 seller, reload
+        // 4 sellers".
+        $prunedCount = $template->fresh()->pruneOrphanFieldMappings();
+        if ($prunedCount > 0) {
+            \Illuminate\Support\Facades\Log::info('cdsGenerate: pruned orphan field_mappings', [
+                'template_id' => $template->id,
+                'removed'     => $prunedCount,
+            ]);
+        }
+
+        // E-sign reset Commit 5 (Q1) — draft lifecycle cleanup.
+        // The draft system should hold ONE in-progress draft per
+        // (user, template). The investigation found 5 CdsDraft rows
+        // for template 111 — every save left another saved draft
+        // behind, and the canonical accessor's tier-1 lookup could
+        // serve any of them. Soft-delete the applied draft AND any
+        // older saved/draft rows for the same (user, source_template)
+        // pair so the canonical accessor falls through cleanly to the
+        // freshly-saved editor_state next time.
         $draft->update(['status' => 'saved']);
+        $draft->delete();
+        if ($draft->source_template_id) {
+            CdsDraft::where('user_id', $user->id)
+                ->where('source_template_id', $draft->source_template_id)
+                ->where('id', '!=', $draft->id)
+                ->whereNull('deleted_at')
+                ->update(['deleted_at' => now()]);
+        }
 
         return redirect()->route('docuperfect.templates.index')
             ->with('success', 'Template saved: ' . $template->name);
