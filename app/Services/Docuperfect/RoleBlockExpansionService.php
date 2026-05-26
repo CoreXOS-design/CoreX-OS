@@ -1176,39 +1176,43 @@ final class RoleBlockExpansionService
     /**
      * Inline-list path — for clusters where the fields all live inside
      * a single block-unit (a prose sentence with field placeholders).
-     * The block-unit is NOT cloned. Instead the FIELD SPANS get
-     * duplicated inline, joined by " and " between recipients.
+     * The block-unit is NOT cloned; the FIELD-SPAN RANGE inside it is
+     * REPLACED with ONE composite span per recipient, joined by
+     * " and " between recipients.
      *
-     * Template 111 opening paragraph is the canonical case:
+     * Per Johan's spec: respect what the template author selected for
+     * the opening paragraph. The CDS builder lets the author select a
+     * "full seller details" composite (name + surname + ID); the
+     * blade-generator may emit that as multiple fragmented sub-spans
+     * (seller_first_name + seller_last_name + seller_id_number) with
+     * inconsistent whitespace. This method DOES NOT process the
+     * fragmented sub-spans individually — instead it composes the
+     * recipient's full identity string from the contact record and
+     * replaces the entire field range with that single composite per
+     * recipient.
+     *
+     * Composite format: "{First} {Last} (ID: {id_number})". Falls back
+     * to signer_name when contact data is incomplete; drops the
+     * "(ID: …)" suffix when id_number is empty.
+     *
+     * Template 111 opening paragraph:
      *
      *   <span class="corex-clause-text">
-     *     I/we, the undersigned …
-     *     <span data-field="seller_first_name"></span>
-     *     <span data-field="seller_last_name"></span>
-     *     <span data-field="seller_id_number"></span>
-     *     , hereby grant …
+     *     I / We&nbsp;
+     *     <span data-field="seller_last_name">…</span>
+     *     <span data-field="seller_id_number">…</span>
+     *     , the undersigned …
      *   </span>
      *
      * For 2 sellers the post-fix output renders:
      *
-     *   I/we, the undersigned …
-     *   James Van Der Merwe Van Der Merwe 3112
-     *    and
-     *   Steve Jobs 6789
-     *   , hereby grant …
+     *   I / We James Van Der Merwe (ID: 3112) and Steve Jobs (ID: 6789),
+     *   the undersigned …
      *
-     * Implementation:
-     *   1. Identify the range of sibling nodes from the first field to
-     *      the last field (inclusive). This is the "field block" inside
-     *      the paragraph — duplicated per recipient with " and " between.
-     *   2. The FIRST recipient's range stays in place; the cluster's
-     *      field spans get stamped + pre-filled with that recipient's
-     *      contact values.
-     *   3. For each additional recipient, insert a ' and ' text node
-     *      after the previous range's last node, then a CLONE of the
-     *      range with field spans stamped + pre-filled.
-     *   4. No section header is prepended — the prose sentence already
-     *      carries the appropriate "I/We" / "the undersigned" framing.
+     * The composite is correct even when the blade only has
+     * (last_name + id_number) spans, because the composition uses the
+     * contact's full data — not the sub-spans the blade-generator
+     * happened to emit.
      *
      * @param  list<array{field_name:string,sub_name:?string,node:DOMElement}> $fields
      * @param  Collection<int, SignatureRequest>                                $recipients
@@ -1231,9 +1235,9 @@ final class RoleBlockExpansionService
             return;
         }
 
-        // Collect the inline range from firstField → lastField (inclusive).
-        // We re-clone these nodes per additional recipient and insert
-        // them with a ' and ' separator between groups.
+        // Collect the inline range from firstField → lastField
+        // (inclusive). We REMOVE this range and replace it with
+        // composite-per-recipient spans.
         $rangeNodes = [];
         $cur = $firstField;
         while ($cur !== null) {
@@ -1247,44 +1251,75 @@ final class RoleBlockExpansionService
             return;
         }
 
-        $recipientsList = $recipients->values();
-
-        // Recipient 1 — in-place stamp + pre-fill of the existing fields.
-        $r1 = $recipientsList->first();
-        $contact1 = $this->resolveContact($r1);
-        foreach ($fields as $f) {
-            $this->stampInlineFieldForRecipient(
-                $f['node'], $role, 1, $contact1,
+        // Build the replacement sequence:
+        //   <composite-span-r1> and <composite-span-r2> and …
+        $newNodes = [];
+        $n = 0;
+        foreach ($recipients->values() as $recipient) {
+            $n++;
+            if ($n > 1) {
+                $newNodes[] = $dom->createTextNode(' and ');
+            }
+            $newNodes[] = $this->buildRecipientCompositeSpan(
+                $dom,
+                $role,
+                $n,
+                $recipient,
             );
         }
 
-        // Recipients 2..N — insert ' and ' + cloned range with stamped fields.
-        $insertAfter = $lastField;
-        $count = $recipientsList->count();
-        for ($i = 1; $i < $count; $i++) {
-            $n = $i + 1;
-            $recipient = $recipientsList->get($i);
-            $rContact  = $this->resolveContact($recipient);
-
-            $separator = $dom->createTextNode(' and ');
-            $insertAfter = $this->insertAfterNode($parent, $separator, $insertAfter);
-
-            $xpath = new DOMXPath($dom);
-            foreach ($rangeNodes as $orig) {
-                $clone = $orig->cloneNode(true);
-                if ($clone instanceof DOMElement) {
-                    $fieldNodes = $xpath->query('descendant-or-self::*[@data-field]', $clone);
-                    if ($fieldNodes !== false) {
-                        foreach ($fieldNodes as $fn) {
-                            if ($fn instanceof DOMElement) {
-                                $this->stampInlineFieldForRecipient($fn, $role, $n, $rContact);
-                            }
-                        }
-                    }
-                }
-                $insertAfter = $this->insertAfterNode($parent, $clone, $insertAfter);
+        // Insert the replacement sequence BEFORE the first original
+        // node, then remove every original node in the range.
+        foreach ($newNodes as $node) {
+            $parent->insertBefore($node, $firstField);
+        }
+        foreach ($rangeNodes as $orig) {
+            if ($orig->parentNode === $parent) {
+                $parent->removeChild($orig);
             }
         }
+    }
+
+    /**
+     * Build a single composite span for one recipient in an inline-list
+     * cluster. Pulls full contact data so the composite is correct
+     * regardless of which sub-fields the blade-generator emitted.
+     *
+     * The span itself stamps the recipient identity + role-token so
+     * the editable-scope resolver and the visual instance-wrapper
+     * styles still apply.
+     */
+    private function buildRecipientCompositeSpan(
+        DOMDocument $dom,
+        string $role,
+        int $instanceIndex,
+        SignatureRequest $recipient,
+    ): \DOMElement {
+        $contact = $this->resolveContact($recipient);
+
+        $first = trim((string) ($contact->first_name ?? ''));
+        $last  = trim((string) ($contact->last_name ?? ''));
+        $id    = trim((string) ($contact->id_number ?? ''));
+
+        $name = trim($first . ' ' . $last);
+        if ($name === '') {
+            // Contact missing or unnamed — fall back to signer_name
+            // (always populated from the wizard's recipient list).
+            $name = trim((string) ($recipient->signer_name ?? ''));
+        }
+
+        $composite = $name;
+        if ($id !== '') {
+            $composite = $name . ' (ID: ' . $id . ')';
+        }
+
+        $span = $dom->createElement('span');
+        $span->setAttribute('class', 'corex-field-value recipient-inline-composite');
+        $span->setAttribute('data-recipient-identity', $role . '_' . $instanceIndex);
+        $span->setAttribute('data-role-token', $role);
+        $span->setAttribute('data-recipient-composite', '1');
+        $span->appendChild($dom->createTextNode($composite));
+        return $span;
     }
 
     /**
