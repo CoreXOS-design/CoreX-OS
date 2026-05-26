@@ -222,6 +222,37 @@ The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, mis
       if it's acceptable.
 ```
 
+### E-sign integration moat — pipeline gate
+
+`scripts/dev-check.ps1` enforces a hard rule for changes to the recipient
+signing pipeline:
+
+  Pipeline files (any change here MUST be accompanied by a test diff in
+  `tests/Feature/Docuperfect/SigningView/` or its supporting fixtures /
+  trait):
+
+  - `app/Models/Docuperfect/Template.php`
+  - `app/Models/Docuperfect/CdsDraft.php`
+  - `app/Services/Docuperfect/SurfaceNormalizer.php`
+  - `app/Services/Docuperfect/SignatureSurfaceNormalizer.php`
+  - `app/Services/Docuperfect/LetterheadRefresher.php`
+  - `app/Services/Docuperfect/InsertableBlockRenderer.php`
+  - `app/Services/Docuperfect/RoleBlockDetectionService.php`
+  - `app/Services/Docuperfect/RoleBlockExpansionService.php`
+  - `app/Services/Docuperfect/MergedHtmlFreshnessGuard.php`
+  - `app/Http/Controllers/Docuperfect/SigningController.php`
+
+The gate exists because the audit at
+`.ai/audits/esign-reset-investigation-2026-05-27.md` found that these
+files had zero integration tests before the reset — 49 RecipientLoop
+unit tests were green while five live bugs shipped to the browser.
+Locking the discipline structurally is the answer.
+
+Bypass: `scripts/dev-check.ps1 -SkipPipelineGate` — use ONLY when the
+test diff landed in a previous commit and the current commit is a
+follow-up cleanup (e.g. a CHAT_STARTER doc update). Never use this
+flag to skirt writing a test when you're touching the runtime.
+
 ## Subagent file-write rule
 
 When a prompt requires the agent to produce a report file (audit, investigation,

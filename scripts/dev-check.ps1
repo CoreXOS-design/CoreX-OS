@@ -1,12 +1,17 @@
 # dev-check.ps1 - Targeted check for changed files only
 # Usage:
-#   scripts/dev-check.ps1          -> lint + cache clear (changed files only)
-#   scripts/dev-check.ps1 -Full    -> lint + cache clear + full test suite
+#   scripts/dev-check.ps1                        -> lint + cache clear + e-sign pipeline gate
+#   scripts/dev-check.ps1 -Full                  -> + full test suite
+#   scripts/dev-check.ps1 -SkipPipelineGate      -> skip the e-sign pipeline gate
+#                                                   (use only when the test diff
+#                                                   landed in a previous commit and
+#                                                   this one is a follow-up cleanup)
 #
 # Run from repo root (PowerShell)
 
 param(
-    [switch]$Full
+    [switch]$Full,
+    [switch]$SkipPipelineGate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,6 +129,83 @@ if ($Full) {
 } else {
     Write-Host ''
     Write-Host '5. Tests -- skipped (use -Full to run all 894 tests)' -ForegroundColor DarkGray
+}
+
+# -- 6. E-sign pipeline gate --
+#
+# The recipient-signing integration moat (Template → CdsDraft → blade →
+# WebTemplateData → SurfaceNormalizer → LetterheadRefresher →
+# InsertableBlockRenderer → RoleBlockExpansionService → SigningController
+# → sign.blade.php) is what the audit
+# .ai/audits/esign-reset-investigation-2026-05-27.md identified as
+# untested before the reset. The gate enforces that any change to one of
+# the pipeline files lands together with a test diff in
+# `tests/Feature/Docuperfect/SigningView/` — so "tests pass" can never
+# again coexist with "feature broken in the browser".
+#
+# Use `-SkipPipelineGate` only when the test diff landed in a previous
+# commit and this one is a follow-up cleanup (e.g. doc-only commit
+# updating CHAT_STARTER). The gate ALWAYS runs in CI even when this
+# flag is set locally — Commit 6's CI workflow rejects the flag.
+$pipelineFiles = @(
+    'app/Models/Docuperfect/Template.php',
+    'app/Models/Docuperfect/CdsDraft.php',
+    'app/Services/Docuperfect/SurfaceNormalizer.php',
+    'app/Services/Docuperfect/SignatureSurfaceNormalizer.php',
+    'app/Services/Docuperfect/LetterheadRefresher.php',
+    'app/Services/Docuperfect/InsertableBlockRenderer.php',
+    'app/Services/Docuperfect/RoleBlockDetectionService.php',
+    'app/Services/Docuperfect/RoleBlockExpansionService.php',
+    'app/Services/Docuperfect/MergedHtmlFreshnessGuard.php',
+    'app/Http/Controllers/Docuperfect/SigningController.php'
+)
+
+if ($SkipPipelineGate) {
+    Write-Host ''
+    Write-Host '6. E-sign pipeline gate -- skipped (-SkipPipelineGate)' -ForegroundColor DarkGray
+} else {
+    Write-Host ''
+    Write-Host '6. E-sign pipeline gate' -ForegroundColor Yellow
+
+    # Normalise file paths for cross-platform matching (git always emits
+    # forward slashes; on Windows the working-copy paths may carry mixed
+    # separators when displayed). Use forward-slash form everywhere.
+    $changedNorm = $allChanged | ForEach-Object { ($_ -replace '\\', '/').ToLower() }
+
+    $pipelineChanged = @()
+    foreach ($pf in $pipelineFiles) {
+        $pfNorm = $pf.ToLower()
+        if ($changedNorm -contains $pfNorm) {
+            $pipelineChanged += $pf
+        }
+    }
+
+    if ($pipelineChanged.Count -gt 0) {
+        $testChanged = $changedNorm | Where-Object {
+            $_ -like 'tests/feature/docuperfect/signingview/*' -or
+            $_ -like 'tests/concerns/buildssigningsession.php' -or
+            $_ -like 'tests/fixtures/templates/*'
+        }
+        if ($testChanged.Count -eq 0) {
+            Write-Host '   FAIL: pipeline files changed without a corresponding test diff' -ForegroundColor Red
+            Write-Host '   in tests/Feature/Docuperfect/SigningView/ (or the supporting' -ForegroundColor Red
+            Write-Host '   tests/Concerns + tests/Fixtures used by the contract suite).' -ForegroundColor Red
+            Write-Host '' -ForegroundColor Red
+            Write-Host '   Pipeline files changed:' -ForegroundColor Red
+            foreach ($f in $pipelineChanged) {
+                Write-Host "     - $f" -ForegroundColor Red
+            }
+            Write-Host '' -ForegroundColor Red
+            Write-Host '   The integration moat must stay under test. Either add a' -ForegroundColor Red
+            Write-Host '   test that exercises the change OR re-run with' -ForegroundColor Red
+            Write-Host '   `-SkipPipelineGate` if the test landed in a previous commit.' -ForegroundColor Red
+            $failed = $true
+        } else {
+            Write-Host "   $($pipelineChanged.Count) pipeline file(s) changed, $($testChanged.Count) test file(s) updated" -ForegroundColor Green
+        }
+    } else {
+        Write-Host '   No pipeline-file changes' -ForegroundColor DarkGray
+    }
 }
 
 # -- Result --
