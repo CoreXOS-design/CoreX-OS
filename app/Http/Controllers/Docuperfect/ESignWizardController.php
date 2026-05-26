@@ -687,6 +687,14 @@ class ESignWizardController extends Controller
         // Auto-fill field group display values from recipients
         $allWizardFields = $this->autoFillFieldGroupDisplays($allWizardFields, $stepData);
 
+        // E-sign walk-fix FIX 1 + FIX 2 — expand role-bound fields per
+        // recipient so a 3-seller session renders N inputs (each
+        // pre-filled from THAT specific recipient's contact), not one
+        // concatenated " and "-joined value. Mirrors B2.5/B3's recipient
+        // loop engine on the recipient signing surface — same loop,
+        // same identity convention, same chip labels.
+        $expandedWizardFields = $this->expandWizardFieldsPerRecipient($allWizardFields, $stepData);
+
         $contactTypes = DB::table('contact_types')
             ->where('is_active', true)
             ->orderBy('sort_order')
@@ -701,6 +709,7 @@ class ESignWizardController extends Controller
             'creatorFields'  => $creatorFields,
             'signerFields'   => $signerFields,
             'allWizardFields' => $allWizardFields,
+            'expandedWizardFields' => $expandedWizardFields,
             'pageImages'     => $pageImages,
             'recipients'     => $recipients,
             'stepData'       => $stepData,
@@ -1348,6 +1357,30 @@ class ESignWizardController extends Controller
                     \App\Services\Docuperfect\InsertableBlockRenderer::CONTEXT_AGENT_PREPARATION,
                     null
                 );
+
+            // E-sign walk-fix FIX 1 — run the same recipient-loop engine
+            // that fires on the recipient signing surface so the wizard
+            // Step 5 preview shows N seller blocks for an N-seller session
+            // instead of ONE block with all sellers concatenated. We
+            // build a transient Collection of SignatureRequest models
+            // (in-memory only, not persisted — the wizard is still pre-
+            // dispatch) from the flow's step_data recipients so the
+            // expansion service has the same shape it sees at signing
+            // time.
+            if ($flow) {
+                $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
+                    $flow,
+                    $stepData['recipients']['recipients'] ?? [],
+                );
+                if ($wizardRecipients->isNotEmpty()) {
+                    $previewHtml = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+                        ->expandWithLooping(
+                            $template,
+                            $previewHtml,
+                            $wizardRecipients,
+                        );
+                }
+            }
 
             return response()->json([
                 'render_type'   => 'web',
@@ -3563,6 +3596,197 @@ class ESignWizardController extends Controller
      *
      * Fully systemic — works for any role (seller, buyer, landlord, tenant, lessor, lessee).
      */
+    /**
+     * E-sign walk-fix FIX 1 + FIX 2 — expand role-bound fields per recipient.
+     *
+     * For each wizard field whose `editableBy` array names a role with
+     * N>1 recipients in this signing session, emit N copies of the field
+     * with unique ids (`{field_id}__r{n}`), instance-index metadata, and
+     * a per-instance value resolved from THAT specific recipient's
+     * contact (not the " and "-joined concatenation produced by the
+     * legacy `autoFillFields` path).
+     *
+     * Each expanded copy carries:
+     *   _instance_index       1-based ordinal within the role
+     *   _total_instances      N (so the chip can render "Seller 2" vs "Seller")
+     *   _recipient_role       wizard role token (seller, buyer, lessor, etc.)
+     *   _recipient_name       signer name for the chip label
+     *   _recipient_index      array index into the role's recipient list
+     *   instance_label        pre-computed display label (e.g. "Seller 2: Steve Jobs")
+     *
+     * Single-recipient roles + creator/agent fields pass through
+     * untouched — single field, single chip, single value, no
+     * suffix on the id.
+     */
+    private function expandWizardFieldsPerRecipient(array $allWizardFields, array $stepData): array
+    {
+        $recipients = $stepData['recipients']['recipients'] ?? [];
+        if (empty($recipients) || empty($allWizardFields)) {
+            return $allWizardFields;
+        }
+
+        // Bucket recipients by canonical role-token for fast lookup. Wizard
+        // emits 'seller' / 'buyer' / 'lessor' / 'tenant' etc.; the
+        // canonical-to-wizard alias chain mirrors the same map used by
+        // RoleBlockExpansionService::CANONICAL_FOR_VIEWER on the
+        // recipient-signing side.
+        $byRole = [];
+        foreach ($recipients as $r) {
+            $role = strtolower(trim((string) ($r['role'] ?? '')));
+            if ($role === '') continue;
+            $byRole[$role] ??= [];
+            $byRole[$role][] = $r;
+        }
+        if (empty($byRole)) {
+            return $allWizardFields;
+        }
+
+        // Batch-load named-field source columns once so the per-instance
+        // value resolution below doesn't hit the DB N times per field.
+        $namedFieldIds = collect($allWizardFields)
+            ->pluck('named_field_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $namedFieldMap = [];
+        if (!empty($namedFieldIds)) {
+            $rows = DB::table('docuperfect_named_fields')
+                ->whereIn('id', $namedFieldIds)
+                ->get(['id', 'source_type', 'source_column']);
+            foreach ($rows as $row) {
+                $namedFieldMap[$row->id] = $row;
+            }
+        }
+
+        $expanded = [];
+        foreach ($allWizardFields as $field) {
+            $editableBy = $field['editableBy'] ?? null;
+            if (!is_array($editableBy) || empty($editableBy)) {
+                $expanded[] = $field;
+                continue;
+            }
+
+            // Pick the primary recipient-bearing role from editableBy.
+            // Skip 'agent' — agent fields are single, never per-instance.
+            $primaryRole = null;
+            $recipientList = [];
+            foreach ($editableBy as $token) {
+                $token = strtolower((string) $token);
+                if ($token === 'agent' || $token === 'creator') continue;
+                $wizardRoles = $this->canonicalToWizardRoleAliases($token);
+                foreach ($wizardRoles as $wRole) {
+                    if (!empty($byRole[$wRole])) {
+                        $primaryRole = $wRole;
+                        $recipientList = $byRole[$wRole];
+                        break 2;
+                    }
+                }
+            }
+
+            if ($primaryRole === null || count($recipientList) <= 1) {
+                $expanded[] = $field;
+                continue;
+            }
+
+            $n = count($recipientList);
+            foreach ($recipientList as $idx => $recipient) {
+                $instance = $idx + 1;
+                $copy = $field;
+                $copy['id'] = ($field['id'] ?? 'field') . '__r' . $instance;
+                $copy['_original_id'] = $field['id'] ?? null;
+                $copy['_instance_index'] = $instance;
+                $copy['_total_instances'] = $n;
+                $copy['_recipient_role'] = $primaryRole;
+                $copy['_recipient_name'] = (string) ($recipient['name'] ?? '');
+                $copy['_recipient_index'] = $idx;
+                $copy['instance_label']   = $this->formatInstanceLabel($primaryRole, $instance, $n, $recipient);
+
+                // Resolve a per-instance value rather than the
+                // concatenated form autoFillFields produced. Use the
+                // batch-loaded namedFieldMap to avoid N+1 DB hits.
+                $sourceColumn = $field['source_column'] ?? null;
+                if (!$sourceColumn) {
+                    $namedFieldId = $field['named_field_id'] ?? null;
+                    if ($namedFieldId && isset($namedFieldMap[$namedFieldId])) {
+                        $nf = $namedFieldMap[$namedFieldId];
+                        if ($nf->source_type === 'contact') {
+                            $sourceColumn = $nf->source_column;
+                        }
+                    }
+                }
+                if ($sourceColumn) {
+                    $perInstanceValue = $this->resolveContactValue($sourceColumn, $recipient);
+                    $copy['value'] = is_scalar($perInstanceValue) ? (string) $perInstanceValue : '';
+                }
+
+                $expanded[] = $copy;
+            }
+        }
+        return $expanded;
+    }
+
+    /**
+     * Build a transient `Collection<SignatureRequest>` from the flow's
+     * step_data recipients so the wizard preview can run through
+     * RoleBlockExpansionService without persisting anything. The
+     * SignatureRequest instances are NOT saved — they exist in memory
+     * only so the expansion service has the same shape it sees at
+     * signing time (party_role + role_index + contact_id + signer_name).
+     *
+     * @param  list<array<string, mixed>> $recipients
+     * @return \Illuminate\Support\Collection<int, \App\Models\Docuperfect\SignatureRequest>
+     */
+    private function buildTransientSignatureRequestsForPreview(\App\Models\Docuperfect\Flow $flow, array $recipients): \Illuminate\Support\Collection
+    {
+        $out = collect();
+        $counts = [];
+        foreach ($recipients as $r) {
+            $role = strtolower(trim((string) ($r['role'] ?? '')));
+            if ($role === '') continue;
+            $counts[$role] = ($counts[$role] ?? 0) + 1;
+            $req = new \App\Models\Docuperfect\SignatureRequest();
+            $req->party_role  = $role;
+            $req->role_index  = $counts[$role];
+            $req->signer_name = (string) ($r['name'] ?? '');
+            $req->signer_email = (string) ($r['email'] ?? '');
+            $req->contact_id  = $r['_contact_id'] ?? null;
+            $out->push($req);
+        }
+        return $out;
+    }
+
+    /**
+     * Map a canonical role token (owner_party / acquiring_party / agent)
+     * back to the wizard-side aliases that may carry recipients.
+     *
+     * @return list<string>
+     */
+    private function canonicalToWizardRoleAliases(string $token): array
+    {
+        return match (strtolower($token)) {
+            'owner_party'      => ['seller', 'lessor', 'landlord', 'owner_party'],
+            'acquiring_party'  => ['buyer', 'lessee', 'tenant', 'acquiring_party'],
+            'seller', 'lessor', 'landlord' => [$token],
+            'buyer', 'lessee', 'tenant'    => [$token],
+            'agent'            => ['agent'],
+            'witness'          => ['witness'],
+            default            => [$token],
+        };
+    }
+
+    /**
+     * Build the display label for an expanded field instance — used as
+     * the Step 5 chip / heading: "Seller 2: Steve Jobs", "Lessor 1: Liam".
+     */
+    private function formatInstanceLabel(string $role, int $instance, int $total, array $recipient): string
+    {
+        $base = ucfirst(str_replace('_', ' ', $role));
+        $heading = $total > 1 ? "{$base} {$instance}" : $base;
+        $name = trim((string) ($recipient['name'] ?? ''));
+        return $name === '' ? $heading : "{$heading}: {$name}";
+    }
+
     private function autoFillFieldGroupDisplays(array $allWizardFields, array $stepData): array
     {
         // Build recipients lookup by role (supports multiple contacts per role)

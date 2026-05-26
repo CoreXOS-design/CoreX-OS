@@ -704,15 +704,25 @@
             {{-- ======== STEP 5: Fill & Review ======== --}}
             <div x-show="currentStep === 5" x-cloak>
                 <h3 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Fill & Review</h3>
-                <p class="text-xs mb-4" style="color: var(--text-muted);">Fields are shown in document order. Pre-filled values come from property and recipient data.</p>
+                <p class="text-xs mb-4" style="color: var(--text-muted);">Fields are shown in document order. Pre-filled values come from property and recipient data. Multi-recipient roles render one input per recipient.</p>
 
-                {{-- All fields in document order (no party grouping) --}}
+                {{-- All fields in document order — walk-fix B uses
+                     expandedWizardFields when present (N inputs per N
+                     recipients with per-instance pre-fill + chip label)
+                     so the live recipient-loop engine governs the
+                     wizard surface, not the legacy concatenation. --}}
                 <div class="space-y-3">
-                    <template x-for="(f, fi) in allWizardFields" :key="f.id">
+                    <template x-for="(f, fi) in (expandedWizardFields && expandedWizardFields.length ? expandedWizardFields : allWizardFields)" :key="f.id">
                         <div>
                             <div class="flex items-center justify-between mb-1">
                                 <label class="block text-xs font-medium" style="color: var(--text-secondary);">
                                     <span x-text="fieldLabel(f)"></span>
+                                    {{-- Walk-fix B — when a field carries _instance_index, prepend
+                                         a per-instance chip ("Seller 2: Steve Jobs") so the agent
+                                         immediately sees which recipient this input belongs to. --}}
+                                    <template x-if="f._instance_index">
+                                        <span class="ds-badge ds-badge-warning ml-1" x-text="f.instance_label"></span>
+                                    </template>
                                     {{-- Fix A — render one chip per role in editable_by (preserves array; pre-fix only first element rendered). --}}
                                     <template x-for="(roleToken, ci) in fieldRoleTokens(f)" :key="f.id + '_' + ci + '_' + roleToken">
                                         <span class="ds-badge ml-1"
@@ -1236,6 +1246,13 @@ function esignWizard() {
     const serverFields = @json($fields ?? []);
     const serverCreatorFields = @json($creatorFields ?? []);
     const serverSignerFields = @json($signerFields ?? []);
+    // Walk-fix B — per-recipient expanded fields for Step 5. When the
+    // session has multi-recipient roles, this array contains N copies
+    // of each role-bound field with unique ids ({field_id}__r{n}),
+    // instance_index metadata, and a per-instance value resolved from
+    // THAT specific recipient's contact. Single-recipient roles +
+    // creator/agent fields pass through with no suffix.
+    const serverExpandedWizardFields = @json($expandedWizardFields ?? []);
     const serverAllWizardFields = @json($allWizardFields ?? []);
     const serverPageImages = @json($pageImages ?? []);
     const serverRecipients = @json($recipients ?? []);
@@ -1643,6 +1660,7 @@ function esignWizard() {
         // Step 5: Fields
         creatorFields: serverCreatorFields || [],
         signerFields: serverSignerFields || [],
+        expandedWizardFields: serverExpandedWizardFields || [],
         allWizardFields: serverAllWizardFields || [],
         fieldValues: {},
         fieldPartyOverrides: {},
@@ -1695,10 +1713,16 @@ function esignWizard() {
         _resizing: false,
 
         init() {
-            // Initialize field values from server data (unified ordered list)
-            const allFields = this.allWizardFields.length > 0
-                ? this.allWizardFields
-                : [...(this.creatorFields || []), ...(this.signerFields || [])];
+            // Initialize field values from server data (unified ordered list).
+            // Walk-fix B — when expandedWizardFields is populated it
+            // carries the per-instance suffix ids ({orig}__r{n}) with
+            // per-recipient pre-fill, so prefer it over allWizardFields
+            // (which has the concatenated " and "-joined values).
+            const allFields = (this.expandedWizardFields && this.expandedWizardFields.length > 0)
+                ? this.expandedWizardFields
+                : (this.allWizardFields.length > 0
+                    ? this.allWizardFields
+                    : [...(this.creatorFields || []), ...(this.signerFields || [])]);
             allFields.forEach(f => {
                 if (f.value) this.fieldValues[f.id] = f.value;
             });
