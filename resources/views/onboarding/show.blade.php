@@ -137,7 +137,7 @@
                         <div class="text-xs font-semibold truncate" style="color:var(--text-primary);">{{ $doc->type_label }}</div>
                         <div class="text-[10px] truncate" style="color:var(--text-muted);">{{ $doc->file_name }}</div>
                         @if($doc->rejection_reason)
-                        <div class="text-[10px] mt-0.5" style="color:#ef4444;">{{ $doc->rejection_reason }}</div>
+                        <div class="text-[10px] mt-0.5" style="color:var(--ds-crimson);">{{ $doc->rejection_reason }}</div>
                         @endif
                     </div>
                     <div class="flex items-center gap-1 flex-shrink-0">
@@ -153,7 +153,7 @@
                             @csrf
                             <input type="hidden" name="action" value="reject">
                             <input type="hidden" name="rejection_reason" value="">
-                            <button type="submit" class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(239,68,68,0.12); color:#ef4444; border:1px solid rgba(239,68,68,0.25);">Reject</button>
+                            <button type="submit" class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(239,68,68,0.12); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">Reject</button>
                         </form>
                         @endif
                     </div>
@@ -260,7 +260,7 @@
                 @csrf
                 <input type="hidden" name="status" value="rejected">
                 <input type="hidden" name="status_notes" value="">
-                <button type="submit" class="text-sm px-4 py-2 rounded-md font-medium" style="color:#ef4444; border:1px solid rgba(239,68,68,0.3);">
+                <button type="submit" class="text-sm px-4 py-2 rounded-md font-medium" style="color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
                     Reject
                 </button>
             </form>

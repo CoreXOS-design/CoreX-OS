@@ -58,17 +58,61 @@ Every agency-owned Eloquent model uses this trait. It:
 - exposes `queryWithoutAgencyScope()` as the **only** sanctioned escape hatch
   (use for console commands, queues and system imports; never in request code).
 
+**Single-agency dev/test fallback (Wave 3b).** When `creating` fires with no
+`agency_id` and no authenticated user (seeders, factories, console commands
+on a fresh dev/test DB), the trait inspects the `agencies` table. If — and
+only if — exactly one agency row exists, that id is stamped onto the new
+model. This matches Wave 3b backfill semantics and prevents seeders from
+crashing on `NOT NULL agency_id`. It NEVER fires in multi-agency
+production, because the count check returns 0 once a second agency exists.
+The lookup is cached per request.
+
 ### 2. `App\Models\Scopes\AgencyScope`
 
-Applies `WHERE agency_id = :effectiveAgency OR agency_id IS NULL` to every
-query on models that use the trait. Notes:
+Applies `WHERE agency_id = :effectiveAgency` (strict match) to every query
+on models that use the trait. Notes:
 
+- **NULL `agency_id` is treated as an orphan, NOT as shared/global.** An
+  earlier draft of the scope allowed `agency_id IS NULL` through as
+  "shared", but in practice any NULL on a tenant table is a pre-migration
+  orphan or a write that escaped the auto-fill, and treating those as
+  shared caused them to leak into every agency. The scope now requires a
+  strict match — orphans are invisible to tenants and only surface via
+  `queryWithoutAgencyScope()` for audit/cleanup. See the inline comment
+  at `AgencyScope::applyInner()` (around lines 86–91) for the canonical
+  statement of this rule.
 - Skipped when there is no authenticated user (console, migrations, login queries).
 - Skipped for owner-role accounts that have NOT activated the agency switcher
   (so platform owners see everything until they deliberately scope in).
 - Respects the session override `active_agency_id` via `User::effectiveAgencyId()`.
 - Recursion-guarded per model class so the `User` scope is safe during auth
   resolution.
+- **Self-row carve-out for `User`.** The authenticated user's own row is
+  always visible to them (`orWhere(id = authId)`), so a stale session
+  agency doesn't kick them out at the auth-provider stage. System Owners
+  with `agency_id = NULL` are handled by the owner-role bypass above,
+  not by this clause.
+
+### 2a. Models that legitimately need "shared" rows
+
+Some configuration-style models genuinely store global defaults alongside
+per-agency overrides (e.g. system-provided calendar event classes,
+default feedback options). Because the scope no longer interprets NULL
+as shared, such models must do one of the following:
+
+- **Do not use `BelongsToAgency`.** Apply tenant filtering manually in
+  the controller/service. Suitable for catalog tables that are read
+  freely across agencies (e.g. `roles` with `agency_id IS NULL` for
+  system roles).
+- **Use the trait and add an explicit `scopeShared()` (or equivalent)
+  carve-out** that calls `withoutGlobalScope(AgencyScope::class)` and
+  `whereNull('agency_id')` to fetch shared rows on demand. Never assume
+  the global scope will let NULL rows through — it will not.
+
+If a model uses `BelongsToAgency` AND its calling code does
+`Model::whereNull('agency_id')` directly without bypassing the scope, the
+query will resolve to an empty set under any authenticated tenant
+context. That is a bug — flag it.
 
 ### 3. `AgencySwitcherController`
 

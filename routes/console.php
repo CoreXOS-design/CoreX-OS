@@ -60,6 +60,9 @@ Schedule::command('targets:carry-forward')->monthlyOn(1, '00:05')->withoutOverla
 // contact has a recent deal. Daily at 03:00.
 Schedule::command('corex:matches:archive-stale')->dailyAt('03:00')->withoutOverlapping();
 
+// Agency Access Authorization — expire stale pending requests every minute.
+Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
+
 // Private Property activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncPrivatePropertyActivations())->everyFifteenMinutes()->withoutOverlapping();
 
@@ -72,6 +75,13 @@ Schedule::job(new \App\Jobs\ProcessPrivatePropertyEventFeed())
 
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
+
+// Property24 ExDev buyer-enquiry leads pull — runs every 15 minutes.
+// Persists into portal_leads alongside PP leads. See .ai/specs/portal-leads.md.
+Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->name('p24-leads-pull');
 
 // ── Command Center ──
 
@@ -97,3 +107,43 @@ Schedule::job(new \App\Jobs\OversightDigestJob())->hourly()->withoutOverlapping(
 Schedule::command('notifications:scan-properties')->everyThirtyMinutes()->withoutOverlapping();
 Schedule::command('notifications:scan-contacts')->hourly()->withoutOverlapping();
 Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOverlapping();
+
+// ── Calendar Event Classes ──
+Schedule::command('corex:calendar:send-digests')->dailyAt('06:30')->withoutOverlapping()->onOneServer();
+Schedule::command('corex:calendar:reconcile')->dailyAt('03:00')->withoutOverlapping()->onOneServer();
+
+// ── Leave Management ──
+Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
+Schedule::command('corex:leave:cycle-rollover')->dailyAt('02:30')->onOneServer()->withoutOverlapping();
+
+// ── Contact Governance (M3.4) ──
+Schedule::command('contacts:purge-retention')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
+Schedule::command('contacts:detect-duplicates')->dailyAt('03:30')->onOneServer()->withoutOverlapping();
+
+// ── Buyer CRM (M4) ──
+Schedule::command('buyers:recompute-states')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
+
+// ── Property Intelligence (M5) ──
+Schedule::command('properties:generate-recommendations')->weeklyOn(1, '05:00')->onOneServer()->withoutOverlapping();
+
+// ── Buyer Matching Engine (M6) ──
+Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
+
+// ── Prospecting Intelligence (M13) ──
+Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
+Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
+
+// P24 location tree sync — monthly on the 1st at 02:00
+Schedule::command('p24:sync-locations')->monthlyOn(1, '02:00')->withoutOverlapping();
+
+// Demo reset — wipe [DEMO]-prefixed data and reseed daily at 03:00.
+// Only runs when APP_ENV is local or demo (guarded inside the commands).
+if (in_array(app()->environment(), ['local', 'demo'], true)) {
+    Schedule::command('demo:cleanup --force')->dailyAt('03:00')->withoutOverlapping();
+    Schedule::command('demo:seed')->dailyAt('03:05')->withoutOverlapping();
+}
+
+// Mandate expiry — daily at 01:00. Marks stock properties whose expiry_date
+// has passed as 'expired' and fires Mandate\MandateExpired domain events.
+// Spec: .ai/specs/corex-domain-events-spec.md (Wave 6 deferred wiring).
+Schedule::command('mandates:expire')->dailyAt('01:00')->onOneServer()->withoutOverlapping();

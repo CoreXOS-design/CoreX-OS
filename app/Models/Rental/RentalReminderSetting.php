@@ -9,7 +9,20 @@ class RentalReminderSetting extends Model
 {
     use SoftDeletes;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'enabled',
+        'mode',
+        'gentle_after_days',
+        'firm_after_days',
+        'team_alert_after_days',
+        'final_after_days',
+        'max_escalating_reminders',
+        'interval_days',
+        'max_simple_reminders',
+        'email_subject',
+        'email_body',
+        'updated_by',
+    ];
 
     protected $casts = [
         'enabled' => 'boolean',

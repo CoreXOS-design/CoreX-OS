@@ -12,7 +12,7 @@
 
             {{-- ID number warning --}}
             @if(!$user->id_number)
-            <div class="px-4 py-3 text-sm" style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:3px; color:#a16207;">
+            <div class="px-4 py-3 text-sm" style="background:color-mix(in srgb, var(--ds-amber) 8%, transparent); border:1px solid rgba(234,179,8,0.25); border-radius:6px; color:#a16207;">
                 <strong>Your ID Number is not captured in your profile.</strong>
                 For a more complete FICA acknowledgement record, consider adding it in
                 <a href="{{ route('agent.portal') }}#profile" style="text-decoration:underline; color:#92400e;">My Portal - Profile</a> before signing.
@@ -20,11 +20,11 @@
             </div>
             @endif
 
-            {{-- Declaration — electronic signing version --}}
-            <div class="bg-white border p-6" style="border-color:var(--border, #e5e7eb); border-radius:3px;">
-                <h3 class="text-base font-semibold mb-4" style="color:#0f172a; font-family:'Plus Jakarta Sans',sans-serif;">Declaration</h3>
+            {{-- Declaration â€” electronic signing version --}}
+            <div class="bg-white border p-6" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+                <h3 class="text-base font-semibold mb-4" style="color:var(--text-primary);">Declaration</h3>
                 <div class="space-y-3 text-sm" style="color:#334155; line-height:1.7;">
-                    <p>By signing below, I, <strong style="color:#0f172a;">{{ $user->name }}</strong>@if($user->id_number), ID Number <strong style="color:#0f172a;">{{ $user->id_number }}</strong>@endif, confirm that:</p>
+                    <p>By signing below, I, <strong style="color:var(--text-primary);">{{ $user->name }}</strong>@if($user->id_number), ID Number <strong style="color:var(--text-primary);">{{ $user->id_number }}</strong>@endif, confirm that:</p>
                     <ul style="list-style:disc; padding-left:1.5rem;" class="space-y-2">
                         <li>I have read the contents of this Risk Management and Compliance Programme in full.</li>
                         <li>I understand each section and have acknowledged each where required.</li>
@@ -44,26 +44,26 @@
             </div>
 
             {{-- Signature --}}
-            <div class="bg-white border p-5" style="border-color:var(--border, #e5e7eb); border-radius:3px;">
-                <h3 class="text-sm font-bold mb-3" style="color:#0f172a; font-family:'Plus Jakarta Sans',sans-serif;">Your Signature</h3>
+            <div class="bg-white border p-5" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+                <h3 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Your Signature</h3>
 
                 {{-- Mode tabs --}}
                 <div class="flex gap-2 mb-4">
-                    <button type="button" @click="switchMode('typed')" class="px-4 py-2 text-xs font-semibold transition" :style="mode === 'typed' ? 'background:#00d4aa; color:#0f172a; border-radius:3px;' : 'background:var(--surface-alt, #f8fafc); color:#64748b; border-radius:3px;'">Type</button>
-                    <button type="button" @click="switchMode('drawn')" class="px-4 py-2 text-xs font-semibold transition" :style="mode === 'drawn' ? 'background:#00d4aa; color:#0f172a; border-radius:3px;' : 'background:var(--surface-alt, #f8fafc); color:#64748b; border-radius:3px;'">Draw</button>
+                    <button type="button" @click="switchMode('typed')" class="px-4 py-2 text-xs font-semibold transition" :style="mode === 'typed' ? 'background:var(--brand-icon); color:var(--text-primary); border-radius:6px;' : 'background:var(--surface-alt, #f8fafc); color:#64748b; border-radius:6px;'">Type</button>
+                    <button type="button" @click="switchMode('drawn')" class="px-4 py-2 text-xs font-semibold transition" :style="mode === 'drawn' ? 'background:var(--brand-icon); color:var(--text-primary); border-radius:6px;' : 'background:var(--surface-alt, #f8fafc); color:#64748b; border-radius:6px;'">Draw</button>
                 </div>
 
                 {{-- Type mode --}}
                 <div x-show="mode === 'typed'">
-                    <input type="text" x-model="typedName" placeholder="Type your full name" class="w-full px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:3px;">
-                    <div x-show="typedName.trim().length > 0" x-cloak class="mt-3 px-4 py-3 text-center" style="border:1px dashed var(--border, #e5e7eb); border-radius:3px;">
-                        <span style="font-family:'Dancing Script',cursive; font-size:1.5rem; color:#0f172a;" x-text="typedName"></span>
+                    <input type="text" x-model="typedName" placeholder="Type your full name" class="w-full px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+                    <div x-show="typedName.trim().length > 0" x-cloak class="mt-3 px-4 py-3 text-center" style="border:1px dashed var(--border, #e5e7eb); border-radius:6px;">
+                        <span style="font-family:'Dancing Script',cursive; font-size:1.5rem; color:var(--text-primary);" x-text="typedName"></span>
                     </div>
                 </div>
 
                 {{-- Draw mode --}}
                 <div x-show="mode === 'drawn'" x-cloak>
-                    <div class="border-2 rounded overflow-hidden" style="border-color:var(--border, #e5e7eb); border-radius:3px;">
+                    <div class="border-2 rounded overflow-hidden" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
                         <canvas x-ref="sigCanvas" class="w-full block" style="height:180px; touch-action:none; cursor:crosshair; background:#fff;"></canvas>
                     </div>
                     <div class="flex justify-between items-center mt-2">
@@ -76,7 +76,7 @@
             {{-- Declaration checkbox --}}
             <div>
                 <label class="flex items-start gap-3 cursor-pointer p-3 -m-3">
-                    <input type="checkbox" x-model="declarationAcknowledged" style="accent-color:#00d4aa; width:24px; height:24px; margin-top:1px; flex-shrink:0;">
+                    <input type="checkbox" x-model="declarationAcknowledged" style="accent-color:var(--brand-icon); width:24px; height:24px; margin-top:1px; flex-shrink:0;">
                     <span class="text-xs" style="color:var(--text-primary, #1f2937); line-height:1.5;">
                         I confirm that I have read and understood the RMCP in full, and acknowledge my obligations under FICA and this programme.
                     </span>
@@ -85,11 +85,11 @@
 
             {{-- Errors --}}
             @if($errors->any())
-            <div class="px-3 py-2 text-xs" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:3px; color:#ef4444;">
+            <div class="px-3 py-2 text-xs" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid rgba(239,68,68,0.3); border-radius:6px; color:var(--ds-crimson);">
                 @foreach($errors->all() as $error) <div>{{ $error }}</div> @endforeach
             </div>
             @endif
-            <div x-show="errorMessage" x-cloak x-transition class="px-3 py-2 text-xs" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:3px; color:#ef4444;" x-text="errorMessage"></div>
+            <div x-show="errorMessage" x-cloak x-transition class="px-3 py-2 text-xs" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid rgba(239,68,68,0.3); border-radius:6px; color:var(--ds-crimson);" x-text="errorMessage"></div>
 
             {{-- Submit button row --}}
             <div class="flex items-center justify-between gap-4 pb-24">
@@ -105,8 +105,8 @@
                             ? 'hover:opacity-90'
                             : 'cursor-not-allowed'"
                         :style="canSubmit && !isSubmitting
-                            ? 'background:#00d4aa; color:#0f172a; border-radius:3px;'
-                            : 'background:#e2e8f0; color:#94a3b8; border-radius:3px;'">
+                            ? 'background:var(--brand-icon); color:var(--text-primary); border-radius:6px;'
+                            : 'background:#e2e8f0; color:#94a3b8; border-radius:6px;'">
                     <span x-show="!isSubmitting">Sign and Complete</span>
                     <span x-show="isSubmitting" x-cloak>Submitting...</span>
                 </button>

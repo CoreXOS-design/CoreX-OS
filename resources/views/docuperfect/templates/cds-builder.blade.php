@@ -7,7 +7,7 @@
 
     {{-- STICKY HEADER --}}
     <x-page-header
-        title="{{ ($sourceTemplateId ?? null) ? 'Edit CDS Template' : 'CDS Template Builder' }} — {{ $title }}"
+        title="{{ ($sourceTemplateId ?? null) ? 'Edit CDS Template' : 'CDS Template Builder' }} â€” {{ $title }}"
         :back-route="route('docuperfect.import.index')"
         back-label="Import"
         :flush="true"
@@ -51,7 +51,7 @@
                     <div class="flex items-center gap-2 bg-amber-100 border border-amber-300 text-amber-800 text-sm px-4 py-2 rounded-lg cursor-pointer"
                          @click="fixNext()">
                         <svg class="w-4 h-4 flex-shrink-0 text-amber-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
-                        <span x-text="linkedCount + ' of ' + totalTagCount + ' fields linked — ' + outstandingCount + ' outstanding'"></span>
+                        <span x-text="linkedCount + ' of ' + totalTagCount + ' fields linked â€” ' + outstandingCount + ' outstanding'"></span>
                         <button type="button" @click.stop="fixNext()"
                                 class="ml-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1 rounded transition-colors whitespace-nowrap"
                                 x-text="'Fix next \u2192 (' + (fixNextPosition) + ' of ' + outstandingCount + ')'">
@@ -64,7 +64,7 @@
                     <div class="flex items-center gap-3">
                         <div class="flex items-center gap-2 bg-emerald-100 border border-emerald-300 text-emerald-800 text-sm px-3 py-2 rounded-lg">
                             <svg class="w-4 h-4 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
-                            <span x-text="'All ' + totalTagCount + ' fields linked — ready to save'"></span>
+                            <span x-text="'All ' + totalTagCount + ' fields linked â€” ready to save'"></span>
                         </div>
                         <form x-ref="generateForm" method="POST" action="{{ route('docuperfect.cds.generate') }}" class="inline"
                               @submit.prevent="saveAndGenerate($el)">
@@ -86,7 +86,7 @@
                     </div>
                 </template>
 
-                {{-- State 3: No tags yet — still allow save --}}
+                {{-- State 3: No tags yet â€” still allow save --}}
                 <template x-if="totalTagCount === 0">
                     <div class="flex items-center gap-3">
                         <span class="text-sm text-gray-400">No fields tagged yet</span>
@@ -412,7 +412,7 @@
                                         </button>
                                     </div>
 
-                                    {{-- Type dropdown — single fields + field groups --}}
+                                    {{-- Type dropdown â€” single fields + field groups --}}
                                     <select class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mb-1.5 bg-white"
                                             x-init="$nextTick(() => { $el.value = getMapping(tag.id).typeKey || '' })"
                                             :value="getMapping(tag.id).typeKey"
@@ -715,7 +715,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
-    /* Kill the outer page scroll — this page manages its own panels */
+    /* Kill the outer page scroll â€” this page manages its own panels */
     #appScroll {
         overflow: hidden !important;
         padding: 0 !important;
@@ -725,7 +725,7 @@
         width: 210mm; min-height: 297mm; margin: 0 auto;
         padding: 18mm 20mm 15mm 20mm; background: white;
         box-shadow: 0 2px 16px rgba(0,0,0,0.15);
-        font-family: 'Plus Jakarta Sans', Arial, Helvetica, sans-serif;
+        font-family: 'Figtree', Arial, Helvetica, sans-serif;
         font-size: 10.5pt; line-height: 1.55; color: #1e293b;
         text-align: justify; cursor: default;
     }
@@ -735,7 +735,7 @@
         font-size: 9pt; font-weight: 600; cursor: pointer;
     }
     .doc-tag {
-        display: inline; padding: 1px 6px; border-radius: 3px;
+        display: inline; padding: 1px 6px; border-radius:6px;
         font-size: 8pt; font-weight: 700; letter-spacing: 0.3pt;
         cursor: pointer; user-select: none; white-space: nowrap;
         vertical-align: baseline; line-height: inherit;
@@ -804,7 +804,7 @@
         font-size: 12px;
         font-weight: 600;
         padding: 4px 8px;
-        border-radius: 3px;
+        border-radius:6px;
         cursor: pointer;
         line-height: 1;
         min-width: 28px;
@@ -830,7 +830,7 @@
         border: none;
         font-size: 11px;
         padding: 3px 4px;
-        border-radius: 3px;
+        border-radius:6px;
         cursor: pointer;
         outline: none;
     }
@@ -1071,11 +1071,11 @@ function cdsEditor() {
             }, 15000);
         },
 
-        // ===== Init — convert CDS field spans to tags + auto-suggest =====
+        // ===== Init â€” convert CDS field spans to tags + auto-suggest =====
 
         init() {
             this.$nextTick(() => {
-                // ── RESTORE PATH: if we have saved state, inject it instead of regenerating ──
+                // â”€â”€ RESTORE PATH: if we have saved state, inject it instead of regenerating â”€â”€
                 if (this.hasSavedState) {
                     const container = document.getElementById('docContainer');
                     container.innerHTML = this.savedTaggedHtml;
@@ -1127,7 +1127,7 @@ function cdsEditor() {
                     return; // Skip fresh parse path
                 }
 
-                // ── FRESH PATH: convert CDS field spans to tags + auto-suggest ──
+                // â”€â”€ FRESH PATH: convert CDS field spans to tags + auto-suggest â”€â”€
                 // Convert CDS .corex-field spans to doc-tag system
                 // Handles: input fields, marker-based SIG (%%%%), marker-based INI (####)
                 const cdsFieldSpans = document.querySelectorAll('#docContainer .corex-field');
@@ -1135,7 +1135,7 @@ function cdsEditor() {
                 cdsFieldSpans.forEach((el) => {
                     const markerType = el.dataset.markerType;
 
-                    // %%%% marker → SIG tag
+                    // %%%% marker â†’ SIG tag
                     if (markerType === 'signature') {
                         const tag = this._createTagData('signature');
                         const span = this._createTagElement(tag);
@@ -1148,7 +1148,7 @@ function cdsEditor() {
                         return;
                     }
 
-                    // #### marker → INI tag
+                    // #### marker â†’ INI tag
                     if (markerType === 'initial') {
                         const tag = this._createTagData('initial');
                         const span = this._createTagElement(tag);
@@ -1160,7 +1160,7 @@ function cdsEditor() {
                         return;
                     }
 
-                    // Input field (default — @@@@ markers or legacy field_placeholder)
+                    // Input field (default â€” @@@@ markers or legacy field_placeholder)
                     const tag = this._createTagData('input');
                     tag.parserIndex = inputIdx++;
 
@@ -1223,7 +1223,7 @@ function cdsEditor() {
                         }
                     }
 
-                    // No DB match — use parser suggestion if available
+                    // No DB match â€” use parser suggestion if available
                     this.mappings[tag.id] = this._emptyInputMapping(confidence);
                     this.mappings[tag.id].editable_by = ['agent'];
                     if (fieldLabel && fieldLabel !== 'Input' && fieldLabel !== 'FIELD') {
@@ -1312,7 +1312,7 @@ function cdsEditor() {
             });
         },
 
-        // ===== Selection — doc <-> panel sync =====
+        // ===== Selection â€” doc <-> panel sync =====
 
         selectTag(tagId) {
             // Deselect previous
@@ -1780,17 +1780,17 @@ function cdsEditor() {
         },
 
         _autoEditableBy(sourceType, sourceContactType, typeKey) {
-            // Contact fields → editable by the contact's party
+            // Contact fields â†’ editable by the contact's party
             if (sourceType === 'contact' && sourceContactType) {
                 const ct = sourceContactType.toLowerCase();
                 if (ct === 'lessor' || ct === 'seller') return ['owner_party'];
                 if (ct === 'lessee' || ct === 'buyer') return ['acquiring_party'];
             }
-            // Property and deal fields → locked (auto-filled from DB)
+            // Property and deal fields â†’ locked (auto-filled from DB)
             if (sourceType === 'property' || sourceType === 'deal') return [];
-            // Agent fields → locked
+            // Agent fields â†’ locked
             if (typeKey === 'sf:agent') return [];
-            // Manual/unknown → agent editable
+            // Manual/unknown â†’ agent editable
             return ['agent'];
         },
 
@@ -2180,7 +2180,7 @@ function cdsEditor() {
             });
         },
 
-        // ===== Highlight-to-tag: select text → replace with tag =====
+        // ===== Highlight-to-tag: select text â†’ replace with tag =====
 
         tagSelection(type) {
             const sel = window.getSelection();
@@ -2293,7 +2293,7 @@ function cdsEditor() {
                 if (origWords[oi] === currWords[ci]) {
                     oi++; ci++;
                 } else {
-                    // Found a difference — is it a field replacement?
+                    // Found a difference â€” is it a field replacement?
                     let lookAhead = oi;
 
                     while (lookAhead < origWords.length && lookAhead < oi + 20) {
@@ -2302,7 +2302,7 @@ function cdsEditor() {
                     }
 
                     if (lookAhead < origWords.length && origWords[lookAhead] === currWords[ci]) {
-                        // Gap in original = likely a field replacement — OK
+                        // Gap in original = likely a field replacement â€” OK
                         oi = lookAhead;
                     } else {
                         // Unexpected difference

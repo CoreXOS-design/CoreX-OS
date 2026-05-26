@@ -3,9 +3,11 @@
 @section('corex-content')
 @php $isNew = !$property->exists; @endphp
 <div class="w-full space-y-4"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : session('tab', $activeTab) }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), formDirty: false }"
-     x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')"
-     @beforeunload.window="if (formDirty) { $event.preventDefault(); $event.returnValue = ''; }">
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false }"
+     @corex:contact-required.window="contactRequiredModalOpen = true"
+     @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
+     @corex:switch-tab.window="activeTab = $event.detail"
+     x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')">
 
     {{-- Top bar: back + flash --}}
     <div class="flex items-center gap-4 flex-wrap">
@@ -97,13 +99,41 @@
                     </div>
                 @endif
                 <div class="min-w-0 flex-1">
+                    @php
+                        $listingTypeLabel = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
+                            'rental' => 'For Rent',
+                            default  => 'For Sale',
+                        };
+                        $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                        $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+                    @endphp
                     <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="ds-badge {{ $scBadge }}">{{ ucfirst($property->status ?: 'Draft') }}</span>
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
                         @if($property->isPublished())
-                            <span class="ds-badge ds-badge-success">Live</span>
+                            <span class="ds-badge ds-badge-success">Published</span>
                         @endif
                     </div>
-                    <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);">{{ $property->title ?: 'New Property' }}</div>
+                    <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</div>
+                    @php
+                        $sbAddrParts = [];
+                        if (!empty($property->unit_number)) $sbAddrParts[] = 'Unit ' . $property->unit_number;
+                        if (!empty($property->complex_name)) $sbAddrParts[] = $property->complex_name;
+                        if (!empty($property->street_number) && !empty($property->street_name)) {
+                            $sbAddrParts[] = $property->street_number . ' ' . $property->street_name;
+                        } elseif (!empty($property->street_name)) {
+                            $sbAddrParts[] = $property->street_name;
+                        } elseif (!empty($property->address)) {
+                            $sbAddrParts[] = $property->address;
+                        }
+                        if (!empty($property->suburb)) $sbAddrParts[] = $property->suburb;
+                        if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
+                            $sbAddrParts[] = $property->city;
+                        }
+                    @endphp
+                    @if(count($sbAddrParts))
+                    <div class="text-[11px] mt-0.5 leading-snug" style="color:var(--text-muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ implode(', ', $sbAddrParts) }}">{{ implode(', ', $sbAddrParts) }}</div>
+                    @endif
                 </div>
             </div>
 
@@ -112,32 +142,85 @@
             <div class="rounded-md p-3 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
                 <p class="text-[0.6875rem] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Actions</p>
 
-                <button type="submit" form="prop-update-form"
-                        class="prop-action-btn prop-action-btn-success"
-                        :class="formDirty ? 'is-dirty' : ''">
+                <button type="submit" form="prop-update-form" data-prop-save
+                        class="prop-action-btn prop-action-btn-success">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-                    <span x-text="formDirty ? 'Save Changes *' : 'Save Changes'"></span>
+                    <span class="prop-save-label">Save Changes</span>
                 </button>
 
-                <button type="button" @click="synOpen=true; synStep='main'" class="prop-action-btn prop-action-btn-neutral">
+                @php
+                    $isMarketable = ($readinessReport->snapshotAt !== null) || $readinessReport->ready;
+                    $cmpLive    = $readinessReport->snapshotAt !== null;
+                    $cmpReady   = $readinessReport->ready && !$cmpLive;
+                    $cmpLabel   = $cmpLive ? 'LIVE' : ($cmpReady ? 'READY' : 'BLOCKED');
+                    $cmpPillBg  = $cmpLive ? '#10b981' : ($cmpReady ? 'rgba(0,212,170,.18)' : 'rgba(245,158,11,.18)');
+                    $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
+                @endphp
+
+                <button type="button" @click="complianceModalOpen = true"
+                        class="prop-action-btn prop-action-btn-neutral justify-between"
+                        title="View compliance gates and go-live status">
+                    <span class="flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"/></svg>
+                        Compliance Status
+                    </span>
+                    <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
+                </button>
+
+                <button type="button"
+                        @click="{{ $isMarketable ? "synOpen=true; synStep='main'" : 'complianceModalOpen = true' }}"
+                        class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
+                        title="{{ !$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Manage portal syndication' }}">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/></svg>
                     Syndication
                 </button>
 
-                <button type="button" @click="synOpen=true; synStep='preview'" class="prop-action-btn prop-action-btn-neutral">
+                <button type="button"
+                        @click="{{ $isMarketable ? "synOpen=true; synStep='preview'" : 'complianceModalOpen = true' }}"
+                        class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
+                        title="{{ !$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Open public listing preview' }}">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
                     Live Preview
                 </button>
 
+                @if($isMarketable)
                 <a href="{{ route('corex.properties.ad', $property) }}" class="prop-action-btn prop-action-btn-brand">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                     Ad Builder
                 </a>
+                @else
+                <button type="button" @click="complianceModalOpen = true"
+                        class="prop-action-btn prop-action-btn-brand opacity-50 cursor-not-allowed"
+                        title="Marketing blocked — open Compliance Status to resolve">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    Ad Builder
+                </button>
+                @endif
 
                 @if(\Illuminate\Support\Facades\Route::has('corex.properties.marketing.index') && \App\Models\PerformanceSetting::get('marketing_enabled', 1))
-                <a href="{{ route('corex.properties.marketing.index', $property) }}" class="prop-action-btn prop-action-btn-fb">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
-                    Market Property
+                    @if($isMarketable)
+                    <a href="{{ route('corex.properties.marketing.index', $property) }}"
+                       class="prop-action-btn prop-action-btn-fb"
+                       title="Social media marketing">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
+                        Market Property
+                    </a>
+                    @else
+                    <button type="button" @click="complianceModalOpen = true"
+                            class="prop-action-btn prop-action-btn-fb opacity-50 cursor-not-allowed"
+                            title="Marketing blocked — open Compliance Status to resolve">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
+                        Market Property
+                    </button>
+                    @endif
+                @endif
+
+                @if(auth()->user()->hasPermission('outreach.compose'))
+                <a href="{{ route('seller-outreach.entry.from-property', $property) }}"
+                   class="prop-action-btn prop-action-btn-neutral"
+                   title="Compose a WhatsApp/Email pitch to the seller linked to this property">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg>
+                    Pitch Seller
                 </a>
                 @endif
 
@@ -156,6 +239,13 @@
                         Archive
                     </button>
                 </form>
+
+                @permission('compliance.whistleblow.create')
+                <button type="button" @click="wbReportOpen = true" class="prop-action-btn prop-action-btn-neutral">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+                    Report Non-Compliance
+                </button>
+                @endpermission
             </div>
             @endif
 
@@ -295,6 +385,67 @@
             </div>
             @endif
 
+            {{-- Compliance evidence flags panel --}}
+            @if(!$isNew && isset($propertyComplianceComplaints) && $propertyComplianceComplaints->count() > 0)
+            <div class="rounded-md p-3 space-y-2" style="background:color-mix(in srgb, var(--ds-amber) 6%, var(--surface)); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, var(--border));">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 flex-shrink-0" style="color:var(--ds-amber);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
+                    <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--ds-amber);">Compliance Flags &mdash; {{ $propertyComplianceComplaints->count() }} report{{ $propertyComplianceComplaints->count() > 1 ? 's' : '' }}</p>
+                </div>
+                @foreach($propertyComplianceComplaints as $wbC)
+                @php
+                    $wbTierBadge = match($wbC->tier) { 'tier_1' => 'ds-badge-warning', 'tier_2' => 'ds-badge-info', 'tier_3' => 'ds-badge-danger', default => '' };
+                    $wbTierLabel = match($wbC->tier) { 'tier_1' => 'Paperwork breach', 'tier_2' => 'No FFC displayed', 'tier_3' => 'Unregistered practitioner', default => $wbC->tier };
+                    $wbStatusLabel = str_replace('_', ' ', ucfirst($wbC->status));
+                @endphp
+                <div class="rounded p-2" style="background:var(--surface); border:1px solid var(--border);">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-xs font-mono font-bold" style="color:var(--text-primary);">HFC-WB-{{ $wbC->id }}</span>
+                        <span class="ds-badge {{ $wbTierBadge }}" style="font-size:0.6rem;">{{ $wbTierLabel }}</span>
+                    </div>
+                    <div class="text-[0.6875rem] mt-1" style="color:var(--text-secondary);">
+                        {{ $wbC->created_at->format('d M Y') }} &middot; {{ $wbC->reporter?->name ?? 'Unknown' }} &middot; {{ $wbStatusLabel }}
+                    </div>
+                    @permission('compliance.whistleblow.view')
+                    <a href="{{ route('compliance.whistleblow.show', $wbC) }}" class="text-[0.6875rem] font-semibold no-underline mt-1 inline-block" style="color:var(--brand-default);">View complaint &rarr;</a>
+                    @endpermission
+                </div>
+                @endforeach
+            </div>
+            @endif
+
+            {{-- Also Marketed By (prospecting matches) --}}
+            @if(!$isNew)
+            @php
+                $prospectMatches = \App\Models\ProspectingListing::where('matched_property_id', $property->id)->whereNull('deleted_at')->orderByDesc('last_seen_at')->get();
+            @endphp
+            @if($prospectMatches->count() > 0)
+            <div class="rounded-md p-3 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
+                <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Also Marketed By ({{ $prospectMatches->count() }})</p>
+                @foreach($prospectMatches as $pm)
+                <div class="rounded p-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $pm->agency_name ?: 'Unknown agency' }}</span>
+                        <span class="ds-badge ds-badge-muted" style="font-size:0.6rem;">{{ strtoupper($pm->portal_source) }}</span>
+                        @if($pm->is_active)
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+                        @endif
+                    </div>
+                    @if($pm->agent_name)
+                    <div class="text-[0.6875rem] mt-0.5" style="color:var(--text-secondary);">{{ $pm->agent_name }}</div>
+                    @endif
+                    <div class="text-[0.6875rem] mt-0.5" style="color:var(--text-muted);">
+                        R {{ number_format($pm->price) }} &middot; {{ $pm->last_seen_at?->format('d M Y') }}
+                    </div>
+                    @if($pm->portal_url)
+                    <a href="{{ $pm->portal_url }}" target="_blank" class="text-[0.6875rem] no-underline mt-0.5 inline-block" style="color:var(--brand-default);">View listing &rarr;</a>
+                    @endif
+                </div>
+                @endforeach
+            </div>
+            @endif
+            @endif
+
         </aside>
 
         {{-- RIGHT: tabs --}}
@@ -310,8 +461,16 @@
                     <h1 class="text-base font-extrabold leading-tight" style="color:var(--text-primary);">{{ $property->title ?: 'New Property' }}</h1>
                     <div class="text-base font-bold mt-0.5" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</div>
                     <div class="flex items-center gap-2 mt-1 flex-wrap">
-                        <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
-                              style="background:{{ $sc }}22; color:{{ $sc }}; border:1px solid {{ $sc }}44;">{{ ucfirst($property->status) }}</span>
+                        @php
+                            $listingTypeLabel2 = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
+                                'rental' => 'For Rent',
+                                default  => 'For Sale',
+                            };
+                            $statusLabel2 = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                            $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
+                        @endphp
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
                         <span class="text-xs" style="color:var(--text-secondary);">{{ $property->beds }}bd · {{ $property->baths }}ba</span>
                     </div>
                 </div>
@@ -436,7 +595,7 @@
                         {{-- Server error after a failed publish attempt --}}
                         <div x-show="errorMsg" x-cloak
                              class="rounded-md px-3 py-2.5 text-xs font-medium"
-                             style="background:rgba(239,68,68,0.08); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.25);"
+                             style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                              x-text="errorMsg"></div>
 
                         {{-- Missing fields warning — blocks publish until resolved --}}
@@ -480,7 +639,7 @@
                             </button>
                             <button type="button" @click.stop="unpublish()" :disabled="loading"
                                     class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                    style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.25);"
+                                    style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                                     onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                 Unpublish
                             </button>
@@ -523,7 +682,7 @@
                             <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md cursor-pointer"
                                  style="background:var(--surface-2); border:1px solid var(--border);"
                                  @click="toggleEnabled()"
-                                 :style="enabled ? 'background:rgba(0,212,170,0.06); border-color:rgba(0,212,170,0.25);' : 'background:var(--surface-2); border-color:var(--border);'">
+                                 :style="enabled ? 'background:rgba(0,212,170,0.06); border-color:color-mix(in srgb, var(--brand-icon) 25%, transparent);' : 'background:var(--surface-2); border-color:var(--border);'">
                                 <div class="flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" :style="enabled ? 'color:var(--ds-green)' : 'color:var(--text-muted)'">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
@@ -616,7 +775,7 @@
                                 {{-- Reactivate (for deactivated, no ref yet edge case) --}}
                                 <button type="button" x-show="status === 'deactivated'" @click.stop="reactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid rgba(0,212,170,0.25);"
+                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Reactivate
                                 </button>
@@ -632,13 +791,13 @@
                                 </a>
                                 <button type="button" @click.stop="refreshListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid rgba(0,212,170,0.25);"
+                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     <span x-text="loading ? 'Syncing...' : 'Refresh'"></span>
                                 </button>
                                 <button type="button" @click.stop="deactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.25);"
+                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
@@ -648,7 +807,7 @@
                             <div x-show="enabled && ppRef && status === 'deactivated'" x-cloak class="flex flex-wrap gap-2">
                                 <button type="button" @click.stop="reactivateListing()" :disabled="loading"
                                         class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid rgba(0,212,170,0.25);"
+                                        style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Reactivate
                                 </button>
@@ -663,14 +822,14 @@
                             <div x-show="message && messageType === 'success'" x-cloak
                                  x-transition
                                  class="px-3 py-2 rounded-md text-xs font-medium"
-                                 style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid rgba(0,212,170,0.25);"
+                                 style="background:rgba(0,212,170,0.10); color:var(--ds-green); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);"
                                  x-text="message"></div>
 
                             {{-- Debug error panel --}}
                             <div x-show="showDebug && debugErrors.length > 0" x-cloak
                                  x-transition
                                  class="rounded-md space-y-2"
-                                 style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); padding:10px 12px;">
+                                 style="background:color-mix(in srgb, var(--ds-crimson) 6%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); padding:10px 12px;">
                                 <div class="flex items-center justify-between">
                                     <p class="text-xs font-bold" style="color:var(--ds-crimson);">Submission Failed</p>
                                     <button type="button" @click.stop="showDebug = false; debugErrors = []"
@@ -809,7 +968,7 @@
                                 </button>
                                 <button type="button" @click.stop="deactivateListing()" :disabled="loading"
                                         class="px-3 py-2 rounded-md text-xs font-semibold transition-opacity"
-                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid rgba(239,68,68,0.25);"
+                                        style="background:rgba(239,68,68,0.10); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);"
                                         onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                                     Deactivate
                                 </button>
@@ -839,7 +998,7 @@
                             {{-- Error panel --}}
                             <div x-show="showDebug && debugErrors.length > 0" x-cloak x-transition
                                  class="rounded-md space-y-2"
-                                 style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.25); padding:10px 12px;">
+                                 style="background:color-mix(in srgb, var(--ds-crimson) 6%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); padding:10px 12px;">
                                 <div class="flex items-center justify-between">
                                     <p class="text-xs font-bold" style="color:var(--ds-crimson);">Submission Failed</p>
                                     <button type="button" @click.stop="showDebug = false; debugErrors = []" class="text-[0.6875rem] px-1.5 py-0.5 rounded" style="color:var(--text-muted); background:var(--surface-2);">Dismiss</button>
@@ -889,6 +1048,29 @@
             </template>
     @endif
 
+    {{-- Compliance readiness modal (triggered from Actions stack) --}}
+    @if(!$isNew)
+        <template x-teleport="body">
+            <div x-show="complianceModalOpen" x-cloak
+                 class="fixed inset-0 z-[120] flex items-start justify-center p-4 overflow-y-auto"
+                 x-transition.opacity>
+                <div class="absolute inset-0" style="background:rgba(0,0,0,0.5);" @click="complianceModalOpen = false"></div>
+                <div class="relative w-full max-w-2xl mt-12"
+                     x-transition:enter="transition ease-out duration-150"
+                     x-transition:enter-start="opacity-0 scale-95"
+                     x-transition:enter-end="opacity-100 scale-100">
+                    <button type="button" @click="complianceModalOpen = false"
+                            class="absolute top-2 right-2 z-10 rounded p-1"
+                            style="color:var(--text-muted); background:var(--surface); border:1px solid var(--border);"
+                            title="Close">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+                    </button>
+                    @include('corex.properties.partials.readiness-panel', ['report' => $readinessReport, 'property' => $property])
+                </div>
+            </div>
+        </template>
+    @endif
+
     {{-- Tab bar (shared) --}}
         <div class="flex overflow-x-auto" style="border-bottom:1px solid var(--border);">
             @foreach([
@@ -897,13 +1079,16 @@
                 ['key'=>'gallery',   'label'=>'Gallery'],
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
+                ['key'=>'history',   'label'=>'History'],
                 ['key'=>'drive',        'label'=>'Drive'],
+                ['key'=>'intelligence', 'label'=>'Intelligence'],
                 ['key'=>'core-matches', 'label'=>'Core Matches'],
             ] as $tab)
             @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
                 @continue
             @endif
             <button type="button"
+                    data-prop-tab="{{ $tab['key'] }}"
                     @click="activeTab = '{{ $tab['key'] }}'"
                     :class="activeTab === '{{ $tab['key'] }}' ? 'border-b-2 border-sky-500 bg-sky-500/5' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
@@ -1151,9 +1336,9 @@
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
                   class="space-y-0"
                   novalidate
-                  @input="formDirty = true"
-                  @change="formDirty = true"
-                  @submit="formDirty = false"
+                  data-is-new="{{ $isNew ? '1' : '0' }}"
+                  data-contact-count="{{ $isNew ? 0 : $property->contacts->count() }}"
+                  @submit="if (!window.coreXPropertyContactGuard($event, $el)) { return; } window.coreXPropDirty && window.coreXPropDirty.clear();"
                   x-data="{
                       info: {
                           identity: true,
@@ -1802,7 +1987,7 @@
                                 <button type="button" @click="deleteSpace(modalSpaceIdx)"
                                         class="flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-md transition-colors"
                                         style="color:var(--ds-crimson);"
-                                        onmouseover="this.style.background='rgba(239,68,68,0.08)'" onmouseout="this.style.background='transparent'">
+                                        onmouseover="this.style.background='color-mix(in srgb, var(--ds-crimson) 8%, transparent)'" onmouseout="this.style.background='transparent'">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.021-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                                     Remove Space
                                 </button>
@@ -1872,7 +2057,7 @@
                     'unitNumber' => old('unit_number', $property->unit_number ?? ''),
                     'suburb' => old('suburb', $property->suburb ?? ''),
                     'city' => old('city', $property->city ?? ''),
-                    'province' => old('province', $property->province ?? 'KwaZulu-Natal'),
+                    'province' => old('province', $property->province ?? ''),
                     'hideStreetName' => (bool) old('pp_hide_street_name', $property->pp_hide_street_name ?? false),
                     'hideStreetNumber' => (bool) old('pp_hide_street_number', $property->pp_hide_street_number ?? false),
                     'hideComplexName' => (bool) old('pp_hide_complex_name', $property->pp_hide_complex_name ?? false),
@@ -1905,6 +2090,60 @@
                         </div>
                     </div>
 
+                    {{-- Map (collapsible) — pin for the Internal suburb.
+                         Auto-geocodes on page load and whenever the P24 picker
+                         reports a new suburb. Panel auto-collapses when an
+                         address modal opens (Leaflet tiles otherwise float
+                         over the modal due to their own stacking context). --}}
+                    <div class="mt-2 rounded-md overflow-hidden"
+                         style="border:1px solid var(--border); background:var(--surface); position:relative; z-index:0; isolation:isolate;"
+                         x-data="propertyMapWidget({
+                             initialLat:      {{ (float) old('latitude',  $property->latitude  ?? 0) }},
+                             initialLng:      {{ (float) old('longitude', $property->longitude ?? 0) }},
+                             initialSuburb:   @js(old('suburb',   $property->suburb   ?? '')),
+                             initialCity:     @js(old('city',     $property->city     ?? '')),
+                             initialProvince: @js(old('province', $property->province ?? '')),
+                         })"
+                         x-init="init()"
+                         x-effect="if (openModal && open) open = false">
+                        <input type="hidden" name="latitude"  :value="lat">
+                        <input type="hidden" name="longitude" :value="lng">
+
+                        <button type="button" @click="open = !open"
+                                class="w-full flex items-center justify-between px-3 py-2 transition-all duration-300"
+                                style="background:var(--surface-2); border-bottom:1px solid var(--border);"
+                                onmouseover="this.style.background='var(--surface-3, var(--surface-2))'"
+                                onmouseout="this.style.background='var(--surface-2)'">
+                            <div class="flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" style="color:var(--brand-icon);"
+                                     fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+                                </svg>
+                                <span class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-primary);">Map</span>
+                                <span class="text-[10px]" style="color:var(--text-muted);"
+                                      x-text="lat && lng ? ('pin: ' + (+lat).toFixed(5) + ', ' + (+lng).toFixed(5)) : 'no pin yet — click to drop'"></span>
+                            </div>
+                            <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-all duration-300" style="color:var(--text-muted);"
+                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                            </svg>
+                        </button>
+
+                        <div x-show="open" x-cloak>
+                            <div class="px-3 py-2 text-[11px]" style="background:var(--surface); color:var(--text-muted);">
+                                <span x-show="geocoding" x-cloak>Locating pin for the selected suburb…</span>
+                                <span x-show="!geocoding && (!lat || !lng)" x-cloak>
+                                    Pick a Property24 suburb in the Internal address — we'll drop a pin automatically. Drag the pin to fine-tune.
+                                </span>
+                                <span x-show="!geocoding && lat && lng" x-cloak>
+                                    Pin is at the suburb centroid. Drag it to the exact property location.
+                                </span>
+                            </div>
+                            <div id="property-map" style="width:100%; height:280px; background:var(--surface-2);"></div>
+                        </div>
+                    </div>
+
                     {{-- Hidden inputs that always submit with the form --}}
                     <input type="hidden" name="address" value="{{ old('address', $property->address) }}">
 
@@ -1913,7 +2152,7 @@
                          class="fixed inset-0 z-50 flex items-center justify-center p-4"
                          @keydown.escape.window="openModal = null">
                         <div class="absolute inset-0 bg-black/60" @click="openModal = null"></div>
-                        <div class="relative w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg shadow-2xl"
+                        <div class="relative w-full max-w-[46rem] max-h-[85vh] overflow-y-auto rounded-lg shadow-2xl"
                              style="background:var(--surface); border:1px solid var(--border);" @click.stop>
 
                             <div class="sticky top-0 z-10 flex items-center justify-between px-5 py-3 rounded-t-lg"
@@ -1935,20 +2174,20 @@
                                         <div class="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Unit Number</label>
-                                                <input type="text" name="unit_number" x-model="unitNumber" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="unit_number" x-model="unitNumber" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Floor Number</label>
-                                                <input type="text" name="floor_number" value="{{ old('floor_number', $property->floor_number) }}" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="floor_number" value="{{ old('floor_number', $property->floor_number) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Unit, Section or Block</label>
-                                            <input type="text" name="unit_section_block" value="{{ old('unit_section_block', $property->unit_section_block) }}" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="unit_section_block" value="{{ old('unit_section_block', $property->unit_section_block) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Name of Complex or Estate</label>
-                                            <input type="text" name="complex_name" x-model="complexName" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="complex_name" x-model="complexName" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                     </div>
                                 </div>
@@ -1959,37 +2198,30 @@
                                     <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Number</label>
-                                            <input type="text" name="street_number" x-model="streetNumber" placeholder="e.g. 1046-2" class="w-40 rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="street_number" x-model="streetNumber" placeholder="e.g. 1046-2" autocomplete="off" class="w-40 rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Name</label>
-                                            <input type="text" name="street_name" x-model="streetName" placeholder="e.g. Clarendon Road" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="street_name" x-model="streetName" placeholder="e.g. Clarendon Road" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                     </div>
                                 </div>
 
-                                {{-- City or Suburb --}}
+                                {{-- Province / City / Suburb — Property24-backed typeahead.
+                                     User must pick a suburb P24 recognises; can't save free-text. --}}
                                 <div>
-                                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">City or Suburb</div>
-                                    <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
-                                        <div>
-                                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Suburb <span class="prop-required">*</span></label>
-                                            <input type="text" name="suburb" x-model="suburb" required placeholder="e.g. Uvongo Beach" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                        </div>
-                                        <div class="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">City / Town</label>
-                                                <input type="text" name="city" x-model="city" placeholder="e.g. Margate" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                            </div>
-                                            <div>
-                                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Province</label>
-                                                <select name="province" x-model="province" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                                    @foreach(['KwaZulu-Natal','Gauteng','Western Cape','Eastern Cape','Free State','Limpopo','Mpumalanga','North West','Northern Cape'] as $prov)
-                                                    <option value="{{ $prov }}">{{ $prov }}</option>
-                                                    @endforeach
-                                                </select>
-                                            </div>
-                                        </div>
+                                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Province / City / Suburb</div>
+                                    <div class="p-4 rounded-b-md" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
+                                        @include('corex._partials.p24-location-picker', [
+                                            'fieldPrefix'         => 'p24',
+                                            'initialProvinceId'   => old('p24_province_id', $property->p24_province_id ?? 0),
+                                            'initialCityId'       => old('p24_city_id',     $property->p24_city_id ?? 0),
+                                            'initialSuburbId'     => old('p24_suburb_id',   $property->p24_suburb_id ?? 0),
+                                            'initialProvinceName' => old('province', $property->province ?? ''),
+                                            'initialCityName'     => old('city',     $property->city ?? ''),
+                                            'initialSuburbName'   => old('suburb',   $property->suburb ?? ''),
+                                            'denormaliseNames'    => true,
+                                        ])
                                     </div>
                                 </div>
 
@@ -2000,17 +2232,17 @@
                                         <div class="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Property / Erf Number</label>
-                                                <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="property_number" value="{{ old('property_number', $property->property_number) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Stand Number</label>
-                                                <input type="text" name="stand_number" value="{{ old('stand_number', $property->stand_number) }}" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="stand_number" value="{{ old('stand_number', $property->stand_number) }}" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div class="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Zone Type</label>
-                                                <select name="zone_type" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <select name="zone_type" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                                     <option value="">-- None --</option>
                                                     @foreach(['Residential','Commercial','Industrial','Agricultural','Mixed Use'] as $zt)
                                                     <option value="{{ $zt }}" {{ old('zone_type', $property->zone_type) === $zt ? 'selected' : '' }}>{{ $zt }}</option>
@@ -2019,16 +2251,16 @@
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
-                                                <input type="text" name="district" value="{{ old('district', $property->district) }}" placeholder="e.g. Ray Nkonyeni" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="district" value="{{ old('district', $property->district) }}" placeholder="e.g. Ray Nkonyeni" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
-                                            <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="KZN South Coast" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Internal Note</label>
-                                            <textarea name="address_internal_note" rows="2" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('address_internal_note', $property->address_internal_note) }}</textarea>
+                                            <textarea name="address_internal_note" rows="2" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('address_internal_note', $property->address_internal_note) }}</textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -2172,13 +2404,40 @@
                                         @endforeach
                                     </select>
                                 </div>
-                                <div>
-                                    <label class="prop-label">Listed Date</label>
-                                    <input type="date" name="listed_date" value="{{ old('listed_date', $property->listed_date?->format('Y-m-d')) }}" class="prop-input prop-field-lifecycle" style="color-scheme: light dark;">
-                                </div>
-                                <div>
-                                    <label class="prop-label">Expiry Date</label>
-                                    <input type="date" name="expiry_date" value="{{ old('expiry_date', $property->expiry_date?->format('Y-m-d')) }}" class="prop-input prop-field-lifecycle" style="color-scheme: light dark;">
+                                @php
+                                    $listedDateValue = $property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d');
+                                @endphp
+                                <div x-data="{
+                                        listedDate: '{{ $listedDateValue }}',
+                                        expiryDate: '{{ old('expiry_date', $property->expiry_date?->format('Y-m-d')) }}',
+                                        addMonths(n) {
+                                            const base = this.listedDate ? new Date(this.listedDate) : new Date();
+                                            base.setMonth(base.getMonth() + n);
+                                            this.expiryDate = base.toISOString().slice(0, 10);
+                                        }
+                                     }" class="contents">
+                                    <div>
+                                        <label class="prop-label">Listed Date</label>
+                                        <input type="date" name="listed_date" :value="listedDate" readonly
+                                               class="prop-input prop-field-lifecycle"
+                                               style="color-scheme: light dark; opacity:.75; cursor:not-allowed;"
+                                               title="Listed Date is always the date the property was loaded">
+                                    </div>
+                                    <div x-data="{ qaOpen: false }" @click.outside="qaOpen = false" class="relative">
+                                        <label class="prop-label">Expiry Date</label>
+                                        <input type="date" name="expiry_date" x-model="expiryDate" :min="listedDate"
+                                               class="prop-input prop-field-lifecycle" style="color-scheme: light dark;"
+                                               @focus="qaOpen = true" @click="qaOpen = true"
+                                               @change="if (expiryDate && expiryDate < listedDate) { expiryDate = listedDate; }">
+                                        <div x-show="qaOpen" x-cloak x-transition.opacity
+                                             class="absolute left-0 right-0 z-50 rounded-md border shadow-lg p-2 flex flex-wrap items-center gap-1.5"
+                                             style="bottom:100%; margin-bottom:4px; background:var(--surface-1); border-color:var(--border);">
+                                            <span class="text-[0.6875rem]" style="color:var(--text-muted);">Quick set:</span>
+                                            <button type="button" @click="addMonths(3); qaOpen = false" class="text-[0.6875rem] px-2 py-0.5 rounded-md border" style="border-color:var(--border); color:var(--text-secondary);">+3 months</button>
+                                            <button type="button" @click="addMonths(6); qaOpen = false" class="text-[0.6875rem] px-2 py-0.5 rounded-md border" style="border-color:var(--border); color:var(--text-secondary);">+6 months</button>
+                                            <button type="button" @click="addMonths(12); qaOpen = false" class="text-[0.6875rem] px-2 py-0.5 rounded-md border" style="border-color:var(--border); color:var(--text-secondary);">+12 months</button>
+                                        </div>
+                                    </div>
                                 </div>
                                 @if(!$isNew)
                                     <div>
@@ -2591,15 +2850,11 @@
                                 </p>
                                 <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Sort order &amp; Custom tags</p>
                                 <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
-                                    Opens a popup where you drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮</span> grip to reorder tags, add a custom tag, or remove one. The order set here is the order used by <span style="color:var(--text-primary); font-weight:600;">Sort by Tag</span> and the order photos appear in portal feeds.
-                                </p>
-                                <p class="text-xs font-bold mb-1.5" style="color:var(--text-primary);">Sort by Tag</p>
-                                <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
-                                    Reorders the entire gallery in one click:
+                                    Opens a popup where you drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮</span> grip to reorder tags, add a custom tag, or remove one. When you click <span style="color:var(--text-primary); font-weight:600;">Done</span>, the gallery auto-sorts to match this order:
                                 </p>
                                 <ul class="text-xs leading-relaxed mb-2 pl-4 space-y-0.5" style="color:var(--text-secondary); list-style:disc;">
                                     <li>Tagged images first, grouped together by tag.</li>
-                                    <li>Tag groups follow the order set in <span style="color:var(--text-primary); font-weight:600;">Sort order &amp; Custom tags</span> (e.g. Exterior → Lounge → Kitchen → Bedrooms…).</li>
+                                    <li>Tag groups follow the order you set (e.g. Exterior → Lounge → Kitchen → Bedrooms…).</li>
                                     <li>Untagged images stay in their existing order at the very end.</li>
                                 </ul>
                                 <p class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
@@ -2624,11 +2879,6 @@
                                 class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
                                 :style="manageTagsOpen ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'">
                             Sort order &amp; Custom tags
-                        </button>
-                        <button type="button" @click="sortByCategory()"
-                                class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
-                                style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                            Sort by Tag
                         </button>
                         <button type="button" @click="save()" :disabled="saving"
                                 class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
@@ -2667,7 +2917,7 @@
                                 <div class="rounded-md px-3 py-2 flex items-start gap-2" style="background:color-mix(in srgb, var(--brand-icon) 6%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 20%, transparent);">
                                     <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--brand-icon);" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg>
                                     <p class="text-xs leading-relaxed" style="color:var(--text-secondary);">
-                                        Drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮ grip</span> on each tag chip to reorder. The order here drives <span style="color:var(--text-primary); font-weight:600;">Sort by Tag</span> on the gallery and the order photos appear in portal feeds.
+                                        Drag the <span style="color:var(--text-primary); font-weight:600;">⋮⋮ grip</span> on each tag chip to reorder. When you click <span style="color:var(--text-primary); font-weight:600;">Done</span>, the gallery auto-sorts to this order — which is also the order photos appear in portal feeds.
                                     </p>
                                 </div>
 
@@ -2722,7 +2972,7 @@
                                 <span class="text-xs" style="color:var(--text-muted);">
                                     <span x-text="availableTags.length"></span> tag<span x-show="availableTags.length !== 1">s</span> in library
                                 </span>
-                                <button type="button" @click="manageTagsOpen = false"
+                                <button type="button" @click="sortByCategory(); manageTagsOpen = false"
                                         class="text-xs font-semibold px-4 py-2 rounded-md"
                                         style="background:var(--ds-green); color:#fff;">
                                     Done
@@ -3045,10 +3295,11 @@
             {{-- Linked contacts --}}
             <div>
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">
-                    Linked Contacts ({{ $property->contacts->count() }})
+                    Linked Contacts (<span data-linked-count>{{ $property->contacts->count() }}</span>)
                 </h3>
+                <div id="linked-contacts-list">
                 @forelse($property->contacts as $c)
-                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);" data-contact-row="{{ $c->id }}">
                     <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white"
                          style="background:{{ $c->type?->color ?? '#334155' }};">
                         {{ $c->initials }}
@@ -3063,17 +3314,16 @@
                             @if($c->pivot->role)<span class="font-semibold" style="color:var(--brand-icon);">{{ ucfirst($c->pivot->role) }}</span>@endif
                         </div>
                     </div>
-                    <form method="POST" action="{{ route('corex.properties.contacts.unlink', [$property, $c]) }}"
-                          onsubmit="return confirm('Unlink {{ addslashes($c->full_name) }} from this property?')">
-                        @csrf @method('DELETE')
-                        <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
-                    </form>
+                    <button type="button"
+                            @click="unlinkContact({{ $c->id }}, @js($c->full_name))"
+                            class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
                 </div>
                 @empty
-                <div class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
+                @endforelse
+                </div>
+                <div id="linked-contacts-empty" class="rounded-md p-6 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover); {{ $property->contacts->count() > 0 ? 'display:none;' : '' }}">
                     <div class="text-sm" style="color:var(--text-secondary);">No contacts linked yet.</div>
                 </div>
-                @endforelse
             </div>
 
             {{-- Link existing contact --}}
@@ -3093,18 +3343,15 @@
                 <div x-show="results.length > 0" class="rounded-md overflow-hidden mb-3"
                      style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
-                        <form method="POST" action="{{ route('corex.properties.contacts.link', $property) }}">
-                            @csrf
-                            <input type="hidden" name="contact_id" :value="r.id">
-                            <button type="submit" class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
-                                    style="border-bottom:1px solid var(--border); background:var(--surface);">
-                                <div>
-                                    <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
-                                    <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[r.phone, r.email].filter(Boolean).join(' · ')"></div>
-                                </div>
-                                <span class="ml-auto text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon);">+ Link</span>
-                            </button>
-                        </form>
+                        <button type="button" @click="linkExisting(r)"
+                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-sky-500/10 transition-colors"
+                                style="border-bottom:1px solid var(--border); background:var(--surface); width:100%;">
+                            <div>
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="r.first_name + ' ' + r.last_name"></div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[r.phone, r.email].filter(Boolean).join(' · ')"></div>
+                            </div>
+                            <span class="ml-auto text-xs font-semibold flex-shrink-0" style="color:var(--brand-icon);">+ Link</span>
+                        </button>
                     </template>
                 </div>
 
@@ -3127,7 +3374,7 @@
                 </button>
 
                 <div x-show="open" x-cloak class="mt-5 space-y-4">
-                    <form method="POST" action="{{ route('corex.properties.contacts.createAndLink', $property) }}" class="space-y-4">
+                    <form @submit.prevent="createAndLink($el, () => { open = false; })" class="space-y-4">
                         @csrf
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
@@ -3173,9 +3420,10 @@
                             </div>
                         </div>
                         <button type="submit"
+                                :disabled="submitting"
                                 class="px-5 py-2 rounded-md text-sm font-semibold text-white"
                                 style="background:var(--brand-button,#0ea5e9);">
-                            Create Contact &amp; Link
+                            <span x-text="submitting ? 'Saving…' : 'Create Contact & Link'"></span>
                         </button>
                     </form>
                 </div>
@@ -3239,6 +3487,54 @@
                 @endforelse
             </div>
         @endif {{-- /!$isNew notes --}}
+        </div>
+
+        {{-- ── HISTORY TAB ──────────────────────────────────────────────────── --}}
+        <div x-show="activeTab === 'history'" x-cloak class="p-6 space-y-4">
+            @if(!$isNew && isset($fullAuditLog))
+                @php
+                    $catColors = [
+                        'property' => '#94a3b8', 'compliance' => '#10b981', 'syndication' => '#3b82f6',
+                        'document' => '#8b5cf6', 'marketing' => '#ec4899', 'media' => '#f59e0b',
+                        'contact_link' => '#06b6d4', 'system' => '#64748b',
+                    ];
+                @endphp
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Property Audit Trail</h3>
+                    <a href="{{ route('corex.properties.show', $property->id) }}?tab=history&export=csv"
+                       class="text-[10px] font-medium px-2 py-1 rounded no-underline"
+                       style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);">Export CSV</a>
+                </div>
+                @forelse($fullAuditLog as $entry)
+                    <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
+                        <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};"></div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start justify-between gap-2">
+                                <div>
+                                    <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $entry->human_summary ?? ucfirst(str_replace('_', ' ', $entry->event_type)) }}</span>
+                                    <span class="text-[10px] ml-1 px-1.5 py-0.5 rounded" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }}20; color:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};">{{ ucfirst($entry->event_category) }}</span>
+                                </div>
+                                <div class="text-[10px] flex-shrink-0" style="color:var(--text-muted);">{{ $entry->created_at->format('j M Y, H:i') }}</div>
+                            </div>
+                            <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">
+                                @if($entry->user) {{ $entry->user->name }} @else System @endif
+                            </div>
+                            @if($entry->old_values || $entry->new_values || $entry->metadata)
+                                <button type="button" @click="showDetail = !showDetail" class="text-[10px] mt-1 underline" style="color:var(--text-muted);" x-text="showDetail ? 'Hide details' : 'Show details'"></button>
+                                <div x-show="showDetail" x-cloak class="mt-1 text-[10px] rounded p-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
+                                    @if($entry->old_values)<div><span class="font-medium">Before:</span> {{ json_encode($entry->old_values) }}</div>@endif
+                                    @if($entry->new_values)<div><span class="font-medium">After:</span> {{ json_encode($entry->new_values) }}</div>@endif
+                                    @if($entry->metadata)<div><span class="font-medium">Details:</span> {{ json_encode($entry->metadata) }}</div>@endif
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                @empty
+                    <div class="py-8 text-center">
+                        <p class="text-sm" style="color:var(--text-muted);">No audit history recorded yet.</p>
+                    </div>
+                @endforelse
+            @endif
         </div>
 
         {{-- ── DRIVE TAB ────────────────────────────────────────────────────── --}}
@@ -3393,6 +3689,445 @@
         @endif {{-- /!$isNew drive --}}
         </div>
 
+        {{-- ── INTELLIGENCE TAB ──────────────────────────────────────────── --}}
+        <div x-show="activeTab === 'intelligence'" x-cloak class="p-6 space-y-6"
+             x-data="{ sellerPreview: false }">
+            @if($isNew)
+                <p class="text-sm" style="color:var(--text-muted);">Save the property first to see Intelligence data.</p>
+            @else
+                @php
+                    $intel = app(\App\Services\PropertyIntelligenceService::class);
+                    $feedbackRollup = $intel->getFeedbackRollup($property->id);
+                    $portalPerf = $intel->getPortalPerformance($property->id);
+                    $compliance = $intel->getComplianceStatus($property->id);
+                    $recommendations = $intel->getAgentRecommendations($property->id);
+                    $comparables = $intel->getComparableListings($property->id);
+                    $buyerSignals = $intel->getBuyerInterestSignals($property->id);
+                @endphp
+
+                {{-- Controls row: Preview toggle + Log Marketing Action + Mark as Sold --}}
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2" x-show="!sellerPreview">
+                        @if(in_array($property->status, ['active', 'for_sale', 'under_offer', 'to_let']))
+                        <details class="inline">
+                            <summary class="text-xs font-medium cursor-pointer px-2 py-1 rounded" style="color: #ef4444; background: color-mix(in srgb, #ef4444 8%, transparent);">Mark as Sold</summary>
+                            <form method="POST" action="{{ route('corex.properties.mark-sold') }}" class="mt-2 p-3 rounded space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                @csrf
+                                <input type="hidden" name="property_id" value="{{ $property->id }}">
+                                <div class="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Sold Price (R)*</label>
+                                        <input type="number" name="sold_price" required placeholder="e.g. 2500000" class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Sold Date*</label>
+                                        <input type="date" name="sold_date" value="{{ now()->toDateString() }}" required class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-medium mb-1" style="color: var(--text-secondary);">Listing Price at Sale</label>
+                                    <input type="number" name="listing_price_at_sale" value="{{ $property->price }}" class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                </div>
+                                <input type="text" name="notes" placeholder="Notes (optional)" class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                <button type="submit" class="text-[10px] font-medium px-3 py-1 rounded text-white" style="background: #ef4444;">Confirm Sold</button>
+                            </form>
+                        </details>
+                        @endif
+                    <details class="inline">
+                        <summary class="text-xs font-medium cursor-pointer px-2 py-1 rounded" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 8%, transparent);">+ Log Marketing Action</summary>
+                        <form method="POST" action="{{ route('corex.properties.marketing-activity.store') }}" class="mt-2 p-3 rounded space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            @csrf
+                            <input type="hidden" name="property_id" value="{{ $property->id }}">
+                            <div class="grid grid-cols-2 gap-2">
+                                <select name="activity_type" required class="rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <option value="">Activity type…</option>
+                                    @foreach(['portal_listed'=>'Portal Listed','portal_renewed'=>'Portal Renewed','photos_refreshed'=>'Photos Refreshed','price_adjusted'=>'Price Adjusted','show_day_held'=>'Show Day Held','social_share'=>'Social Media Share','featured_upgrade'=>'Featured Upgrade','marketing_email'=>'Marketing Email','other'=>'Other'] as $v => $l)
+                                        <option value="{{ $v }}">{{ $l }}</option>
+                                    @endforeach
+                                </select>
+                                <input type="date" name="occurred_at" value="{{ now()->toDateString() }}" class="rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            </div>
+                            <input type="text" name="notes" placeholder="Notes (optional)" class="w-full rounded px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                            <div class="flex items-center justify-between">
+                                <label class="flex items-center gap-1 text-[10px]" style="color: var(--text-muted);">
+                                    <input type="checkbox" name="internal_only" value="1" class="rounded w-3 h-3"> Internal only
+                                </label>
+                                <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded text-white" style="background: var(--brand-button);">Log</button>
+                            </div>
+                        </form>
+                    </details>
+                    </div>{{-- end buttons group --}}
+                    <label class="flex items-center gap-2 text-xs cursor-pointer" style="color: var(--text-muted);">
+                        <input type="checkbox" x-model="sellerPreview" class="rounded w-3 h-3">
+                        Preview as Seller
+                    </label>
+                </div>
+
+                {{-- ── MARKET INTELLIGENCE SNAPSHOT (CMAInfo OCR + matched portal listings) ── --}}
+                @php
+                    $cmaSnapshot = $intel->getCmaSnapshot($property->id);
+                    $matchedProspects = $intel->getMatchedProspectingListings($property->id);
+                    $crossSourceTimeline = $intel->getCrossSourceTimeline($property->id);
+                @endphp
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._market-snapshot', [
+                        'property' => $property,
+                        'cmaSnapshot' => $cmaSnapshot,
+                        'matchedProspects' => $matchedProspects,
+                    ])
+                </div>
+
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._cross-source-timeline', [
+                        'timeline' => $crossSourceTimeline,
+                    ])
+                </div>
+
+                {{-- Portal Leads (P24 + PP) — Spec: .ai/specs/portal-leads.md --}}
+                <div x-show="!sellerPreview">
+                    @include('corex.properties.intelligence._portal-leads', [
+                        'property' => $property,
+                    ])
+                </div>
+
+                {{-- Section A: Performance Dashboard --}}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ $feedbackRollup['total_viewings'] }}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Total Viewings</div>
+                    </div>
+                    <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ $portalPerf['views'] }}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Portal Views (30d)</div>
+                    </div>
+                    <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="text-2xl font-bold" style="color: var(--text-primary);">{{ $buyerSignals->count() }}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Buyer Matches</div>
+                    </div>
+                    <div class="rounded-md p-4 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        @php $dom = $compliance['days_on_market']; @endphp
+                        <div class="text-2xl font-bold" style="color: {{ $dom === null ? 'var(--text-muted)' : ($dom > 60 ? '#ef4444' : ($dom > 30 ? '#f59e0b' : '#10b981')) }};">
+                            {{ $dom ?? '—' }}
+                        </div>
+                        <div class="text-[10px] uppercase tracking-wider mt-1" style="color: var(--text-muted);">Days on Market</div>
+                    </div>
+                </div>
+
+                {{-- Section B: Agent Recommendations --}}
+                @if($recommendations->isNotEmpty())
+                {{-- Agent view --}}
+                <div x-show="!sellerPreview" class="space-y-2">
+                    <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Agent Recommendations</h3>
+                    @foreach($recommendations as $rec)
+                        <div class="rounded-md p-3" style="background: color-mix(in srgb, #00d4aa 5%, var(--surface)); border: 1px solid color-mix(in srgb, #00d4aa 20%, var(--border));">
+                            <div class="flex items-start gap-3">
+                                <svg class="w-4 h-4 mt-0.5 flex-shrink-0" style="color: #00d4aa;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" /></svg>
+                                <div class="flex-1">
+                                    <div class="text-xs font-semibold" style="color: var(--text-primary);">{{ $rec->title }}</div>
+                                    <div class="text-[11px] mt-0.5" style="color: var(--text-secondary);">{{ $rec->reasoning }}</div>
+                                    @if($rec->suggested_action)
+                                        <div class="text-[10px] mt-1 font-medium" style="color: #00d4aa;">→ {{ $rec->suggested_action }}</div>
+                                    @endif
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between mt-2 pt-2" style="border-top: 1px solid var(--border);">
+                                <div class="flex items-center gap-2">
+                                    <form method="POST" action="{{ route('corex.properties.recommendations.action', $rec->id) }}">
+                                        @csrf <input type="hidden" name="action" value="actioned">
+                                        <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded hover:opacity-80" style="background: #00d4aa; color: #fff;">Mark Actioned</button>
+                                    </form>
+                                    <form method="POST" action="{{ route('corex.properties.recommendations.action', $rec->id) }}">
+                                        @csrf <input type="hidden" name="action" value="dismissed">
+                                        <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded hover:opacity-80" style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);">Dismiss</button>
+                                    </form>
+                                </div>
+                                <form method="POST" action="{{ route('corex.properties.recommendations.action', $rec->id) }}">
+                                    @csrf <input type="hidden" name="action" value="toggle_seller_visible">
+                                    <label class="flex items-center gap-1 text-[10px] cursor-pointer" style="color: var(--text-muted);">
+                                        <input type="checkbox" {{ $rec->seller_visible ? 'checked' : '' }} onchange="this.form.submit()" class="w-3 h-3 rounded">
+                                        Seller visible
+                                    </label>
+                                </form>
+                            </div>
+                        </div>
+                    @endforeach
+
+                    {{-- Past recommendations history --}}
+                    @php $pastRecs = DB::table('property_recommendations')->where('property_id', $property->id)->where(fn($q) => $q->whereNotNull('dismissed_at')->orWhereNotNull('actioned_at'))->orderByDesc('generated_at')->get(); @endphp
+                    @if($pastRecs->isNotEmpty())
+                        <details class="text-xs mt-2">
+                            <summary class="cursor-pointer font-medium" style="color: var(--text-muted);">View {{ $pastRecs->count() }} past recommendations</summary>
+                            <div class="mt-2 space-y-1">
+                                @foreach($pastRecs as $past)
+                                    <div class="flex items-center justify-between px-2 py-1 rounded" style="background: var(--surface-2);">
+                                        <span style="color: var(--text-secondary);">{{ $past->title }}</span>
+                                        <span class="text-[10px]" style="color: var(--text-muted);">{{ $past->actioned_at ? 'Actioned' : 'Dismissed' }} {{ \Carbon\Carbon::parse($past->actioned_at ?? $past->dismissed_at)->format('d M') }}</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </details>
+                    @endif
+                </div>
+
+                {{-- Seller view — rephrased recommendations --}}
+                <div x-show="sellerPreview" x-cloak class="space-y-2">
+                    <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Agent Insights</h3>
+                    @foreach($recommendations->where('seller_visible', true) as $rec)
+                        @if($rec->seller_facing_title)
+                        <div class="rounded-md p-3 flex items-start gap-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <svg class="w-4 h-4 mt-0.5 flex-shrink-0" style="color: var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" /></svg>
+                            <div>
+                                <div class="text-xs font-semibold" style="color: var(--text-primary);">{{ $rec->seller_facing_title }}</div>
+                                @if($rec->seller_facing_reasoning)
+                                    <div class="text-[11px] mt-0.5" style="color: var(--text-secondary);">{{ $rec->seller_facing_reasoning }}</div>
+                                @endif
+                            </div>
+                        </div>
+                        @endif
+                    @endforeach
+                </div>
+                @endif
+
+                {{-- Section C: Feedback Rollup --}}
+                <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Feedback Summary</h3>
+                    <div class="grid grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <span style="color: var(--text-muted);">Total feedback captures:</span>
+                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['total_feedback_rows'] }}</span>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-muted);">Unique viewings with feedback:</span>
+                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['total_viewings'] }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Section: Recent Viewings & Feedback Detail --}}
+                @php
+                    $recentViewings = $intel->getRecentViewings($property->id);
+                @endphp
+                @if($recentViewings->isNotEmpty())
+                    <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Recent Viewings & Feedback</h3>
+                        <div class="space-y-3">
+                            @foreach($recentViewings as $rv)
+                                <div class="rounded px-3 py-2.5" style="background: var(--surface); border: 1px solid var(--border);">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-xs font-medium" style="color: var(--text-primary);">{{ $rv['title'] }}</div>
+                                            <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">
+                                                Agent: {{ $rv['agent_name'] }}
+                                                @if($rv['buyers']->isNotEmpty())
+                                                    · Buyer{{ $rv['buyers']->count() > 1 ? 's' : '' }}:
+                                                    @foreach($rv['buyers'] as $b)
+                                                        @if(auth()->user()->hasPermission('access_contacts'))
+                                                            <a href="{{ route('corex.contacts.show', $b['id']) }}" class="no-underline hover:underline" style="color:var(--brand-icon);">{{ $b['name'] }}</a>{{ !$loop->last ? ', ' : '' }}
+                                                        @else
+                                                            {{ $b['name'] }}{{ !$loop->last ? ', ' : '' }}
+                                                        @endif
+                                                    @endforeach
+                                                @endif
+                                            </div>
+                                        </div>
+                                        <div class="text-[10px] flex-shrink-0" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($rv['event_date'])->format('j M Y') }}</div>
+                                    </div>
+                                    @if($rv['feedback']->isNotEmpty())
+                                        @foreach($rv['feedback'] as $fb)
+                                            <div class="mt-2 rounded px-2 py-1.5" style="background: var(--surface-2);">
+                                                @if($fb['outcome_label'] ?? null)
+                                                    <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $fb['outcome_label'] }}</span>
+                                                @endif
+                                                @if($fb['seller_notes'] ?? null)
+                                                    <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fb['seller_notes'] }}</p>
+                                                @endif
+                                                @if($fb['internal_notes'] ?? null)
+                                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);"><span class="font-medium">Internal:</span> {{ $fb['internal_notes'] }}</p>
+                                                @endif
+                                            </div>
+                                        @endforeach
+                                    @else
+                                        <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                {{-- Section: Seller Live Links (auto-created, no generate button) --}}
+                <div x-show="!sellerPreview">
+                    @php
+                        $sellers = $property->contacts()->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])->get();
+                        // Auto-create links for any sellers that don't have one yet
+                        foreach ($sellers as $seller) {
+                            \App\Models\PropertySellerLink::ensureExists($property->id, $seller->id);
+                        }
+                        $sellerLinks = \App\Models\PropertySellerLink::where('property_id', $property->id)
+                            ->whereNull('revoked_at')
+                            ->get();
+                    @endphp
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Seller Live Links</h3>
+                    @if($sellerLinks->isNotEmpty())
+                        <div class="space-y-1">
+                            @foreach($sellerLinks as $sl)
+                                @php $slContact = App\Models\Contact::withoutGlobalScopes()->find($sl->contact_id); @endphp
+                                <div class="flex items-center justify-between px-3 py-2 rounded text-xs" style="background: var(--surface-2);">
+                                    <div class="min-w-0 flex-1">
+                                        <span class="font-medium" style="color: var(--text-primary);">{{ $slContact?->full_name ?? 'Contact' }}</span>
+                                        <span class="text-[10px] ml-1" style="color: var(--text-muted);">Seller</span>
+                                        <div class="text-[10px] mt-0.5 truncate" style="color: var(--text-muted);">{{ url('/property/live/' . $sl->token) }}</div>
+                                        <div class="text-[10px]" style="color: var(--text-muted);">
+                                            Viewed {{ $sl->access_count }}x
+                                            @if($sl->last_accessed_at) · Last: {{ $sl->last_accessed_at->diffForHumans() }} @endif
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2 flex-shrink-0">
+                                        <button type="button" onclick="navigator.clipboard.writeText('{{ url('/property/live/' . $sl->token) }}'); this.textContent='Copied!';"
+                                                class="text-[10px] font-medium px-2 py-0.5 rounded" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 10%, transparent);">Copy</button>
+                                        @php $sellerEmail = $slContact?->email; @endphp
+                                        @if($sellerEmail)
+                                            <a href="mailto:{{ $sellerEmail }}?subject={{ urlencode('Your live marketing dashboard for ' . ($property->title ?? 'your property')) }}&body={{ urlencode("Hi " . ($slContact->first_name ?? 'there') . ",\n\nYour live marketing dashboard is ready. Bookmark this link to see real-time updates on viewings, feedback, and marketing activity:\n\n" . url('/property/live/' . $sl->token) . "\n\nThis page updates automatically. Any questions, just reply to this email or call me.\n\nBest regards,\n" . (auth()->user()->name ?? 'Your Agent')) }}"
+                                               class="text-[10px] font-medium px-2 py-0.5 rounded no-underline" style="color: var(--brand-icon);">Email</a>
+                                        @endif
+                                        <form method="POST" action="{{ route('corex.properties.seller-links.revoke', $sl->id) }}" class="inline">
+                                            @csrf
+                                            <button type="submit" class="text-[10px] font-medium px-2 py-0.5 rounded" style="color: var(--text-muted);">Revoke</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="text-xs py-2" style="color: var(--text-muted);">No sellers linked to this property.</p>
+                    @endif
+                </div>
+
+                {{-- Section D2: Presentations & Market Positioning --}}
+                @php
+                    $presentations = $intel->getPresentations($property->id);
+                    $marketPosition = $intel->getLatestMarketPosition($property->id);
+                @endphp
+                <div>
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Presentations & Market Positioning</h3>
+
+                    {{-- Market Position card (if snapshot exists) --}}
+                    @if($marketPosition)
+                        <div class="rounded-md p-3 mb-3 grid grid-cols-3 gap-3 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['recommended_price'] ?? 0) }}</div>
+                                <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['area_avg_price'] ?? 0) }}</div>
+                                <div class="text-[10px]" style="color: var(--text-muted);">Area Average</div>
+                            </div>
+                            <div>
+                                <div class="text-sm font-bold" style="color: var(--text-primary);">{{ $marketPosition['comparable_sales_count'] ?? 0 }}</div>
+                                <div class="text-[10px]" style="color: var(--text-muted);">Recent Comps</div>
+                            </div>
+                        </div>
+                    @endif
+
+                    {{-- Presentation list --}}
+                    @if($presentations->isNotEmpty())
+                        <div class="space-y-1">
+                            @foreach($presentations as $pres)
+                                <div class="flex items-center justify-between px-3 py-2 rounded" style="background: var(--surface-2);">
+                                    <div>
+                                        <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $pres->title }}</span>
+                                        <span class="text-[10px] ml-2" style="color: var(--text-muted);">{{ \Carbon\Carbon::parse($pres->created_at)->format('d M Y') }}</span>
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded ml-1" style="background: {{ $pres->status === 'finalized' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)' }}; color: {{ $pres->status === 'finalized' ? '#10b981' : '#f59e0b' }};">{{ ucfirst($pres->status) }}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2" x-show="!sellerPreview">
+                                        @if(\Illuminate\Support\Facades\Route::has('presentations.show'))
+                                            <a href="{{ route('presentations.show', $pres->id) }}" target="_blank" class="text-[10px] font-medium no-underline" style="color: var(--brand-icon);">View</a>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="text-xs" style="color: var(--text-muted);">No presentations created for this property yet.</p>
+                    @endif
+
+                    {{-- Generate Updated Presentation (Phase 2 placeholder) --}}
+                    <div x-show="!sellerPreview" class="mt-2">
+                        <button type="button" disabled
+                                class="text-[10px] font-medium px-3 py-1.5 rounded opacity-50 cursor-not-allowed"
+                                style="background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);"
+                                title="Coming soon: weekly auto-refreshed market positioning. Market data is being captured now to power this.">
+                            Generate Updated Presentation (Coming Soon)
+                        </button>
+                    </div>
+                </div>
+
+                {{-- Section E: Buyer Interest Signals --}}
+                @if($buyerSignals->isNotEmpty())
+                <div>
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">
+                        <span x-show="!sellerPreview">Buyer Interest Signals</span>
+                        <span x-show="sellerPreview" x-cloak>Buyer Interest</span>
+                    </h3>
+                    <div x-show="sellerPreview" x-cloak class="text-xs" style="color: var(--text-secondary);">
+                        {{ $buyerSignals->count() }} potential buyers match this property's profile.
+                    </div>
+                    <div x-show="!sellerPreview" class="space-y-1">
+                        @foreach($buyerSignals as $buyer)
+                            <div class="flex items-center justify-between px-3 py-2 rounded" style="background: var(--surface-2);">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $buyer['name'] }}</span>
+                                    @php $statePill = match($buyer['state']) { 'warm' => '#10b981', 'cold' => '#f59e0b', 'lost' => '#ef4444', default => '#3b82f6' }; @endphp
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style="background: {{ $statePill }}20; color: {{ $statePill }};">{{ $buyer['state'] ?? 'new' }}</span>
+                                </div>
+                                <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer['id'], 'prefill_class' => 'viewing']) }}"
+                                   class="text-[10px] font-medium no-underline" style="color: #00d4aa;">Schedule Viewing</a>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Section F: Comparable Listings --}}
+                @if($comparables->isNotEmpty())
+                <div>
+                    <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Comparable Listings</h3>
+                    <div class="space-y-1">
+                        @foreach($comparables as $comp)
+                            <a href="{{ route('corex.properties.show', $comp['id']) }}" target="_blank"
+                               class="flex items-center justify-between px-3 py-2 rounded no-underline hover:opacity-80" style="background: var(--surface-2);">
+                                <div>
+                                    <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $comp['title'] }}</span>
+                                    <span class="text-[10px] ml-2" style="color: var(--text-muted);">{{ $comp['suburb'] }}</span>
+                                </div>
+                                <div class="text-xs" style="color: var(--text-secondary);">
+                                    R {{ number_format($comp['price'] ?? 0) }}
+                                    @if($comp['days_on_market']) · {{ $comp['days_on_market'] }}d @endif
+                                </div>
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Section G: Compliance Badges --}}
+                <div class="flex flex-wrap gap-3">
+                    <span class="text-[10px] px-2 py-1 rounded font-medium"
+                          style="background: {{ $compliance['mandate_expired'] ?? true ? 'color-mix(in srgb, var(--ds-crimson) 10%, transparent)' : 'rgba(16,185,129,0.1)' }}; color: {{ $compliance['mandate_expired'] ?? true ? '#ef4444' : '#10b981' }}; border: 1px solid {{ $compliance['mandate_expired'] ?? true ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)' }};">
+                        Mandate: {{ $compliance['mandate_type'] ?? 'None' }} {{ $compliance['mandate_expired'] ?? true ? '(EXPIRED)' : ($compliance['mandate_expiry'] ? 'until ' . $compliance['mandate_expiry'] : '') }}
+                    </span>
+                    <span class="text-[10px] px-2 py-1 rounded font-medium"
+                          style="background: {{ ($compliance['seller_fica_complete'] ?? false) ? 'rgba(16,185,129,0.1)' : 'color-mix(in srgb, var(--ds-crimson) 10%, transparent)' }}; color: {{ ($compliance['seller_fica_complete'] ?? false) ? '#10b981' : '#ef4444' }};">
+                        Seller FICA: {{ ($compliance['seller_fica_complete'] ?? false) ? 'Complete' : 'Outstanding' }}
+                    </span>
+                    <span class="text-[10px] px-2 py-1 rounded font-medium"
+                          style="background: {{ ($compliance['published'] ?? false) ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)' }}; color: {{ ($compliance['published'] ?? false) ? '#10b981' : '#6b7280' }};">
+                        Listing: {{ ($compliance['published'] ?? false) ? 'Active' : 'Unpublished' }}
+                    </span>
+                </div>
+            @endif
+        </div>
+
         {{-- ── CORE MATCHES TAB ──────────────────────────────────────────── --}}
         <div x-show="activeTab === 'core-matches'" x-cloak class="p-6 space-y-4">
         @if($isNew)
@@ -3525,11 +4260,13 @@
                                 <span><strong style="color:var(--text-secondary);">{{ $cm->floor_size_min ? number_format($cm->floor_size_min) : '—' }}–{{ $cm->floor_size_max ? number_format($cm->floor_size_max) : '—' }}</strong> m² floor</span>
                                 @endif
                             </div>
+                            @if($cm->contact)
                             <a href="{{ route('corex.contacts.matches.results', [$cm->contact, $cm]) }}"
                                class="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold no-underline"
                                style="color:var(--brand-icon);">
                                 View match results →
                             </a>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -3543,10 +4280,263 @@
 
     </div>{{-- /two-column layout --}}
 
+    {{-- Unsaved changes modal (in-app navigation only — browser still shows native dialog on F5/close) --}}
+    {{-- Contact required modal --}}
+    <div x-show="contactRequiredModalOpen" x-cloak
+         class="fixed inset-0 z-[9999] flex items-center justify-center"
+         style="background: rgba(0,0,0,0.6);"
+         @keydown.escape.window="contactRequiredModalOpen = false"
+         @click.self="contactRequiredModalOpen = false">
+        <div class="rounded-md shadow-2xl w-full max-w-md mx-4 p-6"
+             style="background: var(--surface); border: 1px solid var(--border);"
+             @click.stop>
+            <div class="flex items-start gap-3 mb-3">
+                <div class="flex-shrink-0 rounded-full p-2"
+                     style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent);">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color: var(--brand-icon);"
+                         fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Contact required</h3>
+                    <p class="text-sm mt-1" style="color: var(--text-secondary);">
+                        A contact must be linked to this property before it can be saved.
+                    </p>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2 justify-end mt-4">
+                <button type="button"
+                        class="px-4 py-2 text-sm rounded-md"
+                        style="background: transparent; color: var(--text-secondary); border: 1px solid var(--border);"
+                        @click="contactRequiredModalOpen = false">
+                    Cancel
+                </button>
+                <button type="button"
+                        class="px-4 py-2 text-sm rounded-md font-medium text-white"
+                        style="background: var(--brand-button, #0ea5e9);"
+                        @click="activeTab = 'contacts'; contactRequiredModalOpen = false;">
+                    Add Contact
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Unsaved-changes modal (vanilla, lives outside Alpine scope chaos) --}}
+    <div id="prop-unsaved-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.6); align-items:center; justify-content:center;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); width:100%; max-width:28rem; margin:0 1rem; padding:1.5rem;">
+            <h3 style="font-size:1.125rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-primary);">Unsaved changes</h3>
+            <p style="font-size:0.875rem; margin-bottom:1.25rem; color:var(--text-secondary);">
+                You have unsaved changes on this property. What would you like to do?
+            </p>
+            <div style="display:flex; flex-wrap:wrap; gap:0.5rem; justify-content:flex-end;">
+                <button type="button" data-prop-unsaved="cancel"
+                        style="padding:0.5rem 1rem; font-size:0.875rem; border-radius:6px; background:transparent; color:var(--text-secondary); border:1px solid var(--border); cursor:pointer;">
+                    Cancel
+                </button>
+                <button type="button" data-prop-unsaved="discard"
+                        style="padding:0.5rem 1rem; font-size:0.875rem; border-radius:6px; font-weight:500; background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); cursor:pointer;">
+                    Discard changes
+                </button>
+                <button type="button" data-prop-unsaved="save"
+                        style="padding:0.5rem 1rem; font-size:0.875rem; border-radius:6px; font-weight:500; color:white; background:var(--brand-button, #0ea5e9); border:none; cursor:pointer;">
+                    Save changes
+                </button>
+            </div>
+        </div>
+    </div>
+
 </div>{{-- /w-full --}}
 
 @push('scripts')
 <script>
+// ─────────────────────────────────────────────────────────────────────
+// Property page: unsaved-changes guard (self-contained, no Alpine deps)
+// ─────────────────────────────────────────────────────────────────────
+(function () {
+    var dirty = false;
+    var pending = null; // { type: 'tab'|'url', value: string }
+    var initialSnapshot = null;
+
+    function form() { return document.getElementById('prop-update-form'); }
+    function modal() { return document.getElementById('prop-unsaved-modal'); }
+    function saveBtn() { return document.querySelector('[data-prop-save]'); }
+    function saveLabel() { return document.querySelector('[data-prop-save] .prop-save-label'); }
+
+    function snapshot() {
+        var f = form();
+        if (!f) return '';
+        try { return new URLSearchParams(new FormData(f)).toString(); } catch (e) { return ''; }
+    }
+
+    function paintSaveBtn() {
+        var btn = saveBtn(); var lbl = saveLabel();
+        if (lbl) lbl.textContent = dirty ? 'Save Changes *' : 'Save Changes';
+        if (btn) {
+            if (dirty) {
+                btn.style.background = 'var(--brand-button, #0ea5e9)';
+                btn.style.color = '#fff';
+                btn.style.borderColor = 'var(--brand-button, #0ea5e9)';
+                btn.classList.add('is-dirty');
+            } else {
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+                btn.classList.remove('is-dirty');
+            }
+        }
+    }
+
+    function recompute() {
+        var current = snapshot();
+        dirty = (current !== initialSnapshot);
+        paintSaveBtn();
+    }
+
+    function setClean() {
+        initialSnapshot = snapshot();
+        dirty = false;
+        paintSaveBtn();
+    }
+
+    function showModal() { var m = modal(); if (m) m.style.display = 'flex'; }
+    function hideModal() { var m = modal(); if (m) m.style.display = 'none'; pending = null; }
+
+    function isInternalNavigableAnchor(a, e) {
+        if (!a) return false;
+        var href = a.getAttribute('href') || '';
+        if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0 || href.indexOf('mailto:') === 0 || href.indexOf('tel:') === 0) return false;
+        if (a.target === '_blank' || a.hasAttribute('download')) return false;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+        try {
+            var url = new URL(a.href, window.location.href);
+            if (url.origin !== window.location.origin) return false;
+            if (url.pathname === window.location.pathname && url.search === window.location.search) return false;
+        } catch (err) { return false; }
+        return true;
+    }
+
+    // Capture-phase listener: catch tab buttons and internal anchor nav
+    document.addEventListener('click', function (e) {
+        if (!dirty) return;
+        if (modal() && modal().style.display === 'flex') return;
+
+        var tabBtn = e.target.closest && e.target.closest('[data-prop-tab]');
+        if (tabBtn) {
+            // ignore click on already-active tab
+            var key = tabBtn.getAttribute('data-prop-tab');
+            var rootEl = document.querySelector('[x-data*="activeTab"]');
+            var activeKey = null;
+            try { activeKey = rootEl && window.Alpine && Alpine.$data(rootEl).activeTab; } catch (err) {}
+            if (key && key !== activeKey) {
+                e.preventDefault(); e.stopPropagation();
+                pending = { type: 'tab', value: key };
+                showModal();
+            }
+            return;
+        }
+
+        var a = e.target.closest && e.target.closest('a[href]');
+        if (a && isInternalNavigableAnchor(a, e)) {
+            e.preventDefault(); e.stopPropagation();
+            pending = { type: 'url', value: a.href };
+            showModal();
+        }
+    }, true);
+
+    // Modal buttons
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('[data-prop-unsaved]');
+        if (!btn) return;
+        var action = btn.getAttribute('data-prop-unsaved');
+
+        if (action === 'cancel') { hideModal(); return; }
+
+        if (action === 'discard') {
+            var p = pending; hideModal(); setClean();
+            if (p && p.type === 'tab') {
+                window.dispatchEvent(new CustomEvent('corex:switch-tab', { detail: p.value }));
+            } else if (p && p.type === 'url') {
+                window.location.href = p.value;
+            }
+            return;
+        }
+
+        if (action === 'save') {
+            var f = form();
+            if (f && window.coreXPropertyContactGuard && !window.coreXPropertyContactGuard(null, f)) {
+                hideModal(); return;
+            }
+            hideModal(); setClean();
+            if (f) f.submit();
+        }
+    });
+
+    // ESC closes modal
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal() && modal().style.display === 'flex') hideModal();
+    });
+
+    // beforeunload: warn on hard navigation away
+    window.addEventListener('beforeunload', function (e) {
+        if (!dirty) return;
+        if (modal() && modal().style.display === 'flex') return;
+        e.preventDefault(); e.returnValue = '';
+    });
+
+    // Recompute dirty on every input/change in the form
+    document.addEventListener('input', function (e) {
+        if (!e.target.closest || !e.target.closest('#prop-update-form')) return;
+        recompute();
+    }, true);
+    document.addEventListener('change', function (e) {
+        if (!e.target.closest || !e.target.closest('#prop-update-form')) return;
+        recompute();
+    }, true);
+
+    // Any other form submitting (link/unlink contact, delete note, etc.) is intentional —
+    // clear dirty so beforeunload doesn't prompt.
+    document.addEventListener('submit', function (e) {
+        if (!e.target || e.target.id === 'prop-update-form') return;
+        setClean();
+    }, true);
+
+    function init() {
+        if (!form()) return;
+        initialSnapshot = snapshot();
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    // Expose for save form @submit handler
+    window.coreXPropDirty = {
+        isDirty: function () { return dirty; },
+        clear: setClean,
+        recompute: recompute,
+    };
+})();
+
+window.coreXPropertyContactGuard = function (event, form) {
+    if (!form) return true;
+    var isNew = form.getAttribute('data-is-new') === '1';
+    var hasContact;
+    if (isNew) {
+        hasContact = document.querySelectorAll(
+            "input[name^='pending_contact_ids'], input[name^='pending_new_contacts']"
+        ).length > 0;
+    } else {
+        hasContact = parseInt(form.getAttribute('data-contact-count') || '0', 10) > 0;
+    }
+    if (hasContact) return true;
+    if (event) event.preventDefault();
+    window.dispatchEvent(new CustomEvent('corex:contact-required'));
+    return false;
+};
+
 // Pending contacts manager (create form — no property ID yet)
 function pendingContactsManager(searchUrl) {
     return {
@@ -3620,6 +4610,7 @@ function propertyContactsManager(searchUrl) {
         results: [],
         loading: false,
         searched: false,
+        submitting: false,
         async search() {
             if (this.query.length < 1) { this.results = []; this.searched = false; return; }
             this.loading = true;
@@ -3632,8 +4623,182 @@ function propertyContactsManager(searchUrl) {
             } finally {
                 this.loading = false;
             }
-        }
+        },
+        _csrf() {
+            const m = document.querySelector('meta[name="csrf-token"]');
+            return m ? m.getAttribute('content') : '';
+        },
+        _afterAdd(contact) {
+            window.coreXAppendLinkedContact(contact);
+            // Drop this contact from current search results
+            this.results = this.results.filter(r => r.id !== contact.id);
+            // Dismiss contact-required modal and return to info tab so user can save
+            window.dispatchEvent(new CustomEvent('corex:contact-added'));
+        },
+        async linkExisting(r) {
+            if (this.submitting) return;
+            this.submitting = true;
+            try {
+                const res = await fetch(@js(route('corex.properties.contacts.link', $property)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify({ contact_id: r.id })
+                });
+                if (!res.ok) { alert('Failed to link contact.'); return; }
+                const data = await res.json();
+                if (data.ok && data.contact) this._afterAdd(data.contact);
+            } catch (e) {
+                alert('Network error while linking contact.');
+            } finally {
+                this.submitting = false;
+            }
+        },
+        async createAndLink(formEl, onDone) {
+            if (this.submitting) return;
+            this.submitting = true;
+            try {
+                const fd = new FormData(formEl);
+                const payload = {};
+                for (const [k, v] of fd.entries()) { if (k !== '_token') payload[k] = v; }
+                let res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                    body: JSON.stringify(payload)
+                });
+                if (res.status === 409) {
+                    const data = await res.json();
+                    const dup = data.duplicate_detected || {};
+                    const names = (dup.duplicates || []).map(d => '• ' + d.name + (d.phone ? ' (' + d.phone + ')' : '')).join('\n');
+                    if (dup.mode === 'hard_block_request') {
+                        alert('A possible duplicate contact exists. Please ask an admin to review:\n\n' + names);
+                        return;
+                    }
+                    if (dup.can_override || dup.mode === 'soft_warn') {
+                        if (!confirm('Possible duplicate contact(s) found:\n\n' + names + '\n\nCreate anyway?')) return;
+                        payload.bypass_duplicate_check = 1;
+                        res = await fetch(@js(route('corex.properties.contacts.createAndLink', $property)), {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'X-CSRF-TOKEN': this._csrf(),
+                            },
+                            body: JSON.stringify(payload)
+                        });
+                    } else {
+                        alert('Duplicate contact exists:\n\n' + names);
+                        return;
+                    }
+                }
+                if (!res.ok) {
+                    if (res.status === 422) {
+                        const data = await res.json().catch(() => ({}));
+                        const msgs = Object.values(data.errors || {}).flat().join('\n');
+                        alert('Please fix the following:\n' + (msgs || 'Validation failed.'));
+                    } else {
+                        alert('Failed to create contact.');
+                    }
+                    return;
+                }
+                const data = await res.json();
+                if (data.ok && data.contact) {
+                    this._afterAdd(data.contact);
+                    formEl.reset();
+                    if (typeof onDone === 'function') onDone();
+                }
+            } catch (e) {
+                alert('Network error while creating contact.');
+            } finally {
+                this.submitting = false;
+            }
+        },
+        async unlinkContact(id, name) {
+            if (!confirm('Unlink ' + name + ' from this property?')) return;
+            try {
+                const urlTpl = @js(route('corex.properties.contacts.unlink', [$property->id, 0]));
+                const res = await fetch(urlTpl.replace(/\/0$/, '/' + id), {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': this._csrf(),
+                    },
+                });
+                if (!res.ok) { alert('Failed to unlink contact.'); return; }
+                const data = await res.json();
+                window.coreXRemoveLinkedContact(id, data.count);
+            } catch (e) {
+                alert('Network error while unlinking contact.');
+            }
+        },
     };
+}
+
+// DOM helpers — keep the linked-contacts list in sync with AJAX results,
+// update the data-contact-count on the main form, and toggle empty state.
+window.coreXAppendLinkedContact = function (c) {
+    const list = document.getElementById('linked-contacts-list');
+    const empty = document.getElementById('linked-contacts-empty');
+    if (!list) return;
+    if (list.querySelector('[data-contact-row="' + c.id + '"]')) return; // already present
+    const meta = [];
+    if (c.phone) meta.push('<span>' + escapeHtml(c.phone) + '</span>');
+    if (c.email) meta.push('<span>' + escapeHtml(c.email) + '</span>');
+    if (c.role)  meta.push('<span class="font-semibold" style="color:var(--brand-icon);">' + escapeHtml(c.role.charAt(0).toUpperCase() + c.role.slice(1)) + '</span>');
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-3 px-4 py-3 rounded-md mb-2';
+    row.setAttribute('style', 'background:var(--surface-2); border:1px solid var(--border);');
+    row.setAttribute('data-contact-row', c.id);
+    row.innerHTML =
+        '<div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 text-sm font-bold text-white" style="background:' + escapeHtml(c.type_color || '#334155') + ';">' + escapeHtml(c.initials || '?') + '</div>' +
+        '<div class="flex-1 min-w-0">' +
+            '<a href="' + escapeHtml(c.show_url) + '" class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">' + escapeHtml(c.full_name) + '</a>' +
+            '<div class="text-xs mt-0.5 flex gap-3" style="color:var(--text-muted);">' + meta.join('') + '</div>' +
+        '</div>' +
+        '<button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>';
+    row.querySelector('button').addEventListener('click', function () {
+        // Defer to Alpine manager so we go through the same unlink flow.
+        const wrap = document.querySelector('[x-data^="propertyContactsManager"]');
+        if (wrap && wrap._x_dataStack && wrap._x_dataStack[0]) {
+            wrap._x_dataStack[0].unlinkContact(c.id, c.full_name);
+        }
+    });
+    list.appendChild(row);
+    if (empty) empty.style.display = 'none';
+    // Update count badge + main-form data-contact-count
+    document.querySelectorAll('[data-linked-count]').forEach(el => el.textContent = list.children.length);
+    const form = document.getElementById('prop-update-form');
+    if (form) form.setAttribute('data-contact-count', String(list.children.length));
+};
+
+window.coreXRemoveLinkedContact = function (id, serverCount) {
+    const list = document.getElementById('linked-contacts-list');
+    const empty = document.getElementById('linked-contacts-empty');
+    if (!list) return;
+    const row = list.querySelector('[data-contact-row="' + id + '"]');
+    if (row) row.remove();
+    const count = typeof serverCount === 'number' ? serverCount : list.children.length;
+    document.querySelectorAll('[data-linked-count]').forEach(el => el.textContent = count);
+    const form = document.getElementById('prop-update-form');
+    if (form) form.setAttribute('data-contact-count', String(count));
+    if (empty) empty.style.display = count > 0 ? 'none' : '';
+};
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
 // ── Spaces & Features Manager ─────────────────────────────────────────────
@@ -4169,7 +5334,7 @@ function propertyAddress(config) {
         unitNumber: config.unitNumber || '',
         suburb: config.suburb || '',
         city: config.city || '',
-        province: config.province || 'KwaZulu-Natal',
+        province: config.province || '',
         hideStreetName: config.hideStreetName || false,
         hideStreetNumber: config.hideStreetNumber || false,
         hideComplexName: config.hideComplexName || false,
@@ -4257,7 +5422,7 @@ function ppSyndication(config) {
                 '': 'background:var(--surface-2); color:var(--text-muted);',
                 'pending': 'background:rgba(245,158,11,0.12); color:var(--ds-amber);',
                 'submitted': 'background:rgba(245,158,11,0.12); color:var(--ds-amber);',
-                'active': 'background:rgba(0,212,170,0.12); color:var(--ds-green);',
+                'active': 'background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--ds-green);',
                 'error': 'background:rgba(239,68,68,0.12); color:var(--ds-crimson);',
                 'deactivated': 'background:var(--surface-2); color:var(--text-muted);',
             };
@@ -4712,6 +5877,126 @@ function p24Syndication(config) {
     });
 })();
 </script>
+
+{{-- Leaflet (OpenStreetMap) — pin map for the Internal address. --}}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+/**
+ * Map widget under the Public/Internal address card. Reads address fields
+ * from the surrounding propertyAddress Alpine scope and drops a Leaflet/OSM
+ * pin via Nominatim geocoding. Drag-to-adjust. lat/lng saved on form submit.
+ */
+function propertyMapWidget(cfg) {
+    return {
+        open: false,
+        lat: cfg.initialLat || 0,
+        lng: cfg.initialLng || 0,
+        geocoding: false,
+        _map: null, _marker: null,
+        _initialSuburb:   cfg.initialSuburb   || '',
+        _initialCity:     cfg.initialCity     || '',
+        _initialProvince: cfg.initialProvince || '',
+
+        init() {
+            // Panel starts CLOSED — user opens it to see the map.
+            this.open = false;
+
+            // Auto-geocode every time the P24 picker reports a new suburb.
+            window.addEventListener('p24-location-changed', (e) => {
+                if (e.detail && e.detail.suburbId) this.geocodeSuburb(e.detail);
+            });
+
+            // Render the map only after the user expands the panel.
+            this.$watch('open', (val) => { if (val) this.$nextTick(() => this._renderMap()); });
+
+            // On initial load: if no saved coords but property already has
+            // a suburb, geocode it now so the pin is ready when the user
+            // expands, and so submit saves real coords.
+            if ((!this.lat || !this.lng) && this._initialSuburb) {
+                this.geocodeSuburb({
+                    suburbName:   this._initialSuburb,
+                    cityName:     this._initialCity,
+                    provinceName: this._initialProvince,
+                });
+            }
+        },
+
+        /**
+         * Geocode the suburb centroid using Nominatim's STRUCTURED query
+         * (suburb / city / state) — much more accurate than free-text,
+         * which previously matched the wrong "Port Edward" and dropped
+         * the pin in Kimberley.
+         */
+        async geocodeSuburb(detail) {
+            const params = new URLSearchParams({
+                format: 'json',
+                limit: '1',
+                countrycodes: 'za',
+            });
+            if (detail.suburbName)   params.set('suburb', detail.suburbName);
+            if (detail.cityName)     params.set('city',   detail.cityName);
+            if (detail.provinceName) params.set('state',  detail.provinceName);
+            this.geocoding = true;
+            try {
+                const r = await fetch('https://nominatim.openstreetmap.org/search?' + params.toString(),
+                                      { headers: { 'Accept': 'application/json' } });
+                const arr = await r.json();
+                let hit = Array.isArray(arr) && arr[0];
+                if (!hit) {
+                    // Fallback: looser free-text query with suburb+state.
+                    const q = [detail.suburbName, detail.provinceName, 'South Africa'].filter(Boolean).join(', ');
+                    const r2 = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=za&q=' + encodeURIComponent(q),
+                                           { headers: { 'Accept': 'application/json' } });
+                    const arr2 = await r2.json();
+                    hit = Array.isArray(arr2) && arr2[0];
+                }
+                if (hit) {
+                    this.lat = (+hit.lat).toFixed(7);
+                    this.lng = (+hit.lon).toFixed(7);
+                    // Don't force the panel open — the pin is saved silently;
+                    // user can expand the Map strip whenever they want.
+                    if (this.open) this.$nextTick(() => this._placeMarker(+hit.lat, +hit.lon));
+                }
+            } catch (e) { /* silent */ }
+            finally { this.geocoding = false; }
+        },
+
+        _renderMap() {
+            const el = document.getElementById('property-map');
+            if (!el || !window.L) return;
+            // Avoid re-initialising on second open.
+            if (this._map) { setTimeout(() => this._map.invalidateSize(), 50); return; }
+
+            const center = (this.lat && this.lng) ? [+this.lat, +this.lng] : [-30.5, 30.5];
+            this._map = L.map(el).setView(center, (this.lat && this.lng) ? 16 : 6);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors',
+            }).addTo(this._map);
+            if (this.lat && this.lng) this._placeMarker(+this.lat, +this.lng);
+        },
+
+        _placeMarker(lat, lng) {
+            if (!this._map) return;
+            if (this._marker) {
+                this._marker.setLatLng([lat, lng]);
+            } else {
+                this._marker = L.marker([lat, lng], { draggable: true }).addTo(this._map);
+                this._marker.on('dragend', (e) => {
+                    const p = e.target.getLatLng();
+                    this.lat = p.lat.toFixed(7);
+                    this.lng = p.lng.toFixed(7);
+                });
+            }
+            this._map.setView([lat, lng], 16);
+        },
+
+    };
+}
+</script>
 @endpush
 
 {{-- ── Required Fields Modal ───────────────────────────────────────────── --}}
@@ -4750,4 +6035,101 @@ function p24Syndication(config) {
         </div>
     </div>
 </div>
+{{-- ═══════════ Whistleblower Report Modal ═══════════ --}}
+@permission('compliance.whistleblow.create')
+@if(!$isNew)
+<template x-teleport="body">
+<div x-show="wbReportOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" x-transition.opacity>
+    <div class="absolute inset-0" style="background:rgba(0,0,0,0.55); backdrop-filter:blur(2px);" @click="wbReportOpen = false"></div>
+    <div class="relative rounded-md shadow-2xl" style="width:520px; max-width:95vw; max-height:88vh; overflow-y:auto; background:var(--surface); border:1px solid var(--border);"
+         x-data="{
+            tier: 'tier_1', submitting: false, errorMsg: '', successMsg: '',
+            async submitReport() {
+                this.submitting = true; this.errorMsg = '';
+                const fd = new FormData(document.getElementById('wb-report-form'));
+                try {
+                    const resp = await fetch('{{ route("compliance.whistleblow.store") }}', {
+                        method: 'POST', body: fd,
+                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+                    });
+                    const data = await resp.json();
+                    if (data.ok) {
+                        this.successMsg = 'Report submitted. Reference: ' + data.reference;
+                        setTimeout(() => { wbReportOpen = false; this.successMsg = ''; }, 2500);
+                    } else {
+                        this.errorMsg = data.message || 'Submission failed.';
+                    }
+                } catch (e) { this.errorMsg = 'Network error. Please try again.'; }
+                this.submitting = false;
+            }
+         }">
+        <form id="wb-report-form" @submit.prevent="submitReport()">
+            @csrf
+            <input type="hidden" name="property_id" value="{{ $property->id }}">
+            <input type="hidden" name="property_address" value="{{ $property->address ?? $property->title }}">
+
+            <div class="p-5 border-b" style="border-color:var(--border);">
+                <h3 class="text-base font-bold" style="color:var(--text-primary);">Report Non-Compliant Listing</h3>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">{{ $property->address ?? $property->title }}</p>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <template x-if="successMsg">
+                    <div class="rounded-md p-3 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-green) 10%, transparent); color:var(--ds-green);" x-text="successMsg"></div>
+                </template>
+                <template x-if="errorMsg">
+                    <div class="rounded-md p-3 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-red) 10%, transparent); color:var(--ds-red);" x-text="errorMsg"></div>
+                </template>
+
+                {{-- Tier --}}
+                <fieldset>
+                    <legend class="text-xs font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Complaint Type</legend>
+                    <div class="space-y-2">
+                        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="tier" value="tier_1" x-model="tier" class="mt-0.5"><span><span class="text-sm font-semibold" style="color:var(--text-primary);">Paperwork breach</span><br><span class="text-xs" style="color:var(--text-muted);">Seller confirmed no mandate / FICA</span></span></label>
+                        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="tier" value="tier_2" x-model="tier" class="mt-0.5"><span><span class="text-sm font-semibold" style="color:var(--text-primary);">No FFC displayed</span></span></label>
+                        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="tier" value="tier_3" x-model="tier" class="mt-0.5"><span><span class="text-sm font-semibold" style="color:var(--text-primary);">Unregistered practitioner</span></span></label>
+                    </div>
+                </fieldset>
+
+                <div>
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Subject Agency *</label>
+                    <input type="text" name="subjects[0][agency_name]" required class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="Agency or practitioner name">
+                </div>
+                <div>
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Practitioner name</label>
+                    <input type="text" name="subjects[0][practitioner_name]" class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="If known">
+                </div>
+                <div>
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Portal URL *</label>
+                    <input type="url" name="subjects[0][portal_url]" required class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="https://...">
+                </div>
+                <input type="hidden" name="subjects[0][portal_source]" value="other">
+
+                <div x-show="tier === 'tier_1'" x-cloak>
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Seller statement / Notes *</label>
+                    <textarea name="seller_statement" rows="3" class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="What did the seller say..."></textarea>
+                </div>
+                <div x-show="tier !== 'tier_1'">
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Notes</label>
+                    <textarea name="agent_notes" rows="3" class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--input-bg); border:1px solid var(--border); color:var(--text-primary);" placeholder="What did you observe..."></textarea>
+                </div>
+
+                <div>
+                    <label class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Attach Screenshot</label>
+                    <input type="file" name="screenshot" accept="image/*" class="mt-1 w-full text-sm" style="color:var(--text-primary);">
+                </div>
+            </div>
+
+            <div class="p-5 border-t flex justify-end gap-3" style="border-color:var(--border);">
+                <button type="button" @click="wbReportOpen = false" class="px-4 py-2 rounded-md text-sm font-medium" style="color:var(--text-secondary);">Cancel</button>
+                <button type="submit" :disabled="submitting" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-default);">
+                    <span x-text="submitting ? 'Submitting...' : 'Submit Report'"></span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+</template>
+@endif
+@endpermission
 @endsection

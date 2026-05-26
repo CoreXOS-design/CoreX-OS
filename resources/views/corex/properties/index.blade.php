@@ -44,17 +44,29 @@
             'Published' => ['bg' => 'color-mix(in srgb, var(--brand-icon) 12%, transparent)',  'fg' => 'var(--brand-icon)'],
         ];
     @endphp
+    @php
+        $kpiTiles = [
+            ['label' => 'Total',     'value' => $stats['total'],  'filter' => ''],
+            ['label' => 'Active',    'value' => $stats['active'], 'filter' => 'active'],
+            ['label' => 'Draft',     'value' => $stats['draft'],  'filter' => 'draft'],
+            ['label' => 'Sold',      'value' => $stats['sold'],   'filter' => 'sold'],
+            ['label' => 'Published', 'value' => $stats['synced'], 'filter' => 'published'],
+        ];
+        $currentStatus = $status ?? '';
+        $baseUrl = request()->url();
+        $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
+    @endphp
     <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 xl:gap-4">
-        @foreach([
-            ['label' => 'Total',     'value' => $stats['total']],
-            ['label' => 'Active',    'value' => $stats['active']],
-            ['label' => 'Draft',     'value' => $stats['draft']],
-            ['label' => 'Sold',      'value' => $stats['sold']],
-            ['label' => 'Published', 'value' => $stats['synced']],
-        ] as $kpi)
-        @php $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)']; @endphp
-        <div class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300"
-             style="background:var(--surface); border:1px solid var(--border);">
+        @foreach($kpiTiles as $kpi)
+        @php
+            $c = $kpiColors[$kpi['label']] ?? ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'];
+            $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
+            $tileUrl = $kpi['filter'] === ''
+                ? $baseUrl . '?' . http_build_query($preserveParams)
+                : $baseUrl . '?' . http_build_query(array_merge($preserveParams, ['status' => $kpi['filter']]));
+        @endphp
+        <a href="{{ $tileUrl }}" class="rounded-md px-4 py-3 flex items-center gap-3 transition-all duration-300 no-underline cursor-pointer hover:opacity-80"
+             style="background:var(--surface); border:{{ $isActive ? '2px' : '1px' }} solid {{ $isActive ? $c['fg'] : 'var(--border)' }};">
             <span class="inline-flex items-center justify-center w-10 h-10 rounded-md flex-shrink-0" style="background:{{ $c['bg'] }};color:{{ $c['fg'] }};">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     {!! $kpiIcons[$kpi['label']] ?? '' !!}
@@ -64,7 +76,7 @@
                 <div class="text-[1.625rem] font-semibold leading-none" style="color:var(--text-primary);">{{ number_format((int) $kpi['value']) }}</div>
                 <div class="text-[0.6875rem] font-medium mt-1 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
             </div>
-        </div>
+        </a>
         @endforeach
     </div>
 
@@ -120,12 +132,31 @@
                        style="padding-left:2.25rem;">
             </div>
 
-            {{-- Scope (agents only) --}}
-            @if($dataScope === 'own')
-            <select name="scope" onchange="this.form.submit()" class="list-header-filter">
-                <option value="my" {{ $scope === 'my' ? 'selected' : '' }}>My Listings</option>
-                <option value="branch" {{ $scope === 'branch' ? 'selected' : '' }}>Branch</option>
-            </select>
+            {{-- My / All pill toggle (role must grant Data Scope = On for properties.view) --}}
+            @if($canPickAgent)
+            @php
+                $pcuId      = (string) auth()->id();
+                $pcIsMine   = (string) $filterAgentId === $pcuId;
+                $pcIsAll    = $filterAgentId === '';
+                $pcCarry    = request()->except(['agent_id', 'page']);
+                $pcMineUrl  = route('corex.properties.index', array_merge($pcCarry, ['agent_id' => $pcuId]));
+                $pcAllUrl   = route('corex.properties.index', array_merge($pcCarry, ['agent_id' => '']));
+                $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
+            @endphp
+            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <a href="{{ $pcMineUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="{{ $pcIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show only my properties">
+                    My Properties
+                </a>
+                <a href="{{ $pcAllUrl }}"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $pcIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all {{ $pcAllLabel }} properties">
+                    All Properties
+                </a>
+            </div>
             @endif
 
             {{-- Status --}}
@@ -461,13 +492,9 @@
         @php
             $images = $property->allImages();
             $thumb  = $images[0] ?? null;
-            $sMap = [
-                'draft'     => ['variant' => 'ds-badge-default', 'label' => 'Draft'],
-                'active'    => ['variant' => 'ds-badge-success', 'label' => 'Active'],
-                'sold'      => ['variant' => 'ds-badge-info',    'label' => 'Sold'],
-                'withdrawn' => ['variant' => 'ds-badge-warning', 'label' => 'Withdrawn'],
-            ];
-            $sc = $sMap[$property->status] ?? ['variant' => 'ds-badge-default', 'label' => ucfirst($property->status)];
+            $listingTypeLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
+            $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+            $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
         @endphp
         <div class="rounded-md overflow-hidden flex flex-col transition-all duration-300"
              style="background:var(--surface); border:1px solid var(--border);"
@@ -493,13 +520,16 @@
                 {{-- Price on image --}}
                 <span class="absolute bottom-2.5 left-3 text-base font-bold text-white" style="text-shadow:0 1px 3px rgba(0,0,0,0.4);">{{ $property->formattedPrice() }}</span>
 
-                {{-- Live badge --}}
-                @if($property->isPublished())
-                <span class="ds-badge ds-badge-info absolute top-2.5 left-2.5" style="background:var(--brand-icon);color:#fff;">Live</span>
-                @endif
+                {{-- Listing type + Status badges (left, side-by-side) --}}
+                <div class="absolute top-2.5 left-2.5 flex flex-row items-center gap-1.5">
+                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
+                    <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
+                </div>
 
-                {{-- Status badge --}}
-                <span class="ds-badge {{ $sc['variant'] }} absolute top-2.5 right-2.5">{{ $sc['label'] }}</span>
+                {{-- Live badge (moved to right to make room for branded pills) --}}
+                @if($property->isPublished())
+                <span class="ds-badge ds-badge-info absolute top-2.5 right-2.5" style="background:var(--brand-icon);color:#fff;">Live</span>
+                @endif
 
                 {{-- Photo count --}}
                 @if(count($images) > 0)
@@ -525,7 +555,23 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
                     </svg>
                     <span class="text-xs truncate" style="color:var(--text-secondary);">
-                        {{ $property->buildDisplayAddress() }}
+                        @php
+                            $addrParts = [];
+                            if (!empty($property->unit_number)) $addrParts[] = 'Unit ' . $property->unit_number;
+                            if (!empty($property->complex_name)) $addrParts[] = $property->complex_name;
+                            if (!empty($property->street_number) && !empty($property->street_name)) {
+                                $addrParts[] = $property->street_number . ' ' . $property->street_name;
+                            } elseif (!empty($property->street_name)) {
+                                $addrParts[] = $property->street_name;
+                            } elseif (!empty($property->address)) {
+                                $addrParts[] = $property->address;
+                            }
+                            if (!empty($property->suburb)) $addrParts[] = $property->suburb;
+                            if (!empty($property->city) && strtolower($property->city) !== strtolower($property->suburb ?? '')) {
+                                $addrParts[] = $property->city;
+                            }
+                        @endphp
+                        {{ count($addrParts) ? implode(', ', $addrParts) : '—' }}
                     </span>
                 </div>
 
@@ -586,29 +632,46 @@
     <div x-show="view === 'list'" x-cloak class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm ds-table">
+            @php
+                $sortParams = collect(request()->query())->except('sort', 'dir', 'page')->toArray();
+                $sortCols = [
+                    ['key' => 'title',            'label' => 'Property',  'align' => 'text-left',   'hide' => ''],
+                    ['key' => 'suburb',            'label' => 'Location',  'align' => 'text-left',   'hide' => ''],
+                    ['key' => 'property_type',     'label' => 'Type',      'align' => 'text-left',   'hide' => 'hidden sm:table-cell'],
+                    ['key' => 'price',             'label' => 'Price',     'align' => 'text-right',  'hide' => ''],
+                    ['key' => 'beds',              'label' => 'Bed',       'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
+                    ['key' => 'baths',             'label' => 'Bath',      'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
+                    ['key' => null,                'label' => 'Agent',     'align' => 'text-left',   'hide' => 'hidden lg:table-cell'],
+                    ['key' => 'marketing_status',  'label' => 'Marketing', 'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
+                    ['key' => 'status',            'label' => 'Status',    'align' => 'text-center', 'hide' => ''],
+                ];
+            @endphp
             <thead>
                 <tr style="background: var(--surface-2);">
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Property</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Location</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden sm:table-cell" style="color:var(--text-muted);">Type</th>
-                    <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Price</th>
-                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">Bed</th>
-                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">Bath</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden lg:table-cell" style="color:var(--text-muted);">Agent</th>
-                    <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Status</th>
+                    @foreach($sortCols as $col)
+                        <th class="{{ $col['align'] }} px-4 py-2.5 text-xs font-semibold uppercase tracking-wider {{ $col['hide'] }}" style="color:var(--text-muted);">
+                            @if($col['key'])
+                                @php
+                                    $isCurrentSort = ($currentSort ?? '') === $col['key'];
+                                    $nextDir = $isCurrentSort && ($currentDir ?? 'desc') === 'asc' ? 'desc' : 'asc';
+                                    $arrow = $isCurrentSort ? (($currentDir ?? 'desc') === 'asc' ? '&#9650;' : '&#9660;') : '';
+                                @endphp
+                                <a href="{{ request()->url() }}?{{ http_build_query(array_merge($sortParams, ['sort' => $col['key'], 'dir' => $nextDir])) }}"
+                                   class="no-underline hover:opacity-70 transition" style="color:{{ $isCurrentSort ? 'var(--brand-icon)' : 'var(--text-muted)' }};">{{ $col['label'] }}{!! $arrow !!}</a>
+                            @else
+                                {{ $col['label'] }}
+                            @endif
+                        </th>
+                    @endforeach
                     <th class="px-4 py-2.5 text-xs font-semibold text-right" style="color:var(--text-muted);"></th>
                 </tr>
             </thead>
             <tbody>
                 @foreach($properties as $property)
                 @php
-                    $sMap = [
-                        'draft'     => ['variant' => 'ds-badge-default', 'label' => 'Draft'],
-                        'active'    => ['variant' => 'ds-badge-success', 'label' => 'Active'],
-                        'sold'      => ['variant' => 'ds-badge-info',    'label' => 'Sold'],
-                        'withdrawn' => ['variant' => 'ds-badge-warning', 'label' => 'Withdrawn'],
-                    ];
-                    $sc = $sMap[$property->status] ?? ['variant' => 'ds-badge-default', 'label' => ucfirst($property->status)];
+                    $rowListingLabel = strtolower((string) ($property->listing_type ?? 'sale')) === 'rental' ? 'For Rent' : 'For Sale';
+                    $rowStatusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                    $rowBrandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
                 @endphp
                 <tr class="transition-all duration-300" style="border-bottom:1px solid var(--border);"
                     onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
@@ -632,8 +695,27 @@
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->baths ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs hidden lg:table-cell" style="color:var(--text-muted);">{{ $property->agent?->name ?? '—' }}</td>
-                    <td class="px-4 py-2.5 text-center">
-                        <span class="ds-badge {{ $sc['variant'] }}">{{ $sc['label'] }}</span>
+                    <td class="px-4 py-2.5 text-center hidden md:table-cell">
+                        @php
+                            $ms = $property->marketing_status ?? 'n/a';
+                            $msStyle = match($ms) {
+                                'live' => 'background:#10b981; color:#fff;',
+                                'ready' => 'background:rgba(0,212,170,.15); color:#047857;',
+                                'blocked' => 'background:rgba(245,158,11,.15); color:#b45309;',
+                                default => '',
+                            };
+                        @endphp
+                        @if($ms !== 'n/a')
+                            <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="{{ $msStyle }}" title="{{ $property->marketing_status_detail ?? '' }}">{{ ucfirst($ms) }}</span>
+                        @else
+                            <span class="text-[10px]" style="color:var(--text-muted);">—</span>
+                        @endif
+                    </td>
+                    <td class="px-4 py-2.5 text-left">
+                        <div class="inline-flex flex-row gap-1.5 items-center">
+                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowBrandPillStyle }}">{{ $rowListingLabel }}</span>
+                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold" style="{{ $rowBrandPillStyle }}">{{ $rowStatusLabel }}</span>
+                        </div>
                     </td>
                     <td class="px-4 py-2.5 text-right">
                         <div class="flex items-center justify-end gap-1">

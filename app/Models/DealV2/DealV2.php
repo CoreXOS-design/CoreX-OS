@@ -3,6 +3,8 @@
 namespace App\Models\DealV2;
 
 use App\Models\Branch;
+use App\Models\CommandCenter\CalendarEvent;
+use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Contact;
 use App\Models\PerformanceSetting;
 use App\Models\Property;
@@ -12,15 +14,18 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class DealV2 extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'deals_v2';
 
     protected $fillable = [
+        'agency_id',
         'reference',
         'deal_type',
         'status',
@@ -272,5 +277,17 @@ class DealV2 extends Model
         }
 
         return $prefix . str_pad($next, 5, '0', STR_PAD_LEFT);
+    }
+
+    // ── Calendar event links (M2.2) ──
+
+    public function calendarEventLinks(): MorphMany
+    {
+        return $this->morphMany(CalendarEventLink::class, 'linkable');
+    }
+
+    public function calendarEvents()
+    {
+        return $this->morphToMany(CalendarEvent::class, 'linkable', 'calendar_event_links', null, 'calendar_event_id');
     }
 }

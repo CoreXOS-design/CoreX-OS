@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Prospecting\TrackedProperty;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class ProspectingListing extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id',
@@ -35,6 +38,9 @@ class ProspectingListing extends Model
         'price_changed_at',
         'is_active',
         'first_seen_email_date',
+        'matched_property_id',
+        'matched_at',
+        'tracked_property_id',
     ];
 
     protected $casts = [
@@ -44,11 +50,23 @@ class ProspectingListing extends Model
         'last_seen_at'     => 'datetime',
         'price_changed_at'      => 'datetime',
         'first_seen_email_date' => 'datetime',
+        'matched_at'            => 'datetime',
+        'tracked_property_id'   => 'integer',
     ];
 
     public function agency()
     {
         return $this->belongsTo(Agency::class);
+    }
+
+    public function matchedProperty()
+    {
+        return $this->belongsTo(Property::class, 'matched_property_id');
+    }
+
+    public function trackedProperty(): BelongsTo
+    {
+        return $this->belongsTo(TrackedProperty::class, 'tracked_property_id');
     }
 
     public function capturedBy()

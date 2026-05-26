@@ -1,10 +1,8 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
 <style>
-/* Remove main's padding so the sticky bar can truly touch the top */
-#appScroll { padding: 0 !important; }
-
 #pdf-splitter-root, #pdf-splitter-root * { box-sizing: border-box; }
 
 #pdf-splitter-root {
@@ -14,7 +12,6 @@
 #pdf-splitter-root .wrap {
     max-width: 680px;
     margin: 0 auto;
-    padding: 0 1.5rem;
 }
 
 #pdf-splitter-root .field { margin-bottom: 1.25rem; }
@@ -120,16 +117,20 @@
 }
 </style>
 
-<x-page-header title="PDF Pack Splitter" :flush="true">
-    <x-slot:actions>
-        @permission('calculators.manage')
-        <a href="{{ route('admin.splitter.doc-types.index') }}" class="corex-btn-outline text-xs">Manage Labels</a>
-        @endpermission
-        <button type="submit" form="pdf-upload-form" class="corex-btn-primary text-sm">Upload &amp; Split</button>
-    </x-slot:actions>
-</x-page-header>
+<div class="space-y-5">
 
-<div class="p-4 lg:p-6">
+    {{-- Page header (Pattern A — branded) --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter</h1>
+                <p class="text-sm text-white/60">OCR-driven splitting of multi-document PDF packs into labelled files.</p>
+            </div>
+        </div>
+    </div>
+
+    @include('tools.pdf-suite._switcher')
+
 <div id="pdf-splitter-root">
     <div class="wrap">
 
@@ -158,7 +159,8 @@
             <form id="pdf-upload-form"
                   method="POST"
                   action="{{ route('tools.pdf_splitter.run') }}"
-                  enctype="multipart/form-data">
+                  enctype="multipart/form-data"
+                  x-data="{ hasFile: false }">
                 @csrf
 
                 <div class="field">
@@ -179,17 +181,23 @@
                     <input type="file"
                            id="pdf"
                            name="pdf"
-                           accept="application/pdf">
+                           accept="application/pdf"
+                           @change="hasFile = $event.target.files.length > 0">
                     @error('pdf')
                         <div class="field-error">{{ $message }}</div>
                     @enderror
                 </div>
+
+                <button type="submit" :disabled="!hasFile"
+                        :class="hasFile ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'"
+                        class="text-sm w-full">Upload &amp; Split</button>
             </form>
         </div>
 
     </div>
 </div>
-</div>{{-- /p-4 lg:p-6 --}}
+
+</div>{{-- /space-y-5 --}}
 
 @if (session('splitter_download_url'))
     <iframe src="{{ session('splitter_download_url') }}" style="display:none; width:0; height:0; border:0;"></iframe>

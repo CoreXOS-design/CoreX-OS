@@ -1,4 +1,7 @@
-<x-app-layout>
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+@extends('layouts.corex-app')
+
+@section('corex-content')
 
 <style>
     .p24-section-toggle { transition: background 300ms ease; }
@@ -17,7 +20,7 @@
 </style>
 
 {{-- Master Alpine state for the entire page --}}
-<div x-data="p24Alerts()" class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+<div x-data="p24Alerts()" class="space-y-6">
 
     {{-- ===== PAGE HEADER (Pattern A — branded) ===== --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -598,4 +601,4 @@ function p24Alerts() {
 }
 </script>
 
-</x-app-layout>
+@endsection

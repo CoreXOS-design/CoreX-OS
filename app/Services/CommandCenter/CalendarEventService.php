@@ -46,11 +46,22 @@ class CalendarEventService
 
     /**
      * Get events for a user in a date range.
+     *
+     * Scope controls the user filter:
+     *   'own'    — only events assigned to this user (user_id = $user->id)
+     *   'branch' — events in the user's branch (downstream VisibilityResolver handles per-event checks)
+     *   'all'    — no user filter (downstream VisibilityResolver handles per-event checks)
      */
-    public function getEventsForRange(User $user, string $start, string $end, array $filters = []): Collection
+    public function getEventsForRange(User $user, string $start, string $end, array $filters = [], string $scope = 'all'): Collection
     {
-        $query = CalendarEvent::forUser($user->id)
-            ->inDateRange($start, $end);
+        $query = CalendarEvent::query()->inDateRange($start, $end);
+
+        if ($scope === 'own') {
+            $query->forUser($user->id);
+        } elseif ($scope === 'branch' && $user->branch_id) {
+            $query->where('branch_id', $user->branch_id);
+        }
+        // scope 'all' — no user/branch filter; VisibilityResolver handles access
 
         if (!empty($filters['event_type'])) {
             $query->ofType($filters['event_type']);
@@ -137,28 +148,91 @@ class CalendarEventService
 
     /**
      * Get events for a month calendar grid (includes surrounding weeks).
+     * Returns single-day events grouped by date AND spanning bars for multi-day events.
      */
-    public function getMonthGrid(User $user, int $year, int $month, array $filters = []): array
+    public function getMonthGrid(User $user, int $year, int $month, array $filters = [], string $scope = 'all'): array
     {
         $start = \Carbon\Carbon::create($year, $month, 1)->startOfWeek();
         $end   = \Carbon\Carbon::create($year, $month, 1)->endOfMonth()->endOfWeek();
 
-        $events = $this->getEventsForRange($user, $start, $end, $filters);
+        $events = $this->getEventsForRange($user, $start, $end, $filters, $scope);
 
-        // Group by date
         $grouped = [];
+        $spanningBars = [];
+
         foreach ($events as $event) {
-            $dateKey = $event->event_date->toDateString();
-            $grouped[$dateKey][] = $event;
+            $eventStart = $event->event_date->copy()->startOfDay();
+            $eventEnd = $event->end_date ? $event->end_date->copy()->startOfDay() : $eventStart;
+
+            // Multi-day: end_date exists and is a different day from event_date
+            $isMultiDay = $event->end_date && $eventEnd->gt($eventStart);
+
+            if (!$isMultiDay) {
+                // Single-day event — place in its day bucket
+                $grouped[$eventStart->toDateString()][] = $event;
+            } else {
+                // Multi-day event — build spanning bar segments (split per week row)
+                $from = $eventStart->lt($start) ? $start->copy() : $eventStart->copy();
+                $to = $eventEnd->gt($end) ? $end->copy()->startOfDay() : $eventEnd->copy();
+
+                $segments = $this->buildSpanningSegments($from, $to, $start, $event);
+                foreach ($segments as $seg) {
+                    $spanningBars[] = $seg;
+                }
+            }
         }
 
         return [
-            'start'    => $start,
-            'end'      => $end,
-            'month'    => $month,
-            'year'     => $year,
-            'events'   => $events,
-            'byDate'   => $grouped,
+            'start'        => $start,
+            'end'          => $end,
+            'month'        => $month,
+            'year'         => $year,
+            'events'       => $events,
+            'byDate'       => $grouped,
+            'spanningBars' => $spanningBars,
         ];
+    }
+
+    /**
+     * Split a multi-day event into per-week-row spanning segments.
+     * Each segment has: event, startCol (1-7), endCol (1-7), weekRow (0-based).
+     */
+    private function buildSpanningSegments(\Carbon\Carbon $from, \Carbon\Carbon $to, \Carbon\Carbon $gridStart, $event): array
+    {
+        $segments = [];
+        $cursor = $from->copy();
+
+        while ($cursor->lte($to)) {
+            // Week row index (0-based) relative to grid start
+            $weekRow = (int) floor($gridStart->diffInDays($cursor) / 7);
+
+            // Column within the week (1-7, Mon=1)
+            $startCol = $cursor->dayOfWeekIso;
+
+            // End of this segment = min(end_date, end of this week row)
+            $weekEnd = $cursor->copy()->endOfWeek()->startOfDay(); // Sunday
+            $segEnd = $to->lt($weekEnd) ? $to->copy() : $weekEnd->copy();
+            $endCol = $segEnd->dayOfWeekIso;
+
+            // Span = number of columns this segment covers
+            $span = $startCol <= $endCol ? ($endCol - $startCol + 1) : 1;
+
+            $segments[] = [
+                'event'     => $event,
+                'event_id'  => $event->id,
+                'title'     => $event->title,
+                'start_date' => $cursor->toDateString(),
+                'end_date'  => $segEnd->toDateString(),
+                'week_row'  => $weekRow,
+                'start_col' => $startCol,
+                'end_col'   => $endCol,
+                'span'      => $span,
+            ];
+
+            // Move cursor to start of next week
+            $cursor = $weekEnd->copy()->addDay();
+        }
+
+        return $segments;
     }
 }

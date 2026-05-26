@@ -4,8 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+use App\Models\Concerns\BelongsToAgency;
 class AgentCapPeriod extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
         'user_id',
         'agency_id',

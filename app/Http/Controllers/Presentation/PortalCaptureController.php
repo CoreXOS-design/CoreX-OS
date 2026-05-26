@@ -117,12 +117,15 @@ class PortalCaptureController extends Controller
                     // Track listings for identity + change detection
                     $items = $extractionResult['search']['items'] ?? [];
                     if (count($items) > 0) {
+                        $sourceSite = $this->normalizeSourceSite($capture->source_site);
                         $tracker = new PortalListingTrackingService();
                         $trackingSummary = $tracker->processItems(
                             $capture,
-                            $this->normalizeSourceSite($capture->source_site),
+                            $sourceSite,
                             $items
                         );
+                        // Universal Match-or-Create: every captured listing card feeds the TP universe.
+                        $this->linkPortalItemsToTrackedProperties($capture, $sourceSite, $items);
                     }
                 }
             } catch (\Throwable $e) {
@@ -146,8 +149,7 @@ class PortalCaptureController extends Controller
                     $listingId = $listingFields['listing_id'] ?? null;
                     if ($listingId) {
                         $sourceSite = $this->normalizeSourceSite($capture->source_site);
-                        $tracker = new PortalListingTrackingService();
-                        $trackingSummary = $tracker->processItems($capture, $sourceSite, [[
+                        $itemForTracking = [
                             'portal_listing_id' => $listingId,
                             'url'               => $listingFields['url'] ?? null,
                             'price'             => $listingFields['price'] ?? null,
@@ -157,7 +159,13 @@ class PortalCaptureController extends Controller
                             'erf_m2'            => $listingFields['erf_m2'] ?? null,
                             'title'             => $listingFields['title'] ?? null,
                             'image'             => $listingFields['image'] ?? null,
-                        ]]);
+                            // Address/suburb/property_type pulled through for the TP match.
+                            'address'           => $listingFields['address'] ?? null,
+                            'suburb'            => $listingFields['suburb'] ?? null,
+                            'property_type'     => $listingFields['property_type'] ?? null,
+                        ];
+                        $tracker = new PortalListingTrackingService();
+                        $trackingSummary = $tracker->processItems($capture, $sourceSite, [$itemForTracking]);
 
                         // Write primary_image_url to portal_listing
                         $imageUrl = $listingFields['image'] ?? null;
@@ -167,6 +175,9 @@ class PortalCaptureController extends Controller
                                 ->whereNull('primary_image_url')
                                 ->update(['primary_image_url' => $imageUrl]);
                         }
+
+                        // Universal Match-or-Create: this listing feeds the TP universe.
+                        $this->linkPortalItemsToTrackedProperties($capture, $sourceSite, [$itemForTracking]);
                     }
                 }
             } catch (\Throwable $e) {
@@ -1230,5 +1241,81 @@ class PortalCaptureController extends Controller
         }
 
         return $site;
+    }
+
+    /**
+     * Universal Match-or-Create: every captured portal listing feeds the Tracked
+     * Property universe. Failure-isolated so a TP write hiccup never breaks the
+     * capture ingestion.
+     *
+     * portal_listings has no agency_id — we resolve it via the capture's user.
+     *
+     * Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule).
+     */
+    private function linkPortalItemsToTrackedProperties(PortalCapture $capture, string $sourceSite, array $items): void
+    {
+        try {
+            $agencyId = \DB::table('users')->where('id', $capture->user_id)->value('agency_id');
+            if (!$agencyId) {
+                // Super-admin without an active agency context — skip; the capture
+                // is preserved but TP linking waits for an agency-scoped re-process.
+                return;
+            }
+
+            $service = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
+
+            foreach ($items as $item) {
+                $portalListingId = $item['portal_listing_id'] ?? null;
+                if (!$portalListingId) continue;
+
+                $addr = isset($item['address']) ? trim((string) $item['address']) : null;
+                $streetNumber = null;
+                $streetName   = null;
+                if ($addr && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
+                    $streetNumber = $m[1];
+                    $streetName   = $m[2];
+                }
+
+                $facts = array_filter([
+                    'address'                 => $addr,
+                    'street_number'           => $streetNumber,
+                    'street_name'             => $streetName,
+                    'suburb'                  => $item['suburb'] ?? null,
+                    'property_type'           => $item['property_type'] ?? null,
+                    'bedrooms'                => $item['beds'] ?? $item['bedrooms'] ?? null,
+                    'bathrooms'               => $item['baths'] ?? $item['bathrooms'] ?? null,
+                    'floor_size_m2'           => $item['size_m2'] ?? $item['floor_m2'] ?? null,
+                    'erf_size_m2'             => $item['erf_m2'] ?? null,
+                    'last_known_asking_price' => $item['price'] ?? null,
+                ], fn ($v) => $v !== null && $v !== '');
+
+                $tp = $service->matchOrCreate(
+                    agencyId: (int) $agencyId,
+                    facts: $facts,
+                    source: [
+                        'type' => 'chrome_capture',
+                        'ref'  => (string) $portalListingId,
+                        'payload' => [
+                            'capture_id'        => $capture->id,
+                            'source_site'       => $sourceSite,
+                            'portal_listing_id' => $portalListingId,
+                        ],
+                    ],
+                    actorUserId: $capture->user_id,
+                );
+
+                if ($tp) {
+                    PortalListing::where('source_site', $sourceSite)
+                        ->where('portal_listing_id', $portalListingId)
+                        ->whereNull('tracked_property_id')
+                        ->update(['tracked_property_id' => $tp->id]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('TrackedProperty link from portal capture failed', [
+                'capture_id' => $capture->id,
+                'error'      => $e->getMessage(),
+            ]);
+        }
     }
 }

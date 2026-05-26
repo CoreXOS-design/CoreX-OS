@@ -79,7 +79,7 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-            {{-- ═══════════ LEFT COLUMN (2/3) ═══════════ --}}
+            {{-- â•â•â•â•â•â•â•â•â•â•â• LEFT COLUMN (2/3) â•â•â•â•â•â•â•â•â•â•â• --}}
             <div class="lg:col-span-2 space-y-5">
 
                 {{-- Card: Personal Details --}}
@@ -186,7 +186,7 @@
                             <p class="text-xs" style="color:var(--text-muted);">
                                 Candidate practitioner documents require authorisation before processing.
                                 All full-status agents, principals, admins, and owners in the same branch
-                                can authorise — shared queue, no assigned supervisor.
+                                can authorise â€” shared queue, no assigned supervisor.
                             </p>
                         </div>
                     </div>
@@ -225,7 +225,7 @@
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         </div>
                         <div>
-                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Cell <span style="color:#ef4444;">*</span></label>
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Cell <span style="color:var(--ds-crimson);">*</span></label>
                             <input type="tel" name="cell" value="{{ old('cell', $isEdit ? $user->cell : '') }}" placeholder="Mobile" required
                                    autocomplete="off"
                                    class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
@@ -288,8 +288,8 @@
                         </div>
                         <p class="text-[11px] mb-3" style="color:var(--text-muted);">
                             Verify at PPRA public register:
-                            <a href="https://theppra.org.za/agent_agency_search" target="_blank" style="color:#00d4aa; text-decoration:underline;">theppra.org.za</a>.
-                            FFCs are valid 3 years — annual re-verification recommended.
+                            <a href="https://theppra.org.za/agent_agency_search" target="_blank" style="color:var(--brand-icon); text-decoration:underline;">theppra.org.za</a>.
+                            FFCs are valid 3 years â€” annual re-verification recommended.
                         </p>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
@@ -313,10 +313,10 @@
                                         @php $ppraVerified = \Carbon\Carbon::parse($user->ppra_last_verified_at); @endphp
                                         <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $ppraVerified->format('d M Y') }}</span>
                                         @if($ppraVerified->lt(now()->subYear()))
-                                        <span class="text-[10px] font-semibold" style="color:#f59e0b;"> (overdue — over 12 months)</span>
+                                        <span class="text-[10px] font-semibold" style="color:#f59e0b;"> (overdue â€” over 12 months)</span>
                                         @endif
                                     @else
-                                        <span class="text-xs font-medium" style="color:#ef4444;">Never</span>
+                                        <span class="text-xs font-medium" style="color:var(--ds-crimson);">Never</span>
                                     @endif
                                 </div>
                             </div>
@@ -326,7 +326,7 @@
                 </div>
             </div>
 
-            {{-- ═══════════ RIGHT COLUMN (1/3) ═══════════ --}}
+            {{-- â•â•â•â•â•â•â•â•â•â•â• RIGHT COLUMN (1/3) â•â•â•â•â•â•â•â•â•â•â• --}}
             <div class="space-y-5">
 
                 {{-- Card: Finance --}}
@@ -394,7 +394,7 @@
                                      class="w-10 h-10 rounded-lg object-cover flex-shrink-0" style="border:1px solid var(--border);">
                                 <span class="text-xs flex-1 truncate" style="color:var(--text-secondary);">Current photo</span>
                                 <button type="button" class="text-xs font-medium px-2 py-1 rounded-md transition-colors"
-                                        style="color:#ef4444; background:rgba(239,68,68,0.1);"
+                                        style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
                                         onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
                             </div>
                             @endif
@@ -416,7 +416,7 @@
                                     {{ basename($user->ffc_certificate_path) }}
                                 </a>
                                 <button type="button" class="text-xs font-medium px-2 py-1 rounded-md transition-colors"
-                                        style="color:#ef4444; background:rgba(239,68,68,0.1);"
+                                        style="color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);"
                                         onclick="if(confirm('Remove FFC certificate?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML=document.querySelector('meta[name=csrf-token]').content?'<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=ffc_certificate>':'';;document.body.appendChild(f);f.submit();}">Remove</button>
                             </div>
                             @endif
@@ -471,15 +471,15 @@
                             @if($override)
                             {{-- Show revoke button for active overrides --}}
                             <button type="button" @click="revokeModal=true; revokeId={{ $override->id }}; revokeLabel='{{ addslashes($docLabel) }}'"
-                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:3px;">Revoke</button>
+                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); border-radius:6px;">Revoke</button>
                             @else
                             {{-- Action buttons --}}
                             <a href="{{ route('admin.user.documents.upload', ['user' => $user, 'type' => $docType]) }}"
-                               class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:#00d4aa; border:1px solid rgba(0,212,170,0.3); border-radius:3px;">Upload</a>
+                               class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); border-radius:6px;">Upload</a>
                             <button type="button" @click="overrideModal=true; overrideItem='{{ $docType }}'; overrideLabel='{{ addslashes($docLabel) }}'; overrideType='not_applicable'"
-                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:var(--text-muted); border:1px solid var(--border); border-radius:3px;">N/A</button>
+                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:var(--text-muted); border:1px solid var(--border); border-radius:6px;">N/A</button>
                             <button type="button" @click="overrideModal=true; overrideItem='{{ $docType }}'; overrideLabel='{{ addslashes($docLabel) }}'; overrideType='exempt'"
-                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:var(--text-muted); border:1px solid var(--border); border-radius:3px;">Exempt</button>
+                                    class="text-[10px] font-medium px-2 py-0.5 rounded" style="color:var(--text-muted); border:1px solid var(--border); border-radius:6px;">Exempt</button>
                             @endif
                         </div>
                         @endforeach
@@ -488,7 +488,7 @@
                     {{-- Override Modal --}}
                     <div x-show="overrideModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.5);">
                         <div class="rounded-xl p-6 w-full max-w-md mx-4" style="background:var(--surface); border:1px solid var(--border);" @click.outside="overrideModal=false">
-                            <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary); font-family:'Plus Jakarta Sans',sans-serif;">
+                            <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">
                                 Set Override: <span x-text="overrideLabel"></span>
                             </h3>
                             <form method="POST" action="{{ route('admin.user.overrides.store', $user) }}">
@@ -498,7 +498,7 @@
                                     <div>
                                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Override Type</label>
                                         <select name="override_type" x-model="overrideType" class="w-full rounded px-3 py-2 text-sm"
-                                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;">
+                                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                                             <option value="not_applicable">Not Applicable</option>
                                             <option value="exempt">Exempt</option>
                                             <option value="waived">Waived</option>
@@ -508,17 +508,17 @@
                                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Reason <span class="text-red-500">*</span></label>
                                         <textarea name="reason" :required="overrideModal" minlength="15" rows="3" placeholder="Minimum 15 characters - explain why this item is exempt/not applicable"
                                                   class="w-full rounded px-3 py-2 text-sm"
-                                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;"></textarea>
+                                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;"></textarea>
                                     </div>
                                     <div>
                                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Expires (optional)</label>
                                         <input type="date" name="expires_at" class="w-full rounded px-3 py-2 text-sm"
-                                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;">
+                                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-3 mt-4">
-                                    <button type="submit" class="px-4 py-2 rounded text-sm font-semibold text-white" style="background:#00d4aa; border-radius:3px;">Save Override</button>
-                                    <button type="button" @click="overrideModal=false" class="px-4 py-2 rounded text-sm" style="color:var(--text-secondary); border:1px solid var(--border); border-radius:3px;">Cancel</button>
+                                    <button type="submit" class="px-4 py-2 rounded text-sm font-semibold text-white" style="background:var(--brand-icon); border-radius:6px;">Save Override</button>
+                                    <button type="button" @click="overrideModal=false" class="px-4 py-2 rounded text-sm" style="color:var(--text-secondary); border:1px solid var(--border); border-radius:6px;">Cancel</button>
                                 </div>
                             </form>
                         </div>
@@ -527,7 +527,7 @@
                     {{-- Revoke Modal --}}
                     <div x-show="revokeModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.5);">
                         <div class="rounded-xl p-6 w-full max-w-md mx-4" style="background:var(--surface); border:1px solid var(--border);" @click.outside="revokeModal=false">
-                            <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary); font-family:'Plus Jakarta Sans',sans-serif;">
+                            <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">
                                 Revoke Override: <span x-text="revokeLabel"></span>
                             </h3>
                             <form method="POST" :action="'/corex/admin/compliance-overrides/' + revokeId + '/revoke'">
@@ -536,11 +536,11 @@
                                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Reason for Revocation <span class="text-red-500">*</span></label>
                                     <textarea name="revoke_reason" required minlength="10" rows="3" placeholder="Minimum 10 characters"
                                               class="w-full rounded px-3 py-2 text-sm"
-                                              style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:3px;"></textarea>
+                                              style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;"></textarea>
                                 </div>
                                 <div class="flex items-center gap-3 mt-4">
-                                    <button type="submit" class="px-4 py-2 rounded text-sm font-semibold text-white" style="background:#ef4444; border-radius:3px;">Revoke</button>
-                                    <button type="button" @click="revokeModal=false" class="px-4 py-2 rounded text-sm" style="color:var(--text-secondary); border:1px solid var(--border); border-radius:3px;">Cancel</button>
+                                    <button type="submit" class="px-4 py-2 rounded text-sm font-semibold text-white" style="background:var(--ds-crimson); border-radius:6px;">Revoke</button>
+                                    <button type="button" @click="revokeModal=false" class="px-4 py-2 rounded text-sm" style="color:var(--text-secondary); border:1px solid var(--border); border-radius:6px;">Cancel</button>
                                 </div>
                             </form>
                         </div>
@@ -580,7 +580,7 @@
 
                          get badgeColor() {
                              if (this.updateOk === false) return { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', label: 'Error' };
-                             if (this.ppUniqueAgentId) return { bg: 'rgba(0,212,170,0.12)', color: '#00d4aa', label: 'Claimed' };
+                             if (this.ppUniqueAgentId) return { bg: 'color-mix(in srgb, var(--brand-icon) 12%, transparent)', color: '#00d4aa', label: 'Claimed' };
                              return { bg: 'var(--surface-2)', color: 'var(--text-muted)', label: 'Default' };
                          },
 
@@ -629,7 +629,7 @@
                                  const data = await res.json();
                                  this.updateOk = data.success;
                                  if (data.success) {
-                                     this.updateMsg = 'Updated — PP External Ref is now ' + (data.external_ref ?? this.externalRef);
+                                     this.updateMsg = 'Updated â€” PP External Ref is now ' + (data.external_ref ?? this.externalRef);
                                      if (data.pp_unique_agent_id) this.ppUniqueAgentId = data.pp_unique_agent_id;
                                      if (data.external_ref) this.externalRef = data.external_ref;
                                      this.ppEncryptedId = '';
@@ -646,7 +646,7 @@
                             <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Private Property</h3>
                         </div>
                         <span class="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded"
-                              :style="'background:' + badgeColor.bg + '; color:' + badgeColor.color + '; border-radius:3px;'"
+                              :style="'background:' + badgeColor.bg + '; color:' + badgeColor.color + '; border-radius:6px;'"
                               x-text="badgeColor.label"></span>
                     </div>
 
@@ -659,7 +659,7 @@
                                onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         <p class="text-[11px] mt-1.5" style="color:var(--text-muted);">
                             This is the ID PP shows as "External Ref" in their portal.
-                            Type the new value and click Update PP Agent ID — it remaps PP's
+                            Type the new value and click Update PP Agent ID â€” it remaps PP's
                             existing record via UpdateUniqueAgentID (no duplicate profile).
                             If we don't yet hold PP's encrypted ID for this agent we'll fetch
                             it via GetAgent; otherwise paste it into the field below.
@@ -683,7 +683,7 @@
                     <div class="mb-4 flex items-center gap-2">
                         <span class="text-xs font-medium" style="color:var(--text-secondary);">PP Sync Status:</span>
                         <span class="text-xs font-medium"
-                              :style="ppUniqueAgentId ? 'color:#00d4aa' : 'color:var(--text-muted)'"
+                              :style="ppUniqueAgentId ? 'color:var(--brand-icon)' : 'color:var(--text-muted)'"
                               x-text="ppUniqueAgentId ? 'Synced' : 'Not synced'"></span>
                     </div>
 
@@ -697,7 +697,7 @@
                             <span x-show="updateLoading" x-cloak>Updating...</span>
                         </button>
                         <p x-show="updateMsg" x-cloak class="mt-2 text-xs font-medium"
-                           :style="updateOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="updateMsg"></p>
+                           :style="updateOk ? 'color:#22c55e' : 'color:var(--ds-crimson)'" x-text="updateMsg"></p>
                     </div>
 
                     {{-- Sync agent (re-register) --}}
@@ -711,19 +711,19 @@
                         </button>
                         <button type="button" @click="deactivateAgent()" :disabled="deactivating"
                                 class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                                style="color:#ef4444; border:1px solid rgba(239,68,68,0.3); background:rgba(239,68,68,0.08);"
-                                onmouseover="this.style.background='rgba(239,68,68,0.15)'" onmouseout="this.style.background='rgba(239,68,68,0.08)'">
+                                style="color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); background:color-mix(in srgb, var(--ds-crimson) 8%, transparent);"
+                                onmouseover="this.style.background='rgba(239,68,68,0.15)'" onmouseout="this.style.background='color-mix(in srgb, var(--ds-crimson) 8%, transparent)'">
                             <span x-show="!deactivating">Deactivate Agent on PP</span>
                             <span x-show="deactivating" x-cloak>Deactivating...</span>
                         </button>
                     </div>
                     <p x-show="syncMsg" x-cloak class="mt-2 text-xs font-medium"
-                       :style="syncOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="syncMsg"></p>
+                       :style="syncOk ? 'color:#22c55e' : 'color:var(--ds-crimson)'" x-text="syncMsg"></p>
                     <p x-show="deactivateMsg" x-cloak class="mt-2 text-xs font-medium"
-                       :style="deactivateOk ? 'color:#22c55e' : 'color:#ef4444'" x-text="deactivateMsg"></p>
+                       :style="deactivateOk ? 'color:#22c55e' : 'color:var(--ds-crimson)'" x-text="deactivateMsg"></p>
                     <p class="text-[11px] mt-2" style="color:var(--text-muted);">
                         Deactivate sends UpdateAgent with Active=false. PP will refuse if the
-                        agent has active listings — reassign or deactivate those first, wait
+                        agent has active listings â€” reassign or deactivate those first, wait
                         a few minutes, then retry.
                     </p>
                 </div>
@@ -733,7 +733,7 @@
                 @if($isEdit)
                 <div class="rounded-xl p-6" style="background:var(--surface); border:1px solid var(--border);">
                     <div class="flex items-center gap-2 mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:#ef4444;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--ds-crimson);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
                         <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Danger Zone</h3>
                     </div>
                     <div class="flex flex-wrap gap-3">
@@ -745,15 +745,14 @@
                                 {{ $user->is_active ? 'Deactivate User' : 'Activate User' }}
                             </button>
                         </form>
-                        <form method="POST" action="{{ route('admin.users.delete', $user) }}" class="inline"
-                              onsubmit="return confirm('Delete {{ addslashes($user->name) }}? This cannot be undone.');">
-                            @csrf
-                            <button type="submit"
-                                    class="px-4 py-2 rounded-md text-sm font-medium w-full sm:w-auto"
-                                    style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.25);">
-                                Delete User
-                            </button>
-                        </form>
+                        <button type="button"
+                                data-agent-delete
+                                data-user-id="{{ $user->id }}"
+                                data-user-name="{{ $user->name }}"
+                                class="px-4 py-2 rounded-md text-sm font-medium w-full sm:w-auto"
+                                style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">
+                            Delete User
+                        </button>
                     </div>
                 </div>
                 @endif
@@ -792,4 +791,8 @@
     </form>
 
 </div>
+
+@isset($user)
+@include('admin.users._delete-modal')
+@endisset
 @endsection

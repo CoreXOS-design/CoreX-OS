@@ -6,12 +6,37 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\Deal;
+use App\Models\User;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 class ContactMatchController extends Controller
 {
+    /**
+     * Canonical feature token list for the wishlist chip selectors
+     * (must_have_features, nice_to_have_features, deal_breakers).
+     * Until a settings table owns this, the list lives here. Tokens are
+     * lower_snake_case; labels are derived via Str::headline() in the view.
+     */
+    public const FEATURE_OPTIONS = [
+        'pool',
+        'furnished',
+        'pet_friendly',
+        'garden',
+        'sea_view',
+        'security',
+        'garage',
+        'fibre',
+        'solar',
+        'air_conditioning',
+        'study',
+        'granny_flat',
+        'balcony',
+        'borehole',
+    ];
+
     public function __construct(protected MatchingService $matching) {}
 
     public function index()
@@ -19,13 +44,16 @@ class ContactMatchController extends Controller
         /** @var \App\Models\User $user */
         $user = auth()->user();
 
-        $matches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
+        $allMatches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
             ->whereHas('contact')
             ->where('created_by_user_id', $user->id)
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest()
-            ->get()
-            ->groupBy('contact_id');
+            ->get();
+
+        $matchCounts = $this->propertyCountsFor($allMatches);
+
+        $matches = $allMatches->groupBy('contact_id');
 
         $contacts = Contact::whereIn('id', $matches->keys())
             ->with('type')
@@ -36,7 +64,95 @@ class ContactMatchController extends Controller
                 'matches' => $matches->get($c->id, collect()),
             ]);
 
-        return view('corex.core-matches.index', compact('contacts'));
+        return view('corex.core-matches.index', compact('contacts', 'matchCounts'));
+    }
+
+    /**
+     * All View — agency-wide (or branch-wide when branch-split is on) list of
+     * every Core Match, for branch managers and admins to oversee what their
+     * agents are doing. Gated by the `core_matches.all_view` permission.
+     */
+    public function allView(Request $request)
+    {
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+
+        // Scope: whole agency, or just the viewer's branch when branch-split is on.
+        $agency   = \App\Models\Agency::find($user->effectiveAgencyId());
+        $splitOn  = (bool) ($agency?->split_branches_enabled);
+        $branchId = $user->effectiveBranchId();
+        $branchLimited = $splitOn && $branchId;
+
+        // Agents available in the filter dropdown.
+        $agentsQuery = User::agencyMembers()
+            ->where('is_active', 1)
+            ->orderBy('name');
+        if ($branchLimited) {
+            $agentsQuery->where('branch_id', $branchId);
+        }
+        $agents = $agentsQuery->get(['id', 'name']);
+
+        // Resolve the selected agent filter (ignored if outside the viewer's scope).
+        $agentId = $request->query('agent_id');
+        $agentId = ($agentId === null || $agentId === '' || $agentId === 'all') ? null : (int) $agentId;
+        if ($agentId !== null && ! $agents->pluck('id')->contains($agentId)) {
+            $agentId = null;
+        }
+
+        // ContactMatch carries BelongsToAgency, so the agency is already scoped.
+        $query = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
+            ->whereHas('contact')
+            ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
+            ->latest();
+
+        if ($branchLimited) {
+            $query->whereHas('createdBy', fn ($q) => $q->where('branch_id', $branchId));
+        }
+        if ($agentId !== null) {
+            $query->where('created_by_user_id', $agentId);
+        }
+
+        $allMatches  = $query->get();
+        $matchCounts = $this->propertyCountsFor($allMatches);
+
+        // Group by owning agent for the oversight view.
+        $byAgent = $allMatches->groupBy('created_by_user_id')
+            ->map(fn ($items) => [
+                'agent'   => $items->first()->createdBy,
+                'matches' => $items,
+            ])
+            ->sortBy(fn ($row) => $row['agent']?->name ?? 'zzz')
+            ->values();
+
+        return view('corex.core-matches.all', compact(
+            'byAgent', 'matchCounts', 'agents', 'agentId', 'branchLimited'
+        ));
+    }
+
+    /**
+     * Per-match property counts (total resolved / visible / hidden), keyed by
+     * match id. Resolved agency-wide so the figures line up with the results page.
+     *
+     * @param  \Illuminate\Support\Collection<int,ContactMatch>  $matches
+     * @return array<int,array{total:int,visible:int,hidden:int}>
+     */
+    private function propertyCountsFor($matches): array
+    {
+        $counts = [];
+        foreach ($matches as $m) {
+            $resolved  = $this->matching->propertiesForMatch($m, [
+                'agent_id'       => null,
+                'include_hidden' => true,
+            ]);
+            $hiddenIds = $m->hidden_property_ids ?? [];
+            $hidden    = $resolved->filter(fn ($p) => in_array($p->id, $hiddenIds, true))->count();
+            $counts[$m->id] = [
+                'total'   => $resolved->count(),
+                'hidden'  => $hidden,
+                'visible' => $resolved->count() - $hidden,
+            ];
+        }
+        return $counts;
     }
 
     public function store(Request $request, Contact $contact)
@@ -75,27 +191,31 @@ class ContactMatchController extends Controller
     {
         abort_if($match->contact_id !== $contact->id, 403);
 
-        $allowCrossAgent     = (bool) \App\Models\PerformanceSetting::get('matches_allow_cross_agent', 0);
-        $requestedCrossAgent = $request->boolean('show_other_agents');
-        $showOtherAgents     = $allowCrossAgent && $requestedCrossAgent;
-
-        $overrides = ['include_hidden' => true];
-        if ($showOtherAgents) {
-            $overrides['agent_id'] = null;
-        }
-
-        $properties = $this->matching->propertiesForMatch($match, $overrides);
+        // Use the strict ClientMatchResolver so the agent web view applies the
+        // same hard filters as the mobile client API — sale matches never show
+        // rentals, and vice versa. Spec: .ai/specs/client-auth.md (round 4).
+        // includeHidden: true — the agent must still see hidden properties so
+        // they can review the hide reason and un-hide them.
+        $properties = app(\App\Services\Matching\ClientMatchResolver::class)->resolve($match, includeHidden: true);
         $feedback   = $match->feedback()->get()->keyBy('property_id');
 
         return view('corex.contacts.match-results', compact(
-            'contact', 'match', 'properties', 'feedback', 'allowCrossAgent', 'showOtherAgents'
+            'contact', 'match', 'properties', 'feedback'
         ));
     }
 
-    public function toggleHide(Contact $contact, ContactMatch $match, int $property)
+    public function toggleHide(Request $request, Contact $contact, ContactMatch $match, int $property)
     {
         abort_if($match->contact_id !== $contact->id, 403);
-        $match->toggleHiddenProperty($property);
+
+        if ($match->isPropertyHidden($property)) {
+            $match->unhideProperty($property);
+        } else {
+            $data = $request->validate([
+                'reason' => 'required|string|min:3|max:500',
+            ], [], ['reason' => 'reason']);
+            $match->hidePropertyWithReason($property, $data['reason']);
+        }
 
         return back();
     }
@@ -148,56 +268,81 @@ class ContactMatchController extends Controller
 
     protected function validatePayload(Request $request): array
     {
-        $data = $request->validate([
-            'name'                  => 'nullable|string|max:120',
-            'listing_type'          => 'required|in:sale,rental',
-            'category'              => 'nullable|string|max:100',
-            'property_type'         => 'nullable|string|max:100',
-            'price_min'             => 'nullable|integer|min:0',
-            'price_max'             => 'nullable|integer|min:0',
-            'beds_min'              => 'nullable|integer|min:0|max:20',
-            'baths_min'             => 'nullable|integer|min:0|max:20',
-            'garages_min'           => 'nullable|integer|min:0|max:20',
-            'parking_min'           => 'nullable|integer|min:0|max:20',
-            'floor_size_min'        => 'nullable|integer|min:0',
-            'floor_size_max'        => 'nullable|integer|min:0',
-            'erf_size_min'          => 'nullable|integer|min:0',
-            'erf_size_max'          => 'nullable|integer|min:0',
-            'suburb'                => 'nullable|string|max:150',
-            'suburbs'               => 'nullable|array',
-            'suburbs.*'             => 'string|max:150',
-            'must_have_features'    => 'nullable|array',
-            'must_have_features.*'  => 'string|max:60',
-            'nice_to_have_features' => 'nullable|array',
+        // listing_type is required when creating a fresh match; optional when
+        // updating an existing one (e.g. a "Make primary" partial submit).
+        $isStore     = $request->routeIs('corex.contacts.matches.store');
+        $listingRule = ($isStore ? 'required' : 'nullable') . '|in:sale,rental';
+
+        $validator = Validator::make($request->all(), [
+            'name'                    => 'nullable|string|max:120',
+            'listing_type'            => $listingRule,
+            'is_primary'              => 'nullable|boolean',
+            'category'                => 'nullable|string|max:100',
+            'property_type'           => 'nullable|string|max:100',
+            'property_types'          => 'nullable|array',
+            'property_types.*'        => 'string|max:100',
+            'price_min'               => 'nullable|integer|min:0',
+            'price_max'               => 'nullable|integer|min:0',
+            'beds_min'                => 'nullable|integer|min:0|max:20',
+            'bedrooms_max'            => 'nullable|integer|min:0|max:20',
+            'baths_min'               => 'nullable|integer|min:0|max:20',
+            'garages_min'             => 'nullable|integer|min:0|max:20',
+            'parking_min'             => 'nullable|integer|min:0|max:20',
+            'floor_size_min'          => 'nullable|integer|min:0',
+            'floor_size_max'          => 'nullable|integer|min:0',
+            'erf_size_min'            => 'nullable|integer|min:0',
+            'erf_size_max'            => 'nullable|integer|min:0',
+            'p24_suburb_ids'          => 'nullable|array',
+            'p24_suburb_ids.*'        => 'integer|exists:p24_suburbs,id',
+            'must_have_features'      => 'nullable|array',
+            'must_have_features.*'    => 'string|max:60',
+            'nice_to_have_features'   => 'nullable|array',
             'nice_to_have_features.*' => 'string|max:60',
-            'feat_pool'             => 'nullable|in:yes,no',
-            'feat_furnished'        => 'nullable|in:yes,no',
-            'feat_pets'             => 'nullable|in:yes,no',
-            'notes'                 => 'nullable|string|max:500',
+            'deal_breakers'           => 'nullable|array',
+            'deal_breakers.*'         => 'string|max:60',
+            'notes'                   => 'nullable|string|max:500',
         ]);
 
-        // Normalise multi-suburb input — accept comma-separated string too
-        if (isset($data['suburbs']) && is_array($data['suburbs'])) {
-            $data['suburbs'] = array_values(array_filter(array_map('trim', $data['suburbs'])));
+        // Cross-field: bedrooms_max must be >= beds_min when both are present (spec D4).
+        $validator->after(function ($v) {
+            $bedsMin = $v->getData()['beds_min'] ?? null;
+            $bedsMax = $v->getData()['bedrooms_max'] ?? null;
+            if ($bedsMin !== null && $bedsMax !== null && (int) $bedsMax < (int) $bedsMin) {
+                $v->errors()->add('bedrooms_max', 'Maximum bedrooms cannot be less than minimum bedrooms.');
+            }
+        });
+
+        $data = $validator->validate();
+
+        // Normalise P24 suburb id input — unique, integer, drop zeros.
+        if (isset($data['p24_suburb_ids']) && is_array($data['p24_suburb_ids'])) {
+            $data['p24_suburb_ids'] = array_values(array_unique(array_filter(array_map('intval', $data['p24_suburb_ids']))));
         }
 
-        // Merge structured Yes/No feature filters into must_have_features.
-        $featureMap = [
-            'feat_pool'      => ['yes' => 'pool',         'no' => 'no_pool'],
-            'feat_furnished' => ['yes' => 'furnished',    'no' => 'unfurnished'],
-            'feat_pets'      => ['yes' => 'pet_friendly', 'no' => 'no_pets'],
-        ];
-        $existing = $data['must_have_features'] ?? [];
-        // Drop any prior feature tokens we manage so toggling Any clears them.
-        $managed = ['pool', 'no_pool', 'furnished', 'unfurnished', 'pet_friendly', 'no_pets'];
-        $existing = array_values(array_filter($existing, fn ($v) => !in_array(strtolower((string) $v), $managed, true)));
-        foreach ($featureMap as $field => $tokens) {
-            if (!empty($data[$field]) && isset($tokens[$data[$field]])) {
-                $existing[] = $tokens[$data[$field]];
+        // Normalise feature arrays — trim, lowercase tokens, drop blanks.
+        foreach (['must_have_features', 'nice_to_have_features', 'deal_breakers'] as $field) {
+            if (isset($data[$field]) && is_array($data[$field])) {
+                $data[$field] = array_values(array_unique(array_filter(array_map(
+                    fn ($v) => strtolower(trim((string) $v)),
+                    $data[$field]
+                ))));
             }
-            unset($data[$field]);
         }
-        $data['must_have_features'] = array_values(array_unique($existing));
+
+        // property_type <-> property_types reconciliation (spec D2 deprecation window).
+        // - If property_types (array) is submitted, set property_type to the first element
+        //   so the legacy column stays populated for one release cycle.
+        // - If only legacy property_type was submitted, mirror it into property_types
+        //   so new consumers see consistent shape.
+        if (isset($data['property_types']) && is_array($data['property_types'])) {
+            $data['property_types'] = array_values(array_filter(array_map(
+                fn ($v) => trim((string) $v),
+                $data['property_types']
+            )));
+            $data['property_type'] = $data['property_types'][0] ?? null;
+        } elseif (!empty($data['property_type'])) {
+            $data['property_types'] = [$data['property_type']];
+        }
 
         return $data;
     }

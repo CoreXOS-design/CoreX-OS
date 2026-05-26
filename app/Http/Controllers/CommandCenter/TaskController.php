@@ -109,6 +109,13 @@ class TaskController extends Controller
      */
     public function complete(CommandTask $task)
     {
+        // Missed-feedback tasks: redirect to calendar feedback modal instead of just marking done
+        if ($task->source_type === 'calendar:missed_feedback' && $task->calendar_event_id) {
+            return redirect()
+                ->route('command-center.calendar', ['view' => 'day', 'capture_feedback' => $task->calendar_event_id])
+                ->with('info', 'Capture feedback to complete this task.');
+        }
+
         $task->markDone();
 
         if (request()->wantsJson()) {

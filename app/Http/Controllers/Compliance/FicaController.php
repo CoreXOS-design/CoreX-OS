@@ -231,6 +231,13 @@ class FicaController extends Controller
             }
         });
 
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Fica\FicaSubmitted(
+            contact: $contact,
+            package: $submission,
+            actorUserId: Auth::id(),
+        ));
+
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'Wet-ink FICA created. Complete Section 10 verification next.');
     }
@@ -337,6 +344,7 @@ class FicaController extends Controller
             'risk_rating'          => $validated['risk_rating'],
             'verified_by'          => Auth::id(),
             'verified_at'          => now(),
+            'fica_expires_at'      => now()->addMonths(24),
             'co_verified_by'       => Auth::id(),
             'co_verified_at'       => now(),
             'co_verification_data' => $coChecklistData,
@@ -355,6 +363,13 @@ class FicaController extends Controller
             'co_id'         => Auth::id(),
             'contact_id'    => $submission->contact_id,
         ]);
+
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Fica\FicaApproved(
+            contact: $submission->contact,
+            package: $submission,
+            approvedByUserId: Auth::id(),
+        ));
 
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'FICA submission approved by compliance officer. Contact record updated and documents filed.');
@@ -401,6 +416,14 @@ class FicaController extends Controller
             'verified_at'    => now(),
         ]);
 
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Fica\FicaRejected(
+            contact: $submission->contact,
+            package: $submission,
+            reason: $validated['reviewer_notes'],
+            actorUserId: Auth::id(),
+        ));
+
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'FICA submission rejected.');
     }
@@ -422,6 +445,14 @@ class FicaController extends Controller
             'verified_by'    => Auth::id(),
             'verified_at'    => now(),
         ]);
+
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Fica\FicaRejected(
+            contact: $submission->contact,
+            package: $submission,
+            reason: $validated['reviewer_notes'],
+            actorUserId: Auth::id(),
+        ));
 
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'FICA submission rejected.');
@@ -572,6 +603,65 @@ class FicaController extends Controller
 
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'Corrections addressed — resubmitted for compliance officer review.');
+    }
+
+    /**
+     * CO/admin reopens a rejected submission for corrections.
+     */
+    public function reopenRejected(Request $request, FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+
+        $user = Auth::user();
+        abort_unless(
+            $user->isComplianceOfficer()
+            || $user->isOwnerRole()
+            || $user->hasPermission('compliance.fica.approve')
+            || in_array($user->role, ['admin', 'super_admin']),
+            403,
+            'Only compliance officers or admins can reopen rejected submissions.'
+        );
+
+        abort_unless(
+            $submission->status === 'rejected',
+            422,
+            'Only rejected submissions can be reopened.'
+        );
+
+        $validated = $request->validate([
+            'reopen_notes' => 'required|string|min:10|max:2000',
+        ]);
+
+        $previousRejectionNotes = $submission->reviewer_notes;
+        $previousRejectedAt = $submission->co_verified_at;
+        $previousRejectedBy = $submission->co_verified_by;
+
+        $submission->update([
+            'status'         => 'corrections_requested',
+            'reviewer_notes' => $validated['reopen_notes'],
+            'co_notes'       => sprintf(
+                "REOPENED on %s by %s.\n\nOriginal rejection (%s by %s): %s\n\nReopen reason: %s",
+                now()->format('Y-m-d H:i'),
+                $user->name,
+                $previousRejectedAt ? $previousRejectedAt->format('Y-m-d H:i') : 'unknown',
+                $previousRejectedBy ? (User::find($previousRejectedBy)?->name ?? "user #{$previousRejectedBy}") : 'unknown',
+                $previousRejectionNotes ?? '(none)',
+                $validated['reopen_notes']
+            ),
+            'co_verified_at' => now(),
+            'co_verified_by' => $user->id,
+        ]);
+
+        Log::info('FICA submission reopened from rejected', [
+            'submission_id'        => $submission->id,
+            'contact_id'           => $submission->contact_id,
+            'reopened_by_user_id'  => $user->id,
+            'reopen_reason'        => $validated['reopen_notes'],
+            'original_rejected_by' => $previousRejectedBy,
+        ]);
+
+        return redirect()->route('compliance.fica.show', $submission)
+            ->with('success', 'Submission reopened — agent can now make corrections and resubmit.');
     }
 
     /**

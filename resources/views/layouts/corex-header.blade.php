@@ -31,7 +31,7 @@
                       style="position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;background:#00d4aa;color:#0f172a;font-size:10px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;line-height:1;"></span>
             </button>
             <div x-show="open" x-cloak @click.outside="open=false"
-                 style="position:absolute;top:100%;right:0;margin-top:8px;width:340px;max-height:400px;overflow-y:auto;background:#1e293b;border:1px solid #334155;border-radius:3px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;">
+                 style="position:absolute;top:100%;right:0;margin-top:8px;width:340px;max-height:400px;overflow-y:auto;background:#1e293b;border:1px solid #334155;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.4);z-index:100;">
                 <div style="padding:10px 14px;border-bottom:1px solid #334155;display:flex;align-items:center;justify-content:space-between;">
                     <span style="font-size:12px;font-weight:600;color:#f1f5f9;">Notifications</span>
                     <button x-show="unreadCount > 0" @click.stop="markAllRead()" style="font-size:11px;color:#00d4aa;background:none;border:none;cursor:pointer;">Mark all read</button>
@@ -40,12 +40,13 @@
                     <div style="padding:24px 14px;text-align:center;font-size:12px;color:#64748b;">No notifications</div>
                 </template>
                 <template x-for="item in items" :key="item.id">
-                    <a :href="item.data?.url || '#'" @click="markRead(item.id)"
+                    <a :href="item.data?.action_url || item.data?.url || '#'" @click="markRead(item.id)"
                        style="display:block;padding:10px 14px;border-bottom:1px solid #334155;text-decoration:none;transition:background 0.1s;"
                        :style="item.read_at ? '' : 'background:rgba(0,212,170,0.04);'"
                        onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=this.dataset.bg"
                        :data-bg="item.read_at ? '' : 'rgba(0,212,170,0.04)'">
-                        <div style="font-size:12px;color:#e2e8f0;line-height:1.4;" x-text="item.data?.message || 'Notification'"></div>
+                        <div style="font-size:12px;color:#f1f5f9;line-height:1.4;font-weight:600;" x-text="item.data?.title || item.data?.message || 'Notification'"></div>
+                        <div x-show="item.data?.body" style="font-size:11px;color:#cbd5e1;line-height:1.4;margin-top:2px;" x-text="item.data?.body"></div>
                         <div style="font-size:10px;color:#475569;margin-top:3px;" x-text="timeAgo(item.created_at)"></div>
                     </a>
                 </template>

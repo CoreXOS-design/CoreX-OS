@@ -7,11 +7,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
+use App\Models\Concerns\BelongsToAgency;
 class PropertyFile extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
-    protected $fillable = ['property_id', 'user_id', 'name', 'path', 'size', 'mime_type',
+    protected $fillable = [
+        'agency_id','property_id', 'user_id', 'name', 'path', 'size', 'mime_type',
         'document_type_id', 'contact_id', 'source_type'];
 
     protected $casts = ['size' => 'integer'];

@@ -7,6 +7,7 @@ namespace App\Models;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
 
+use App\Models\Concerns\BelongsToAgency;
 /**
  * ES-1 — Insert-only forensic record of every legal-block trigger.
  *
@@ -18,6 +19,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class LegalBlockAuditLog extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'legal_block_audit_log';
 
     public $timestamps = false;

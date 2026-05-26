@@ -1,10 +1,11 @@
-@props(['title', 'value', 'trend' => 0, 'trendUp' => true, 'iconBg' => 'bg-sky-100 text-[#00b4d8]'])
+@props(['title', 'value', 'trend' => null, 'trendUp' => true, 'iconBg' => null])
 
 <div class="corex-kpi-card">
     <div class="flex items-start justify-between">
         <div>
             <p class="corex-kpi-title">{{ $title }}</p>
             <p class="corex-kpi-value">{{ $value }}</p>
+            @if($trend !== null && $trend !== 0)
             <div class="corex-kpi-trend {{ $trendUp ? 'up' : 'down' }}">
                 @if($trendUp)
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
@@ -18,9 +19,10 @@
                 <span>{{ abs($trend) }}%</span>
                 <span class="corex-kpi-subtitle">from last month</span>
             </div>
+            @endif
         </div>
         @if(isset($icon))
-            <div class="corex-kpi-icon {{ $iconBg }}">
+            <div class="corex-kpi-icon {{ $iconBg }}" @if(!$iconBg) style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);" @endif>
                 {{ $icon }}
             </div>
         @endif

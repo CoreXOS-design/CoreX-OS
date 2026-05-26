@@ -12,6 +12,7 @@ use App\Services\Presentations\Evidence\Parsers\SalesReportParserV1;
 use App\Services\Presentations\Evidence\Parsers\SuburbStockParserV1;
 use App\Services\Presentations\Evidence\Parsers\UnknownParser;
 use App\Support\Presentation\DocumentExtractor;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Routes a PresentationUpload to the correct deterministic parser,
@@ -370,6 +371,21 @@ class UploadExtractionService
                     'confidence'       => 0.90,
                 ]);
             }
+        }
+
+        // Fire the domain event so subscribers (e.g. PropagateCmaToProperty) can
+        // back-propagate the extracted fields to the Property pillar.
+        // Spec: .ai/specs/market-intelligence-discovery.md Section 13.4.
+        $presentation = DB::table('presentations')->where('id', $presentationId)->first();
+        if ($presentation) {
+            $agencyId = $presentation->agency_id
+                ?? optional(DB::table('branches')->where('id', $presentation->branch_id ?? 0)->first())->agency_id;
+
+            event(new \App\Events\Presentation\PresentationFieldsExtracted(
+                presentationId: (int) $presentationId,
+                agencyId: $agencyId ? (int) $agencyId : null,
+                actorUserId: auth()->id(),
+            ));
         }
     }
 

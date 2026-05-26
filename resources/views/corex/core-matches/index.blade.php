@@ -19,6 +19,13 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                     Contacts
                 </a>
+                @permission('core_matches.all_view')
+                <a href="{{ route('corex.core-matches.all') }}" class="corex-btn-outline text-sm"
+                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.641 0-8.58-3.007-9.964-7.178Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                    All View
+                </a>
+                @endpermission
             </div>
         </div>
     </div>
@@ -136,6 +143,28 @@
 
                         @if(!$match->category && !$match->property_type && !$match->suburb && !$match->price_min && !$match->price_max && !$match->beds_min && !$match->baths_min)
                         <span class="text-xs italic" style="color:var(--text-muted);">Any property</span>
+                        @endif
+                    </div>
+
+                    {{-- Match counts: total / visible / hidden --}}
+                    @php $counts = $matchCounts[$match->id] ?? ['total' => 0, 'visible' => 0, 'hidden' => 0]; @endphp
+                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                              title="Total properties matching this search">
+                            {{ number_format($counts['total']) }} {{ Str::plural('match', $counts['total']) }}
+                        </span>
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); color:var(--ds-green, #16a34a); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 25%, transparent);"
+                              title="Visible to the client">
+                            {{ number_format($counts['visible']) }} visible
+                        </span>
+                        @if($counts['hidden'] > 0)
+                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);"
+                              title="Hidden from this match">
+                            {{ number_format($counts['hidden']) }} hidden
+                        </span>
                         @endif
                     </div>
 

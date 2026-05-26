@@ -346,6 +346,46 @@ class AgentPpController extends Controller
     }
 
     /**
+     * Build a copy-paste email block for Private Property listing/agent
+     * mapping requests. PP periodically ships a stock file and asks us to
+     * fill in our internal IDs against their rows. This view exposes the
+     * CoreX-side data they need: every PP-syndicated user (PP external ref,
+     * encrypted ID, CoreX user id) and every PP-syndicated listing (PP ref,
+     * PP feed ref, CoreX property id, address, agent).
+     */
+    public function mappingEmail()
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $agents = User::query()
+            ->where(function ($q) {
+                $q->whereNotNull('pp_external_ref')
+                  ->orWhereNotNull('pp_unique_agent_id');
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'pp_external_ref', 'pp_unique_agent_id']);
+
+        $listings = \App\Models\Property::query()
+            ->where(function ($q) {
+                $q->where('pp_syndication_enabled', true)
+                  ->orWhereNotNull('pp_ref')
+                  ->orWhereNotNull('pp_listing_feed_ref');
+            })
+            ->with(['agent:id,name'])
+            ->orderBy('id')
+            ->get([
+                'id', 'headline', 'title', 'address', 'suburb', 'town',
+                'listing_type', 'pp_ref', 'pp_listing_feed_ref',
+                'pp_syndication_status', 'agent_id',
+            ]);
+
+        return view('admin.pp.mapping-email', [
+            'agents'   => $agents,
+            'listings' => $listings,
+        ]);
+    }
+
+    /**
      * Register/sync an agent on Private Property.
      */
     public function sync(User $user): JsonResponse

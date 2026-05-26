@@ -5,9 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class FicaResendLog extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
+        'agency_id',
         'fica_submission_id',
         'resent_by',
         'resent_at',

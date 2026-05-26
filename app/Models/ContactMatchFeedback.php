@@ -5,8 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class ContactMatchFeedback extends Model
 {
+    use BelongsToAgency;
+
     public const REACTION_INTERESTED     = 'interested';
     public const REACTION_NOT_INTERESTED = 'not_interested';
     public const REACTION_SAVED          = 'saved';
@@ -14,6 +17,7 @@ class ContactMatchFeedback extends Model
     protected $table = 'contact_match_feedback';
 
     protected $fillable = [
+        'agency_id',
         'contact_match_id',
         'property_id',
         'reaction',

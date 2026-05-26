@@ -168,12 +168,8 @@ return [
         ['key' => 'access_client_portal',    'label' => 'Access Client Portal',            'section' => 'client-portal',    'type' => 'access',  'module' => 'client_portal',    'sort_order' => 1],
         ['key' => 'manage_clients',          'label' => 'Manage Client Records',           'section' => 'client-portal',    'type' => 'access',  'module' => 'client_portal',    'sort_order' => 2],
 
-        // ── P24 Importer ──
-        ['key' => 'access_importer',         'label' => 'Access P24 Importer',             'section' => 'importer',         'type' => 'access',  'module' => 'importer',         'sort_order' => 1],
-        ['key' => 'importer.import_agents',   'label' => 'Import Agents (P24)',             'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 2],
-        ['key' => 'importer.import_listings', 'label' => 'Import Listings (P24)',           'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 3],
-        ['key' => 'confirm_properties',      'label' => 'Confirm Properties (Review)',     'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 4],
-        ['key' => 'send_agent_invites',      'label' => 'Send Agent Invites',              'section' => 'importer',         'type' => 'action',  'module' => 'importer',         'sort_order' => 5],
+        // ── P24 Importer ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
+        // Routes now gated by `owner_only` middleware. No permission keys needed.
 
         // ── Franchise Admin ──
         ['key' => 'access_franchise_admin',  'label' => 'Access Franchise Admin',          'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 1],
@@ -275,9 +271,25 @@ return [
         ['key' => 'core_matches.delete',         'label' => 'Delete',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 12],
         ['key' => 'core_matches.manage',         'label' => 'Manage (edit, archive)',      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 13],
         ['key' => 'core_matches.convert_to_deal','label' => 'Convert to Deal',             'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 14],
+        ['key' => 'core_matches.all_view',       'label' => 'All View (agency/branch oversight)', 'section' => 'core-matches', 'type' => 'action', 'module' => 'core_matches',  'sort_order' => 15],
+
+        // ── Portal Leads (P24 + PP unified) ──
+        ['key' => 'access_portal_leads',         'label' => 'Access Portal Leads',         'section' => 'portal-leads',     'type' => 'access',  'module' => 'portal_leads',     'sort_order' => 1],
+        ['key' => 'portal_leads.view',           'label' => 'View',                        'section' => 'portal-leads',     'type' => 'action',  'module' => 'portal_leads',     'sort_order' => 10],
+
+        // ── Client App (mobile client portal) ──
+        // Spec: .ai/specs/client-auth.md
+        ['key' => 'client_app.create_login',     'label' => 'Create Client App Login',     'section' => 'contacts',         'type' => 'action',  'module' => 'client_app',       'sort_order' => 50],
+        ['key' => 'client_app.reset_password',   'label' => 'Reset Client App Password',   'section' => 'contacts',         'type' => 'action',  'module' => 'client_app',       'sort_order' => 51],
+        ['key' => 'client_app.force_logout',     'label' => 'Force Client Logout',         'section' => 'contacts',         'type' => 'action',  'module' => 'client_app',       'sort_order' => 52],
+        ['key' => 'client_app.remove_access',    'label' => 'Remove Client App Access',    'section' => 'contacts',         'type' => 'action',  'module' => 'client_app',       'sort_order' => 53],
+        ['key' => 'client_app.view_logs',        'label' => 'View Client App Activity',    'section' => 'admin',            'type' => 'access',  'module' => 'client_app',       'sort_order' => 54],
 
         // ── Calculators / Tools ──
         ['key' => 'access_calculators',          'label' => 'Access Calculators & Tools',  'section' => 'calculators',      'type' => 'access',  'module' => 'calculators',      'sort_order' => 1],
+
+        // ── Flow Map ──
+        ['key' => 'access_flow_map',             'label' => 'Access Flow Map',             'section' => 'flow-map',         'type' => 'access',  'module' => 'flow_map',         'sort_order' => 1],
 
         // ── Ellie AI ──
         ['key' => 'access_ellie',                'label' => 'Access Ellie AI',             'section' => 'ellie',            'type' => 'access',  'module' => 'ellie',            'sort_order' => 1],
@@ -298,8 +310,11 @@ return [
         ['key' => 'access_deposit_calculator',   'label' => 'Access Deposit Interest Calculator', 'section' => 'trust-interest', 'type' => 'access',  'module' => 'trust_interest',   'sort_order' => 2],
         ['key' => 'access_deposit_calc_history', 'label' => 'Access Calculation History',        'section' => 'trust-interest', 'type' => 'access',  'module' => 'trust_interest',   'sort_order' => 3],
 
-        // ── PDF Splitter ──
+        // ── PDF Splitter (legacy key — kept for backwards compatibility with existing role assignments) ──
         ['key' => 'access_pdf_splitter',         'label' => 'Access PDF Splitter',         'section' => 'pdf-splitter',     'type' => 'access',  'module' => 'pdf_splitter',     'sort_order' => 1],
+
+        // ── PDF Suite ──
+        ['key' => 'access_pdf_suite',            'label' => 'Access PDF Suite',            'section' => 'pdf-suite',        'type' => 'access',  'module' => 'pdf_suite',        'sort_order' => 1],
 
         // ── Knowledge Base ──
         ['key' => 'access_knowledge_base',       'label' => 'Access Knowledge Base',       'section' => 'knowledge-base',   'type' => 'access',  'module' => 'knowledge',        'sort_order' => 1],
@@ -323,17 +338,24 @@ return [
         ['key' => 'deals_v2.manage_pipeline',    'label' => 'Manage Pipeline Templates',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 14],
         ['key' => 'deals_v2.override_dates',     'label' => 'Override Due Dates',          'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 15],
 
-        // ── Agencies ──
-        ['key' => 'access_agencies',             'label' => 'Access Agencies',             'section' => 'agencies',         'type' => 'access',  'module' => 'agencies',         'sort_order' => 1],
-        ['key' => 'manage_agencies',             'label' => 'Manage Agencies',             'section' => 'agencies',         'type' => 'access',  'module' => 'agencies',         'sort_order' => 2],
+        // ── Agencies ── REMOVED 2026-05-07: System Owner only (see agency-admin-rule.md).
+        // Routes now gated by `owner_only` middleware. No permission keys needed.
+
+        // ── Remote Access (cross-agency consent flow) ──
+        // See .ai/specs/agency-access-authorization-spec.md
+        ['key' => 'agency.manage_access_authorization', 'label' => 'Manage Remote Access Setting', 'section' => 'remote-access', 'type' => 'access', 'module' => 'remote_access', 'sort_order' => 1],
+        ['key' => 'agency.authorize_external_access',   'label' => 'Approve / Deny Remote Access', 'section' => 'remote-access', 'type' => 'action', 'module' => 'remote_access', 'sort_order' => 2],
 
         // ── Settings ──
         ['key' => 'access_settings',             'label' => 'Access Settings',             'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 1],
         ['key' => 'manage_designations',         'label' => 'Manage Designations',         'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 2],
         ['key' => 'manage_branch_settings',      'label' => 'Manage Branch Settings',      'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 3],
+        ['key' => 'prospecting_setup.manage',    'label' => 'Manage Prospecting Setup',    'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
+        ['key' => 'agency.p24.configure',        'label' => 'Configure Property24 API credentials', 'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 20],
+        ['key' => 'agency.p24.sync',             'label' => 'Trigger Property24 location sync',     'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 21],
 
         // ── Role Manager ──
         ['key' => 'access_role_manager',         'label' => 'Access Role Manager',         'section' => 'role-manager',     'type' => 'access',  'module' => 'roles',            'sort_order' => 1],
@@ -369,6 +391,38 @@ return [
         ['key' => 'command_center.automation.manage','label' => 'Manage Automation Rules',      'section' => 'command-center',   'type' => 'action',  'module' => 'command_center',   'sort_order' => 16],
         ['key' => 'command_center.settings',         'label' => 'Manage Command Center Settings','section' => 'command-center',  'type' => 'access',  'module' => 'command_center',   'sort_order' => 17],
 
+        // ── Contact Governance ──
+        ['key' => 'contact_governance.manage',       'label' => 'Manage Contact Governance Settings', 'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 50],
+        ['key' => 'contact_governance.leave_matrix', 'label' => 'Manage Leave Visibility Matrix',    'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 51],
+
+        // ── Seller Outreach ──
+        // See .ai/specs/seller-outreach-spec.md
+        ['key' => 'outreach.compose',             'label' => 'Compose Seller Outreach',     'section' => 'outreach', 'type' => 'action', 'module' => 'outreach', 'sort_order' => 1],
+        ['key' => 'outreach_templates.manage',    'label' => 'Manage Outreach Templates',   'section' => 'outreach', 'type' => 'action', 'module' => 'outreach', 'sort_order' => 2],
+
+        // ── Payroll ──
+        ['key' => 'manage_payroll',        'label' => 'Manage Payroll (employees, types)', 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 120],
+        ['key' => 'run_payroll',           'label' => 'Run & Finalise Payroll',            'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 121],
+        ['key' => 'view_payroll_reports',  'label' => 'View Payroll Reports',              'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 122],
+        ['key' => 'view_own_payslips',     'label' => 'View Own Payslips',                 'section' => 'payroll', 'type' => 'action', 'module' => 'payroll', 'sort_order' => 123],
+
+        // ── Leave ──
+        ['key' => 'manage_leave',             'label' => 'Manage Leave (admin/BM)',                  'section' => 'leave', 'type' => 'action', 'module' => 'leave', 'sort_order' => 130],
+        ['key' => 'approve_leave',            'label' => 'Approve / Reject Leave Applications',     'section' => 'leave', 'type' => 'action', 'module' => 'leave', 'sort_order' => 131],
+        ['key' => 'apply_for_leave',          'label' => 'Apply for Own Leave',                     'section' => 'leave', 'type' => 'action', 'module' => 'leave', 'sort_order' => 132],
+        ['key' => 'view_leave_reports',       'label' => 'View Leave Reports',                      'section' => 'leave', 'type' => 'action', 'module' => 'leave', 'sort_order' => 133],
+        ['key' => 'manage_leave_types',       'label' => 'Manage Leave Types (admin)',               'section' => 'leave', 'type' => 'action', 'module' => 'leave', 'sort_order' => 134],
+        ['key' => 'manage_staff_take_on',     'label' => 'Manage Staff Take-On Wizard',              'section' => 'leave', 'type' => 'action', 'module' => 'leave', 'sort_order' => 135],
+        ['key' => 'view_team_leave_calendar', 'label' => 'View Team Leave Calendar',                'section' => 'leave', 'type' => 'action', 'module' => 'leave', 'sort_order' => 136],
+        ['key' => 'adjust_leave_balances',    'label' => 'Manually Adjust Leave Balances (admin)',   'section' => 'leave', 'type' => 'action', 'module' => 'leave', 'sort_order' => 137],
+
+        // ── Whistleblower Compliance Reporting ──
+        ['key' => 'compliance.whistleblow.view',           'label' => 'View Whistleblow Module',               'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 50],
+        ['key' => 'compliance.whistleblow.create',         'label' => 'File New Complaints',                   'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 51],
+        ['key' => 'compliance.whistleblow.approve',        'label' => 'Approve / Reject Complaints',           'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 52],
+        ['key' => 'compliance.whistleblow.view_all_agency','label' => 'View All Agency Complaints',            'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 53],
+        ['key' => 'compliance.whistleblow.configure',      'label' => 'Configure Approvers & PPRA Email',      'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 54],
+
         // ── Branches — Split Branches (Phase 2 branch isolation) ──
         // view_all = bypass BranchScope (see all branches in the agency)
         // switch   = use the "View as Branch" dropdown to impersonate a branch
@@ -376,6 +430,15 @@ return [
         ['key' => 'branches.view_all',               'label' => 'View Across All Branches',      'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 1],
         ['key' => 'branches.switch',                 'label' => 'Switch Branch View',            'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 2],
         ['key' => 'branches.edit_all',               'label' => 'Edit Across All Branches',      'section' => 'branches',        'type' => 'action',  'module' => 'branches',         'sort_order' => 3],
+
+        // ── Sidebar — section visibility (entire sidebar groups) ──
+        // When OFF, the sidebar heading and every item under it (until the
+        // next heading) is hidden. Per-feature permissions still gate the
+        // underlying routes — this is purely visual grouping.
+        ['key' => 'sidebar.section.agents',          'label' => 'Show Agents Section',           'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 1],
+        ['key' => 'sidebar.section.branch_manager',  'label' => 'Show Branch Manager Section',   'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 2],
+        ['key' => 'sidebar.section.tools',           'label' => 'Show Tools Section',            'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 3],
+        ['key' => 'sidebar.section.admin',           'label' => 'Show Admin Section',            'section' => 'sidebar',         'type' => 'access',  'module' => 'sidebar',          'sort_order' => 5],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -388,7 +451,24 @@ return [
         'super_admin' => '*', // Owner role — gets all permissions
 
         'admin' => [
-            'exclude' => ['access_agencies', 'manage_agencies', 'manage_agency_switching'],
+            'exclude' => ['manage_agency_switching'],
+            // Payroll: admin gets full payroll management
+            'include' => [
+                'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
+                // Leave: admin gets all leave permissions
+                'manage_leave', 'approve_leave', 'apply_for_leave', 'view_leave_reports',
+                'manage_leave_types', 'manage_staff_take_on', 'view_team_leave_calendar',
+                'adjust_leave_balances',
+                // Sidebar sections — admin sees all
+                'sidebar.section.agents', 'sidebar.section.branch_manager',
+                'sidebar.section.tools', 'sidebar.section.admin',
+                // Whistleblower
+                'compliance.whistleblow.view', 'compliance.whistleblow.create',
+                'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
+                'compliance.whistleblow.configure',
+                // Seller Outreach
+                'outreach.compose', 'outreach_templates.manage',
+            ],
         ],
 
         'branch_manager' => [
@@ -437,8 +517,9 @@ return [
                 'commercial_evals.view', 'commercial_evals.create', 'commercial_evals.edit',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create', 'sales_docs.edit',
-                'access_calculators', 'access_ellie',
-                'access_pdf_splitter', 'access_deposit_calculator', 'access_deposit_calc_history',
+                'access_calculators', 'access_ellie', 'access_flow_map',
+                'access_pdf_splitter', 'access_pdf_suite',
+                'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'create_properties', 'publish_properties', 'delete_properties',
                 'properties.view', 'properties.create', 'properties.edit',
@@ -447,6 +528,8 @@ return [
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email',
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
+                'core_matches.all_view',
+                'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
                 'settings.view',
@@ -458,6 +541,19 @@ return [
                 // Branches — can switch between branches of their own agency
                 // (testing / training), but does NOT bypass BranchScope by default.
                 'branches.switch',
+                // Payroll
+                'view_own_payslips',
+                // Leave
+                'manage_leave', 'approve_leave', 'apply_for_leave', 'view_leave_reports',
+                'view_team_leave_calendar',
+                // Sidebar sections
+                'sidebar.section.agents', 'sidebar.section.branch_manager',
+                'sidebar.section.tools',
+                // Whistleblower
+                'compliance.whistleblow.view', 'compliance.whistleblow.create',
+                'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
+                // Seller Outreach
+                'outreach.compose',
             ],
         ],
 
@@ -492,8 +588,8 @@ return [
                 'commercial_evals.view', 'commercial_evals.create',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create',
-                'access_calculators', 'access_ellie',
-                'access_pdf_splitter',
+                'access_calculators', 'access_ellie', 'access_flow_map',
+                'access_pdf_splitter', 'access_pdf_suite',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'create_properties',
                 'properties.view', 'properties.create', 'properties.edit',
@@ -502,6 +598,7 @@ return [
                 'contacts.whatsapp', 'contacts.email',
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
+                'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
                 'view_own_stats',
@@ -509,6 +606,16 @@ return [
                 'deals_v2.view', 'deals_v2.create', 'deals_v2.edit',
                 'access_rmcp',
                 'view_own_screening',
+                // Payroll
+                'view_own_payslips',
+                // Leave
+                'apply_for_leave', 'view_team_leave_calendar',
+                // Sidebar sections
+                'sidebar.section.agents', 'sidebar.section.tools',
+                // Whistleblower
+                'compliance.whistleblow.view', 'compliance.whistleblow.create',
+                // Seller Outreach — composer only; template management is admin
+                'outreach.compose',
             ],
         ],
 
@@ -529,17 +636,20 @@ return [
                 'access_filing_register', 'filing.view',
                 'access_commercial_evaluations', 'commercial_evals.view',
                 'access_sales_documents', 'sales_docs.view',
-                'access_calculators', 'access_ellie',
+                'access_calculators', 'access_ellie', 'access_flow_map',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'properties.view',
                 'access_contacts', 'contacts.view',
                 'access_core_matches', 'core_matches.view',
+                'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
                 'settings.view',
                 'view_own_stats',
                 'access_rmcp',
                 'view_own_screening',
+                // Sidebar sections
+                'sidebar.section.agents', 'sidebar.section.tools',
             ],
         ],
     ],

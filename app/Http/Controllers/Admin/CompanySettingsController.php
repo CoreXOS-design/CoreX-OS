@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\Branch;
+use App\Models\PerformanceSetting;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -42,7 +44,13 @@ class CompanySettingsController extends Controller
 
         $agents = User::where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
-        return view('admin.company-settings.index', compact('agencies', 'agency', 'agents'));
+        $branches = Branch::orderBy('name')->get();
+        $vatRate = (float) PerformanceSetting::get('vat_rate', 15);
+        $listingsPerSale = (float) PerformanceSetting::get('listings_per_sale', 5);
+
+        return view('admin.company-settings.index', compact(
+            'agencies', 'agency', 'agents', 'branches', 'vatRate', 'listingsPerSale'
+        ));
     }
 
     public function update(Request $request, Agency $agency)
@@ -66,8 +74,17 @@ class CompanySettingsController extends Controller
             'fic_no'                => ['nullable', 'string', 'max:255'],
             'email_disclaimer'      => ['nullable', 'string', 'max:2000'],
             'popi_url'              => ['nullable', 'string', 'max:500'],
+            'sidebar_color'         => ['nullable', 'string', 'max:20'],
+            'icon_color'            => ['nullable', 'string', 'max:20'],
+            'default_color'         => ['nullable', 'string', 'max:20'],
+            'button_color'          => ['nullable', 'string', 'max:20'],
             'logo'                  => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'remove_logo'           => ['nullable', 'boolean'],
+            // 2026-05-14 hotfix — agency-scoped WhatsApp launch modes.
+            'whatsapp_launch_mode_agent'  => ['nullable', 'in:whatsapp_app,whatsapp_web'],
+            'whatsapp_launch_mode_seller' => ['nullable', 'in:whatsapp_app,whatsapp_web'],
+            // 2026-05-14 — pitch-claim integration: agency-tunable temp lock duration.
+            'prospecting_pitch_temp_lock_minutes' => ['nullable', 'integer', 'min:5', 'max:240'],
         ]);
 
         $removeLogo = $data['remove_logo'] ?? false;

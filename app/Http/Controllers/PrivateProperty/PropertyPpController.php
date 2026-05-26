@@ -88,7 +88,9 @@ class PropertyPpController extends Controller
     {
         $input = trim($input);
         if (preg_match('/^[a-zA-Z0-9_-]{11}$/', $input)) return $input;
-        if (preg_match('/(?:youtube\.com\/(?:watch\?.*v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/', $input, $m)) return $m[1];
-        return substr($input, 0, 11);
+        if (preg_match('/(?:youtube\.com\/(?:watch\?\S*?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/', $input, $m)) return $m[1];
+        // No recognisable 11-char id — return empty rather than a garbage
+        // truncation that would silently pass PP's 11-char length check.
+        return '';
     }
 }

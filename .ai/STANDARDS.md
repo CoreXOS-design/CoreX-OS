@@ -101,6 +101,60 @@ Never in code. Never in the database unless encrypted. Never in comments. `.env`
 ### Database — No SQLite in Repo
 `database.sqlite` must be in `.gitignore`. It causes constant merge conflicts and has no place in a MySQL-driven production system.
 
+### Design System Compliance (UI_DESIGN_SYSTEM.md is binding)
+
+Every Blade view rendering new UI MUST start by reading `.ai/specs/UI_DESIGN_SYSTEM.md`. The view's header comment MUST declare the design system version it complies with (e.g. `DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20`).
+
+**FORBIDDEN in any Blade view:**
+- Hardcoded colours (`color: #0b2a4a`, `background: white`, `border-color: red`, etc.) for anything a design token covers.
+- Hardcoded font families inline (`font-family: 'Plus Jakarta Sans'`) — use Figtree via the cascade.
+- Hardcoded radii, shadows, or sizes that diverge from the token scale.
+
+**Required pattern when referencing colours:**
+- `var(--token-name, #fallback-hex)` — the var() pattern with the documented token value as a fallback per UI_DESIGN_SYSTEM.md §5.10. This makes views robust if a token fails to resolve at runtime AND auto-upgrades if the token is later refined.
+
+**If a new token is needed:** define it in UI_DESIGN_SYSTEM.md FIRST (with Johan's approval, committed to `main`) BEFORE any view uses it. Do not silently invent tokens.
+
+**Regression guard:** `scripts/check-design-tokens.ps1` greps the `resources/views/corex/` tree for naked hardcoded colours and fails the build if any are found. New CoreX views MUST pass this check.
+
+When in doubt: tokens over hex, components over duplication, patterns over creativity.
+
+### Plain-English Visible Labels (F.8 binding rule)
+
+Every chip, badge, button, or short-form label visible to users MUST be either:
+
+(a) **Plain English** a first-day agent would understand without training — full words preferred over abbreviations, common estate-agent vocabulary, no codenames; OR
+(b) **Accompanied by a `title=` tooltip** (or the equivalent CoreX tooltip pattern from UI_DESIGN_SYSTEM.md) explaining what the label means and what clicking it does.
+
+**FORBIDDEN as visible labels:**
+- Developer jargon and internal abbreviations: `TP` (use "Property intel"), `KPI`, `R1`/`R2`/`R3` rule names, status enum values (`pitched_recently`, `meeting_set` shown raw — humanise with `str_replace('_', ' ', …)`).
+- Acronyms not common to South African estate agents.
+- Cryptic icons without a tooltip explaining the action.
+
+**Rationale:** new agents joining HFC should be able to use Market Intelligence on their first morning without a Loom video. Every visible label is a UX commitment that costs nothing to write clearly.
+
+### Universal Match-or-Create for Property Data
+Every ingestion path produces or enriches a `tracked_properties` record via `App\Services\Prospecting\TrackedPropertyMatchOrCreateService::matchOrCreate()`. The service uses a 5-strategy match in priority order:
+
+1. **Source-ref exact** — `tracked_property_external_refs(agency_id, source_type, source_ref)`
+2. **GPS proximity** — `~5m tolerance` on `cma_gps_lat/lng`, fallback to `lat/lng`
+3. **Erf number + suburb** — exact match on both
+4. **Normalised address** — street_number + normalised street_name + normalised suburb
+5. **Token overlap** — same suburb + ≥2 significant tokens in the street (last resort)
+
+Source attribution is permanent. Every contribution appends a `source_chain` entry (type, ref, date, fields_contributed) AND creates/updates a `tracked_property_external_refs` row. The append-only chain is the audit record of every external system that has said "I think this is the same property".
+
+Two property tiers, clearly separated:
+
+| Tier | Table | Purpose |
+|------|-------|---------|
+| Agency Stock | `properties` | Formal mandates HFC works |
+| Tracked Properties | `tracked_properties` | Every property CoreX has intelligence on |
+
+Promotion to `properties` (Agency Stock) happens when a mandate is signed via `TrackedPropertyMatchOrCreateService::promoteToStock()`. The TrackedProperty record persists post-promotion as the audit trail; its `promoted_to_property_id` points at the operational Property.
+
+This is the architectural mechanism by which CoreX builds a comprehensive property intelligence dataset organically through normal agent work — no manual data entry; no orphaned CMA fields; no duplicate records across portal sources.
+
 ---
 
 ## Code Style Expectations
@@ -139,3 +193,30 @@ Before any code changes, read CLAUDE.md, STANDARDS.md, and the relevant spec fro
 
 ### Rule 16: Functional Verification Required
 php -l and dev-check are necessary but not sufficient. Every feature must be verified via Tinker or equivalent to confirm it actually works end-to-end, not just compiles.
+
+---
+
+## Known Limitations
+
+### View-As vs Switch User (Impersonation)
+
+CoreX has TWO user-perspective features. They are NOT the same:
+
+| Feature | Trigger | What it does | Visibility scopes work? |
+|---------|---------|--------------|------------------------|
+| **View As** (role dropdown) | Owner header dropdown → "View As [role]" | Swaps `role` + `branch_id` in session ONLY. Auth::user() unchanged. | **NO** — scopes still see original user |
+| **Switch User** (impersonation) | Sidebar user menu → "Switch User" → pick user | Full `Auth::login($target)`. Auth::user() fully swapped. | **YES** — all scopes behave correctly |
+
+**Rule: To test visibility-scoped features (ContactScope, CalendarVisibilityResolver, future scopes), use "Switch User" — NOT "View As".**
+
+The "View As" role dropdown is useful ONLY for testing permission/UI gating (what menu items appear, what buttons show). It does NOT affect data visibility scopes because `Auth::user()` remains the original super_admin.
+
+**Impersonation system details:**
+- Controller: `App\Http\Controllers\Admin\ImpersonateController`
+- Routes: `POST /admin/impersonate/{user}` (start), `POST /admin/impersonate/stop` (exit)
+- Permission required: `impersonate_users` or owner role
+- Audit log: `impersonation_logs` table (admin_user_id, target_user_id, action, ip, user_agent)
+- Banner shown during impersonation (amber "Viewing as [name]" with exit button)
+- Session marker: `impersonator_id` stores original admin's id for restoration
+
+**Diagnostic pattern:** If a visibility-scoped feature shows wrong results, check which feature was used. If "View As" → switch to "Switch User" instead. If "Switch User" → the scope has a genuine bug.

@@ -15,13 +15,72 @@ use Illuminate\Support\Facades\Log;
 class PropertyObserver
 {
     /**
+     * Ensure branch_id is populated on new properties.
+     * Derives from agent's branch_id; falls back to agency's default branch.
+     */
+    public function creating(Property $property): void
+    {
+        if (!empty($property->branch_id)) {
+            return;
+        }
+
+        // Try agent's branch
+        if ($property->agent_id) {
+            $agentBranch = \DB::table('users')->where('id', $property->agent_id)->value('branch_id');
+            if ($agentBranch) {
+                $property->branch_id = $agentBranch;
+                return;
+            }
+        }
+
+        // Try creator's branch
+        $user = \Illuminate\Support\Facades\Auth::user();
+        if ($user && $user->branch_id) {
+            $property->branch_id = $user->branch_id;
+            return;
+        }
+
+        // Fallback: agency's default branch
+        $agencyId = $property->agency_id ?? ($user ? $user->effectiveAgencyId() : null);
+        if ($agencyId) {
+            $agency = \App\Models\Agency::withoutGlobalScopes()->find($agencyId);
+            if ($agency && $agency->default_branch_id) {
+                $property->branch_id = $agency->default_branch_id;
+            } else {
+                $property->branch_id = \App\Models\Branch::withoutGlobalScopes()
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->orderBy('id')
+                    ->value('id') ?? 1;
+            }
+        }
+    }
+
+    /**
      * Reject owner-role users as listing agents. System Owners are
      * platform identities — they don't own properties, they supervise
      * every agency. This observer closes the write side; the read side
      * is `User::scopeAgencyMembers()`.
      */
+    /** Static registry for pre-save originals (keyed by property ID) */
+    private static array $auditOriginals = [];
+
     public function saving(Property $property): void
     {
+        // Capture originals in static registry for audit diffing in saved()
+        if ($property->exists && !$property->wasRecentlyCreated) {
+            $auditFields = ['price', 'status', 'agent_id', 'compliance_snapshot_at', 'published_at', 'mandate_type'];
+            $captured = [];
+            foreach ($auditFields as $f) {
+                if ($property->isDirty($f)) {
+                    $captured[$f] = $property->getOriginal($f);
+                }
+            }
+            if (!empty($captured)) {
+                self::$auditOriginals[$property->id] = $captured;
+            }
+        }
+
         if (!$property->agent_id) {
             return;
         }
@@ -48,6 +107,16 @@ class PropertyObserver
         } catch (\Throwable $e) {
             Log::warning("Command Center auto-event failed on property create #{$property->id}: {$e->getMessage()}");
         }
+
+        // Audit: property created
+        try {
+            app(\App\Services\Audit\PropertyAuditService::class)->log(
+                $property, 'property', 'property_created',
+                humanSummary: 'Property created: ' . ($property->title ?? 'Untitled'),
+            );
+        } catch (\Throwable $e) {
+            Log::warning("Audit log failed on property create #{$property->id}: {$e->getMessage()}");
+        }
     }
 
     /**
@@ -63,6 +132,43 @@ class PropertyObserver
             }
         } catch (\Throwable $e) {
             Log::warning("Command Center activity update failed for property #{$property->id}: {$e->getMessage()}");
+        }
+
+        // Audit: track meaningful field changes
+        if (!$property->wasRecentlyCreated) {
+            try {
+                $auditSvc = app(\App\Services\Audit\PropertyAuditService::class);
+                $changes = $property->getChanges();
+
+                $pre = self::$auditOriginals[$property->id] ?? [];
+                unset(self::$auditOriginals[$property->id]);
+
+                if (isset($changes['price']) && array_key_exists('price', $pre)) {
+                    $auditSvc->logPriceChange($property, $pre['price'], $changes['price']);
+                }
+                if (isset($changes['status']) && array_key_exists('status', $pre)) {
+                    $auditSvc->logStatusChange($property, $pre['status'], $changes['status']);
+                }
+                if (isset($changes['agent_id']) && array_key_exists('agent_id', $pre)) {
+                    $newAgent = User::find($changes['agent_id']);
+                    $auditSvc->log($property, 'property', 'agent_assigned',
+                        oldValues: ['agent_id' => $pre['agent_id']],
+                        newValues: ['agent_id' => $changes['agent_id']],
+                        humanSummary: 'Listing agent changed to ' . ($newAgent->name ?? "Agent #{$changes['agent_id']}"),
+                    );
+                }
+                if (isset($changes['compliance_snapshot_at']) && $changes['compliance_snapshot_at'] !== null && ($pre['compliance_snapshot_at'] ?? null) === null) {
+                    $auditSvc->logComplianceSnapshot($property, snapshotData: $property->compliance_snapshot_data);
+                }
+                if (isset($changes['published_at']) && $changes['published_at'] !== null && ($pre['published_at'] ?? null) === null) {
+                    $auditSvc->log($property, 'syndication', 'website_published', humanSummary: 'Published to HFC website');
+                }
+                if (isset($changes['published_at']) && $changes['published_at'] === null && ($pre['published_at'] ?? null) !== null) {
+                    $auditSvc->log($property, 'syndication', 'website_unpublished', humanSummary: 'Unpublished from HFC website');
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Audit log failed on property save #{$property->id}: {$e->getMessage()}");
+            }
         }
         if ($property->isPublished()) {
             SyncPropertyToWebsite::dispatchSync($property, 'upsert');
@@ -87,6 +193,16 @@ class PropertyObserver
             }
         }
 
+        // Prospecting stock match — find prospects that match this property
+        $stockMatchFields = ['address', 'suburb', 'street_name', 'street_number'];
+        if ($property->wasRecentlyCreated || array_intersect(array_keys($property->getChanges()), $stockMatchFields)) {
+            try {
+                app(\App\Services\Prospecting\ProspectingStockMatchService::class)->matchAllForProperty($property);
+            } catch (\Throwable $e) {
+                Log::warning("Prospecting stock match failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // P24 syndication auto-sync
         if (!$property->p24_syndication_enabled || !$property->p24_ref) {
             return;
@@ -99,7 +215,8 @@ class PropertyObserver
             $p24Status = Property24ListingMapper::getP24Status($property->status, $property->p24_ref);
 
             try {
-                $client = app(Property24ApiClient::class);
+                $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
+                $client = new Property24ApiClient($agency);
                 $client->setListingStatus($property->id, (int) $property->p24_ref, $p24Status);
 
                 Log::channel('property24')->info("Status auto-synced for property #{$property->id}: {$p24Status}");
@@ -145,6 +262,15 @@ class PropertyObserver
      */
     public function deleted(Property $property): void
     {
+        try {
+            app(\App\Services\Audit\PropertyAuditService::class)->log(
+                $property, 'property', 'property_archived',
+                humanSummary: 'Property archived: ' . ($property->title ?? 'Untitled'),
+            );
+        } catch (\Throwable $e) {
+            Log::warning("Audit log failed on property delete #{$property->id}: {$e->getMessage()}");
+        }
+
         if ($property->isPublished()) {
             SyncPropertyToWebsite::dispatchSync($property, 'delete');
         }
@@ -152,7 +278,8 @@ class PropertyObserver
         // Withdraw from P24 if syndicated
         if ($property->p24_syndication_enabled && $property->p24_ref) {
             try {
-                $client = app(Property24ApiClient::class);
+                $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
+                $client = new Property24ApiClient($agency);
                 $client->setListingStatus($property->id, (int) $property->p24_ref, 'Withdrawn');
                 Log::channel('property24')->info("Property #{$property->id} withdrawn from P24 (deleted)");
             } catch (\Exception $e) {

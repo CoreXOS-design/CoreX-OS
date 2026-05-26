@@ -15,15 +15,15 @@
 
         {{-- CENTER SECTION --}}
         <div class="text-xs text-white/60">
-            <span style="color:#00d4aa" x-text="fields.length"></span> fields total
+            <span style="color:var(--brand-icon)" x-text="fields.length"></span> fields total
             <span class="mx-1">&middot;</span>
-            <span style="color:#00d4aa" x-text="countByParty('lessor')"></span> lessor
+            <span style="color:var(--brand-icon)" x-text="countByParty('lessor')"></span> lessor
             <span class="mx-1">&middot;</span>
-            <span style="color:#00d4aa" x-text="countByParty('lessee')"></span> lessee
+            <span style="color:var(--brand-icon)" x-text="countByParty('lessee')"></span> lessee
             <span class="mx-1">&middot;</span>
-            <span style="color:#00d4aa" x-text="countByParty('property')"></span> property
+            <span style="color:var(--brand-icon)" x-text="countByParty('property')"></span> property
             <span class="mx-1">&middot;</span>
-            <span style="color:#00d4aa" x-text="countByParty('agent')"></span> agent
+            <span style="color:var(--brand-icon)" x-text="countByParty('agent')"></span> agent
         </div>
 
         {{-- RIGHT SECTION --}}
@@ -47,7 +47,7 @@
             <button type="button" @click="save()" :disabled="saving"
                     class="text-xs px-4 py-1.5 font-medium transition-colors"
                     :class="saving ? 'opacity-60 cursor-wait' : 'hover:opacity-90'"
-                    style="background:#00d4aa; color:#000;">
+                    style="background:var(--brand-icon); color:#000;">
                 <span x-text="saving ? 'Saving...' : 'Save'"></span>
             </button>
         </div>

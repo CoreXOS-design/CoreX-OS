@@ -1,0 +1,188 @@
+TIER 2 SPEC: MANDATORY LEAVE PERIOD (OFFICE CLOSURE)
+
+Save to: .ai/specs/leave-tier-2-mandatory-period-spec.md
+Single source of truth. Frozen on approval.
+
+== 1. PURPOSE ==
+
+One-click office closure handling for SA agency context. Admin or BM 
+defines a closure period (e.g., 16 Dec 2026 - 5 Jan 2027), selects 
+staff, picks fallback rules, and the system creates approved leave 
+applications for everyone simultaneously.
+
+== 2. WHO TRIGGERS ==
+
+- admin / owner: any branches, agency-wide
+- branch_manager: own branch only
+
+New permission: manage_mandatory_leave_periods (sort 138)
+Defaults:
+  admin: yes
+  branch_manager: yes (scoped to own branch via BranchScope)
+  others: no
+
+== 3. DATA MODEL ==
+
+Table: mandatory_leave_periods
+  id, agency_id, branch_id (nullable — null = agency-wide)
+  name (string 150) — e.g. "December 2026 Shutdown"
+  description (text)
+  start_date, end_date
+  default_leave_type_id (FK leave_types — usually annual)
+  fallback_for_insufficient_balance enum: 
+    'unpaid' (default), 'negative_annual', 'decline_application'
+  status enum: draft, active, cancelled
+  triggered_by_user_id (FK users)
+  triggered_at timestamp
+  cancelled_at timestamp nullable
+  cancelled_by_user_id nullable
+  cancellation_reason text nullable
+  total_employees_affected int
+  total_working_days int
+  total_unpaid_days int (denormalised summary)
+  notes text
+  timestamps + softDeletes
+
+Add to leave_applications:
+  mandatory_leave_period_id (FK nullable) — backlinks each generated 
+  application to its closure event
+
+== 4. WORKFLOW ==
+
+Step 1 — Create closure (admin / BM action):
+  POST /corex/payroll/leave/closures/create
+  Form fields:
+    Name (e.g. "December Shutdown")
+    Description (optional, shown to staff)
+    Start date / End date
+    Default leave type (dropdown, default annual)
+    Fallback rule (dropdown):
+      "Unpaid leave for the deficit"
+      "Force into negative annual balance"  
+      "Decline closure for those staff (admin handles separately)"
+  Submit → creates draft mandatory_leave_period
+
+Step 2 — Staff selection screen (preview):
+  Three preset filters:
+    [All active permanent staff] (radio)
+    [This branch only] (radio, BM auto-selects this)
+    [Manual select] (radio → reveals checklist)
+  
+  Below: per-staff preview table:
+    Employee | Branch | Working Days | Annual Available | Outcome
+    
+    Outcome shows:
+      "8 working days from annual" (if balance sufficient)
+      "5 from annual + 3 unpaid" (if fallback=unpaid and deficit)
+      "8 negative annual (-3)" (if fallback=negative)
+      "Declined - manual handling required" (if fallback=decline)
+      "Already on approved leave" (if conflict — auto-skipped)
+      "On parental leave - skipped" (if other type already active)
+    
+  Per-staff override toggle: admin can untick any individual to 
+  exclude
+  
+  Per-staff fallback override: dropdown lets admin pick a different 
+  fallback for this specific staff member if needed (e.g., generally 
+  use unpaid but for senior staff allow negative balance)
+
+Step 3 — Confirmation screen:
+  Summary: 23 staff affected, 12 working days each, total 276 leave 
+    days, 9 days unpaid (split across 3 staff)
+  
+  Sample applications preview (first 3 staff):
+    "Sarah Smith — 16 Dec to 5 Jan 2027 — 12 days annual"
+    "Mike Jones — 16 Dec to 5 Jan 2027 — 8 days annual + 4 days unpaid"
+    "Lisa Brown — already on approved leave 14 Dec - 7 Jan, skipped"
+  
+  [Confirm and Create Applications] [Save as Draft] [Cancel]
+
+Step 4 — Generation (server-side, batched):
+  - Loop affected staff
+  - For each: create LeaveApplication status='approved', 
+    decided_by_user_id = admin who triggered, 
+    decided_at = now(),
+    mandatory_leave_period_id = closure.id
+  - For staff with deficit + fallback=unpaid: create TWO applications 
+    (one annual for the available days, one unpaid for the deficit)
+  - Create LeaveTransaction application_approved for each
+  - Refresh leave_entitlements for each
+  - Create CalendarEvent for each
+  - Dispatch leave.approved notification to each staff member
+  - Wrap each staff's processing in own DB::transaction (one fails, 
+    that staff fails, others continue)
+  - Return summary of successes + failures
+
+Step 5 — Audit & view:
+  Closures list page: history of all closures
+  Click into closure: see all generated applications, drill down to 
+    individual one
+  Cancel button: undoes all applications (creates reversal 
+    transactions, cancels each application, removes calendar events)
+
+== 5. PERMISSIONS ==
+
+manage_mandatory_leave_periods (138)
+  admin: yes
+  branch_manager: yes
+  others: no
+
+When BM uses it, BranchScope locks the staff selection to own branch.
+
+== 6. ROUTES ==
+
+Route::middleware(['auth','permission:manage_mandatory_leave_periods'])
+  ->prefix('corex/payroll/leave/closures')
+  ->name('payroll.leave.closures.')
+  ->group(function () {
+    Route::get('/', 'LeaveClosureController@index')->name('index');
+    Route::get('create', '...@create')->name('create');
+    Route::post('preview', '...@preview')->name('preview');
+    Route::post('/', '...@store')->name('store');
+    Route::get('{closure}', '...@show')->name('show');
+    Route::post('{closure}/cancel', '...@cancel')->name('cancel');
+  });
+
+== 7. UI SCREENS ==
+
+closures/index.blade.php — list of closures with status pill
+closures/create.blade.php — Step 1 form
+closures/preview.blade.php — Step 2 staff selection + Step 3 confirmation
+closures/show.blade.php — closure details with linked applications
+
+== 8. SIDEBAR ==
+
+Add to Leave Management group: "Office Closures"
+
+== 9. EDGE CASES ==
+
+- Staff already on approved leave overlapping closure: skip with note
+- Staff on sick leave / parental: skip with note
+- Staff on resignation notice ending mid-closure: closure ends at 
+  their last working day
+- Public holidays in closure period: working_days excludes them per 
+  existing logic (Christmas, Day of Goodwill, New Year, etc. don't 
+  count)
+- Staff joining mid-closure: closure starts at their employment date
+- Multiple closures overlapping (rare but possible): block creation 
+  if overlap with existing active closure for same staff
+
+== 10. BUILD SEQUENCE (4 PROMPTS) ==
+
+Prompt T2-A: Migration + model + permission (1 hour)
+Prompt T2-B: Service + workflow logic + console command for cleanup (3 hours)
+Prompt T2-C: Controller + routes + Step 1-3 wizard views (4 hours)
+Prompt T2-D: Audit/cancel flow + tests + visual polish (2 hours)
+
+Total: 1 day's focused work. Starts Day 1 of Leave Tier 2, scheduled 
+post-HFC parallel run sign-off.
+
+== 11. ACCEPTANCE CRITERIA ==
+
+- HFC December 2026 shutdown can be created in <2 minutes by admin
+- Each staff member receives correct leave applications + notifications
+- Calendar shows the closure period for the whole team
+- Audit log shows the closure event + all generated applications linked
+- Cancel undoes everything cleanly within 30 days
+- Insufficient-balance staff handled per chosen fallback per individual
+- BM scope correctly limits to own branch

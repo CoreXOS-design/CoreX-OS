@@ -334,8 +334,12 @@
                                                 ));
                                                 $statusVariant = $statusBadgeVariant[$task->status] ?? 'ds-badge-default';
                                             @endphp
-                                            <tr class="transition-colors"
+                                            <tr class="transition-colors cursor-pointer hover:bg-black/5"
                                                 data-task-row
+                                                data-task-clickable
+                                                data-task-id="{{ $task->id }}"
+                                                data-task-title="{{ $task->title }}"
+                                                data-task-due="{{ $task->due_date?->format('d M Y') }}"
                                                 data-status="{{ $task->status }}"
                                                 data-priority="{{ $task->priority }}"
                                                 data-pillar="{{ $tag ?? '' }}"
@@ -356,7 +360,7 @@
                                                             <span class="ds-badge ds-badge-warning">High</span>
                                                         @endif
                                                         @if($taskLink)
-                                                            <a href="{{ $taskLink }}" class="text-sm hover:underline {{ $task->status === 'done' ? 'line-through opacity-60' : '' }}">{{ $task->title }}</a>
+                                                            <a href="{{ $taskLink }}" @click.stop class="text-sm hover:underline {{ $task->status === 'done' ? 'line-through opacity-60' : '' }}">{{ $task->title }}</a>
                                                         @else
                                                             <span class="text-sm {{ $task->status === 'done' ? 'line-through opacity-60' : '' }}">{{ $task->title }}</span>
                                                         @endif
@@ -379,7 +383,7 @@
                                                 </td>
                                                 <td class="px-4 py-3 w-24 text-right">
                                                     @if($task->status !== 'done')
-                                                        <form method="POST" action="{{ route('command-center.tasks.complete', $task) }}" class="inline">
+                                                        <form method="POST" action="{{ route('command-center.tasks.complete', $task) }}" @click.stop class="inline">
                                                             @csrf
                                                             <button type="submit" class="text-xs font-semibold transition-colors"
                                                                     style="color: var(--brand-icon);">Mark Done</button>
@@ -415,6 +419,105 @@
             @endif
         </div>
     @endif
+
+    {{-- ══════ TASK DETAIL MODAL (notes + checklist) ══════ --}}
+    <div x-show="detail.open" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         style="background: rgba(0,0,0,0.5);"
+         @keydown.escape.window="closeDetail()">
+        <div class="w-full max-w-2xl rounded-md overflow-hidden flex flex-col"
+             style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;"
+             @click.outside="closeDetail()">
+
+            {{-- Header --}}
+            <div class="px-6 py-4 flex items-start justify-between gap-3" style="border-bottom: 1px solid var(--border);">
+                <div class="min-w-0">
+                    <div class="text-[0.6875rem] font-bold uppercase tracking-wider mb-1" style="color: var(--text-muted);">
+                        Task <span x-text="detail.task.id ? '#' + detail.task.id : ''"></span>
+                    </div>
+                    <h3 class="text-lg font-semibold" style="color: var(--text-primary);" x-text="detail.task.title"></h3>
+                    <div class="text-xs mt-1" style="color: var(--text-muted);" x-show="detail.task.due_date">
+                        Due <span x-text="detail.task.due_date"></span>
+                    </div>
+                </div>
+                <button type="button" @click="closeDetail()" class="rounded-md p-1" style="color: var(--text-muted);">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            {{-- Body --}}
+            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+
+                {{-- Checklist --}}
+                <section>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Checklist</h4>
+                        <span class="text-xs" style="color: var(--text-muted);"
+                              x-text="checklistProgress"></span>
+                    </div>
+                    <div class="space-y-1.5">
+                        <template x-for="item in detail.checklist" :key="item.id">
+                            <div class="flex items-center gap-2 group">
+                                <input type="checkbox" :checked="item.done"
+                                       @change="toggleChecklistItem(item)"
+                                       class="rounded">
+                                <span class="flex-1 text-sm"
+                                      :style="item.done ? 'text-decoration: line-through; color: var(--text-muted);' : 'color: var(--text-primary);'"
+                                      x-text="item.text"></span>
+                                <button type="button" @click="deleteChecklistItem(item)"
+                                        class="opacity-0 group-hover:opacity-100 text-xs"
+                                        style="color: var(--ds-crimson);">Remove</button>
+                            </div>
+                        </template>
+                        <div x-show="!detail.checklist.length" class="text-xs italic" style="color: var(--text-muted);">No checklist items yet.</div>
+                    </div>
+                    <form @submit.prevent="addChecklistItem()" class="flex gap-2 mt-3">
+                        <input type="text" x-model="detail.newChecklist" placeholder="Add a checklist item…"
+                               class="flex-1 rounded-md px-3 py-1.5 text-sm"
+                               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <button type="submit" class="corex-btn-outline" :disabled="!detail.newChecklist.trim()">Add</button>
+                    </form>
+                </section>
+
+                {{-- Notes (threaded) --}}
+                <section>
+                    <h4 class="text-xs font-bold uppercase tracking-wider mb-2" style="color: var(--text-secondary);">Notes</h4>
+
+                    <form @submit.prevent="addNote()" class="mb-3">
+                        <textarea x-model="detail.newNote" rows="2" placeholder="Add a note…"
+                                  class="w-full rounded-md px-3 py-2 text-sm"
+                                  style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
+                        <div class="flex justify-end mt-2">
+                            <button type="submit" class="corex-btn-primary" :disabled="!detail.newNote.trim() || detail.savingNote">
+                                <span x-text="detail.savingNote ? 'Saving…' : 'Add Note'"></span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="space-y-2">
+                        <template x-for="note in detail.notes" :key="note.id">
+                            <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <div class="flex items-center justify-between mb-1">
+                                    <div class="text-xs font-semibold" style="color: var(--text-primary);" x-text="note.user_name || 'You'"></div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[0.6875rem]" style="color: var(--text-muted);" x-text="formatDate(note.created_at)"></span>
+                                        <button type="button" @click="deleteNote(note)"
+                                                x-show="note.user_id === currentUserId"
+                                                class="text-[0.6875rem]" style="color: var(--ds-crimson);">Delete</button>
+                                    </div>
+                                </div>
+                                <div class="text-sm whitespace-pre-wrap" style="color: var(--text-primary);" x-text="note.body"></div>
+                            </div>
+                        </template>
+                        <div x-show="!detail.notes.length && !detail.loading" class="text-xs italic" style="color: var(--text-muted);">No notes yet.</div>
+                        <div x-show="detail.loading" class="text-xs" style="color: var(--text-muted);">Loading…</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
 
     {{-- CREATE TASK MODAL --}}
     <div x-show="showCreateTask" x-cloak
@@ -513,6 +616,17 @@ function taskBoard() {
 
     return {
         showCreateTask: false,
+        currentUserId: {{ auth()->id() ?? 'null' }},
+        detail: {
+            open: false,
+            loading: false,
+            savingNote: false,
+            task: { id: null, title: '', due_date: null },
+            notes: [],
+            checklist: [],
+            newNote: '',
+            newChecklist: '',
+        },
         search: '',
         filters: { overdue: false, today: false, week: false, critical: false, high: false },
         pillars: [],
@@ -539,6 +653,20 @@ function taskBoard() {
             this.$nextTick(() => {
                 this.applyFilters();
                 this.initDragAndDrop();
+                this.initTaskClicks();
+            });
+        },
+
+        initTaskClicks() {
+            document.addEventListener('click', (e) => {
+                if (e.target.closest('a, button, form, input, textarea, select, [data-task-drag-handle]')) return;
+                const el = e.target.closest('[data-task-clickable]');
+                if (!el) return;
+                this.openDetail({
+                    id: el.dataset.taskId,
+                    title: el.dataset.taskTitle || '',
+                    due_date: el.dataset.taskDue || null,
+                });
             });
         },
 
@@ -576,14 +704,16 @@ function taskBoard() {
         initDragAndDrop() {
             let draggingCard = null;
 
-            document.querySelectorAll('[data-task-card]').forEach(card => {
-                card.addEventListener('dragstart', (e) => {
+            document.querySelectorAll('[data-task-drag-handle]').forEach(handle => {
+                const card = handle.closest('[data-task-card]');
+                if (!card) return;
+                handle.addEventListener('dragstart', (e) => {
                     draggingCard = card;
                     card.classList.add('opacity-50');
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', card.dataset.taskId);
                 });
-                card.addEventListener('dragend', () => {
+                handle.addEventListener('dragend', () => {
                     card.classList.remove('opacity-50');
                     draggingCard = null;
                     document.querySelectorAll('[data-drop-zone]').forEach(z => z.classList.remove('ring-2', 'ring-blue-400'));
@@ -625,6 +755,108 @@ function taskBoard() {
         toggleColumn(s) { this.colCollapsed = { ...this.colCollapsed, [s]: !this.colCollapsed[s] }; },
         toggleBucket(b) { this.bucketCollapsed = { ...this.bucketCollapsed, [b]: !this.bucketCollapsed[b] }; },
         showMoreColumn(s) { this.colShowAll = { ...this.colShowAll, [s]: !this.colShowAll[s] }; },
+
+        get checklistProgress() {
+            const items = this.detail.checklist || [];
+            if (!items.length) return '';
+            const done = items.filter(i => i.done).length;
+            return `${done} / ${items.length}`;
+        },
+
+        formatDate(iso) {
+            if (!iso) return '';
+            try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+        },
+
+        async _api(method, url, body) {
+            const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            const opts = {
+                method,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': csrf,
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+            };
+            if (body !== undefined) {
+                opts.headers['Content-Type'] = 'application/json';
+                opts.body = JSON.stringify(body);
+            }
+            const res = await fetch(url, opts);
+            if (!res.ok) throw new Error(`${method} ${url} → ${res.status}`);
+            return res.status === 204 ? null : res.json();
+        },
+
+        async openDetail(task) {
+            this.detail.task = task;
+            this.detail.open = true;
+            this.detail.loading = true;
+            this.detail.notes = [];
+            this.detail.checklist = [];
+            this.detail.newNote = '';
+            this.detail.newChecklist = '';
+            try {
+                const base = `/api/v1/command-center/tasks/${task.id}`;
+                const [notesRes, checklistRes] = await Promise.all([
+                    this._api('GET', `${base}/notes`),
+                    this._api('GET', `${base}/checklist`),
+                ]);
+                this.detail.notes = notesRes.notes || [];
+                this.detail.checklist = checklistRes.items || [];
+            } catch (e) {
+                console.error(e);
+            } finally {
+                this.detail.loading = false;
+            }
+        },
+
+        closeDetail() { this.detail.open = false; },
+
+        async addNote() {
+            const body = this.detail.newNote.trim();
+            if (!body) return;
+            this.detail.savingNote = true;
+            try {
+                const note = await this._api('POST', `/api/v1/command-center/tasks/${this.detail.task.id}/notes`, { body });
+                this.detail.notes.unshift(note);
+                this.detail.newNote = '';
+            } catch (e) { console.error(e); }
+            finally { this.detail.savingNote = false; }
+        },
+
+        async deleteNote(note) {
+            if (!confirm('Delete this note?')) return;
+            try {
+                await this._api('DELETE', `/api/v1/command-center/tasks/${this.detail.task.id}/notes/${note.id}`);
+                this.detail.notes = this.detail.notes.filter(n => n.id !== note.id);
+            } catch (e) { console.error(e); }
+        },
+
+        async addChecklistItem() {
+            const text = this.detail.newChecklist.trim();
+            if (!text) return;
+            try {
+                const item = await this._api('POST', `/api/v1/command-center/tasks/${this.detail.task.id}/checklist`, { text });
+                this.detail.checklist.push(item);
+                this.detail.newChecklist = '';
+            } catch (e) { console.error(e); }
+        },
+
+        async toggleChecklistItem(item) {
+            const next = !item.done;
+            try {
+                const updated = await this._api('PATCH', `/api/v1/command-center/tasks/${this.detail.task.id}/checklist/${item.id}`, { done: next });
+                Object.assign(item, updated);
+            } catch (e) { console.error(e); }
+        },
+
+        async deleteChecklistItem(item) {
+            try {
+                await this._api('DELETE', `/api/v1/command-center/tasks/${this.detail.task.id}/checklist/${item.id}`);
+                this.detail.checklist = this.detail.checklist.filter(i => i.id !== item.id);
+            } catch (e) { console.error(e); }
+        },
 
         resetFilters() {
             this.search = '';

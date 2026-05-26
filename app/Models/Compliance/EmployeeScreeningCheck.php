@@ -7,8 +7,11 @@ use App\Models\UserDocument;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class EmployeeScreeningCheck extends Model
 {
+    use BelongsToAgency;
+
     // ── Check types ──
     const TYPE_EMPLOYMENT_HISTORY  = 'employment_history_verified';
     const TYPE_QUALIFICATION       = 'qualification_verified';
@@ -30,6 +33,7 @@ class EmployeeScreeningCheck extends Model
     const RESULT_PENDING        = 'pending';
 
     protected $fillable = [
+        'agency_id',
         'employee_screening_id', 'check_type', 'result',
         'checked_on', 'checked_by', 'notes', 'reference_number',
         'supporting_document_id',

@@ -9,12 +9,12 @@
     <link href="https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700" rel="stylesheet">
     @vite(['resources/css/app.css'])
     <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f1f5f9; margin: 0; }
+        body { font-family: 'Figtree', sans-serif; background: #f1f5f9; margin: 0; }
         [x-cloak] { display: none !important; }
 
         .fica-card { background: #fff; border: 1px solid #e2e8f0; padding: 2rem; margin-bottom: 1.5rem; }
-        .fica-section-title { font-size: 1.125rem; font-weight: 700; color: #0f172a; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #0d9488; }
-        .fica-subsection-title { font-size: 0.9375rem; font-weight: 700; color: #0f172a; margin: 1.25rem 0 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #e2e8f0; }
+        .fica-section-title { font-size: 1.125rem; font-weight: 700; color: var(--text-primary); margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #0d9488; }
+        .fica-subsection-title { font-size: 0.9375rem; font-weight: 700; color: var(--text-primary); margin: 1.25rem 0 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #e2e8f0; }
         .fica-label { display: block; font-weight: 600; font-size: 0.875rem; color: #334155; margin-bottom: 0.25rem; }
         .fica-label .req { color: #dc2626; }
         .fica-hint { font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem; line-height: 1.4; }
@@ -32,7 +32,7 @@
         .fica-checkbox-group { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem; }
         .fica-checkbox-label { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.8125rem; color: #334155; cursor: pointer; line-height: 1.4; }
         .fica-checkbox-label input { margin-top: 0.15rem; flex-shrink: 0; accent-color: #0d9488; }
-        .fica-btn { display: inline-block; padding: 0.75rem 2rem; background: #0f172a; color: #fff; font-weight: 600; font-size: 1rem; border: none; cursor: pointer; transition: background 0.15s; }
+        .fica-btn { display: inline-block; padding: 0.75rem 2rem; background: var(--text-primary); color: #fff; font-weight: 600; font-size: 1rem; border: none; cursor: pointer; transition: background 0.15s; }
         .fica-btn:hover { background: #1e293b; }
         .fica-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -65,7 +65,7 @@
             @if($agency->logo_path)
                 <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="{{ $agency->name }}" style="max-height: 60px; margin: 0 auto 1rem;">
             @endif
-            <h1 style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0;">FICA Verification Form</h1>
+            <h1 style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary); margin: 0;">FICA Verification Form</h1>
             <p style="color: #64748b; margin: 0.5rem 0 0; font-size: 0.875rem;">Financial Intelligence Centre Act — Client Due Diligence</p>
         </div>
 
@@ -863,7 +863,7 @@
                     return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
                 };
                 const start = (e) => { e.preventDefault(); drawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; };
-                const move = (e) => { if (!drawing) return; e.preventDefault(); const p = getPos(e); ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); lastX = p.x; lastY = p.y; };
+                const move = (e) => { if (!drawing) return; e.preventDefault(); const p = getPos(e); ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.strokeStyle = 'var(--text-primary)'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); lastX = p.x; lastY = p.y; };
                 const end = () => { drawing = false; };
                 canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move);
                 canvas.addEventListener('mouseup', end); canvas.addEventListener('mouseleave', end);

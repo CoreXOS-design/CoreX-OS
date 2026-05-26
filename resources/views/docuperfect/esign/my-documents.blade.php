@@ -100,6 +100,21 @@
     </div>
     @endif
 
+    {{-- Empty state for authorisation-only filter --}}
+    @if(($showOnlyAuthorisation ?? false) && ($groups['needs_authorisation'] ?? collect())->isEmpty())
+    <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+             style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+        </div>
+        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">Nothing waiting for authorisation</h3>
+        <p class="text-sm mb-4" style="color: var(--text-muted);">Candidate documents that need your review will appear here.</p>
+        <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-btn-outline">Back to My Documents</a>
+    </div>
+    @endif
+
     {{-- ===== CANDIDATE DOCUMENTS — NEEDS AUTHORISATION ===== --}}
     @if(($groups['needs_authorisation'] ?? collect())->isNotEmpty())
     <div id="section-needs-authorisation" class="space-y-3 scroll-mt-4">
@@ -119,11 +134,11 @@
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
                                 @if($doc && $doc->template)
-                                    <span class="ds-badge ds-badge-default ml-2">{{ $doc->template->name }}</span>
+                                    <span class="ds-badge ds-badge-default ml-2" title="{{ $doc->template->name }}">{{ \Illuminate\Support\Str::limit($doc->template->name, 20) }}</span>
                                 @endif
                             </div>
                             <div class="flex flex-wrap items-center gap-2 mt-2">
-                                <span class="ds-badge ds-badge-warning">{{ \Illuminate\Support\Str::limit($candidateName, 18) }}</span>
+                                <span class="ds-badge ds-badge-warning" title="{{ $candidateName }}">{{ \Illuminate\Support\Str::limit($candidateName, 18) }}</span>
                                 <span class="ds-badge ds-badge-warning">{{ $tpl->status === 'awaiting_supervisor' ? 'Initial Review' : 'Final Sign-off' }}</span>
                                 <span class="text-xs" style="color: var(--text-muted);">
                                     Created {{ $tpl->created_at->format('d M Y') }}
@@ -169,7 +184,7 @@
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
                                 @if($doc && $doc->template)
-                                    <span class="ds-badge ds-badge-default ml-2">{{ $doc->template->name }}</span>
+                                    <span class="ds-badge ds-badge-default ml-2" title="{{ $doc->template->name }}">{{ \Illuminate\Support\Str::limit($doc->template->name, 20) }}</span>
                                 @endif
                             </div>
                             <div class="flex flex-wrap items-center gap-2 mt-2">

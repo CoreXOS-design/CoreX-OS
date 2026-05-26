@@ -5,9 +5,13 @@ namespace App\Models\Compliance;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class RmcpSectionAcknowledgement extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
+        'agency_id',
         'rmcp_acknowledgement_id',
         'rmcp_section_id',
         'acknowledged',

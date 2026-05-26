@@ -600,3 +600,36 @@
     border-top: 0.5px solid #e2e8f0;
     margin: 16px 0;
 }
+
+/* === FFC WARRANTY CLAUSE === */
+.corex-ffc-warranty {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin: 14px 0;
+    font-weight: 600;
+    font-size: 10.5pt;
+    line-height: 1.55;
+    color: #1e293b;
+}
+
+/* === MARKETING PERMISSION DETAIL LAYOUT === */
+.mp-detail-table { margin: 0 0 14px; }
+.mp-detail-table td { vertical-align: top; }
+.mp-row-label {
+    width: 90px;
+    font-weight: 600;
+    background: #f8fafc;
+}
+.mp-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 16px;
+}
+.mp-terms-checkboxes {
+    margin-bottom: 6px;
+}
+.mp-terms-checkboxes label {
+    margin-right: 16px;
+}

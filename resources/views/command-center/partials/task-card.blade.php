@@ -40,10 +40,24 @@
      data-pillar="{{ $tag ?? '' }}"
      data-bucket="{{ $bucket }}"
      data-title="{{ $searchHay }}"
-     draggable="true"
-     class="task-card rounded-md transition-all cursor-grab active:cursor-grabbing hover:shadow-sm"
+     data-task-clickable
+     data-task-title="{{ $task->title }}"
+     data-task-due="{{ $task->due_date?->format('d M Y') }}"
+     class="task-card relative rounded-md transition-all cursor-pointer hover:shadow-sm"
      :class="$root.density === 'compact' ? 'p-2' : 'p-3'"
      style="background: var(--surface); border: 1px solid var(--border);">
+    {{-- Drag handle --}}
+    <div data-task-drag-handle draggable="true"
+         @click.stop
+         class="absolute top-1 right-1 p-1 rounded-md cursor-grab active:cursor-grabbing opacity-40 hover:opacity-100 transition-opacity"
+         title="Drag to move">
+        <svg class="w-3.5 h-3.5" style="color: var(--text-muted);" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="7" cy="5" r="1.2"/><circle cx="13" cy="5" r="1.2"/>
+            <circle cx="7" cy="10" r="1.2"/><circle cx="13" cy="10" r="1.2"/>
+            <circle cx="7" cy="15" r="1.2"/><circle cx="13" cy="15" r="1.2"/>
+        </svg>
+    </div>
+
     {{-- Row 1: tag + priority --}}
     <div class="flex items-center gap-1.5 flex-wrap">
         @if(($showPillar ?? true) && $tag && isset($pillarStyle[$tag]))
@@ -64,7 +78,7 @@
 
     {{-- Row 2: title --}}
     @if($taskLink)
-        <a href="{{ $taskLink }}"
+        <a href="{{ $taskLink }}" @click.stop
            class="block font-medium leading-snug mt-1.5 hover:underline {{ $task->status === 'done' ? 'line-through opacity-70' : '' }}"
            :class="$root.density === 'compact' ? 'text-xs' : 'text-[13px]'"
            style="color: var(--text-primary);">
@@ -79,13 +93,13 @@
     {{-- Row 3: linked entity (hidden in compact density) --}}
     <div x-show="$root.density !== 'compact'">
         @if($task->property)
-            <a href="{{ route('corex.properties.show', $task->property) }}"
+            <a href="{{ route('corex.properties.show', $task->property) }}" @click.stop
                class="block text-xs truncate mt-1 hover:underline"
                style="color: var(--text-muted);">
                 {{ $task->property->buildDisplayAddress() ?: ($task->property->title ?: '') }}
             </a>
         @elseif($task->contact)
-            <a href="{{ route('corex.contacts.show', $task->contact) }}"
+            <a href="{{ route('corex.contacts.show', $task->contact) }}" @click.stop
                class="block text-xs truncate mt-1 hover:underline"
                style="color: var(--text-muted);">
                 {{ $task->contact->first_name }} {{ $task->contact->last_name }}
@@ -105,18 +119,18 @@
 
         <div class="flex items-center gap-0.5">
             @if($statusKey !== 'done' && $nextStatus)
-                <button type="button" data-quick-move="{{ $nextStatus }}"
+                <button type="button" @click.stop data-quick-move="{{ $nextStatus }}"
                         class="p-1 rounded-md transition-colors task-card-action"
                         title="Move to {{ str_replace('_',' ',$nextStatus) }}">
                     <svg class="w-3.5 h-3.5" style="color: var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
                 </button>
-                <button type="button" data-quick-move="done"
+                <button type="button" @click.stop data-quick-move="done"
                         class="p-1 rounded-md transition-colors task-card-action"
                         title="Complete">
                     <svg class="w-3.5 h-3.5" style="color: var(--ds-green);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
                 </button>
             @elseif($statusKey === 'done')
-                <form method="POST" action="{{ route('command-center.tasks.destroy', $task) }}">
+                <form method="POST" action="{{ route('command-center.tasks.destroy', $task) }}" @click.stop>
                     @csrf @method('DELETE')
                     <button type="submit" class="p-1 rounded-md transition-colors task-card-action" title="Archive">
                         <svg class="w-3.5 h-3.5" style="color: var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>

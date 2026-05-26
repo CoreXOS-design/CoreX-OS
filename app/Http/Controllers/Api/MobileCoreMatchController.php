@@ -54,14 +54,8 @@ class MobileCoreMatchController extends Controller
         $this->authorizeMatch($request->user(), $match);
         $match->load(['contact.type', 'feedback']);
 
-        $allowCrossAgent     = (bool) \App\Models\PerformanceSetting::get('matches_allow_cross_agent', 0);
-        $requestedCrossAgent = $request->boolean('show_other_agents');
-        $showOtherAgents     = $allowCrossAgent && $requestedCrossAgent;
-
-        $overrides = ['include_hidden' => true];
-        if ($showOtherAgents) {
-            $overrides['agent_id'] = null;
-        }
+        $scope = (string) \App\Models\PerformanceSetting::get('matches_visibility_scope', \App\Services\Matching\MatchingService::SCOPE_AGENCY);
+        $overrides = ['include_hidden' => true] + \App\Services\Matching\MatchingService::scopeOverridesFor($match);
 
         $properties = $this->matching->propertiesForMatch($match, $overrides);
         $feedback   = $match->feedback->keyBy('property_id');
@@ -78,7 +72,10 @@ class MobileCoreMatchController extends Controller
                 'price'         => $p->price,
                 'price_display' => $p->formattedPrice(),
                 'thumbnail'     => ($p->gallery_images_json ?? [])[0] ?? null,
+                'match_score'   => (int) ($p->match_score ?? 0),
+                'match_tier'    => $p->match_tier,        // 'strong' | 'good' | 'fair'
                 'hidden'        => $match->isPropertyHidden($p->id),
+                'hidden_reason' => $match->hiddenReasonFor($p->id),
                 'reaction'      => $fb?->reaction,        // 'interested' | 'not_interested' | 'saved' | null
                 'reaction_note' => $fb?->note,
             ];
@@ -94,10 +91,7 @@ class MobileCoreMatchController extends Controller
                 'type'      => $match->contact->type?->name,
             ],
             'results' => $results,
-            'scope'   => [
-                'allow_cross_agent' => $allowCrossAgent,
-                'show_other_agents' => $showOtherAgents,
-            ],
+            'scope'   => ['visibility' => $scope],
         ]);
     }
 
@@ -116,9 +110,8 @@ class MobileCoreMatchController extends Controller
             'beds_min'      => 'sometimes|nullable|integer|min:0|max:20',
             'baths_min'     => 'sometimes|nullable|integer|min:0|max:20',
             'garages_min'   => 'sometimes|nullable|integer|min:0|max:20',
-            'suburb'        => 'sometimes|nullable|string|max:150',
-            'suburbs'       => 'sometimes|nullable|array',
-            'suburbs.*'     => 'string|max:150',
+            'p24_suburb_ids'   => 'sometimes|nullable|array',
+            'p24_suburb_ids.*' => 'integer|exists:p24_suburbs,id',
             'must_have_features'   => 'sometimes|nullable|array',
             'must_have_features.*' => 'string|max:60',
             'notes'         => 'sometimes|nullable|string|max:500',
@@ -142,14 +135,27 @@ class MobileCoreMatchController extends Controller
 
     // POST /api/mobile/core-matches/{match}/hide/{property}
     // Toggles hidden flag for that property within this match.
+    // When hiding a property a `reason` is REQUIRED and stored against the
+    // match; when un-hiding, the reason is cleared and no body is needed.
     public function toggleHide(Request $request, ContactMatch $match, int $property): JsonResponse
     {
         $this->authorizeMatch($request->user(), $match);
-        $match->toggleHiddenProperty($property);
+
+        $willHide = !$match->isPropertyHidden($property);
+
+        if ($willHide) {
+            $data = $request->validate([
+                'reason' => 'required|string|min:3|max:500',
+            ]);
+            $match->hidePropertyWithReason($property, $data['reason']);
+        } else {
+            $match->unhideProperty($property);
+        }
 
         return response()->json([
-            'property_id' => $property,
-            'hidden'      => $match->isPropertyHidden($property),
+            'property_id'   => $property,
+            'hidden'        => $match->isPropertyHidden($property),
+            'hidden_reason' => $match->hiddenReasonFor($property),
         ]);
     }
 
@@ -220,7 +226,7 @@ class MobileCoreMatchController extends Controller
     public function settings(): JsonResponse
     {
         return response()->json([
-            'allow_cross_agent' => (bool) \App\Models\PerformanceSetting::get('matches_allow_cross_agent', 0),
+            'visibility_scope' => (string) \App\Models\PerformanceSetting::get('matches_visibility_scope', \App\Services\Matching\MatchingService::SCOPE_AGENCY),
         ]);
     }
 
@@ -245,8 +251,8 @@ class MobileCoreMatchController extends Controller
             'beds_min'      => $m->beds_min,
             'baths_min'     => $m->baths_min,
             'garages_min'   => $m->garages_min,
-            'suburb'        => $m->suburb,
-            'suburbs'       => $m->suburbs,
+            'p24_suburb_ids' => $m->p24SuburbIdList(),
+            'suburbs'        => $m->suburbs,
             'feedback_summary' => [
                 'interested'     => $m->feedback->where('reaction', ContactMatchFeedback::REACTION_INTERESTED)->count(),
                 'not_interested' => $m->feedback->where('reaction', ContactMatchFeedback::REACTION_NOT_INTERESTED)->count(),
@@ -261,6 +267,7 @@ class MobileCoreMatchController extends Controller
             'must_have_features' => $m->must_have_features,
             'notes'              => $m->notes,
             'hidden_property_ids'=> $m->hidden_property_ids ?? [],
+            'hidden_property_reasons' => $m->hidden_property_reasons ?? (object) [],
             'share_url'          => $m->sharedUrl(),
         ];
     }

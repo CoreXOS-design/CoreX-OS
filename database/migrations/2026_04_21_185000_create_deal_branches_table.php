@@ -42,7 +42,7 @@ return new class extends Migration
         if (Schema::hasTable('deals') && Schema::hasColumn('deals', 'branch_id')) {
             DB::statement("
                 INSERT INTO deal_branches (deal_id, branch_id, role, created_at, updated_at)
-                SELECT d.id, d.branch_id, 'originator', NOW(), NOW()
+                SELECT d.id, d.branch_id, 'originator', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 FROM deals d
                 WHERE d.branch_id IS NOT NULL
                   AND NOT EXISTS (

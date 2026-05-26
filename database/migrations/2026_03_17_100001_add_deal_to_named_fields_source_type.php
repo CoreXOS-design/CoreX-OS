@@ -1,17 +1,30 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement("ALTER TABLE docuperfect_named_fields MODIFY COLUMN source_type ENUM('property','contact','agent','deal','static','computed','manual') DEFAULT 'manual'");
+        // Use the schema builder (not a raw MySQL "ALTER ... MODIFY") so this
+        // runs on both MySQL (production) and SQLite (test DB). The column was
+        // originally created via $table->enum() in
+        // 2026_03_07_200004_add_source_mapping_to_named_fields.
+        Schema::table('docuperfect_named_fields', function (Blueprint $table) {
+            $table->enum('source_type', ['property', 'contact', 'agent', 'deal', 'static', 'computed', 'manual'])
+                ->default('manual')
+                ->change();
+        });
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE docuperfect_named_fields MODIFY COLUMN source_type ENUM('property','contact','agent','static','computed','manual') DEFAULT 'manual'");
+        Schema::table('docuperfect_named_fields', function (Blueprint $table) {
+            $table->enum('source_type', ['property', 'contact', 'agent', 'static', 'computed', 'manual'])
+                ->default('manual')
+                ->change();
+        });
     }
 };

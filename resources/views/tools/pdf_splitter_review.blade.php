@@ -26,7 +26,7 @@
         'x' => 'other',
     ];
 
-    // Badge colour map (tailwind-style token → inline style)
+    // Badge colour map (tailwind-style token â†’ inline style)
     $badgeStyle = [
         'mandate'           => 'background:#dbeafe;color:#1e3a8a',
         'fica'              => 'background:#ede9fe;color:#4c1d95',
@@ -57,10 +57,10 @@
 #spr .alert-error {
     background: color-mix(in srgb, #ef4444 12%, var(--surface));
     border:1px solid color-mix(in srgb, #ef4444 25%, var(--border));
-    color:#ef4444;
+    color:var(--ds-crimson);
 }
 
-/* ── Toolbar ─────────────────────────────── */
+/* â”€â”€ Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 #spr .toolbar {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     background: var(--surface); border: 1px solid var(--border);
@@ -87,7 +87,7 @@
 }
 #spr button.tb-btn:hover { opacity:.85; }
 #spr .btn-apply  { background:var(--brand-button, #0ea5e9); color:#fff; }
-#spr .btn-reset  { background:var(--surface); color:#ef4444; border-color: color-mix(in srgb, #ef4444 40%, var(--border)); }
+#spr .btn-reset  { background:var(--surface); color:var(--ds-crimson); border-color: color-mix(in srgb, #ef4444 40%, var(--border)); }
 #spr .btn-other  { background:var(--surface-2, var(--surface)); color:var(--text-secondary); border-color:var(--border); }
 #spr .btn-gen    { background:var(--brand-button, #0ea5e9); color:#fff; border:none; border-radius:6px;
                    padding:0.625rem 1.5rem; font-size:.875rem; font-weight:600; cursor:pointer;
@@ -96,7 +96,7 @@
 #spr .btn-gen:hover { filter: brightness(1.1);
                       box-shadow: 0 6px 10px -2px color-mix(in srgb, var(--brand-button, #0ea5e9) 30%, transparent); }
 
-/* ── Shortcut legend ─────────────────────── */
+/* â”€â”€ Shortcut legend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 #spr .legend {
     display:flex; flex-wrap:wrap; gap:5px;
     background:var(--surface); border:1px solid var(--border);
@@ -114,11 +114,11 @@
 }
 #spr .key-chip kbd {
     font-family:'JetBrains Mono', monospace; font-weight:700; font-size:.78rem;
-    background:var(--surface-2, var(--surface)); border-radius:3px; padding:1px 5px;
+    background:var(--surface-2, var(--surface)); border-radius:6px; padding:1px 5px;
     border:1px solid var(--border);
 }
 
-/* ── Table ───────────────────────────────── */
+/* â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 #spr .tbl-wrap {
     background:var(--surface); border:1px solid var(--border); border-radius:6px;
     overflow:hidden; margin-bottom:16px;
@@ -201,13 +201,13 @@
 <div class="wrap">
 
     {{-- Header bar --}}
-    <div style="background:var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4 mb-4">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+    <div class="rounded-md px-6 py-5 mb-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight tracking-tight">PDF Pack Splitter &mdash; Review Labels</h2>
-                <div class="text-sm text-white/60">
-                    <strong>{{ $base }}</strong> &middot; {{ $pCount }} pages &middot; Click rows to select &middot; Use keyboard shortcuts to label
-                </div>
+                <h1 class="text-xl font-bold text-white leading-tight">PDF Pack Splitter — Review Labels</h1>
+                <p class="text-sm text-white/60">
+                    <strong>{{ $base }}</strong> · {{ $pCount }} pages · Click rows to select · Use keyboard shortcuts to label
+                </p>
             </div>
         </div>
     </div>
@@ -219,6 +219,52 @@
             </ul>
         </div>
     @endif
+
+    {{-- Property link (optional) --}}
+    <div x-data="splitterPropertyPicker()" class="rounded-md p-4 mb-4"
+         style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
+        <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
+                Link split documents to a property (optional)
+            </label>
+            <template x-if="selected">
+                <button type="button" @click="clear()" class="text-xs underline" style="color: var(--text-secondary);">Clear</button>
+            </template>
+        </div>
+
+        <template x-if="!selected">
+            <div class="relative">
+                <input type="text" x-model="q" @input.debounce.250="search()" @focus="search()"
+                       placeholder="Search property by address, suburb, ref…"
+                       class="w-full px-3 py-2 rounded-md text-sm"
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <div x-show="results.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-10 max-h-72 overflow-y-auto"
+                     style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    <template x-for="r in results" :key="r.id">
+                        <button type="button" @click="pick(r)"
+                                class="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                                style="color: var(--text-primary);">
+                            <div x-text="r.label"></div>
+                            <div class="text-xs" style="color: var(--text-muted);" x-text="r.ref ? ('Ref: ' + r.ref) : ''"></div>
+                        </button>
+                    </template>
+                </div>
+                <div x-show="searching" class="absolute right-3 top-2.5 text-xs" style="color: var(--text-muted);">…</div>
+            </div>
+        </template>
+
+        <template x-if="selected">
+            <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
+                 style="background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="text-sm" style="color: var(--text-primary);">
+                    <span x-text="selected.label"></span>
+                    <span class="text-xs ml-2" style="color: var(--text-muted);" x-text="selected.ref ? ('Ref: ' + selected.ref) : ''"></span>
+                </div>
+            </div>
+        </template>
+
+        <input type="hidden" name="property_id" :value="selected ? selected.id : ''" form="spr-form">
+    </div>
 
     {{-- Keyboard legend --}}
     <div class="legend">
@@ -328,8 +374,10 @@
             </table>
         </div>
 
-        <div class="bottom-bar">
-            <button type="submit" class="btn-gen">&#x2913;&nbsp; Generate ZIP</button>
+        <div class="bottom-bar" x-data>
+            <button type="submit" class="btn-gen">
+                &#x2913;&nbsp; <span x-text="$store.splitterPicker.selected ? 'ZIP &amp; Link' : 'ZIP'">ZIP</span>
+            </button>
             <a href="{{ route('tools.pdf_splitter.index') }}" class="btn-back">&larr; Upload a different PDF</a>
         </div>
     </form>
@@ -341,22 +389,22 @@
 (function () {
     'use strict';
 
-    /* ── Config ─────────────────────────────── */
+    /* â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     const TOTAL   = {{ $pCount }};
     const KEY_MAP = @json($keyMap);   // { 'm': 'mandate', ... }
 
-    /* ── State ──────────────────────────────── */
+    /* â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     let selected     = new Set();   // page numbers (int)
     let lastSelected = null;
 
-    /* ── DOM helpers ────────────────────────── */
+    /* â”€â”€ DOM helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     const tbody    = document.getElementById('spr-tbody');
     const countEl  = document.getElementById('sel-count');
 
     function row(p)    { return tbody.querySelector(`tr[data-page="${p}"]`); }
     function sel(p)    { return tbody.querySelector(`select[name="labels[${p}]"]`); }
 
-    /* ── Selection rendering ────────────────── */
+    /* â”€â”€ Selection rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     function renderSelection() {
         tbody.querySelectorAll('tr[data-page]').forEach(tr => {
             const p = +tr.dataset.page;
@@ -388,7 +436,7 @@
         if (r) r.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
-    /* ── Row click ──────────────────────────── */
+    /* â”€â”€ Row click â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     tbody.addEventListener('click', function (e) {
         // Ignore clicks on the select dropdown itself
         if (e.target.tagName === 'SELECT') return;
@@ -410,7 +458,7 @@
         }
     });
 
-    /* ── Apply label to selected rows ──────── */
+    /* â”€â”€ Apply label to selected rows â”€â”€â”€â”€â”€â”€â”€â”€ */
     function applyLabel(label, advance) {
         if (selected.size === 0) return;
         selected.forEach(p => {
@@ -427,10 +475,10 @@
         }
     }
 
-    /* ── Keyboard shortcuts ─────────────────── */
+    /* â”€â”€ Keyboard shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     document.addEventListener('keydown', function (e) {
         const tag = e.target.tagName;
-        // Allow typing in selects/inputs/buttons normally — only intercept when body / table is focused
+        // Allow typing in selects/inputs/buttons normally â€” only intercept when body / table is focused
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
         if (tag === 'BUTTON') return;
         // Allow select dropdown navigation without stealing keys
@@ -467,7 +515,7 @@
         }
     });
 
-    /* ── Toolbar buttons ────────────────────── */
+    /* â”€â”€ Toolbar buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     document.getElementById('tb-apply').addEventListener('click', function () {
         const v = document.getElementById('tb-type-select').value;
         applyLabel(v, false);
@@ -487,9 +535,38 @@
         }
     });
 
-    /* ── Init ───────────────────────────────── */
+    /* â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     // Pre-select page 1 so keyboard shortcuts work immediately
     selectOnly(1);
 })();
+</script>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.store('splitterPicker', { selected: null });
+
+    Alpine.data('splitterPropertyPicker', () => ({
+        q: '',
+        results: [],
+        searching: false,
+        get selected() { return Alpine.store('splitterPicker').selected; },
+        set selected(v) { Alpine.store('splitterPicker').selected = v; },
+        async search() {
+            const q = this.q.trim();
+            if (q.length < 2) { this.results = []; return; }
+            this.searching = true;
+            try {
+                const res = await fetch(`{{ route('tools.pdf_splitter.properties.search') }}?q=${encodeURIComponent(q)}`, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                });
+                this.results = res.ok ? await res.json() : [];
+            } catch (e) { this.results = []; }
+            finally { this.searching = false; }
+        },
+        pick(r) { this.selected = r; this.q = ''; this.results = []; },
+        clear() { this.selected = null; },
+    }));
+});
 </script>
 @endsection

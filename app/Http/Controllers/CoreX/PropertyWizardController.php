@@ -23,6 +23,8 @@ use Illuminate\Support\Facades\Storage;
  */
 class PropertyWizardController extends Controller
 {
+    use \App\Http\Concerns\AppliesP24Location;
+
     public function start(Request $request)
     {
         /** @var User $user */
@@ -67,26 +69,42 @@ class PropertyWizardController extends Controller
         abort_unless($user->hasPermission('properties.create'), 403);
 
         $data = $request->validate([
-            'listing_type'  => 'required|string|in:sale,rental',
-            'property_type' => 'required|string|max:50',
-            'suburb'        => 'required|string|max:100',
-            'street_number' => 'nullable|string|max:50',
-            'street_name'   => 'nullable|string|max:255',
-            'price'         => 'required|integer|min:0',
-            'beds'          => 'required|integer|min:0|max:20',
-            'baths'         => 'required|integer|min:0|max:20',
-            'garages'       => 'required|integer|min:0|max:20',
-            'title'         => 'required|string|max:200',
+            'listing_type'    => 'required|string|in:sale,rental',
+            'property_type'   => 'required|string|max:50',
+            'suburb'          => 'nullable|string|max:100',
+            'city'            => 'nullable|string|max:100',
+            'province'        => 'nullable|string|max:100',
+            'p24_province_id' => 'required|integer|exists:p24_provinces,id',
+            'p24_city_id'     => 'required|integer|exists:p24_cities,id',
+            'p24_suburb_id'   => 'required|integer|exists:p24_suburbs,id',
+            'street_number'   => 'nullable|string|max:50',
+            'street_name'     => 'nullable|string|max:255',
+            'price'           => 'required|integer|min:0',
+            'beds'            => 'required|integer|min:0|max:20',
+            'baths'           => 'required|integer|min:0|max:20',
+            'garages'         => 'required|integer|min:0|max:20',
+            'title'           => 'required|string|max:200',
         ]);
+
+        // Verify P24 chain and overwrite text columns with canonical names.
+        $data = $this->applyP24Location($data);
 
         // Smart defaults — Observer will set agency_id via BelongsToAgency
         $data['agent_id']  = $user->id;
         $data['branch_id'] = $user->effectiveBranchId();
         $data['status']    = 'draft';
-        $data['province']  = 'KwaZulu-Natal';
 
         // Observer fires saved() — published_at is null so SyncPropertyToWebsite is NOT dispatched
         $property = Property::create($data);
+
+        if ($property->p24_suburb_id) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property,
+                previousP24SuburbId: null,
+                newP24SuburbId: (int) $property->p24_suburb_id,
+                actorUserId: $user->id,
+            ));
+        }
 
         if ($request->wantsJson()) {
             return response()->json([

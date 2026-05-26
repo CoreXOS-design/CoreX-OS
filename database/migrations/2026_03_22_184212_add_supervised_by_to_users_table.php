@@ -32,14 +32,17 @@ return new class extends Migration
         });
 
         // 3. Expand status enum to include supervisor + candidate statuses
-        DB::statement("ALTER TABLE signature_templates MODIFY COLUMN status ENUM(
-            'draft','ready','signing',
-            'awaiting_tenant','awaiting_landlord','awaiting_buyer','awaiting_seller',
-            'awaiting_supervisor','awaiting_supervisor_final',
-            'pending_agent_approval',
-            'returned_to_candidate',
-            'completed','expired','declined','rejected'
-        ) NOT NULL DEFAULT 'draft'");
+        //    (cross-driver: MySQL prod + SQLite test DB).
+        Schema::table('signature_templates', function (Blueprint $table) {
+            $table->enum('status', [
+                'draft', 'ready', 'signing',
+                'awaiting_tenant', 'awaiting_landlord', 'awaiting_buyer', 'awaiting_seller',
+                'awaiting_supervisor', 'awaiting_supervisor_final',
+                'pending_agent_approval',
+                'returned_to_candidate',
+                'completed', 'expired', 'declined', 'rejected',
+            ])->default('draft')->change();
+        });
 
         // 4. Signature requests: returned_notes for return-to-candidate flow
         Schema::table('signature_requests', function (Blueprint $table) {
@@ -65,12 +68,14 @@ return new class extends Migration
             $table->dropColumn('returned_notes');
         });
 
-        DB::statement("ALTER TABLE signature_templates MODIFY COLUMN status ENUM(
-            'draft','ready','signing',
-            'awaiting_tenant','awaiting_landlord',
-            'pending_agent_approval',
-            'completed','expired','declined'
-        ) NOT NULL DEFAULT 'draft'");
+        Schema::table('signature_templates', function (Blueprint $table) {
+            $table->enum('status', [
+                'draft', 'ready', 'signing',
+                'awaiting_tenant', 'awaiting_landlord',
+                'pending_agent_approval',
+                'completed', 'expired', 'declined',
+            ])->default('draft')->change();
+        });
 
         Schema::table('signature_templates', function (Blueprint $table) {
             $table->dropForeign(['supervisor_user_id']);

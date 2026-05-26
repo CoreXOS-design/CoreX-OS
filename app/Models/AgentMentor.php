@@ -4,9 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+use App\Models\Concerns\BelongsToAgency;
 class AgentMentor extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
+        'agency_id',
         'mentee_user_id',
         'mentor_user_id',
         'assigned_at',

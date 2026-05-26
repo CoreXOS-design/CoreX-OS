@@ -6,11 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class FicaDocument extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
+        'agency_id',
         'fica_submission_id',
         'document_type',
         'file_path',

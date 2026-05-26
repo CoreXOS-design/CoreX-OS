@@ -12,14 +12,33 @@ use Illuminate\Http\Request;
 
 class MobileContactController extends Controller
 {
+    use \App\Http\Controllers\Api\Concerns\ResolvesMobileDataScope;
+
     // GET /api/mobile/contacts
+    //
+    // Visibility:
+    //   The Contact model's global ContactScope already enforces the role
+    //   scope (own/branch/all + agency Data-Isolation). On top of that we
+    //   honour an optional `agent_id` filter so the app can show
+    //   "Mine / All / specific agent" — but only within what the scope allows
+    //   (resolveAgentFilter() 403s on an out-of-scope agent_id).
+    //
+    //   ?agent_id absent  → the user's own contacts (default, like the web)
+    //   ?agent_id=        → everything the scope allows (branch or agency)
+    //   ?agent_id=123     → that agent's contacts (if in scope)
     public function index(Request $request): JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
 
+        $agentFilter = $this->resolveAgentFilter(
+            $user,
+            'contacts',
+            $request->has('agent_id') ? $request->query('agent_id', '') : null
+        );
+
         $query = Contact::with(['type'])
-            ->where('created_by_user_id', $user->id)
+            ->when($agentFilter !== null, fn ($q) => $q->where('created_by_user_id', $agentFilter))
             ->orderBy('last_name')->orderBy('first_name');
 
         if ($request->filled('search')) {
@@ -49,7 +68,14 @@ class MobileContactController extends Controller
     // GET /api/mobile/contacts/{contact}
     public function show(Request $request, Contact $contact): JsonResponse
     {
-        $this->authorize($request->user(), $contact);
+        // Read is scope-based: visible if the user's role scope (enforced by
+        // the Contact global ContactScope) can see this record. Writes below
+        // stay stricter (own-only) via authorize().
+        abort_unless(
+            Contact::whereKey($contact->getKey())->exists(),
+            403,
+            'That contact is outside your visibility scope.'
+        );
         $contact->load(['type', 'matches', 'properties']);
 
         return response()->json([

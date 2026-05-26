@@ -670,7 +670,7 @@ function initEvalMap() {
 
     L.marker([-30.9347,30.0930], {icon:L.divIcon({
         className:'',
-        html:'<div style="width:14px;height:14px;background:#00d4aa;border-radius:50%;border:2px solid #fff;animation:corex-pulse 2s infinite;box-shadow:0 0 0 0 rgba(0,212,170,.5);"></div>',
+        html:'<div style="width:14px;height:14px;background:var(--brand-icon);border-radius:50%;border:2px solid #fff;animation:corex-pulse 2s infinite;box-shadow:0 0 0 0 rgba(0,212,170,.5);"></div>',
         iconSize:[14,14],iconAnchor:[7,7]
     })}).addTo(window.evalMap);
 

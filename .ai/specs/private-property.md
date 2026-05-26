@@ -194,15 +194,19 @@ PP returns `ListingFeedRef` (UUID) on the synchronous `UpdateListing` response *
 3. `PrivatePropertySyndicationService::pushVideoOrMatterport()`:
    - Hard guard: returns error if `pp_listing_feed_ref` is empty.
    - Calls `SoapClient::updateListingVideoOrMatterport($pp_listing_feed_ref, $type, $youtube, $matterport)`.
-4. **Critical:** `UniqueListingId` = `pp_listing_feed_ref` (UUID), never `pp_ref` (T-number).
+4. **Critical:** `UniqueListingId` = `pp_listing_feed_ref`, never `pp_ref` (T-number).
 
-Manual UUID entry: `php artisan pp:manage set-listing-uuid --property=ID --uuid=UUID-FROM-PP` writes `pp_listing_feed_ref`.
+> **CORRECTION (2026-05-18, verified against live sandbox feed):** `ListingFeedRef`/`pp_listing_feed_ref` is **NOT a UUID/GUID**. PP echoes back the listing reference *we submitted* — our CoreX property id (e.g. `"16"`). The earlier "UUID" claim here and in §10/§15 was wrong and caused the video sync to be wrongly diagnosed as blocked-on-PP. `pp_listing_feed_ref` is populated by the Event Feed `Activated` handler from `ListingFeedRef`.
+
+Manual entry (rarely needed now the feed parser is fixed): `php artisan pp:manage set-listing-uuid --property=ID --uuid=<our-property-id>` writes `pp_listing_feed_ref`.
 
 ---
 
 ## 10. Listing Event Feed Flow
 
-PP exposes `GetListingEventFeedByBranch(branchId, token, continuationKey, startDateTime)`. Returns a `FeedData` array of events with `ListingFeedRef, OfficeFeedRef, ListingFeedEventType, EventDescription, ListingFeedEventStatus`.
+PP exposes `GetListingEventFeedByBranch(branchId, token, continuationKey, startDateTime)`.
+
+> **CORRECTION (2026-05-18, verified against live sandbox feed):** The real response envelope is `GetListingEventFeedByBranchResult.{ContinuationKey, FeedData}`, and the event list is nested under a **mis-spelled** child element `FeedData.LisitngEventFeedData` ("Lisitng", not "Listing"). Per event: `ListingFeedRef` = the listing ref WE submitted (our CoreX property id, e.g. `"16"`); `OfficeFeedRef` = the **PP branch GUID** (NOT our id). The old pseudocode below (top-level `ContinuationKey`/`FeedData`, and "OfficeFeedRef = our PropertyId") was wrong on all three points and is why the consumer was a silent no-op.
 
 Implementation: `App\Jobs\ProcessPrivatePropertyEventFeed` (scheduled every 15 min, `withoutOverlapping`).
 
@@ -223,7 +227,7 @@ loop while moreToProcess:
 ```
 
 Event handlers (`processEvents`):
-- `Activated` → property where `id = ListingFeedRef-as-PropertyId` (matched via OfficeFeedRef = our PropertyId): write `pp_ref = EventDescription` (T-number), `pp_listing_feed_ref = ListingFeedRef`, `pp_syndication_status='active'`, `pp_activated_at=now()`.
+- `Activated` → property matched via **`ListingFeedRef` = our CoreX property id** (`Property::find((int) $feedRef)`): write `pp_ref = EventDescription` (T-number), `pp_listing_feed_ref = ListingFeedRef`, `pp_syndication_status='active'`, `pp_activated_at=now()`.
 - `Deactivated` → `pp_syndication_status='deactivated'`.
 - `ErrorDownloadingImages` → `pp_syndication_status='error'`, `pp_last_error=EventDescription`, **create a `command_tasks` row assigned to the listing's primary agent** (Command Center pillar).
 - `ImagesDownloading`, `ImagesDownloaded` → log only.
@@ -302,7 +306,7 @@ Plus `php artisan pp:smoke-test` → `GetBranchDetails`.
 
 ## 15. Known PP Quirks
 
-- **T-number vs UUID** — PP exposes two listing identifiers: a friendly T-number (e.g. `T2870133`, stored in `pp_ref`) and an internal UUID (`ListingFeedRef`, stored in `pp_listing_feed_ref`). `UpdateListingVideoOrMatterport` requires the UUID — passing the T-number silently fails / returns no-op.
+- **T-number vs listing ref** — PP exposes two listing identifiers: a friendly T-number (e.g. `T2870133`, stored in `pp_ref`) and the listing reference we submitted, which PP echoes back as `ListingFeedRef` = **our CoreX property id** (e.g. `"16"`), stored in `pp_listing_feed_ref`. `UpdateListingVideoOrMatterport` requires the latter (`UniqueListingId` = `pp_listing_feed_ref`) — passing the T-number silently fails / returns no-op. (`ListingFeedRef` is NOT a GUID — earlier spec text was wrong.)
 - **Sandbox auto-activation** — PP sandbox does **not** always auto-activate; sometimes `pp_ref` is returned synchronously, sometimes only via the Event Feed.
 - **`UpdateAgent` creates duplicates** — calling `UpdateAgent` with an `AgentId` that PP doesn't already have creates a fresh PP profile. To re-point an existing PP profile to a new External Ref use `UpdateUniqueAgentID`.
 - **Suburb hierarchy** — `Suburb` must be more specific than `Town` and the two strings must not be identical (case-insensitive). Province is a fixed enum.
@@ -331,8 +335,6 @@ The integration treats PP errors as opaque strings stored in `pp_last_error`. Co
 ## 17. Outstanding (BLOCKED on PP)
 
 - **Elize duplicate** — AgentId=100, encrypted `lW2pKs8th84=`. Listings 16 and 34 currently assigned to it on PP. Cannot be deactivated until PP support reassigns. Track at `app/Services/PrivateProperty/PrivatePropertySyndicationService.php` agent-flow.
-- **`pp_listing_feed_ref` for T2870133** — null. Video push for property 16 is blocked until either:
-  1. PP supplies the UUID manually → `php artisan pp:manage set-listing-uuid --property=16 --uuid=...`, or
-  2. The `ProcessPrivatePropertyEventFeed` job processes a future Activated event for it.
+- ~~**`pp_listing_feed_ref` for T2870133** — null. Video push blocked.~~ **RESOLVED 2026-05-18.** Was NOT blocked on PP — the Event Feed parser was broken (wrong envelope path, mis-spelled `LisitngEventFeedData` child, inverted `ListingFeedRef`/`OfficeFeedRef` roles). Fixed in `ProcessPrivatePropertyEventFeed`. PP has emitted multiple `Activated` events for property 16 (`ListingFeedRef="16"`); the corrected job populates `pp_listing_feed_ref="16"` on the next run for any Active listing.
 - **`PP_WEBHOOK_SECRET`** — must be obtained by registering `https://corex.hfcoastal.co.za/api/pp/webhook` in the PP Admin Portal.
 - **Sole-mandate exclusive listing test** — outstanding test case (FullMandate Sale, `pp_exclusive_days > 0`).

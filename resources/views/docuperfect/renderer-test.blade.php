@@ -19,7 +19,7 @@
             background: #0f172a;
             color: white;
             padding: 10px 24px;
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Figtree', sans-serif;
             font-size: 12px;
             display: flex;
             justify-content: space-between;
@@ -33,7 +33,7 @@
             background: #dc2626;
             color: white;
             padding: 2px 8px;
-            border-radius: 3px;
+            border-radius:6px;
             font-size: 10px;
             font-weight: 600;
             letter-spacing: 0.5px;
@@ -194,7 +194,7 @@
 
 
     {{-- ============================================================
-         SECTION 4: CONDITIONAL — VAT TOGGLE
+         SECTION 4: CONDITIONAL â€” VAT TOGGLE
          ============================================================ --}}
     <h2 class="corex-h1">4. Value Added Tax</h2>
 

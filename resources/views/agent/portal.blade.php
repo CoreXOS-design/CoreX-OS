@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @php
@@ -7,26 +8,50 @@
 @endphp
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6"
+<div class="space-y-5"
      x-data="{
         tab: (window.location.hash || '#overview').replace('#', ''),
         setTab(t) { this.tab = t; history.replaceState(null, '', '#' + t); }
      }"
      x-init="window.addEventListener('hashchange', () => tab = (window.location.hash || '#overview').replace('#', ''))">
 
-    {{-- Sticky page header (Rule 5) --}}
-    <x-page-header title="My Portal" :flush="true">
-        <x-slot:actions>
-            <span style="width:8px; height:8px; border-radius:50%; background:{{ $overallColor }}; display:inline-block;"></span>
-            <span style="font-size:0.75rem; font-weight:600; color:{{ $overallColor }};">
-                @if($complianceStatus['overall'] === 'green') Compliant
-                @elseif($complianceStatus['overall'] === 'amber') {{ $complianceStatus['issues_count'] }} item(s) need attention
-                @else Action required @endif
-            </span>
-        </x-slot:actions>
-    </x-page-header>
+    {{-- Page header (Pattern A — branded, matches Contacts / Core Matches) --}}
+    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">My Portal</h1>
+                <p class="text-sm text-white/60">Your profile, documents, compliance, training and earnings in one place.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5"
+                      style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18);">
+                    <span style="width:8px; height:8px; border-radius:50%; background:{{ $overallColor }}; display:inline-block;"></span>
+                    <span class="text-xs font-semibold text-white">
+                        @if($complianceStatus['overall'] === 'green') Compliant
+                        @elseif($complianceStatus['overall'] === 'amber') {{ $complianceStatus['issues_count'] }} item(s) need attention
+                        @else Action required @endif
+                    </span>
+                </span>
+                @permission('access_settings')
+                <a href="{{ url('/corex/settings?section=my-portal&s=my-portal') }}"
+                   title="My Portal Settings"
+                   aria-label="My Portal Settings"
+                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
+                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
+                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
+                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                </a>
+                @endpermission
+            </div>
+        </div>
+    </div>
 
-    <div class="p-4 lg:p-6">
+    <div>
         <div class="max-w-5xl mx-auto space-y-4">
 
     {{-- Flash messages (alert block §3.9) --}}
@@ -43,14 +68,23 @@
     {{-- Tab navigation (fixed spacing) --}}
     <div style="border-bottom:1px solid var(--border);">
         <nav class="-mb-px flex gap-1 overflow-x-auto" aria-label="Tabs">
-            @foreach([
-                'overview' => 'Overview',
-                'profile' => 'Profile',
-                'documents' => 'Documents',
-                'compliance' => 'Compliance',
-                'training' => 'Training',
-                'password' => 'Password',
-            ] as $key => $label)
+            @php
+                $portalTabs = [
+                    'overview' => 'Overview',
+                    'profile' => 'Profile',
+                    'documents' => 'Documents',
+                    'compliance' => 'Compliance',
+                    'training' => 'Training',
+                    'password' => 'Password',
+                ];
+                if (auth()->user()->hasPermission('view_own_payslips')) {
+                    $portalTabs['payslips'] = 'Payslips';
+                }
+                if (auth()->user()->hasPermission('apply_for_leave')) {
+                    $portalTabs['leave'] = 'Leave';
+                }
+            @endphp
+            @foreach($portalTabs as $key => $label)
             <button type="button"
                     @click="setTab('{{ $key }}')"
                     class="whitespace-nowrap px-4 py-3 text-sm border-b-2 transition-colors"
@@ -175,6 +209,38 @@
                 @endforeach
             </div>
             @endif
+
+            {{-- Training Progress tile --}}
+            @php
+                $trainingRole = auth()->user()->effectiveRole();
+                $trainingReqDocs = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->ordered()->get();
+                $trainingReads = \App\Models\Training\TrainingDocRead::where('user_id', auth()->id())
+                    ->whereIn('doc_id', $trainingReqDocs->pluck('id'))
+                    ->get()->keyBy('doc_id');
+                $trainingDone = $trainingReqDocs->filter(fn($d) => ($trainingReads->get($d->id)?->completed_at) && !($trainingReads->get($d->id)?->is_outdated_since))->count();
+                $trainingTotal = $trainingReqDocs->count();
+                $trainingPct = $trainingTotal > 0 ? (int) round(($trainingDone / $trainingTotal) * 100) : 100;
+                $trainingNext = $trainingReqDocs->first(fn($d) => !($trainingReads->get($d->id)?->completed_at) || ($trainingReads->get($d->id)?->is_outdated_since));
+            @endphp
+            @if($trainingTotal > 0)
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+                <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Training Progress</h3>
+                <div class="text-xs mb-2" style="color:var(--text-muted);">Required for your role: {{ $trainingTotal }} {{ Str::plural('guide', $trainingTotal) }}</div>
+                <div class="text-lg font-bold mb-2" style="color:var(--text-primary);">{{ $trainingDone }} of {{ $trainingTotal }} completed</div>
+                <div class="w-full h-2 rounded-full overflow-hidden mb-3" style="background:var(--surface-2);">
+                    <div class="h-full rounded-full transition-all" style="width:{{ $trainingPct }}%; background:{{ $trainingPct >= 100 ? 'var(--ds-green, #059669)' : 'var(--brand-icon, #0ea5e9)' }};"></div>
+                </div>
+                @if($trainingNext)
+                <div class="text-xs mb-2" style="color:var(--text-muted);">Next: <strong style="color:var(--text-primary);">{{ $trainingNext->title }}</strong></div>
+                <a href="{{ route('training-help.show', $trainingNext->slug) }}" class="inline-flex items-center gap-1 text-xs font-medium" style="color:var(--brand-icon);">
+                    Continue Reading
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" /></svg>
+                </a>
+                @else
+                <div class="text-xs font-medium" style="color:var(--ds-green, #059669);">All required training complete</div>
+                @endif
+            </div>
+            @endif
         </div>
     </div>
 
@@ -286,24 +352,6 @@
                         @error('cell') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
-                    {{-- Fax --}}
-                    <div>
-                        <label for="fax" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Fax</label>
-                        <input id="fax" name="fax" type="tel" value="{{ old('fax', $user->fax) }}" placeholder="Fax number"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
-                        @error('fax') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
-                    </div>
-
-                    {{-- Website --}}
-                    <div>
-                        <label for="website" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Website</label>
-                        <input id="website" name="website" type="url" value="{{ old('website', $user->website) }}" placeholder="https://..."
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
-                        @error('website') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
-                    </div>
-
                     {{-- ID Number --}}
                     <div>
                         <label for="id_number" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">ID Number</label>
@@ -378,27 +426,37 @@
         </div>
 
         {{-- Theme Preference --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;"
+        <div class="rounded-md p-5 mt-5" style="background:var(--surface); border:1px solid var(--border);"
              x-data="{ current: localStorage.getItem('corex-theme') || '{{ $user->theme ?? 'dark' }}' }">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 12px;">Theme Preference</h3>
-            <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                <button type="button"
+            <h3 class="text-base font-bold mb-1" style="color:var(--text-primary);">Theme Preference</h3>
+            <p class="text-xs mb-4" style="color:var(--text-muted);">Choose how CoreX looks for you. Synced across your devices.</p>
+            <div role="radiogroup" aria-label="Theme"
+                 class="inline-flex rounded-md p-1"
+                 style="background:var(--surface-2); border:1px solid var(--border);">
+                <button type="button" role="radio" :aria-checked="current === 'dark'"
                         @click="current='dark'; document.documentElement.classList.add('dark'); localStorage.setItem('corex-theme','dark'); fetch('{{ route('profile.theme') }}',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content,'Accept':'application/json'},body:JSON.stringify({theme:'dark'})})"
-                        :style="current === 'dark' ? 'border:2px solid var(--brand-button);' : 'border:2px solid var(--border);'"
-                        style="border-radius:6px; padding:12px 20px; cursor:pointer; display:flex; align-items:center; gap:10px; background:var(--surface-2); min-width:140px; transition:all 200ms;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#8890a4" style="width:18px; height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" /></svg>
-                    <div style="text-align:left;"><div style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">Dark</div></div>
+                        :style="current === 'dark'
+                            ? 'background:var(--brand-button); color:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.15);'
+                            : 'background:transparent; color:var(--text-secondary);'"
+                        class="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+                        style="border:none; cursor:pointer;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></svg>
+                    Dark
                 </button>
-                <button type="button"
+                <button type="button" role="radio" :aria-checked="current === 'light'"
                         @click="current='light'; document.documentElement.classList.remove('dark'); localStorage.setItem('corex-theme','light'); fetch('{{ route('profile.theme') }}',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content,'Accept':'application/json'},body:JSON.stringify({theme:'light'})})"
-                        :style="current === 'light' ? 'border:2px solid var(--brand-button);' : 'border:2px solid var(--border);'"
-                        style="border-radius:6px; padding:12px 20px; cursor:pointer; display:flex; align-items:center; gap:10px; background:var(--surface-2); min-width:140px; transition:all 200ms;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#64748B" style="width:18px; height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" /></svg>
-                    <div style="text-align:left;"><div style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">Light</div></div>
+                        :style="current === 'light'
+                            ? 'background:var(--brand-button); color:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.15);'
+                            : 'background:transparent; color:var(--text-secondary);'"
+                        class="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+                        style="border:none; cursor:pointer;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/></svg>
+                    Light
                 </button>
             </div>
         </div>
 
+        @if($user->portal_show_api_token)
         {{-- API Token --}}
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;"
              x-data="{
@@ -457,9 +515,10 @@
                 <a href="{{ asset('downloads/portal-capture-extension.zip') }}" class="corex-btn-outline" download>Portal Capture Extension</a>
             </div>
         </div>
+        @endif
 
         {{-- Social Media Accounts --}}
-        @if(\Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
+        @if($user->portal_show_social_accounts && \Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
         @php
             $fbSocial = $socialAccounts->firstWhere('platform', 'facebook');
             $igSocial = $socialAccounts->firstWhere('platform', 'instagram');
@@ -516,6 +575,42 @@
             </div>
         </div>
         @endif
+
+        {{-- ═══════════════════════════════════════════
+             AGENT QR CODE — spec: .ai/specs/agent-qr-onboarding.md
+             Slug is generated once (ensureQrSlug) and locked to the agent.
+             QR image is served by /my-portal/qr.svg → pure SVG, no JS, no
+             external CDN, so it always renders on any host / CSP.
+             ═══════════════════════════════════════════ --}}
+        @php
+            $qrUrl    = $user->qrCodeUrl();
+            $qrParam  = urlencode($qrUrl);
+            // Pure <img> rendering via goqr.me — no JS, no CDN script,
+            // no CSP issues. Slug is intentionally public.
+            // Match the downloaded PNG and the mobile app: ECC=H, margin=8.
+            // Same data + same ECC + same margin → identical visual pattern.
+            $qrImgSrc = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=8&ecc=H&data={$qrParam}";
+            $qrPngSrc = "https://api.qrserver.com/v1/create-qr-code/?size=1024x1024&margin=8&ecc=H&format=png&data={$qrParam}";
+        @endphp
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">Your Client QR Code</h3>
+            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">
+                Hand this to prospects. When they scan it in the CoreX app, they sign up directly as your client.
+            </p>
+            <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
+                <div style="background:#ffffff; padding:12px; border-radius:6px; border:1px solid var(--border); width:200px; height:200px; display:flex; align-items:center; justify-content:center;">{{-- White is intentional: QR code requires high-contrast white background --}}
+                    <img src="{{ $qrImgSrc }}" alt="Your client onboarding QR code"
+                         style="width:176px; height:176px; display:block;">
+                </div>
+                <div style="flex:1; min-width:240px;">
+                    <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">URL</div>
+                    <div style="font-family:monospace; font-size:0.75rem; color:var(--text-primary); word-break:break-all; margin-bottom:12px;">{{ $qrUrl }}</div>
+                    <a href="{{ $qrPngSrc }}" download="corex-agent-qr.png" target="_blank" rel="noopener" class="corex-btn-primary" style="display:inline-block;">
+                        Download PNG
+                    </a>
+                </div>
+            </div>
+        </div>
     </div>
 
     {{-- ═══════════════════════════════════════════
@@ -829,7 +924,7 @@
             <h3 class="text-sm font-semibold" style="color:var(--text-primary); margin:0 0 6px; border-left:3px solid var(--ds-crimson); padding-left:12px;">Delete Account</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 16px;">Once your account is deleted, all of its resources and data will be permanently deleted.</p>
 
-            <button @click="confirmDelete = true" x-show="!confirmDelete" type="button" class="corex-btn-primary" style="background:#dc2626; box-shadow:none;">Delete Account</button>
+            <button @click="confirmDelete = true" x-show="!confirmDelete" type="button" class="corex-btn-primary" style="background:var(--ds-crimson, #dc2626); box-shadow:none;">Delete Account</button>
 
             <div x-show="confirmDelete" x-cloak x-transition class="rounded-md" style="background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); padding:16px; max-width:400px;">
                 <p style="font-size:0.8125rem; font-weight:600; color:var(--ds-crimson); margin:0 0 4px;">Are you sure?</p>
@@ -842,12 +937,61 @@
                     @error('password', 'userDeletion') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-bottom:8px;">{{ $message }}</p> @enderror
                     <div class="flex gap-2">
                         <button type="button" @click="confirmDelete = false" class="corex-btn-outline">Cancel</button>
-                        <button type="submit" class="corex-btn-primary" style="background:#dc2626; box-shadow:none;">Confirm Delete</button>
+                        <button type="submit" class="corex-btn-primary" style="background:var(--ds-crimson, #dc2626); box-shadow:none;">Confirm Delete</button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
+
+    {{-- ══ Payslips tab ══ --}}
+    @if(auth()->user()->hasPermission('view_own_payslips'))
+    <div x-show="tab === 'payslips'" x-cloak>
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Payslips</h3>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">Your finalised payslips from the payroll system.</p>
+
+            @if(isset($latestPayslip) && $latestPayslip)
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:20px;">
+                    <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:14px; text-align:center;">
+                        <p style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin:0 0 4px;">Latest Period</p>
+                        <p style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">{{ $latestPayslip->period_month->format('M Y') }}</p>
+                    </div>
+                    <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:14px; text-align:center;">
+                        <p style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin:0 0 4px;">Latest Net Pay</p>
+                        <p style="font-size:1rem; font-weight:700; color:var(--brand-icon); margin:0;">R {{ number_format($latestPayslip->net_pay, 2) }}</p>
+                    </div>
+                    <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:14px; text-align:center;">
+                        <p style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin:0 0 4px;">Total on File</p>
+                        <p style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">{{ $payslipCount ?? 0 }}</p>
+                    </div>
+                </div>
+
+                <a href="{{ route('my-portal.payslips') }}" class="corex-btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
+                    View All Payslips
+                    <svg style="width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+                </a>
+            @else
+                <p style="font-size:0.8125rem; color:var(--text-muted); text-align:center; padding:24px 0;">No payslips yet. Your payslips will appear here once your employer finalises a payroll run.</p>
+            @endif
+        </div>
+    </div>
+    @endif
+
+    {{-- ══ Leave tab ══ --}}
+    @if(auth()->user()->hasPermission('apply_for_leave'))
+    <div x-show="tab === 'leave'" x-cloak>
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Leave</h3>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">View your leave balances, apply for leave, and track your applications.</p>
+
+            <a href="{{ route('my-portal.leave.index') }}" class="corex-btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
+                View Leave Dashboard
+                <svg style="width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+            </a>
+        </div>
+    </div>
+    @endif
 
         </div>{{-- .max-w-5xl --}}
     </div>{{-- .p-4 --}}

@@ -1,26 +1,28 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    // Cross-driver enum widen. Column created via $table->enum() in
+    // 2026_04_21_000002_create_user_documents_table.
     public function up(): void
     {
-        DB::statement("ALTER TABLE user_documents MODIFY COLUMN document_type ENUM(
-            'ffc_certificate','id_copy','pi_insurance','tax_clearance',
-            'profile_photo','qualification','proof_of_address','bank_confirmation',
-            'police_clearance','credit_check_report','reference_letter',
-            'other'
-        ) NOT NULL DEFAULT 'other'");
+        Schema::table('user_documents', function (Blueprint $table) {
+            $table->enum('document_type', ['ffc_certificate', 'id_copy', 'pi_insurance', 'tax_clearance', 'profile_photo', 'qualification', 'proof_of_address', 'bank_confirmation', 'police_clearance', 'credit_check_report', 'reference_letter', 'other'])
+                ->default('other')
+                ->change();
+        });
     }
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE user_documents MODIFY COLUMN document_type ENUM(
-            'ffc_certificate','id_copy','pi_insurance','tax_clearance',
-            'profile_photo','qualification','proof_of_address','bank_confirmation',
-            'other'
-        ) NOT NULL DEFAULT 'other'");
+        Schema::table('user_documents', function (Blueprint $table) {
+            $table->enum('document_type', ['ffc_certificate', 'id_copy', 'pi_insurance', 'tax_clearance', 'profile_photo', 'qualification', 'proof_of_address', 'bank_confirmation', 'other'])
+                ->default('other')
+                ->change();
+        });
     }
 };

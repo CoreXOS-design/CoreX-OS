@@ -12,6 +12,13 @@ use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
 
+// Demo Owner Login — accessible whether the visitor is signed in as a demo user
+// or guest. Controller hard-gates by DemoLoginController::isEnabled().
+Route::get('demo-owner-login',  [\App\Http\Controllers\Auth\DemoOwnerLoginController::class, 'create'])
+    ->name('demo.owner.login');
+Route::post('demo-owner-login', [\App\Http\Controllers\Auth\DemoOwnerLoginController::class, 'store'])
+    ->name('demo.owner.login.store');
+
 // Account setup (invitation link — signed URL, no auth required)
 Route::get('account-setup/{user}', [AccountSetupController::class, 'show'])
     ->middleware('signed')
@@ -29,6 +36,9 @@ Route::middleware('guest')->group(function () {
         ->name('login');
 
     Route::post('login', [AuthenticatedSessionController::class, 'store']);
+
+    Route::post('demo-login/{role}', [\App\Http\Controllers\Auth\DemoLoginController::class, 'login'])
+        ->name('demo.login');
 
     Route::get('forgot-password', [PasswordResetLinkController::class, 'create'])
         ->name('password.request');

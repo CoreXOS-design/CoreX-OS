@@ -9,11 +9,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class DealStepInstance extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
+        'agency_id',
         'deal_id',
         'pipeline_step_id',
         'name',

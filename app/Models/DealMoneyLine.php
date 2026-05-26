@@ -5,13 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class DealMoneyLine extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'deal_money_lines';
 
     protected $fillable = [
+        'agency_id',
         'deal_id',
         'user_id',
         'period',

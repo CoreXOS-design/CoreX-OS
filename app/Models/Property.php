@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\CommandCenter\CalendarEvent;
+use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
@@ -84,6 +88,10 @@ class Property extends Model
         'latitude',
         'longitude',
         'pp_suburb_id',
+        'p24_suburb_id',
+        'p24_city_id',
+        'p24_province_id',
+        'p24_suburb_mismatch',
         'pp_syndication_enabled',
         'pp_syndication_status',
         'pp_ref',
@@ -119,6 +127,18 @@ class Property extends Model
         'p24_last_error',
         'p24_images_last_synced_at',
         'p24_listing_last_synced_at',
+        'compliance_snapshot_at',
+        'compliance_snapshot_data',
+        'compliance_evidence_flags',
+        'first_marketed_at',
+        'erf_number',
+        'title_deed_number',
+        'municipal_valuation',
+        'municipal_valuation_year',
+        'cma_gps_lat',
+        'cma_gps_lng',
+        'last_cma_at',
+        'last_cma_presentation_id',
     ];
 
     protected $casts = [
@@ -158,6 +178,10 @@ class Property extends Model
         'latitude'                => 'decimal:7',
         'longitude'               => 'decimal:7',
         'pp_suburb_id'            => 'integer',
+        'p24_suburb_id'           => 'integer',
+        'p24_city_id'             => 'integer',
+        'p24_province_id'         => 'integer',
+        'p24_suburb_mismatch'     => 'boolean',
         'pp_syndication_enabled'  => 'boolean',
         'pp_last_submitted_at'    => 'datetime',
         'pp_activated_at'         => 'datetime',
@@ -174,6 +198,16 @@ class Property extends Model
         'p24_activated_at'            => 'datetime',
         'p24_images_last_synced_at'   => 'datetime',
         'p24_listing_last_synced_at'  => 'datetime',
+        'compliance_snapshot_at'      => 'datetime',
+        'compliance_snapshot_data'    => 'array',
+        'compliance_evidence_flags'   => 'array',
+        'first_marketed_at'           => 'datetime',
+        'municipal_valuation'         => 'decimal:2',
+        'municipal_valuation_year'    => 'integer',
+        'cma_gps_lat'                 => 'decimal:7',
+        'cma_gps_lng'                 => 'decimal:7',
+        'last_cma_at'                 => 'datetime',
+        'last_cma_presentation_id'    => 'integer',
     ];
 
     protected static function boot(): void
@@ -408,5 +442,24 @@ class Property extends Model
             $this->gallery_images_json ?? [],
             $this->images_json         ?? [],
         );
+    }
+
+    // ── Whistleblower complaints ──
+
+    public function whistleblowComplaints(): HasMany
+    {
+        return $this->hasMany(\App\Models\Compliance\WhistleblowComplaint::class);
+    }
+
+    // ── Calendar event links (M2.2) ──
+
+    public function calendarEventLinks(): MorphMany
+    {
+        return $this->morphMany(CalendarEventLink::class, 'linkable');
+    }
+
+    public function calendarEvents()
+    {
+        return $this->morphToMany(CalendarEvent::class, 'linkable', 'calendar_event_links', null, 'calendar_event_id');
     }
 }

@@ -6,11 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
+use App\Models\Concerns\BelongsToAgency;
 class ContactTag extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
-    protected $fillable = ['name', 'color', 'sort_order', 'is_active'];
+    protected $fillable = [
+        'agency_id','name', 'color', 'sort_order', 'is_active'];
 
     protected $casts = [
         'is_active'  => 'boolean',

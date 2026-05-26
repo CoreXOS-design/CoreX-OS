@@ -13,6 +13,25 @@ use App\Http\Controllers\Admin\DealController;
 use App\Http\Controllers\Agent\DealRegisterController;
 use App\Http\Controllers\Admin\MonthlyGoalController;
 
+// ── Seller Live Link (public, no auth) ──
+Route::get('/property/live/demo', [\App\Http\Controllers\SellerLinkController::class, 'demo'])->name('seller-link.demo');
+Route::get('/property/live/{token}', [\App\Http\Controllers\SellerLinkController::class, 'show'])->name('seller-link.show');
+
+// ── Buyer Portal (public, no auth) ──
+Route::get('/buyer/portal/demo', [\App\Http\Controllers\BuyerPortalController::class, 'demo'])->name('buyer-portal.demo');
+Route::get('/buyer/portal/{token}', [\App\Http\Controllers\BuyerPortalController::class, 'show'])->name('buyer-portal.show');
+Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalController::class, 'respond'])->name('buyer-portal.respond');
+
+// ── Seller-Outreach Public Landing (no auth) ──
+// Spec: .ai/specs/seller-outreach-spec.md S8, 6.4, 6.5.
+Route::get('/m/{shortcode}', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'show'])
+    ->where('shortcode', '[A-Za-z0-9]{6}')
+    ->name('seller-outreach.public.landing');
+Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
+    ->where('shortcode', '[A-Za-z0-9]{6}')
+    ->middleware('throttle:10,60')
+    ->name('seller-outreach.public.callback');
+
 Route::get('/', function () {
     return auth()->check()
         ? redirect()->route('dashboard')
@@ -32,16 +51,68 @@ Route::get('/{agencySlug}/properties/{property}', [\App\Http\Controllers\PublicA
     ->where('agencySlug', '^(?!admin|shared|dashboard|login|register|corex|api|storage|livewire|_ignition|broadcasting|horizon|sanctum|agent|onboarding|compliance|docuperfect|presentation|presentations|settings|profile|nexus|tv|ellie|xgrid|invite|up)[a-z0-9-]+$')
     ->name('public.agency.properties.show');
 
+// Public branding lookup by agency slug (no auth — used by mobile app login screen)
+Route::get('/api/v1/branding/{slug}', [\App\Http\Controllers\Api\V1\BrandingController::class, 'showBySlug'])
+    ->name('api.v1.branding.show-by-slug');
+
 Route::get('/dashboard', function () {
     return redirect()->route('corex.dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
 
-    // Notification API
-    Route::get('/api/notifications', [\App\Http\Controllers\Api\NotificationController::class, 'index']);
-    Route::post('/api/notifications/{id}/read', [\App\Http\Controllers\Api\NotificationController::class, 'markRead']);
-    Route::post('/api/notifications/mark-all-read', [\App\Http\Controllers\Api\NotificationController::class, 'markAllRead']);
+    // P24 location tree read-API (called from Blade pages over fetch with
+    // session cookies — must live in web.php so the `web` middleware group
+    // applies, not in routes/api.php where session isn't set up).
+    Route::get('/api/v1/p24/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces'])->name('api.v1.p24.provinces');
+    Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
+    Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
+
+    // ── Admin: API Catalog (auto-generated from route table) ──
+    Route::get('/admin/api', [\App\Http\Controllers\Admin\ApiCatalogController::class, 'index'])
+        ->middleware('permission:manage_users')
+        ->name('admin.api.catalog');
+
+// ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
+    Route::prefix('api/v1')->name('api.v1.')->group(function () {
+        Route::get('/logged-user', [\App\Http\Controllers\Api\V1\MeController::class, 'show'])->name('logged-user');
+
+        Route::get('/properties',      [\App\Http\Controllers\Api\V1\PropertiesController::class, 'index'])->name('properties.index');
+        Route::get('/properties/{property}', [\App\Http\Controllers\Api\V1\PropertiesController::class, 'show'])->name('properties.show');
+
+        Route::get('/contacts',        [\App\Http\Controllers\Api\V1\ContactsController::class, 'index'])->name('contacts.index');
+        Route::get('/contacts/{contact}', [\App\Http\Controllers\Api\V1\ContactsController::class, 'show'])->name('contacts.show');
+
+        Route::get('/deals',           [\App\Http\Controllers\Api\V1\DealsController::class, 'index'])->name('deals.index');
+        Route::get('/deals/{deal}',    [\App\Http\Controllers\Api\V1\DealsController::class, 'show'])->name('deals.show');
+
+        Route::get('/branding',        [\App\Http\Controllers\Api\V1\BrandingController::class, 'show'])->name('branding.show');
+
+        // ── Agency Access Authorization (cross-agency consent flow) ──
+        // See .ai/specs/agency-access-authorization-spec.md
+        Route::prefix('agency-access')->name('agency-access.')->group(function () {
+            Route::get('/inspect/{agency}',        [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'inspect'])->name('inspect');
+            Route::post('/request',                [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'store'])->name('store');
+            Route::get('/inbox',                   [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'inbox'])->name('inbox');
+            Route::get('/{request}/status',        [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'status'])->name('status');
+            Route::post('/{request}/cancel',       [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'cancel'])->name('cancel');
+            Route::post('/{request}/authorize',    [\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'authorize'])->name('authorize');
+            Route::post('/{request}/confirm-switch',[\App\Http\Controllers\Api\AgencyAccessRequestController::class, 'confirmSwitch'])->name('confirm-switch');
+        });
+
+        // ── Command Center: Task Notes (threaded) + Checklist ──
+        Route::prefix('command-center/tasks/{task}')->name('command-center.tasks.')->group(function () {
+            Route::get('/notes',           [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'index'])->name('notes.index');
+            Route::post('/notes',          [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'store'])->name('notes.store');
+            Route::put('/notes/{note}',    [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'update'])->name('notes.update');
+            Route::delete('/notes/{note}', [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'destroy'])->name('notes.destroy');
+
+            Route::get('/checklist',                [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'checklistIndex'])->name('checklist.index');
+            Route::post('/checklist',               [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'checklistStore'])->name('checklist.store');
+            Route::patch('/checklist/{itemId}',     [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'checklistUpdate'])->name('checklist.update');
+            Route::delete('/checklist/{itemId}',    [\App\Http\Controllers\Api\CommandTaskNotesController::class, 'checklistDestroy'])->name('checklist.destroy');
+        });
+    });
 
     Route::get('/evaluation', function () {
         return view('evaluation.index');
@@ -130,6 +201,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/users/{user}/delete', [App\Http\Controllers\Admin\UserManagementController::class, 'delete'])
         ->middleware('permission:manage_users')->name('admin.users.delete');
 
+    Route::get('/api/v1/admin/users/{user}/delete-preview', [App\Http\Controllers\Admin\UserManagementController::class, 'deletePreview'])
+        ->middleware('permission:manage_users')->name('api.v1.admin.users.delete-preview');
+
     Route::post('/admin/users/{user}/defaults', [App\Http\Controllers\Admin\UserManagementController::class, 'updateDefaults'])
         ->middleware('permission:manage_users')->name('admin.users.defaults.update');
     Route::post('/admin/users/{user}/role', [App\Http\Controllers\Admin\UserManagementController::class, 'updateRole'])->middleware('permission:manage_users')->name('admin.users.role.update');
@@ -141,6 +215,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/users/{user}/pp/update-id', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateId'])->middleware('permission:manage_users')->name('admin.users.pp.update-id');
     Route::post('/admin/users/{user}/pp/update-external-ref', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateExternalRef'])->middleware('permission:manage_users')->name('admin.users.pp.update-external-ref');
     Route::get('/admin/pp/agents', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'index'])->middleware('permission:manage_users')->name('admin.pp.agents');
+    Route::get('/admin/pp/mapping-email', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'mappingEmail'])->middleware('permission:manage_users')->name('admin.pp.mapping-email');
     Route::post('/admin/pp/agents/deactivate', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'deactivateByEncryptedId'])->middleware('permission:manage_users')->name('admin.pp.agents.deactivate');
     Route::post('/admin/pp/agents/purge-listing/{id}', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'purgeListing'])->middleware('permission:manage_users')->name('admin.pp.agents.purge-listing');
 
@@ -192,8 +267,14 @@ Route::middleware('auth')->group(function () {
 // P24 Importer — owner-only. The `owner_only` middleware sits alongside
 // `permission:access_importer` so even if the permission is mis-granted
 // to an agency admin they still 403 here.
-Route::prefix('admin/importer')->middleware(['auth', 'permission:access_importer'])->name('admin.importer.')->group(function () {
+Route::prefix('admin/importer')->middleware(['auth', 'owner_only'])->name('admin.importer.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\ImporterController::class, 'index'])->name('index');
+
+    // P24 Locations browser — view the cached Province → City → Suburb tree
+    // and re-trigger the sync command from a button.
+    Route::get('/p24-locations',           [\App\Http\Controllers\Admin\ImporterController::class, 'p24Locations'])->name('p24-locations');
+    Route::post('/p24-locations/refresh',  [\App\Http\Controllers\Admin\ImporterController::class, 'refreshP24Locations'])->name('p24-locations.refresh');
+    Route::get('/p24-locations/status',    [\App\Http\Controllers\Admin\ImporterController::class, 'p24LocationsStatus'])->name('p24-locations.status');
     Route::post('/agents/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadAgents'])->name('agents.upload');
     Route::get('/runs/{run}/preview', [\App\Http\Controllers\Admin\ImporterController::class, 'preview'])->name('preview');
     Route::post('/runs/{run}/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmAgents'])->name('confirm');
@@ -392,9 +473,14 @@ require __DIR__.'/auth.php';
 use App\Http\Controllers\Admin\TargetController;
 use App\Http\Controllers\ToolsController;
 use App\Http\Controllers\Tools\PdfSplitterController;
+use App\Http\Controllers\Tools\PdfSuiteController;
+use App\Http\Controllers\Tools\FlowMapController;
 
 Route::middleware(['auth'])->group(function () {
 
+
+    // Flow Map — read-only guide to how CoreX interconnects (spec: .ai/specs/flows-map.md)
+    Route::get('/tools/flow-map', [FlowMapController::class, 'index'])->middleware('permission:access_flow_map')->name('tools.flow-map');
 
     // Tools
     Route::get('/tools/commission', [ToolsController::class, 'commission'])->middleware('permission:access_calculators')->name('tools.commission');
@@ -413,6 +499,33 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.confirm');
     Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
     Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.download');
+    Route::get('/tools/pdf-splitter/properties/search', [PdfSplitterController::class, 'searchProperties'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.search');
+
+    // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
+    Route::middleware('permission:access_pdf_suite')->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {
+        Route::get('/',              [PdfSuiteController::class, 'hub'])->name('hub');
+
+        Route::get('/compress',      [PdfSuiteController::class, 'compress'])->name('compress');
+        Route::post('/compress',     [PdfSuiteController::class, 'compressRun'])->name('compress.run');
+
+        Route::get('/merge',         [PdfSuiteController::class, 'merge'])->name('merge');
+        Route::post('/merge',        [PdfSuiteController::class, 'mergeRun'])->name('merge.run');
+
+        Route::get('/image-to-pdf',  [PdfSuiteController::class, 'imageToPdf'])->name('image-to-pdf');
+        Route::post('/image-to-pdf', [PdfSuiteController::class, 'imageToPdfRun'])->name('image-to-pdf.run');
+
+        Route::get('/rotate',        [PdfSuiteController::class, 'rotate'])->name('rotate');
+        Route::post('/rotate',       [PdfSuiteController::class, 'rotateRun'])->name('rotate.run');
+
+        Route::get('/reorder',       [PdfSuiteController::class, 'reorder'])->name('reorder');
+        Route::post('/reorder',      [PdfSuiteController::class, 'reorderRun'])->name('reorder.run');
+
+        Route::get('/protect',       [PdfSuiteController::class, 'protect'])->name('protect');
+        Route::post('/protect',      [PdfSuiteController::class, 'protectRun'])->name('protect.run');
+
+        Route::get('/redact',        [PdfSuiteController::class, 'redact'])->name('redact');
+        Route::post('/redact',       [PdfSuiteController::class, 'redactRun'])->name('redact.run');
+    });
 
     // Splitter Doc Type Admin (legacy routes — kept so PDF Splitter links still work)
     Route::get('/admin/splitter/doc-types', [\App\Http\Controllers\Admin\SplitterDocTypeController::class, 'index'])->middleware('permission:access_pdf_splitter')->name('admin.splitter.doc-types.index');
@@ -483,8 +596,8 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/admin/tv-code/revoke-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'revokeCompany'])->name('admin.tv-code.revoke-company');
 
         // Agency switcher (super admin)
-        Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('permission:access_agencies')->name('agency.switch.clear');
-        Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('permission:access_agencies')->name('agency.switch');
+        Route::post('/agency/switch/clear', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'clear'])->middleware('owner_only')->name('agency.switch.clear');
+        Route::post('/agency/switch/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'switch'])->middleware('owner_only')->name('agency.switch');
 
         // Branch switcher (Split Branches Phase 2) — gated by branches.switch permission
         Route::post('/branch/switch/clear', [\App\Http\Controllers\Admin\BranchSwitcherController::class, 'clear'])->name('branch.switch.clear');
@@ -701,12 +814,47 @@ use App\Http\Controllers\CommandCenter\DashboardController as CommandCenterDashb
 use App\Http\Controllers\CommandCenter\CalendarController as CommandCenterCalendarController;
 use App\Http\Controllers\CommandCenter\TaskController as CommandCenterTaskController;
 use App\Http\Controllers\CommandCenter\SettingsController as CommandCenterSettingsController;
+use App\Http\Controllers\CommandCenter\ContactGovernanceController as CommandCenterContactGovernanceController;
 use App\Http\Controllers\CommandCenter\UserSettingsController as CommandCenterUserSettingsController;
 use App\Http\Controllers\CoreX\SettingsController as CoreXSettingsController;
 use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerController;
 
 Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
-    Route::get('/', [CommandCenterDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard');
+    Route::get('/', [CommandCenterDashboardController::class, 'today'])->name('corex.dashboard');
+    Route::get('/command-center/Today', [CommandCenterDashboardController::class, 'today'])->name('command-center.today');
+    Route::get('/command-center/Today/cards', [CommandCenterDashboardController::class, 'todayCards'])->name('command-center.today.cards');
+    Route::get('/legacy-dashboard', [CommandCenterDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard.legacy');
+
+    // ── Notifications ──
+    Route::get('/notifications', function () {
+        $notifications = \Illuminate\Support\Facades\DB::table('notifications')
+            ->where('notifiable_type', 'App\\Models\\User')
+            ->where('notifiable_id', auth()->id())
+            ->orderByDesc('created_at')
+            ->paginate(30);
+        return view('command-center.notifications', ['notifications' => $notifications]);
+    })->name('command-center.notifications');
+    Route::post('/notifications/mark-all-read', function () {
+        \Illuminate\Support\Facades\DB::table('notifications')
+            ->where('notifiable_type', 'App\\Models\\User')
+            ->where('notifiable_id', auth()->id())
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+        return back()->with('success', 'All notifications marked as read.');
+    })->name('command-center.notifications.mark-all-read');
+    Route::post('/notifications/{id}/mark-read', function (string $id) {
+        $updated = \Illuminate\Support\Facades\DB::table('notifications')
+            ->where('id', $id)
+            ->where('notifiable_type', 'App\\Models\\User')
+            ->where('notifiable_id', auth()->id())
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+        if (!$updated) abort(403);
+        if (request()->wantsJson()) {
+            return response()->json(['ok' => true]);
+        }
+        return back()->with('success', 'Notification marked as read.');
+    })->name('command-center.notifications.mark-read');
 
     // ── Manager Oversight ──
     Route::middleware('permission:dashboard.oversight.view')->group(function () {
@@ -719,14 +867,95 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── Command Center ──
+    // Lightweight contact lookup for calendar prefill (no agency.required middleware)
+    Route::get('/api/contact-lookup/{id}', function (int $id) {
+        $contact = \App\Models\Contact::withoutGlobalScopes()->find($id);
+        if (!$contact) return response()->json(['error' => 'Not found'], 404);
+        return response()->json([
+            'id' => $contact->id,
+            'first_name' => $contact->first_name,
+            'last_name' => $contact->last_name,
+            'phone' => $contact->phone,
+            'email' => $contact->email,
+            'is_buyer' => $contact->is_buyer,
+        ]);
+    })->name('corex.api.contact-lookup');
+
     Route::prefix('command-center')->group(function () {
         Route::get('/calendar', [CommandCenterCalendarController::class, 'index'])->name('command-center.calendar');
         Route::get('/calendar/events', [CommandCenterCalendarController::class, 'events'])->name('command-center.calendar.events');
+
+        // Calendar Invitations — MUST be before /calendar/{calendarEvent} wildcard
+        Route::get('/calendar/invitations', function () {
+            $userId = auth()->id();
+            $invitations = \App\Models\CommandCenter\CalendarEventInvitation::forUser($userId)
+                ->with([
+                    'event' => fn($q) => $q->withoutGlobalScopes(),
+                    'inviter',
+                ])
+                ->whereIn('status', ['pending', 'tentative'])
+                ->orderByDesc('created_at')->paginate(20);
+
+            // Live conflict check for each invitation
+            $conflictSvc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);
+            foreach ($invitations as $inv) {
+                $inv->live_conflicts = [];
+                if ($inv->event && $inv->event->event_date && $inv->event->end_date) {
+                    try {
+                        $inv->live_conflicts = $conflictSvc->checkUserConflicts(
+                            $userId,
+                            $inv->event->event_date->toIso8601String(),
+                            $inv->event->end_date->toIso8601String(),
+                            $inv->event_id // exclude this invitation's own event
+                        );
+                    } catch (\Throwable $e) {}
+                }
+            }
+
+            return view('command-center.calendar.invitations', ['invitations' => $invitations]);
+        })->name('command-center.calendar.invitations');
+        Route::post('/calendar/invitations/{invitation}/respond', function (\Illuminate\Http\Request $request, \App\Models\CommandCenter\CalendarEventInvitation $invitation) {
+            if ((int) $invitation->invitee_user_id !== auth()->id()) abort(403);
+            $data = $request->validate(['action' => 'required|in:accepted,tentative,declined', 'notes' => 'nullable|string|max:500']);
+            $invitation->update(['status' => $data['action'], 'response_at' => now(), 'response_notes' => $data['notes'] ?? null]);
+            \Illuminate\Support\Facades\DB::table('notifications')->insert([
+                'id' => \Illuminate\Support\Str::uuid(), 'type' => 'invitation_response', 'notifiable_type' => 'App\\Models\\User',
+                'notifiable_id' => $invitation->inviter_user_id,
+                'data' => json_encode(['message' => auth()->user()->name . ' ' . $data['action'] . ': ' . ($invitation->event?->title ?? 'Event'), 'event_id' => $invitation->event_id]),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            return back()->with('success', 'Response recorded.');
+        })->name('command-center.calendar.invitations.respond');
+
+        Route::post('/calendar/invitations/{invitation}/acknowledge', function (\Illuminate\Http\Request $request, \App\Models\CommandCenter\CalendarEventInvitation $invitation) {
+            $event = $invitation->event;
+            if (!$event) abort(404);
+            $user = auth()->user();
+            // Only organizer or super_admin can acknowledge
+            if ((int) $event->user_id !== (int) $user->id && !in_array($user->role, ['super_admin', 'owner'])) {
+                abort(403);
+            }
+            $invitation->update(['acknowledged_at' => now()]);
+            return response()->json(['ok' => true, 'invitation_id' => $invitation->id, 'acknowledged_at' => $invitation->fresh()->acknowledged_at->toIso8601String()]);
+        })->name('command-center.calendar.invitations.acknowledge');
+
+        // Conflict check — MUST be before /calendar/{calendarEvent} wildcard
+        Route::get('/calendar/check-conflicts', function (\Illuminate\Http\Request $request) {
+            $svc = app(\App\Services\CommandCenter\Calendar\ConflictDetectionService::class);
+            return response()->json($svc->checkUserConflicts((int)$request->get('user_id'), $request->get('start'), $request->get('end'), $request->get('exclude_event_id')));
+        })->name('command-center.calendar.check-conflicts');
+
+        Route::get('/calendar/{calendarEvent}', [CommandCenterCalendarController::class, 'show'])->name('command-center.calendar.show');
         Route::post('/calendar', [CommandCenterCalendarController::class, 'store'])->name('command-center.calendar.store');
         Route::put('/calendar/{calendarEvent}', [CommandCenterCalendarController::class, 'update'])->name('command-center.calendar.update');
         Route::delete('/calendar/{calendarEvent}', [CommandCenterCalendarController::class, 'destroy'])->name('command-center.calendar.destroy');
         Route::post('/calendar/{calendarEvent}/complete', [CommandCenterCalendarController::class, 'complete'])->name('command-center.calendar.complete');
         Route::post('/calendar/{calendarEvent}/dismiss', [CommandCenterCalendarController::class, 'dismiss'])->name('command-center.calendar.dismiss');
+        Route::patch('/calendar/{calendarEvent}/reschedule', [CommandCenterCalendarController::class, 'reschedule'])->name('command-center.calendar.reschedule');
+        Route::get('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'showFeedback'])->name('command-center.calendar.feedback.show');
+        Route::post('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'storeFeedback'])->name('command-center.calendar.feedback.store');
+        Route::get('/calendar/search/attendees', [CommandCenterCalendarController::class, 'searchAttendees'])->name('command-center.calendar.search.attendees');
+        Route::get('/calendar/properties/{property}/owners', [CommandCenterCalendarController::class, 'propertyOwners'])->name('command-center.calendar.property-owners');
 
         Route::post('/resolve-task/{task}', [CommandCenterDashboardController::class, 'resolveTask'])->name('command-center.resolve-task');
         Route::post('/resolve-event/{calendarEvent}', [CommandCenterDashboardController::class, 'resolveEvent'])->name('command-center.resolve-event');
@@ -743,11 +972,91 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/tasks/{task}/complete', [CommandCenterTaskController::class, 'complete'])->name('command-center.tasks.complete');
         Route::patch('/tasks/{task}/status', [CommandCenterTaskController::class, 'updateStatus'])->name('command-center.tasks.update-status');
 
+        // Market Intelligence
+        Route::get('/settings/market-intelligence', function () {
+            $records = \Illuminate\Support\Facades\DB::table('property_sold_records')->whereNull('property_id')->orderByDesc('sold_date')->paginate(25);
+            return view('command-center.settings.market-intelligence', ['records' => $records]);
+        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence');
+        Route::post('/settings/market-intelligence', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate(['address' => 'required|string', 'suburb' => 'required|string', 'area' => 'nullable|string', 'sold_price' => 'required|numeric', 'sold_date' => 'required|date', 'property_type' => 'nullable|string', 'bedrooms' => 'nullable|integer', 'sqm' => 'nullable|numeric', 'source_reference' => 'required|string']);
+            \Illuminate\Support\Facades\DB::table('property_sold_records')->insert(array_merge($data, ['source' => 'manual', 'captured_by_user_id' => auth()->id(), 'captured_at' => now(), 'agency_id' => auth()->user()->effectiveAgencyId() ?? 1, 'created_at' => now(), 'updated_at' => now()]));
+            return back()->with('success', 'Market intelligence record added.');
+        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence.store');
+        Route::post('/settings/market-intelligence/{id}/verify', function (int $id) {
+            \Illuminate\Support\Facades\DB::table('property_sold_records')->where('id', $id)->update(['verified' => true, 'verified_by_user_id' => auth()->id(), 'verified_at' => now()]);
+            return back()->with('success', 'Record verified.');
+        })->middleware('permission:command_center.settings')->name('command-center.settings.market-intelligence.verify');
+
+        // Buyer Portal Links — agent management
+        Route::post('/buyers/portal-links/generate', function (\Illuminate\Http\Request $request) {
+            $request->validate(['contact_id' => 'required|integer|exists:contacts,id']);
+            // Revoke existing active links
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('contact_id', $request->contact_id)->whereNull('revoked_at')->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            $token = bin2hex(random_bytes(32));
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->insert([
+                'contact_id' => $request->contact_id, 'token' => $token,
+                'generated_by_user_id' => auth()->id(), 'generated_at' => now(),
+                'access_count' => 0, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            return back()->with('success', 'Buyer portal link generated.')->with('buyer_portal_url', url('/buyer/portal/' . $token));
+        })->name('command-center.buyers.portal-links.generate');
+
+        Route::post('/buyers/portal-links/{id}/revoke', function (int $id) {
+            \Illuminate\Support\Facades\DB::table('buyer_portal_links')->where('id', $id)->update(['revoked_at' => now(), 'revoked_by_user_id' => auth()->id()]);
+            return back()->with('success', 'Buyer portal link revoked.');
+        })->name('command-center.buyers.portal-links.revoke');
+
+        // Feedback Reports
+        Route::post('/feedback', [\App\Http\Controllers\FeedbackReportController::class, 'store'])->name('command-center.feedback.store');
+        Route::get('/feedback-reports', [\App\Http\Controllers\FeedbackReportController::class, 'index'])->middleware('permission:command_center.settings')->name('command-center.feedback-reports');
+        Route::get('/feedback-reports/export', [\App\Http\Controllers\FeedbackReportController::class, 'export'])->middleware('permission:command_center.settings')->name('command-center.feedback-reports.export');
+        Route::get('/feedback-reports/{id}', [\App\Http\Controllers\FeedbackReportController::class, 'show'])->middleware('permission:command_center.settings')->name('command-center.feedback-reports.show');
+        Route::post('/feedback-reports/{id}/status', [\App\Http\Controllers\FeedbackReportController::class, 'updateStatus'])->middleware('permission:command_center.settings')->name('command-center.feedback-reports.update-status');
+
+        Route::get('/reporting/agent', [\App\Http\Controllers\CommandCenter\ReportingController::class, 'agentDashboard'])->name('command-center.reporting.agent');
+        Route::get('/reporting/branch', [\App\Http\Controllers\CommandCenter\ReportingController::class, 'branchDashboard'])->middleware('permission:dashboard.oversight.view')->name('command-center.reporting.branch');
+        Route::get('/reporting/agency', [\App\Http\Controllers\CommandCenter\ReportingController::class, 'agencyDashboard'])->name('command-center.reporting.agency');
+
+        Route::get('/buyers/pipeline', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'index'])->name('command-center.buyers.pipeline');
+        Route::get('/buyers/{contact}', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'show'])->name('command-center.buyers.show');
+        // Backward-compat alias for the legacy preferences POST. Prompt 11 added
+        // explicit add/update endpoints below; the new Wishlists tab uses those.
+        Route::post('/buyers/{contact}/preferences', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'saveWishlist'])->name('command-center.buyers.preferences');
+        // Prompt 11 — Wishlists tab CRUD.
+        Route::post('/buyers/{contact}/wishlists', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'addWishlist'])->name('command-center.buyers.wishlists.add');
+        Route::put('/buyers/{contact}/wishlists/{match}', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'updateWishlist'])->name('command-center.buyers.wishlists.update');
+        Route::post('/buyers/{contact}/wishlists/{match}/primary', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'setWishlistPrimary'])->name('command-center.buyers.wishlists.primary');
+        Route::post('/buyers/{contact}/wishlists/{match}/archive', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'archiveWishlist'])->name('command-center.buyers.wishlists.archive');
+
+        Route::post('/buyers/{contact}/playbook-action', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markPlaybookAction'])->name('command-center.buyers.playbook-action');
+        Route::post('/buyers/{contact}/mark-lost', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'markLost'])->name('command-center.buyers.mark-lost');
+        Route::post('/buyers/{contact}/reengage', [\App\Http\Controllers\CommandCenter\BuyerDetailController::class, 'reengage'])->name('command-center.buyers.reengage');
+
+        Route::get('/lost-deals', function (\Illuminate\Http\Request $request) {
+            $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+            $days = (int) $request->get('days', 90);
+            $analytics = app(\App\Services\LostDealAnalyticsService::class);
+            return view('command-center.lost-deals', [
+                'days' => $days,
+                'distribution' => $analytics->getReasonDistribution($agencyId, $days),
+                'valueData' => $analytics->getValueAtLoss($agencyId, $days),
+            ]);
+        })->middleware('permission:command_center.settings')->name('command-center.lost-deals');
+        Route::patch('/buyers/{contact}/state', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'updateState'])->name('command-center.buyers.update-state');
+
+        Route::get('/admin/duplicate-cleanup', [\App\Http\Controllers\CommandCenter\DuplicateCleanupController::class, 'index'])->middleware('permission:command_center.settings')->name('command-center.admin.duplicate-cleanup');
+        Route::post('/admin/duplicate-cleanup/{clusterId}/dismiss', [\App\Http\Controllers\CommandCenter\DuplicateCleanupController::class, 'dismiss'])->middleware('permission:command_center.settings')->name('command-center.admin.duplicate-cleanup.dismiss');
+
         Route::get('/settings', [CommandCenterSettingsController::class, 'index'])->name('command-center.settings');
+        Route::get('/settings/contact-governance', [CommandCenterContactGovernanceController::class, 'contactGovernance'])->middleware('permission:command_center.settings')->name('command-center.settings.contact-governance');
+        Route::put('/settings/contact-governance', [CommandCenterContactGovernanceController::class, 'updateContactGovernance'])->middleware('permission:command_center.settings')->name('command-center.settings.contact-governance.update');
+        Route::put('/settings/leave-visibility', [CommandCenterContactGovernanceController::class, 'updateLeaveVisibility'])->middleware('permission:command_center.settings')->name('command-center.settings.leave-visibility.update');
         Route::patch('/settings/rules/{rule}/toggle', [CommandCenterSettingsController::class, 'toggleRule'])->name('command-center.settings.toggle-rule');
         Route::post('/settings/expectations', [CommandCenterSettingsController::class, 'storeExpectation'])->name('command-center.settings.store-expectation');
         Route::delete('/settings/expectations/{expectation}', [CommandCenterSettingsController::class, 'destroyExpectation'])->name('command-center.settings.destroy-expectation');
-        Route::post('/settings/reminders', [CommandCenterSettingsController::class, 'storeReminderDefault'])->name('command-center.settings.store-reminder');
+        Route::get('/settings/event-classes', [CommandCenterSettingsController::class, 'eventClasses'])->name('command-center.settings.event-classes');
+        Route::put('/settings/event-classes/{eventClass}', [CommandCenterSettingsController::class, 'updateEventClass'])->name('command-center.settings.event-classes.update');
+        Route::delete('/settings/event-classes/{eventClass}', [CommandCenterSettingsController::class, 'resetEventClass'])->name('command-center.settings.event-classes.reset');
 
         Route::get('/user-settings', [CommandCenterUserSettingsController::class, 'index'])->name('command-center.user-settings');
         Route::put('/user-settings', [CommandCenterUserSettingsController::class, 'update'])->name('command-center.user-settings.update');
@@ -760,6 +1069,27 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:upload_own_documents')->name('agent.portal.upload');
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
+
+    // ── My Payslips (self-service) ──
+    Route::get('/my-portal/payslips', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslips'])
+        ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips');
+    Route::get('/my-portal/payslips/{payslip}', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslipShow'])
+        ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips.show');
+    Route::get('/my-portal/payslips/{payslip}/pdf', [\App\Http\Controllers\Agent\AgentPortalController::class, 'myPayslipPdf'])
+        ->middleware(['permission:view_own_payslips', 'agency.required'])->name('my-portal.payslips.pdf');
+
+    // ── My Leave (agent self-service) ──
+    Route::middleware(['permission:apply_for_leave', 'agency.required'])
+        ->prefix('my-portal/leave')
+        ->name('my-portal.leave.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'index'])->name('index');
+            Route::get('apply', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'create'])->name('apply');
+            Route::post('apply', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'store'])->name('store');
+            Route::get('{application}', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'show'])->name('show');
+            Route::post('{application}/cancel', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'cancel'])->name('cancel');
+            Route::post('calculate-days', [\App\Http\Controllers\MyPortal\MyPortalLeaveController::class, 'calculateDays'])->name('calculate-days');
+        });
 
     // ── Agency Documents (staff read-only view) ──
     Route::middleware(['permission:view_agency_documents', 'agency.required'])->group(function () {
@@ -851,6 +1181,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/training/lesson/{lesson}/complete', [\App\Http\Controllers\Training\TrainingController::class, 'completeLesson'])->name('training.complete-lesson');
     Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
 
+    // ── Training Help (in-app training docs) ──
+    Route::prefix('training-help')->name('training-help.')->group(function () {
+        Route::get('/',                              [\App\Http\Controllers\Training\TrainingHelpController::class, 'index'])->name('index');
+        Route::get('/search',                        [\App\Http\Controllers\Training\TrainingHelpController::class, 'search'])->name('search');
+        Route::get('/api/progress',                  [\App\Http\Controllers\Training\TrainingHelpController::class, 'progress'])->name('progress');
+        Route::get('/{slug}',                        [\App\Http\Controllers\Training\TrainingHelpController::class, 'show'])->name('show');
+        Route::get('/{slug}/pdf',                    [\App\Http\Controllers\Training\TrainingHelpController::class, 'pdf'])->name('pdf');
+        Route::post('/{slug}/read',                  [\App\Http\Controllers\Training\TrainingHelpController::class, 'markRead'])->name('read');
+        Route::post('/{slug}/rereviewed',            [\App\Http\Controllers\Training\TrainingHelpController::class, 'markRereviewed'])->name('rereviewed');
+        Route::post('/{slug}/bookmark',              [\App\Http\Controllers\Training\TrainingHelpController::class, 'addBookmark'])->name('bookmark');
+        Route::delete('/bookmarks/{id}',             [\App\Http\Controllers\Training\TrainingHelpController::class, 'removeBookmark'])->name('bookmark.remove');
+    });
+
     // ── Agent Onboarding ──
     Route::prefix('onboarding')->group(function () {
         Route::get('/', [\App\Http\Controllers\Onboarding\OnboardingController::class, 'index'])->name('onboarding.index');
@@ -919,7 +1262,33 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/resend', [\App\Http\Controllers\Compliance\FicaController::class, 'resend'])->name('resend');
         Route::post('/{submission}/cancel', [\App\Http\Controllers\Compliance\FicaController::class, 'cancel'])->name('cancel');
         Route::post('/{submission}/resubmit-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'resubmitCorrections'])->name('resubmit-corrections');
+        Route::post('/{submission}/reopen', [\App\Http\Controllers\Compliance\FicaController::class, 'reopenRejected'])->name('reopen');
         Route::post('/{submission}/agent-upload', [\App\Http\Controllers\Compliance\FicaController::class, 'agentUpload'])->name('agent-upload');
+    });
+
+    // ── Whistleblower Compliance Reporting ──
+    Route::middleware(['agency.required'])->prefix('compliance/whistleblow')->name('compliance.whistleblow.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'index'])->name('index')->middleware('permission:compliance.whistleblow.view');
+        Route::post('/', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'store'])->name('store')->middleware('permission:compliance.whistleblow.create');
+        Route::get('/new', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'create'])->name('create')->middleware('permission:compliance.whistleblow.create');
+        Route::get('/lawyer-review-pack', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'lawyerReviewPack'])->name('lawyer-pack')->middleware('permission:compliance.whistleblow.configure');
+        Route::get('/{complaint}', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'show'])->name('show')->middleware('permission:compliance.whistleblow.view');
+        Route::post('/{complaint}/approve', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'approve'])->name('approve')->middleware('permission:compliance.whistleblow.approve');
+        Route::post('/{complaint}/reject', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'reject'])->name('reject')->middleware('permission:compliance.whistleblow.approve');
+        Route::post('/{complaint}/request-changes', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'requestChanges'])->name('request-changes')->middleware('permission:compliance.whistleblow.approve');
+    });
+
+    // ── Seller Information Pack ──
+    Route::middleware(['permission:compliance.whistleblow.view', 'agency.required'])->prefix('compliance/seller-info')->name('compliance.seller-info.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'index'])->name('index');
+        Route::post('/preview', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'preview'])->name('preview');
+        Route::post('/send', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'send'])->name('send');
+        Route::post('/whatsapp-link', [\App\Http\Controllers\Compliance\SellerInfoController::class, 'generateWhatsappLink'])->name('whatsapp-link');
+    });
+
+    // ── Compliance Communications Log ──
+    Route::middleware(['permission:compliance.whistleblow.view', 'agency.required'])->prefix('compliance/communications')->name('compliance.communications.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\CommunicationsLogController::class, 'index'])->name('index');
     });
 
     // ── Document Verification Queue ──
@@ -961,22 +1330,276 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->post('admin/compliance-overrides/{override}/revoke', [\App\Http\Controllers\Compliance\UserComplianceOverrideController::class, 'revoke'])
         ->name('admin.user.overrides.revoke');
 
+    // ── Payroll ──
+    Route::middleware(['permission:manage_payroll', 'agency.required'])
+        ->prefix('payroll')
+        ->name('payroll.')
+        ->group(function () {
+            Route::resource('earning-types', \App\Http\Controllers\Payroll\PayrollEarningTypeController::class)
+                ->except(['show']);
+            Route::resource('deduction-types', \App\Http\Controllers\Payroll\PayrollDeductionTypeController::class)
+                ->except(['show']);
+
+            Route::resource('employees', \App\Http\Controllers\Payroll\PayrollEmployeeController::class);
+            Route::post('employees/{employee}/deactivate', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'deactivate'])
+                ->name('employees.deactivate');
+            Route::post('employees/{employee}/reactivate', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'reactivate'])
+                ->name('employees.reactivate');
+
+            Route::post('employees/{employee}/earnings', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'storeEarning'])
+                ->name('employees.earnings.store');
+            Route::patch('employees/{employee}/earnings/{earning}', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'updateEarning'])
+                ->name('employees.earnings.update');
+            Route::delete('employees/{employee}/earnings/{earning}', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'destroyEarning'])
+                ->name('employees.earnings.destroy');
+
+            Route::post('employees/{employee}/deductions', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'storeDeduction'])
+                ->name('employees.deductions.store');
+            Route::patch('employees/{employee}/deductions/{deduction}', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'updateDeduction'])
+                ->name('employees.deductions.update');
+            Route::delete('employees/{employee}/deductions/{deduction}', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'destroyDeduction'])
+                ->name('employees.deductions.destroy');
+
+            Route::post('employees/{employee}/banking', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'storeBanking'])
+                ->name('employees.banking.store');
+            Route::patch('employees/{employee}/banking', [\App\Http\Controllers\Payroll\PayrollEmployeeController::class, 'updateBanking'])
+                ->name('employees.banking.update');
+
+            // ── Payroll Runs ──
+            Route::resource('runs', \App\Http\Controllers\Payroll\PayrollRunController::class)
+                ->only(['index', 'create', 'store', 'show'])
+                ->middleware('permission:run_payroll');
+            Route::post('runs/{run}/cancel', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'cancel'])
+                ->name('runs.cancel')
+                ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/payslips/{payslip}', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'payslipShow'])
+                ->name('runs.payslips.show')
+                ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/payslips/{payslip}/edit', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'payslipEdit'])
+                ->name('runs.payslips.edit')
+                ->middleware('permission:run_payroll');
+            Route::post('runs/{run}/payslips/{payslip}/lines', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'storePayslipLine'])
+                ->name('runs.payslips.lines.store')
+                ->middleware('permission:run_payroll');
+            Route::patch('runs/{run}/payslips/{payslip}/lines/{line}', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'updatePayslipLine'])
+                ->name('runs.payslips.lines.update')
+                ->middleware('permission:run_payroll');
+            Route::delete('runs/{run}/payslips/{payslip}/lines/{line}', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'destroyPayslipLine'])
+                ->name('runs.payslips.lines.destroy')
+                ->middleware('permission:run_payroll');
+            Route::post('runs/{run}/payslips/{payslip}/recalculate', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'recalculatePayslip'])
+                ->name('runs.payslips.recalculate')
+                ->middleware('permission:run_payroll');
+            Route::patch('runs/{run}/payslips/{payslip}/notes', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'updatePayslipNotes'])
+                ->name('runs.payslips.notes')
+                ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/payslips/{payslip}/pdf-preview', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'payslipPdfPreview'])
+                ->name('runs.payslips.pdf-preview')
+                ->middleware('permission:run_payroll');
+            Route::post('runs/{run}/finalise', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'finalise'])
+                ->name('runs.finalise')
+                ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/payslips/{payslip}/pdf-download', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'payslipPdfDownload'])
+                ->name('runs.payslips.pdf-download')
+                ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/bundle', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'bundlePdf'])
+                ->name('runs.bundle')
+                ->middleware('permission:run_payroll');
+            Route::get('runs/{run}/report', [\App\Http\Controllers\Payroll\PayrollRunController::class, 'runReport'])
+                ->name('runs.report')
+                ->middleware('permission:view_payroll_reports');
+        });
+
+    // ── Leave Admin ──
+    Route::middleware(['auth', 'agency.required'])
+        ->prefix('payroll/leave')
+        ->name('payroll.leave.')
+        ->group(function () {
+            Route::resource('types', \App\Http\Controllers\Leave\LeaveTypeController::class)
+                ->except(['show'])
+                ->middleware('permission:manage_leave_types');
+
+            Route::get('dashboard', [\App\Http\Controllers\Leave\LeaveDashboardController::class, 'index'])
+                ->name('dashboard')
+                ->middleware('permission:manage_leave');
+
+            Route::get('balances', [\App\Http\Controllers\Leave\LeaveBalanceController::class, 'index'])
+                ->name('balances.index')
+                ->middleware('permission:manage_leave');
+            Route::get('balances/{employee}', [\App\Http\Controllers\Leave\LeaveBalanceController::class, 'show'])
+                ->name('balances.show')
+                ->middleware('permission:manage_leave');
+            Route::post('balances/{employee}/adjust', [\App\Http\Controllers\Leave\LeaveBalanceController::class, 'adjust'])
+                ->name('balances.adjust')
+                ->middleware('permission:adjust_leave_balances');
+            Route::post('balances/{employee}/recalculate', [\App\Http\Controllers\Leave\LeaveBalanceController::class, 'recalculate'])
+                ->name('balances.recalculate')
+                ->middleware('permission:manage_leave');
+
+            Route::resource('public-holidays', \App\Http\Controllers\Leave\PublicHolidayController::class)
+                ->except(['show'])
+                ->middleware('permission:manage_leave_types');
+
+            // Leave Applications (BM + admin)
+            Route::get('applications', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'index'])
+                ->name('applications.index')
+                ->middleware('permission:approve_leave');
+            Route::get('applications/{application}', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'show'])
+                ->name('applications.show')
+                ->middleware('permission:approve_leave');
+            Route::post('applications/{application}/approve', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'approve'])
+                ->name('applications.approve')
+                ->middleware('permission:approve_leave');
+            Route::post('applications/{application}/reject', [\App\Http\Controllers\Leave\LeaveApplicationController::class, 'reject'])
+                ->name('applications.reject')
+                ->middleware('permission:approve_leave');
+
+            // Leave Reports
+            Route::get('reports/register', [\App\Http\Controllers\Leave\LeaveReportController::class, 'register'])
+                ->name('reports.register')
+                ->middleware('permission:view_leave_reports');
+            Route::get('reports/register/export/{format}', [\App\Http\Controllers\Leave\LeaveReportController::class, 'registerExport'])
+                ->name('reports.register.export')
+                ->middleware('permission:view_leave_reports');
+            Route::get('reports/branch-summary', [\App\Http\Controllers\Leave\LeaveReportController::class, 'branchSummary'])
+                ->name('reports.branch-summary')
+                ->middleware('permission:view_leave_reports');
+            Route::get('reports/accrual-statement/{employee}', [\App\Http\Controllers\Leave\LeaveReportController::class, 'accrualStatement'])
+                ->name('reports.accrual-statement')
+                ->middleware('permission:view_leave_reports');
+            Route::get('reports/audit-log', [\App\Http\Controllers\Leave\LeaveReportController::class, 'auditLog'])
+                ->name('reports.audit-log')
+                ->middleware('permission:view_leave_reports');
+        });
+
+    // ── Staff Take-On Wizard ──
+    Route::middleware(['permission:manage_staff_take_on', 'agency.required'])
+        ->prefix('staff-take-on')
+        ->name('staff-take-on.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\StaffTakeOnController::class, 'index'])->name('index');
+            Route::get('create', [\App\Http\Controllers\StaffTakeOnController::class, 'create'])->name('create');
+            Route::post('/', [\App\Http\Controllers\StaffTakeOnController::class, 'store'])->name('store');
+            Route::get('{takeOn}/wizard/{step}', [\App\Http\Controllers\StaffTakeOnController::class, 'wizard'])->name('wizard');
+            Route::patch('{takeOn}/wizard/{step}', [\App\Http\Controllers\StaffTakeOnController::class, 'saveStep'])->name('save-step');
+            Route::post('{takeOn}/complete', [\App\Http\Controllers\StaffTakeOnController::class, 'complete'])->name('complete');
+            Route::post('{takeOn}/upload-document', [\App\Http\Controllers\StaffTakeOnController::class, 'uploadDocument'])->name('upload-document');
+        });
+
+    Route::get('/supervision', [CoreXPlaceholderController::class, 'show'])->defaults('section', 'supervision')->middleware('permission:access_supervision')->name('corex.supervision');
     // Training placeholder replaced by LMS module (training.index route above)
 
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->middleware('permission:access_settings')->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
+    Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
     Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
     Route::post('/settings/matches-enabled', [CoreXSettingsController::class, 'updateMatchesEnabled'])->middleware('permission:access_settings')->name('corex.settings.matches-enabled');
     Route::post('/settings/matches-wa-message', [CoreXSettingsController::class, 'updateMatchesWaMessage'])->middleware('permission:access_settings')->name('corex.settings.matches-wa-message');
     Route::post('/settings/matches-show-on-properties', [CoreXSettingsController::class, 'updateMatchesShowOnProperties'])->middleware('permission:access_settings')->name('corex.settings.matches-show-on-properties');
-    Route::post('/settings/matches-allow-cross-agent', [CoreXSettingsController::class, 'updateMatchesAllowCrossAgent'])->middleware('permission:access_settings')->name('corex.settings.matches-allow-cross-agent');
+    Route::post('/settings/matches-visibility-scope', [CoreXSettingsController::class, 'updateMatchesVisibilityScope'])->middleware('permission:access_settings')->name('corex.settings.matches-visibility-scope');
+    Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');
     // Old compliance-officers endpoint — kept for backwards compat, redirects
     Route::post('/settings/compliance-officers', function () {
         return redirect('/corex/settings?tab=user');
     })->middleware('permission:access_settings')->name('corex.settings.compliance-officers');
+
+    // ── Prospecting Setup (per-agency configuration of towns / property types / bedroom segments / price bands) ──
+    // Spec: .ai/specs/prospecting-setup-spec.md Section 6.
+    Route::prefix('settings/prospecting')
+        ->middleware('permission:prospecting_setup.manage')
+        ->name('settings.prospecting.')
+        ->group(function () {
+            Route::get('/',                                       [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'index'])->name('index');
+
+            // Build-from-Web helper (curated SA region library) — spec S4.
+            Route::get('/suggestions/{regionKey}',                [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'suggestions'])->name('suggestions');
+            Route::post('/towns/bulk-import',                     [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'bulkImport'])->name('towns.bulk-import');
+
+            Route::post('/towns',                                 [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'store'])->name('towns.store');
+            Route::put('/towns/{town}',                           [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'update'])->name('towns.update');
+            Route::post('/towns/{town}/archive',                  [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'archive'])->name('towns.archive');
+            Route::post('/towns/{townId}/restore',                [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'restore'])->name('towns.restore');
+            Route::post('/towns/reorder',                         [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'reorder'])->name('towns.reorder');
+
+            Route::post('/towns/{town}/suburbs',                  [\App\Http\Controllers\Settings\Prospecting\SuburbsController::class, 'store'])->name('suburbs.store');
+            Route::put('/suburbs/{suburb}',                       [\App\Http\Controllers\Settings\Prospecting\SuburbsController::class, 'update'])->name('suburbs.update');
+            Route::post('/suburbs/{suburb}/archive',              [\App\Http\Controllers\Settings\Prospecting\SuburbsController::class, 'archive'])->name('suburbs.archive');
+            // One-click cleanup of unmapped suburbs surfaced on the Towns tab.
+            Route::post('/suburbs/map',                           [\App\Http\Controllers\Settings\Prospecting\TownsController::class, 'mapSuburb'])->name('suburbs.map');
+
+            Route::post('/property-types',                        [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'store'])->name('property-types.store');
+            Route::put('/property-types/{type}',                  [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'update'])->name('property-types.update');
+            Route::post('/property-types/{type}/archive',         [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'archive'])->name('property-types.archive');
+            Route::post('/property-types/{type}/toggle',          [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'toggleActive'])->name('property-types.toggle');
+            Route::post('/property-types/reorder',                [\App\Http\Controllers\Settings\Prospecting\PropertyTypesController::class, 'reorder'])->name('property-types.reorder');
+
+            Route::post('/bedroom-segments',                      [\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class, 'store'])->name('bedroom-segments.store');
+            Route::put('/bedroom-segments/{segment}',             [\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class, 'update'])->name('bedroom-segments.update');
+            Route::post('/bedroom-segments/{segment}/archive',    [\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class, 'archive'])->name('bedroom-segments.archive');
+            Route::post('/bedroom-segments/reorder',              [\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class, 'reorder'])->name('bedroom-segments.reorder');
+
+            Route::post('/price-bands',                           [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'store'])->name('price-bands.store');
+            Route::put('/price-bands/{band}',                     [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'update'])->name('price-bands.update');
+            Route::post('/price-bands/{band}/archive',            [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'archive'])->name('price-bands.archive');
+            Route::post('/price-bands/reorder',                   [\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class, 'reorder'])->name('price-bands.reorder');
+
+            // Buyer-match tier thresholds — single PUT per agency.
+            Route::put('/buyer-match-tiers',                      [\App\Http\Controllers\Settings\Prospecting\BuyerMatchTiersController::class, 'update'])->name('buyer-match-tiers.update');
+        });
+
+    // ── Seller Outreach Templates (per-agency template CRUD) ──
+    // Spec: .ai/specs/seller-outreach-spec.md S4, 6.3.
+    Route::prefix('settings/outreach-templates')
+        ->middleware('permission:outreach_templates.manage')
+        ->name('settings.outreach-templates.')
+        ->group(function () {
+            Route::get('/',                       [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'index'])->name('index');
+            Route::post('/',                      [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'store'])->name('store');
+            Route::put('/{template}',             [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'update'])->name('update');
+            Route::post('/{template}/archive',    [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'archive'])->name('archive');
+            Route::post('/{templateId}/restore',  [\App\Http\Controllers\Settings\SellerOutreach\TemplatesController::class, 'restore'])->name('restore');
+        });
+
+    // ── Seller Outreach Composer (agent-facing pitch composer) ──
+    // Spec: .ai/specs/seller-outreach-spec.md S6, 6.1.
+    Route::prefix('contacts/{contact}/outreach')
+        ->middleware('permission:outreach.compose')
+        ->name('seller-outreach.composer.')
+        ->group(function () {
+            Route::get('/compose',     [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'show'])->name('show');
+            Route::post('/send',       [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'submit'])->name('submit');
+            Route::get('/sent/{send}', [\App\Http\Controllers\SellerOutreach\ComposerController::class, 'sent'])->name('sent');
+
+            // Timeline (Prompt 07) — agent-side view of every send + click + opt-out
+            Route::get('/timeline',                       [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'index'])->name('timeline');
+            Route::post('/timeline/sends/{send}/outcome', [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'updateOutcome'])->name('outcome');
+            Route::post('/timeline/opt-out',              [\App\Http\Controllers\SellerOutreach\ContactTimelineController::class, 'recordOptOut'])->name('opt-out');
+        });
+
+    // ── Seller Outreach Entry Points (Prompt 08) ──
+    // Property + prospecting-listing → composer redirects.
+    // Contact pillar entry point is a direct link from the contact page (no controller action).
+    Route::middleware('permission:outreach.compose')
+        ->name('seller-outreach.entry.')
+        ->group(function () {
+            Route::get('/properties/{property}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromProperty'])
+                ->name('from-property');
+            Route::get('/prospecting/{prospectingListingId}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('from-prospecting');
+            Route::post('/prospecting/{prospectingListingId}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
+                ->where('prospectingListingId', '\d+')
+                ->name('store-from-prospecting');
+        });
+
+    // ── Whistleblower Settings ──
+    Route::post('/settings/whistleblow', [CoreXSettingsController::class, 'saveWhistleblowSettings'])->middleware('permission:compliance.whistleblow.configure')->name('corex.settings.whistleblow.save');
 
     // ── FICA Officer Appointments (unified) ──
     Route::post('/settings/fica-officers/primary', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'savePrimary'])
@@ -1019,15 +1642,35 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/role-manager/copy-permissions', [CoreXRoleManagerController::class, 'copyPermissions'])
         ->middleware('permission:edit_permissions')->name('corex.role-manager.copy');
 
-    // Agency Management (super_admin only)
-    Route::middleware('permission:access_agencies')->prefix('settings/agencies')->name('agencies.')->group(function () {
+    // Dev Settings — system-wide developer overrides (owner-only).
+    Route::middleware('owner_only')->prefix('admin/dev-settings')->name('admin.dev-settings.')->group(function () {
+        Route::get('/',  [\App\Http\Controllers\Admin\DevSettingsController::class, 'index'])->name('index');
+        Route::put('/', [\App\Http\Controllers\Admin\DevSettingsController::class, 'update'])->name('update');
+    });
+
+    // Developer Users — System Owner / Developer roster, visible across all
+    // agencies (cross-agency owner view). See .ai/specs/developer-users.md.
+    Route::middleware('owner_only')->prefix('admin/developer-users')->name('admin.developer-users.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\DeveloperUserController::class, 'index'])->name('index');
+        Route::post('/{userId}/toggle', [\App\Http\Controllers\Admin\DeveloperUserController::class, 'toggleActive'])->name('toggle');
+    });
+
+    // Agency Management — index/create/store/destroy/toggle-active are owner-only.
+    Route::middleware('owner_only')->prefix('settings/agencies')->name('agencies.')->group(function () {
         Route::get('/',              [\App\Http\Controllers\Admin\AgencyController::class, 'index'])->name('index');
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
-        Route::get('/{agency}/edit', [\App\Http\Controllers\Admin\AgencyController::class, 'edit'])->name('edit');
-        Route::put('/{agency}',      [\App\Http\Controllers\Admin\AgencyController::class, 'update'])->name('update');
         Route::post('/{agency}/toggle-active', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleActive'])->name('toggle-active');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
+    });
+
+    // Agency edit/update — accessible to admins with manage_performance_settings.
+    // Controller enforces own-agency scope unless the user is an owner.
+    Route::middleware('permission:manage_performance_settings')->prefix('settings/agencies')->name('agencies.')->group(function () {
+        Route::get('/{agency}/edit', [\App\Http\Controllers\Admin\AgencyController::class, 'edit'])->name('edit');
+        Route::put('/{agency}',      [\App\Http\Controllers\Admin\AgencyController::class, 'update'])->name('update');
+        Route::post('/{agency}/p24/test',    [\App\Http\Controllers\Admin\AgencyController::class, 'testP24Connection'])->name('p24.test');
+        Route::post('/{agency}/p24/refresh', [\App\Http\Controllers\Admin\AgencyController::class, 'refreshP24Locations'])->name('p24.refresh');
     });
 
     // Company Settings (standalone admin page — separate from tabbed settings)
@@ -1042,6 +1685,90 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Properties — listing sync to website
     Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required'])->name('corex.properties.')->group(function () {
+        // Marketing compliance — go live
+        Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
+
+        // Seller Live Links — agent management
+        Route::post('/seller-links/generate', [\App\Http\Controllers\SellerLinkController::class, 'generate'])->name('seller-links.generate');
+        Route::post('/seller-links/{link}/revoke', [\App\Http\Controllers\SellerLinkController::class, 'revoke'])->name('seller-links.revoke');
+
+        // Mark as Sold
+        Route::post('/mark-sold', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate([
+                'property_id' => 'required|integer|exists:properties,id',
+                'sold_price' => 'required|numeric|min:0',
+                'sold_date' => 'required|date',
+                'listing_price_at_sale' => 'nullable|numeric',
+                'notes' => 'nullable|string|max:1000',
+            ]);
+            $property = \App\Models\Property::withoutGlobalScopes()->findOrFail($data['property_id']);
+            $dom = $property->published_at ? (int) $property->published_at->diffInDays(now()) : null;
+
+            \Illuminate\Support\Facades\DB::table('property_sold_records')->insert([
+                'property_id' => $property->id,
+                'address' => $property->title,
+                'suburb' => $property->suburb,
+                'sold_price' => $data['sold_price'],
+                'sold_date' => $data['sold_date'],
+                'listing_price_at_sale' => $data['listing_price_at_sale'] ?? $property->price,
+                'days_on_market' => $dom,
+                'property_type' => $property->property_type,
+                'source' => 'manual',
+                'captured_by_user_id' => auth()->id(),
+                'captured_at' => now(),
+                'agency_id' => $property->agency_id,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            $property->update(['status' => 'sold']);
+
+            \App\Models\PropertyMarketingActivity::create([
+                'property_id' => $property->id,
+                'activity_type' => 'other',
+                'activity_data' => ['action' => 'marked_sold', 'sold_price' => $data['sold_price']],
+                'occurred_at' => now(),
+                'logged_by_user_id' => auth()->id(),
+            ]);
+
+            return back()->with('success', 'Property marked as sold. Sold record created.');
+        })->name('mark-sold');
+
+        // Marketing Activity — manual logging
+        Route::post('/marketing-activity', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate([
+                'property_id' => 'required|integer|exists:properties,id',
+                'activity_type' => 'required|string|max:50',
+                'notes' => 'nullable|string|max:1000',
+                'occurred_at' => 'nullable|date',
+                'internal_only' => 'nullable|boolean',
+            ]);
+            \App\Models\PropertyMarketingActivity::create([
+                'property_id' => $data['property_id'],
+                'activity_type' => $data['activity_type'],
+                'activity_data' => $data['notes'] ? ['notes' => $data['notes']] : null,
+                'occurred_at' => $data['occurred_at'] ?? now(),
+                'logged_by_user_id' => auth()->id(),
+                'internal_only' => $data['internal_only'] ?? false,
+            ]);
+            return back()->with('success', 'Marketing activity logged.');
+        })->name('marketing-activity.store');
+
+        // Property Intelligence Hub — recommendation actions
+        Route::post('/recommendations/{id}/action', function (\Illuminate\Http\Request $request, int $id) {
+            $rec = \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->first();
+            if (!$rec) abort(404);
+            $action = $request->input('action'); // 'actioned' or 'dismissed'
+            if ($action === 'actioned') {
+                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['actioned_at' => now(), 'actioned_by' => auth()->id()]);
+            } elseif ($action === 'dismissed') {
+                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['dismissed_at' => now(), 'dismissed_by' => auth()->id()]);
+            } elseif ($action === 'toggle_seller_visible') {
+                $current = (bool) $rec->seller_visible;
+                \Illuminate\Support\Facades\DB::table('property_recommendations')->where('id', $id)->update(['seller_visible' => !$current]);
+            }
+            return $request->wantsJson() ? response()->json(['ok' => true]) : back()->with('success', 'Recommendation updated.');
+        })->name('recommendations.action');
+
         Route::get('/',                        [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])->name('index');
         Route::get('/create',                  [\App\Http\Controllers\CoreX\PropertyController::class, 'create'])->name('create');
         Route::post('/',                       [\App\Http\Controllers\CoreX\PropertyController::class, 'store'])->name('store');
@@ -1121,6 +1848,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:access_contacts')
         ->name('corex.core-matches.index');
 
+    // Core Matches — All View (agency / branch oversight for managers & admins)
+    Route::get('/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
+        ->middleware('permission:core_matches.all_view')
+        ->name('corex.core-matches.all');
+
+    // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
+    Route::prefix('real-estate/portal-leads')
+        ->middleware(['permission:access_portal_leads', 'agency.required'])
+        ->name('corex.portal-leads.')
+        ->group(function () {
+            Route::get('/',     [\App\Http\Controllers\CoreX\PortalLeadController::class, 'index'])->name('index');
+            Route::get('/poll', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'poll'])->name('poll');
+            Route::post('/{portalLead}/mark-notified', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'markNotified'])->name('mark-notified');
+        });
+
     // Contacts
     Route::prefix('contacts')->middleware(['permission:access_contacts', 'agency.required'])->name('corex.contacts.')->group(function () {
         Route::get('/',                   [\App\Http\Controllers\CoreX\ContactController::class, 'index'])->name('index');
@@ -1128,10 +1870,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/check-duplicate',   [\App\Http\Controllers\CoreX\ContactController::class, 'checkDuplicate'])->name('check-duplicate');
         Route::post('/import',            [\App\Http\Controllers\CoreX\ContactImportController::class, 'import'])->name('import');
         Route::delete('/destroy-all',     [\App\Http\Controllers\CoreX\ContactController::class, 'destroyAll'])->name('destroy-all');
-        Route::get('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'show'])->name('show');
-        Route::put('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'update'])->name('update');
-        Route::delete('/{contact}',       [\App\Http\Controllers\CoreX\ContactController::class, 'destroy'])->name('destroy');
+        Route::get('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'show'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':view')->name('show');
+        Route::put('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'update'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('update');
+        Route::delete('/{contact}',       [\App\Http\Controllers\CoreX\ContactController::class, 'destroy'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':delete')->name('destroy');
         Route::post('/{contact}/tags',    [\App\Http\Controllers\CoreX\ContactController::class, 'syncTags'])->name('tags.sync');
+        Route::post('/{contact}/consent/record', [\App\Http\Controllers\CoreX\ContactController::class, 'recordConsent'])->name('consent.record');
+        Route::post('/{contact}/consent/revoke', [\App\Http\Controllers\CoreX\ContactController::class, 'revokeConsent'])->name('consent.revoke');
         Route::post('/{contact}/touch',   [\App\Http\Controllers\CoreX\ContactController::class, 'touch'])->name('touch');
         Route::post('/{contact}/increment', [\App\Http\Controllers\CoreX\ContactController::class, 'incrementChannel'])->name('increment');
 
@@ -1156,6 +1900,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/matches/{match}/hide/{property}',      [\App\Http\Controllers\CoreX\ContactMatchController::class, 'toggleHide'])->name('matches.toggleHide');
         Route::post('/{contact}/matches/{match}/convert/{property}',   [\App\Http\Controllers\CoreX\ContactMatchController::class, 'convertToDeal'])->middleware('permission:core_matches.convert_to_deal')->name('matches.convertToDeal');
         Route::delete('/{contact}/matches/{match}',                    [\App\Http\Controllers\CoreX\ContactMatchController::class, 'destroy'])->name('matches.destroy');
+
+        // Client App Login — Spec: .ai/specs/client-auth.md
+        Route::post('/{contact}/client-login',                  [\App\Http\Controllers\Contacts\ClientLoginController::class, 'create'])->name('client-login.create');
+        Route::post('/{contact}/client-login/reset',            [\App\Http\Controllers\Contacts\ClientLoginController::class, 'reset'])->name('client-login.reset');
+        Route::post('/{contact}/client-login/force-logout',     [\App\Http\Controllers\Contacts\ClientLoginController::class, 'forceLogout'])->name('client-login.force-logout');
+        Route::delete('/{contact}/client-login',                [\App\Http\Controllers\Contacts\ClientLoginController::class, 'remove'])->name('client-login.remove');
     });
 
     // Contact Types (settings)
@@ -1749,15 +2499,124 @@ Route::middleware(['auth', 'permission:access_document_library'])->prefix('docum
         ->name('library.types.destroy');
 });
 
-// ===== PROSPECTING =====
+// ===== TRACKED PROPERTIES (Prospecting sub-menu) =====
+// Universe of properties CoreX knows about, regardless of mandate status.
+// Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule), Build D.3.
+Route::middleware(['auth', 'permission:access_prospecting'])
+    ->prefix('corex/tracked-properties')
+    ->name('corex.tracked-properties.')
+    ->group(function () {
+        Route::get('/',                      [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'index'])->name('index');
+        Route::get('/{trackedProperty}',     [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'show'])->name('show');
+        Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->name('promote');
+    });
+
+// ===== MARKET INTELLIGENCE (Build F.1 — rename of Prospecting) =====
+// New canonical surface for the canvassing pool. Mirrors every legacy
+// prospecting.* route name 1:1 under market-intelligence.*. The legacy group
+// below remains mounted for the F.1–F.6 migration window so internal callers
+// using route('prospecting.*') keep resolving and rollback is a one-line revert.
+//
+// GET-only redirects sit BEFORE the legacy group so bookmarked browser hits to
+// /prospecting and /prospecting/* land on the new URL without breaking any
+// internal Alpine :action="'/prospecting/...'" form posts (which still hit the
+// legacy POST routes unchanged).
+//
+// Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.
+Route::middleware(['auth', 'permission:access_prospecting'])
+    ->prefix('corex/market-intelligence')
+    ->name('market-intelligence.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'index'])->name('index');
+
+        // Intelligence layer — declared before the {listing} catch-alls so
+        // model-binding doesn't shadow them.
+        Route::get('/snapshot.json', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'snapshotJson'])->name('snapshot');
+        Route::get('/segment/{dimension}/{value}/buyers',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'segmentBuyers'])
+            ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
+            ->name('segment.buyers');
+        Route::get('/segment/{dimension}/{value}/listings', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'segmentListings'])
+            ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
+            ->name('segment.listings');
+
+        Route::get('/{listing}/buyer-matches', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'buyerMatches'])
+            ->name('buyer-matches');
+
+        // F.4 — slide-over detail panel (async-rendered HTML)
+        Route::get('/{listing}/details', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'details'])
+            ->name('details');
+
+        // F.4 — claim-owner / manager adds a timestamped note to the active claim
+        Route::post('/{listing}/note', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'addNote'])
+            ->name('add-note');
+
+        Route::post('/claims/{claimId}/release-as-manager', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'releaseAsManager'])
+            ->where('claimId', '\d+')
+            ->name('claims.release-as-manager');
+
+        Route::get('/thumbnail/{listing}', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'thumbnail'])->name('thumbnail');
+        Route::post('/{listing}/claim',    [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'claim'])->name('claim');
+        Route::post('/{listing}/feedback', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedback'])->name('feedback');
+        Route::post('/{listing}/release',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'release'])->name('release');
+        Route::get('/{listing}',           [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'show'])->name('show');
+    });
+
+// ===== PROSPECTING (legacy — kept mounted for F.1 migration window) =====
 Route::middleware(['auth', 'permission:access_prospecting'])->prefix('prospecting')->name('prospecting.')->group(function () {
     Route::get('/', [\App\Http\Controllers\ProspectingController::class, 'index'])->name('index');
+
+    // Intelligence layer endpoints — must be declared BEFORE the {listing}
+    // catch-alls below or Laravel's model-binding would shadow these paths.
+    Route::get('/snapshot.json', [\App\Http\Controllers\ProspectingController::class, 'snapshotJson'])->name('snapshot');
+    Route::get('/segment/{dimension}/{value}/buyers',  [\App\Http\Controllers\ProspectingController::class, 'segmentBuyers'])
+        ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
+        ->name('segment.buyers');
+    Route::get('/segment/{dimension}/{value}/listings', [\App\Http\Controllers\ProspectingController::class, 'segmentListings'])
+        ->where('dimension', 'town|property_type|bedrooms|price_band|unmapped_suburb')
+        ->name('segment.listings');
+
+    // Side-panel: tier-ranked buyer matches for one listing. Declared before the
+    // {listing} catch-all routes below so model-binding doesn't shadow it.
+    Route::get('/{listing}/buyer-matches', [\App\Http\Controllers\ProspectingController::class, 'buyerMatches'])
+        ->name('buyer-matches');
+
+    // BM/admin or owner: release a claim with reason. Path-scoped to /claims/
+    // so model-binding for ProspectingListing doesn't interfere.
+    Route::post('/claims/{claimId}/release-as-manager', [\App\Http\Controllers\ProspectingController::class, 'releaseAsManager'])
+        ->where('claimId', '\d+')
+        ->name('claims.release-as-manager');
+
     Route::get('/thumbnail/{listing}', [\App\Http\Controllers\ProspectingController::class, 'thumbnail'])->name('thumbnail');
     Route::post('/{listing}/claim', [\App\Http\Controllers\ProspectingController::class, 'claim'])->name('claim');
     Route::post('/{listing}/feedback', [\App\Http\Controllers\ProspectingController::class, 'feedback'])->name('feedback');
     Route::post('/{listing}/release', [\App\Http\Controllers\ProspectingController::class, 'release'])->name('release');
     Route::get('/{listing}', [\App\Http\Controllers\ProspectingController::class, 'show'])->name('show');
 });
+
+// Bookmark-continuity redirect from the legacy bare /prospecting URL to the new
+// Market Intelligence canonical URL. Registered AFTER the legacy group so it
+// wins URI matching for "/prospecting" (Laravel's last-write-wins behaviour on
+// identical URIs). Sub-paths (/prospecting/{listing}, /prospecting/snapshot.json,
+// etc.) intentionally remain on the legacy controller for the F.1 migration
+// window so internal callers using route('prospecting.*') and existing Alpine
+// :action="'/prospecting/...'" form posts keep working unchanged. F.6 retires
+// the legacy surface entirely.
+//
+// Query string is preserved by request()->getQueryString().
+//
+// Spec: .ai/specs/build-f-market-intelligence-redesign-spec.md §6.
+// Note: this route reuses the name `prospecting.index` so any internal caller
+// that still does route('prospecting.index') gets the legacy URL (which then
+// 301s through to the new canonical URL). Without this name, the route() helper
+// would throw RouteNotFoundException since Laravel drops the previous URI's
+// name from the registry when a new route registers the same method+URI.
+Route::get('/prospecting', function () {
+    $qs = request()->getQueryString();
+    return redirect('/corex/market-intelligence' . ($qs ? '?' . $qs : ''), 301);
+})->name('prospecting.index');
+
+// ===== SELLER INFO PUBLIC PAGE (no auth, token-based) =====
+Route::get('/info/{token}', [\App\Http\Controllers\Compliance\SellerInfoPublicController::class, 'show'])->name('seller-info.public');
 
 // ===== FICA PUBLIC FORM (no auth, token-based) =====
 Route::prefix('fica')->group(function () {

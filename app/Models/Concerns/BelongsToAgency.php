@@ -17,8 +17,11 @@ use Illuminate\Support\Facades\Auth;
  * switch into a specific agency, they are scoped to it just like any
  * other user.
  *
- * Records with NULL agency_id are treated as shared/global and remain
- * visible across agencies.
+ * Records with NULL agency_id are treated as ORPHAN (not shared) and are
+ * filtered out by AgencyScope. Models that need genuinely shared rows must
+ * either skip this trait or expose an explicit scopeShared() helper that
+ * calls withoutGlobalScope(AgencyScope::class)->whereNull('agency_id').
+ * See .ai/specs/multi-tenancy.md §2 and §2a.
  */
 trait BelongsToAgency
 {
@@ -32,16 +35,32 @@ trait BelongsToAgency
             }
 
             $user = Auth::user();
-            if (!$user) {
-                return;
+            if ($user) {
+                $agencyId = method_exists($user, 'effectiveAgencyId')
+                    ? $user->effectiveAgencyId()
+                    : ($user->agency_id ?? null);
+
+                if ($agencyId) {
+                    $model->agency_id = $agencyId;
+                    return;
+                }
             }
 
-            $agencyId = method_exists($user, 'effectiveAgencyId')
-                ? $user->effectiveAgencyId()
-                : ($user->agency_id ?? null);
-
-            if ($agencyId) {
-                $model->agency_id = $agencyId;
+            // Console/seeder/test fallback: if exactly one agency exists in the
+            // DB (single-tenant install or fresh dev/test DB), stamp it. This
+            // matches the wave3b backfill semantics and prevents seeders from
+            // crashing on NOT NULL agency_id. Cached per-request.
+            static $singleAgencyId = null;
+            if ($singleAgencyId === null) {
+                try {
+                    $rows = \Illuminate\Support\Facades\DB::table('agencies')->limit(2)->pluck('id');
+                    $singleAgencyId = ($rows->count() === 1) ? (int) $rows->first() : 0;
+                } catch (\Throwable $e) {
+                    $singleAgencyId = 0;
+                }
+            }
+            if ($singleAgencyId > 0) {
+                $model->agency_id = $singleAgencyId;
             }
         });
     }

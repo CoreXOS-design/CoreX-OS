@@ -35,10 +35,20 @@ return new class extends Migration
         });
 
         // ── Update status enum to include agent_approved ──
-        // MySQL enum modification
-        DB::statement("ALTER TABLE fica_submissions MODIFY COLUMN status ENUM('draft','submitted','under_review','agent_approved','corrections_requested','approved','rejected') DEFAULT 'draft'");
+        // Cross-driver via schema builder (MySQL prod + SQLite test DB).
+        Schema::table('fica_submissions', function (Blueprint $table) {
+            $table->enum('status', ['draft', 'submitted', 'under_review', 'agent_approved', 'corrections_requested', 'approved', 'rejected'])
+                ->default('draft')
+                ->change();
+        });
 
         // ── Grandfather existing approved submissions ──
+        // MySQL-only (uses CONCAT); only relevant to existing production data.
+        // The SQLite test DB has no pre-existing rows here, so skip.
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         DB::table('fica_submissions')
             ->where('status', 'approved')
             ->whereNull('co_verified_by')
@@ -54,7 +64,11 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::statement("ALTER TABLE fica_submissions MODIFY COLUMN status ENUM('draft','submitted','under_review','corrections_requested','approved','rejected') DEFAULT 'draft'");
+        Schema::table('fica_submissions', function (Blueprint $table) {
+            $table->enum('status', ['draft', 'submitted', 'under_review', 'corrections_requested', 'approved', 'rejected'])
+                ->default('draft')
+                ->change();
+        });
 
         Schema::table('fica_submissions', function (Blueprint $table) {
             $table->dropForeign(['agent_verified_by']);

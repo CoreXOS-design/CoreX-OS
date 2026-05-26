@@ -5,14 +5,16 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class CommercialEvaluationUnit extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
 
     protected $table = 'commercial_evaluation_units';
 
     protected $fillable = [
+        'agency_id',
         'commercial_evaluation_id',
         'unit_name',
         'tenant_name',

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactType;
 use App\Models\Property;
+use App\Services\ContactDuplicateService;
 use Illuminate\Http\Request;
 
 class PropertyContactController extends Controller
@@ -65,9 +66,24 @@ class PropertyContactController extends Controller
             'role'       => 'nullable|string|max:50',
         ]);
 
+        $role = $data['role'] ?? null;
         $property->contacts()->syncWithoutDetaching([
-            $data['contact_id'] => ['role' => $data['role'] ?? null],
+            $data['contact_id'] => ['role' => $role],
         ]);
+
+        // Auto-create seller live link if seller role
+        if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
+            \App\Models\PropertySellerLink::ensureExists($property->id, (int) $data['contact_id']);
+        }
+
+        if ($request->expectsJson() || $request->wantsJson()) {
+            $contact = Contact::with('type')->find($data['contact_id']);
+            return response()->json([
+                'ok'      => true,
+                'count'   => $property->contacts()->count(),
+                'contact' => $this->contactPayload($property, $contact, $role),
+            ]);
+        }
 
         return back()->with('success', 'Contact linked to property.')->with('tab', 'contacts');
     }
@@ -82,23 +98,127 @@ class PropertyContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'role'            => 'nullable|string|max:50',
+            'bypass_duplicate_check' => 'nullable|boolean',
         ]);
 
         $role = $data['role'] ?? null;
         unset($data['role']);
-        $data['created_by_user_id'] = auth()->id();
+
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $service = app(ContactDuplicateService::class);
+
+        if (empty($data['bypass_duplicate_check'])) {
+            $duplicates = $service->findDuplicates($data, $agencyId);
+            if ($duplicates->isNotEmpty()) {
+                $mode = $service->resolveMode($agencyId);
+                if ($mode === 'auto_link') {
+                    $existing = $duplicates->first();
+                    $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
+                    $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $role]]);
+                    if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
+                        \App\Models\PropertySellerLink::ensureExists($property->id, $existing->id);
+                    }
+                    if (!$wasLinked) {
+                        event(new \App\Events\Contact\ContactLinkedToProperty(
+                            contact: $existing,
+                            property: $property,
+                            role: (string) ($role ?? 'unknown'),
+                            actorUserId: auth()->id(),
+                        ));
+                    }
+                    $match = $service->identifyMatch($data, $existing, $agencyId);
+                    $service->logAttempt($agencyId, $user->id, $mode, $match['field'], $match['value'], $existing->id, $data, 'auto_linked');
+                    if ($request->expectsJson() || $request->wantsJson()) {
+                        return response()->json([
+                            'ok'      => true,
+                            'count'   => $property->contacts()->count(),
+                            'contact' => $this->contactPayload($property, $existing->fresh('type'), $role),
+                            'info'    => 'Existing contact found and linked.',
+                        ]);
+                    }
+                    return back()->with('info', 'Existing contact found and linked.')->with('tab', 'contacts');
+                }
+                $duplicatesPayload = [
+                    'duplicates' => $duplicates->map(fn($c) => [
+                        'id' => $c->id, 'name' => $c->full_name,
+                        'phone' => $mode === 'hard_block_request' ? null : $c->phone,
+                        'email' => $mode === 'hard_block_request' ? null : $c->email,
+                        'owner' => optional($c->createdBy)->name ?? 'Unknown',
+                        'url' => route('corex.contacts.show', $c),
+                    ])->toArray(),
+                    'mode' => $mode,
+                    'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
+                ];
+                if ($request->expectsJson() || $request->wantsJson()) {
+                    return response()->json([
+                        'ok' => false,
+                        'duplicate_detected' => $duplicatesPayload,
+                    ], 409);
+                }
+                return back()->withInput()->with('duplicate_detected', $duplicatesPayload)->with('tab', 'contacts');
+            }
+        }
+
+        unset($data['bypass_duplicate_check']);
+        $data['created_by_user_id'] = $user->id;
 
         $contact = Contact::create($data);
         $property->contacts()->attach($contact->id, ['role' => $role]);
+        if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
+            \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
+        }
+        // Domain event — new contact↔property link.
+        // Spec: .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Contact\ContactLinkedToProperty(
+            contact: $contact,
+            property: $property,
+            role: (string) ($role ?? 'unknown'),
+            actorUserId: auth()->id(),
+        ));
+
+        if ($request->expectsJson() || $request->wantsJson()) {
+            return response()->json([
+                'ok'      => true,
+                'count'   => $property->contacts()->count(),
+                'contact' => $this->contactPayload($property, $contact->fresh('type'), $role),
+            ]);
+        }
 
         return back()->with('success', 'Contact created and linked.')->with('tab', 'contacts');
     }
 
     /** Unlink a contact from the property. */
-    public function unlink(Property $property, Contact $contact)
+    public function unlink(Request $request, Property $property, Contact $contact)
     {
         $property->contacts()->detach($contact->id);
 
+        if ($request->expectsJson() || $request->wantsJson()) {
+            return response()->json([
+                'ok'    => true,
+                'count' => $property->contacts()->count(),
+                'id'    => $contact->id,
+            ]);
+        }
+
         return back()->with('success', 'Contact unlinked.')->with('tab', 'contacts');
+    }
+
+    /** Shape a contact row for AJAX consumers (matches the Blade row layout). */
+    private function contactPayload(Property $property, Contact $contact, ?string $role): array
+    {
+        $initials = strtoupper(mb_substr($contact->first_name ?? '', 0, 1) . mb_substr($contact->last_name ?? '', 0, 1));
+        return [
+            'id'         => $contact->id,
+            'first_name' => $contact->first_name,
+            'last_name'  => $contact->last_name,
+            'full_name'  => trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')),
+            'initials'   => $initials !== '' ? $initials : '?',
+            'phone'      => $contact->phone,
+            'email'      => $contact->email,
+            'role'       => $role,
+            'type_color' => $contact->type?->color ?? '#334155',
+            'show_url'   => route('corex.contacts.show', $contact),
+        ];
     }
 }

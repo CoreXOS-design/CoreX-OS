@@ -23,6 +23,8 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'qr_code_slug',
+        'qr_reroute_user_id',
         'role',
         'designation',
         'supervised_by',
@@ -64,6 +66,8 @@ class User extends Authenticatable
         'tax_clearance_expiry',
         'website',
         'theme',
+        'portal_show_api_token',
+        'portal_show_social_accounts',
 
         // Private Property integration
         'pp_unique_agent_id',
@@ -77,6 +81,26 @@ class User extends Authenticatable
         'risk_tier',
         'screening_status',
         'screening_due_on',
+
+        // Payroll
+        'date_of_birth',
+        'tax_reference_number',
+        'employment_date',
+
+        // Leave / Take-On
+        'emergency_contact_name',
+        'emergency_contact_phone',
+        'emergency_contact_relationship',
+        'next_of_kin_name',
+        'next_of_kin_phone',
+        'next_of_kin_relationship',
+        'home_address',
+        'marital_status',
+        'dependents_count',
+        'medical_aid_provider',
+        'medical_aid_number',
+        'medical_aid_main_member',
+        'medical_aid_dependents_count',
     ];
 
     protected $hidden = [
@@ -94,6 +118,8 @@ class User extends Authenticatable
         'paye_value' => 'decimal:2',
 
         'sliding_enabled' => 'boolean',
+        'portal_show_api_token' => 'boolean',
+        'portal_show_social_accounts' => 'boolean',
         'sliding_tier1_cut_percent' => 'decimal:2',
         'sliding_tier2_cut_percent' => 'decimal:2',
         'sliding_tier3_cut_percent' => 'decimal:2',
@@ -101,7 +127,64 @@ class User extends Authenticatable
         'ffc_expiry_date' => 'date',
         'pi_insurance_expiry' => 'date',
         'tax_clearance_expiry' => 'date',
+        'date_of_birth' => 'date',
+        'employment_date' => 'date',
+        'medical_aid_main_member' => 'boolean',
+        'dependents_count' => 'integer',
+        'medical_aid_dependents_count' => 'integer',
     ];
+
+    /**
+     * Agency Admin Rule — every agency must keep ≥1 active Admin at all times.
+     * See .ai/specs/agency-admin-rule.md. Enforced structurally so any path
+     * (controller, console, queue, manual Tinker) cannot leave an agency
+     * adminless.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (self $user) {
+            if (!$user->getOriginal('agency_id') || $user->getOriginal('role') !== 'admin') {
+                return;
+            }
+            $demoting = $user->isDirty('role') && $user->role !== 'admin';
+            $deactivating = $user->isDirty('is_active') && !$user->is_active;
+            $movingAgency = $user->isDirty('agency_id');
+            if (!($demoting || $deactivating || $movingAgency)) {
+                return;
+            }
+            $count = static::query()
+                ->where('agency_id', $user->getOriginal('agency_id'))
+                ->where('role', 'admin')
+                ->where('is_active', 1)
+                ->where('id', '!=', $user->id)
+                ->count();
+            if ($count < 1) {
+                throw \App\Exceptions\LastAdminException::forAgency(
+                    (int) $user->getOriginal('agency_id'),
+                    $demoting ? 'demote' : ($deactivating ? 'deactivate' : 'move')
+                );
+            }
+        });
+
+        static::deleting(function (self $user) {
+            if ($user->role !== 'admin' || !$user->agency_id) {
+                return;
+            }
+            // Soft-delete: only block if this is the LAST active admin for the agency.
+            $count = static::query()
+                ->where('agency_id', $user->agency_id)
+                ->where('role', 'admin')
+                ->where('is_active', 1)
+                ->where('id', '!=', $user->id)
+                ->count();
+            if ($count < 1) {
+                throw \App\Exceptions\LastAdminException::forAgency(
+                    (int) $user->agency_id,
+                    'delete'
+                );
+            }
+        });
+    }
 
     // --- View-As support (session override) ---
 
@@ -225,6 +308,81 @@ class User extends Authenticatable
             $query->where(fn($q) => $q->where('branch_id', $branchId)->orWhereNull('branch_id'));
         }
         return $query->exists();
+    }
+
+    /**
+     * Ensure this user has a unique QR slug; generate one if missing.
+     * The slug is embedded in the agent's onboarding QR URL.
+     * Spec: .ai/specs/agent-qr-onboarding.md
+     */
+    public function ensureQrSlug(): string
+    {
+        if (!empty($this->qr_code_slug)) {
+            return $this->qr_code_slug;
+        }
+
+        $alphabet = '23456789abcdefghjkmnpqrstuvwxyz';
+        do {
+            $slug = '';
+            for ($i = 0; $i < 10; $i++) {
+                $slug .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+            }
+            $exists = static::where('qr_code_slug', $slug)->exists();
+        } while ($exists);
+
+        $this->forceFill(['qr_code_slug' => $slug])->save();
+        return $slug;
+    }
+
+    /**
+     * Canonical web URL the agent's QR code encodes.
+     */
+    public function qrCodeUrl(): string
+    {
+        return rtrim(config('app.url'), '/') . '/r/a/' . $this->ensureQrSlug();
+    }
+
+    /**
+     * Resolve a scanned QR slug to the live agent who should receive the lead.
+     *
+     * The slug always stays on the agent it was minted for (the audit anchor).
+     * When that agent has left (inactive / soft-deleted) we follow their
+     * `qr_reroute_user_id` pointer — chained, so a target who later leaves
+     * reroutes again — until we land on an active, non-deleted agent.
+     *
+     * Returns null if the slug is unknown, or the chain dead-ends at an
+     * inactive agent with no reroute set, or a loop is detected.
+     *
+     * Spec: .ai/specs/agent-qr-onboarding.md
+     */
+    public static function resolveByQrSlug(string $slug): ?self
+    {
+        if (!preg_match('/^[a-z0-9]{6,16}$/', $slug)) {
+            return null;
+        }
+
+        $user = static::query()
+            ->withoutGlobalScopes()
+            ->where('qr_code_slug', $slug)
+            ->first();
+
+        $seen = [];
+        while ($user) {
+            if ($user->is_active && $user->deleted_at === null) {
+                return $user;
+            }
+            if (isset($seen[$user->id]) || !$user->qr_reroute_user_id) {
+                return null; // loop, or chain dead-ends on a departed agent
+            }
+            $seen[$user->id] = true;
+
+            $user = static::query()
+                ->withoutGlobalScopes()
+                ->whereKey($user->qr_reroute_user_id)
+                ->first();
+        }
+
+        return null;
     }
 
     // ── Owner role checks (the ONLY hardcoded concept) ──
@@ -459,5 +617,102 @@ class User extends Authenticatable
         return in_array($this->screening_status, [
             'never_screened', 'pre_employment_pending', 'overdue', 'expired',
         ]);
+    }
+
+    // ── Payroll ──
+
+    public function payrollEmployee(): HasOne
+    {
+        return $this->hasOne(Payroll\PayrollEmployee::class);
+    }
+
+    public function payrollPayslips(): HasMany
+    {
+        return $this->hasMany(Payroll\PayrollPayslip::class, 'user_id');
+    }
+
+    public function bankingDetail(): HasOne
+    {
+        return $this->hasOne(UserBankingDetail::class);
+    }
+
+    public function isOnPayroll(): bool
+    {
+        return $this->payrollEmployee()
+            ->where('is_active', true)
+            ->exists();
+    }
+
+    /**
+     * Calculate age at a given date from date_of_birth, falling back to
+     * SA ID number first 6 digits (YYMMDD) if date_of_birth is null.
+     */
+    public function getAgeOnDate(\Carbon\Carbon $date): ?int
+    {
+        $dob = $this->date_of_birth;
+
+        if (! $dob && $this->id_number && strlen($this->id_number) >= 6) {
+            $raw = substr($this->id_number, 0, 6);
+            $yy = (int) substr($raw, 0, 2);
+            $mm = (int) substr($raw, 2, 2);
+            $dd = (int) substr($raw, 4, 2);
+            // SA IDs: 00-29 → 2000s, 30-99 → 1900s
+            $yyyy = $yy <= 29 ? 2000 + $yy : 1900 + $yy;
+            try {
+                $dob = \Carbon\Carbon::createFromDate($yyyy, $mm, $dd);
+            } catch (\Exception $e) {
+                return null;
+            }
+        }
+
+        if (! $dob) {
+            return null;
+        }
+
+        return (int) $dob->diffInYears($date);
+    }
+
+    // ── Leave ──
+
+    public function leaveEntitlements(): HasMany
+    {
+        return $this->hasMany(Leave\LeaveEntitlement::class);
+    }
+
+    public function leaveApplications(): HasMany
+    {
+        return $this->hasMany(Leave\LeaveApplication::class);
+    }
+
+    public function leaveTransactions(): HasMany
+    {
+        return $this->hasMany(Leave\LeaveTransaction::class);
+    }
+
+    public function staffTakeOnRecord(): HasOne
+    {
+        return $this->hasOne(Leave\StaffTakeOnRecord::class);
+    }
+
+    public function getLeaveBalanceFor(Leave\LeaveType $type, ?\Carbon\Carbon $asOf = null): ?Leave\LeaveEntitlement
+    {
+        $date = $asOf ?? now();
+
+        return $this->leaveEntitlements()
+            ->where('leave_type_id', $type->id)
+            ->where('cycle_start_date', '<=', $date)
+            ->where('cycle_end_date', '>=', $date)
+            ->first();
+    }
+
+    public function hasActiveLeave(?\Carbon\Carbon $on = null): bool
+    {
+        $date = ($on ?? now())->toDateString();
+
+        return $this->leaveApplications()
+            ->whereIn('status', ['approved', 'taken'])
+            ->where('start_date', '<=', $date)
+            ->where('end_date', '>=', $date)
+            ->exists();
     }
 }

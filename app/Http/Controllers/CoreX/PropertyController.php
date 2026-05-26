@@ -18,6 +18,9 @@ use Illuminate\Support\Facades\Storage;
 
 class PropertyController extends Controller
 {
+    use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+    use \App\Http\Concerns\AppliesP24Location;
+
     public function index(Request $request)
     {
         /** @var User $user */
@@ -44,13 +47,19 @@ class PropertyController extends Controller
 
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        // Agent filter (admin/BM only) — defaults to self on every fresh load.
-        // The user only sees other agents (or "All agents") when they explicitly
-        // switch via the picker (which sets ?agent_id= in the URL).
+        // Agent filter with session persistence (mirrors ContactController).
+        // Defaults to self on fresh load UNLESS a compliance filter is active
+        // (card click-through shows full scope).
         if ($canPickAgent) {
             if ($request->has('agent_id')) {
+                // Explicit selection ("All" or another agent) — this browse only.
                 $filterAgentId = $request->query('agent_id', '');
+            } elseif ($request->query('filter') === 'marketing_pending') {
+                // Compliance card click-through shows full scope.
+                $filterAgentId = '';
             } else {
+                // Always default to the current user's own listings on a fresh
+                // visit. Not persisted across visits.
                 $filterAgentId = (string) $user->id;
             }
         }
@@ -73,7 +82,11 @@ class PropertyController extends Controller
             }
         }
 
-        if ($status !== '')        $query->where('status', $status);
+        if ($status === 'published') {
+            $query->whereNotNull('published_at');
+        } elseif ($status !== '') {
+            $query->where('status', $status);
+        }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
         if ($propertyType !== '')  $query->where('property_type', $propertyType);
         if ($category !== '')      $query->where('category', $category);
@@ -84,21 +97,60 @@ class PropertyController extends Controller
         if ($bedsMin !== ''  && is_numeric($bedsMin))  $query->where('beds', '>=', (int) $bedsMin);
         if ($bathsMin !== '' && is_numeric($bathsMin)) $query->where('baths', '>=', (int) $bathsMin);
 
+        // Marketing status filter
+        $marketingFilter = $request->query('filter', '');
+        if ($marketingFilter === 'marketing_pending') {
+            $query->whereNull('compliance_snapshot_at')->whereNotIn('status', ['sold', 'withdrawn', 'draft']);
+        }
+
         if ($search !== '') {
             $query->searchAddress($search);
         }
 
-        // Sorting
+        // Sorting — whitelisted columns only
+        $dir = strtolower($request->query('dir', 'desc')) === 'asc' ? 'asc' : 'desc';
+        $sortableColumns = [
+            'title' => 'title', 'suburb' => 'suburb', 'property_type' => 'property_type',
+            'price' => 'price', 'beds' => 'beds', 'baths' => 'baths',
+            'status' => 'status', 'created_at' => 'created_at',
+        ];
+        // Legacy sort param support
         switch ($sort) {
-            case 'oldest':     $query->orderBy('created_at', 'asc'); break;
-            case 'price_asc':  $query->orderBy('price', 'asc'); break;
-            case 'price_desc': $query->orderBy('price', 'desc'); break;
-            case 'title':      $query->orderBy('title', 'asc'); break;
-            case 'newest':
-            default:           $query->orderByDesc('created_at');
+            case 'oldest':     $sort = 'created_at'; $dir = 'asc'; break;
+            case 'price_asc':  $sort = 'price'; $dir = 'asc'; break;
+            case 'price_desc': $sort = 'price'; $dir = 'desc'; break;
+            case 'newest':     $sort = 'created_at'; $dir = 'desc'; break;
+        }
+        if (isset($sortableColumns[$sort])) {
+            $query->orderBy($sortableColumns[$sort], $dir);
+        } else {
+            $query->orderByDesc('created_at');
+            $sort = 'created_at';
+            $dir = 'desc';
         }
 
         $properties = $query->get();
+
+        // Compute marketing status per property (batch-friendly for Phase 1)
+        $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        foreach ($properties as $p) {
+            if ($p->compliance_snapshot_at !== null) {
+                $p->marketing_status = 'live';
+                $p->marketing_status_detail = 'Live since ' . $p->compliance_snapshot_at->format('j M Y');
+            } elseif (in_array($p->status, ['sold', 'withdrawn', 'draft'])) {
+                $p->marketing_status = 'n/a';
+                $p->marketing_status_detail = '';
+            } else {
+                $report = $readinessSvc->statusFor($p);
+                $p->marketing_status = $report->ready ? 'ready' : 'blocked';
+                $p->marketing_status_detail = $report->ready ? 'All gates passed' : implode(', ', array_map(fn ($b) => \Illuminate\Support\Str::limit($b, 30), $report->blockedBy));
+            }
+        }
+
+        // Sort by marketing_status (derived — PHP sort)
+        if ($sort === 'marketing_status') {
+            $properties = $properties->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc')->values();
+        }
 
         // Stats for the header KPIs
         $stats = [
@@ -133,10 +185,13 @@ class PropertyController extends Controller
 
         $scope = $viewScope;
 
+        $currentSort = $sort;
+        $currentDir = $dir;
+
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
-            'filterOptions', 'filters'
+            'filterOptions', 'filters', 'currentSort', 'currentDir'
         ));
     }
 
@@ -154,7 +209,12 @@ class PropertyController extends Controller
 
         $branches = Branch::orderBy('name')->get();
         $agents   = $this->agentList();
-        $activeTab = request('tab', 'overview');
+        // An explicit ?tab= in the URL (deep links from the mobile app's
+        // compliance next_actions, marketing-pack, FICA, etc.) MUST win over
+        // any flashed session('tab') left by a prior redirect — otherwise a
+        // sticky session tab swallows the deep link and the user always
+        // lands on the last-used tab (usually contacts).
+        $activeTab = request('tab') ?? session('tab') ?? 'overview';
 
         // Find all Core Matches where this property satisfies the criteria.
         // Hard filters run in SQL (indexed); scoring runs in PHP and the result is sorted.
@@ -191,40 +251,40 @@ class PropertyController extends Controller
             if (empty($property->suburb))  $hfcMissingFields[] = ['field' => 'suburb',  'label' => 'Suburb'];
         }
 
-        // Overview tab: activity timeline
-        $activityTimeline = collect();
-        // P24 syndication events
-        $activityTimeline = $activityTimeline->merge(
-            \App\Models\P24SyndicationLog::where('property_id', $property->id)
-                ->select(['id', 'property_id', 'action', 'status_code', 'created_at'])
-                ->latest('created_at')->take(10)->get()
-                ->map(fn($l) => [
-                    'type' => 'p24',
-                    'icon' => 'globe',
-                    'label' => 'P24: ' . ucfirst(str_replace('_', ' ', $l->action)),
-                    'detail' => $l->status_code ? "HTTP {$l->status_code}" : '',
-                    'date' => $l->created_at,
-                    'color' => '#3b82f6',
-                ])
-        );
-        // Notes
-        $activityTimeline = $activityTimeline->merge(
-            $property->notes->take(5)->map(fn($n) => [
-                'type' => 'note',
-                'icon' => 'note',
-                'label' => 'Note by ' . ($n->user->name ?? 'Unknown'),
-                'detail' => \Illuminate\Support\Str::limit($n->body ?? $n->content ?? '', 60),
-                'date' => $n->created_at,
-                'color' => '#f59e0b',
-            ])
-        );
-        // Property created/updated/published
-        if ($property->published_at) {
-            $activityTimeline->push(['type' => 'system', 'icon' => 'check', 'label' => 'Published to website', 'detail' => '', 'date' => $property->published_at, 'color' => '#22c55e']);
+        // Overview tab: activity timeline from unified audit log
+        $categoryColors = [
+            'property' => '#94a3b8', 'compliance' => '#10b981', 'syndication' => '#3b82f6',
+            'document' => '#8b5cf6', 'marketing' => '#ec4899', 'media' => '#f59e0b',
+            'contact_link' => '#06b6d4', 'system' => '#64748b',
+        ];
+        $auditEntries = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get();
+        $activityTimeline = $auditEntries->map(fn ($a) => [
+            'type' => $a->event_category,
+            'icon' => match($a->event_category) {
+                'compliance' => 'shield', 'syndication' => 'globe', 'document' => 'file',
+                'marketing' => 'share', 'media' => 'camera', default => 'activity',
+            },
+            'label' => $a->human_summary ?? ucfirst(str_replace('_', ' ', $a->event_type)),
+            'detail' => $a->user ? ('by ' . $a->user->name) : '',
+            'date' => $a->created_at,
+            'color' => $categoryColors[$a->event_category] ?? '#94a3b8',
+        ]);
+        // If no audit log entries yet, show basic created/published from property
+        if ($activityTimeline->isEmpty()) {
+            if ($property->published_at) {
+                $activityTimeline->push(['type' => 'system', 'icon' => 'check', 'label' => 'Published to website', 'detail' => '', 'date' => $property->published_at, 'color' => '#22c55e']);
+            }
+            $activityTimeline->push(['type' => 'system', 'icon' => 'plus', 'label' => 'Property created', 'detail' => '', 'date' => $property->created_at, 'color' => '#94a3b8']);
         }
-        $activityTimeline->push(['type' => 'system', 'icon' => 'plus', 'label' => 'Property created', 'detail' => '', 'date' => $property->created_at, 'color' => '#94a3b8']);
-        // Sort by date desc, take 10
-        $activityTimeline = $activityTimeline->sortByDesc('date')->take(10)->values();
+        // Full history for History tab
+        $fullAuditLog = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+            ->with('user')
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
 
         // Drive tab: all documents linked to this property
         try {
@@ -245,9 +305,35 @@ class PropertyController extends Controller
             $driveFolders = $documentTypes;
         }
 
+        // CSV export for History tab
+        if (request('export') === 'csv' && request('tab') === 'history') {
+            $rows = \App\Models\PropertyAuditLog::where('property_id', $property->id)
+                ->with('user')->orderByDesc('created_at')->get();
+            $csv = "Timestamp,User,Category,Event Type,Summary,Metadata\n";
+            foreach ($rows as $r) {
+                $csv .= '"' . $r->created_at->toIso8601String() . '","' . addslashes($r->user?->name ?? 'System') . '","' . $r->event_category . '","' . $r->event_type . '","' . addslashes($r->human_summary ?? '') . '","' . addslashes(json_encode($r->metadata ?? [])) . "\"\n";
+            }
+            return response($csv, 200, [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="property-' . $property->id . '-audit-log.csv"',
+            ]);
+        }
+
+        $readinessReport = app(\App\Services\Compliance\MarketingReadinessService::class)->statusFor($property);
+
+        // Whistleblower compliance flags linked to this property
+        $propertyComplianceComplaints = $property->exists
+            ? \App\Models\Compliance\WhistleblowComplaint::withoutGlobalScopes()
+                ->where('property_id', $property->id)
+                ->whereIn('status', ['sent', 'acknowledged_by_ppra', 'approved'])
+                ->with('reporter')
+                ->orderByDesc('created_at')
+                ->get()
+            : collect();
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
-            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline'
+            'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'readinessReport', 'propertyComplianceComplaints'
         ));
     }
 
@@ -259,7 +345,8 @@ class PropertyController extends Controller
         $property           = new Property();
         $property->status   = 'for_sale';
         $property->listing_type = 'Sale';
-        $property->province = 'KwaZulu-Natal';
+        // Province intentionally not pre-filled — user must pick from the
+        // P24 cascading picker so the suburb/city/province chain is real.
         $property->agent_id = $user->id;
         $property->branch_id = $user->effectiveBranchId();
         $property->agency_id = $user->agency_id ?? null;
@@ -322,6 +409,11 @@ class PropertyController extends Controller
             'suburb'           => 'required|string|max:100',
             'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
+            'latitude'         => 'nullable|numeric|between:-90,90',
+            'longitude'        => 'nullable|numeric|between:-180,180',
+            'p24_province_id'  => 'nullable|integer|exists:p24_provinces,id',
+            'p24_city_id'      => 'nullable|integer|exists:p24_cities,id',
+            'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
@@ -353,7 +445,7 @@ class PropertyController extends Controller
             'admin_fee'        => 'nullable|numeric|min:0',
             'marketing_fee'    => 'nullable|numeric|min:0',
             'listed_date'      => 'nullable|date',
-            'expiry_date'      => 'nullable|date',
+            'expiry_date'      => 'nullable|date|after_or_equal:listed_date',
             'lease_start_date' => 'nullable|date',
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
@@ -387,7 +479,18 @@ class PropertyController extends Controller
             'pending_new_contacts'      => 'nullable|array',
         ]);
 
+        // A property must have at least one contact linked on creation.
+        $hasContact = !empty(array_filter((array) $request->input('pending_contact_ids', [])))
+            || collect((array) $request->input('pending_new_contacts', []))
+                ->contains(fn ($nc) => !empty($nc['first_name']) && !empty($nc['last_name']) && !empty($nc['phone']));
+        if (! $hasContact) {
+            return back()
+                ->withInput()
+                ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
+        }
+
         $data = $this->processSpacesJson($data);
+        $data = $this->applyP24Location($data);
 
         // Extract YouTube video ID from full URL if pasted
         if (!empty($data['youtube_video_id'])) {
@@ -416,6 +519,15 @@ class PropertyController extends Controller
 
         // Create to get ID, then attach images
         $property = Property::create($data);
+
+        if ($property->p24_suburb_id) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property,
+                previousP24SuburbId: null,
+                newP24SuburbId: (int) $property->p24_suburb_id,
+                actorUserId: auth()->id(),
+            ));
+        }
 
         $property->dawn_images_json    = $this->storeImages($request, 'dawn_images',    $property->id);
         $property->noon_images_json    = $this->storeImages($request, 'noon_images',    $property->id);
@@ -463,22 +575,61 @@ class PropertyController extends Controller
         foreach ((array) $request->input('pending_contact_ids', []) as $cid) {
             $cid = (int) $cid;
             if ($cid > 0) {
+                $wasLinked = $property->contacts()->where('contacts.id', $cid)->exists();
                 $property->contacts()->syncWithoutDetaching([$cid => ['role' => null]]);
+                if (!$wasLinked) {
+                    $linkedContact = \App\Models\Contact::find($cid);
+                    if ($linkedContact) {
+                        event(new \App\Events\Contact\ContactLinkedToProperty(
+                            contact: $linkedContact,
+                            property: $property,
+                            role: 'unknown',
+                            actorUserId: auth()->id(),
+                        ));
+                    }
+                }
             }
         }
 
-        // Create + link new contacts added during create
+        // Create + link new contacts added during create (with duplicate detection)
+        $dupService = app(\App\Services\ContactDuplicateService::class);
+        $agencyId = auth()->user()->effectiveAgencyId() ?? 1;
+
         foreach ((array) $request->input('pending_new_contacts', []) as $nc) {
             if (empty($nc['first_name']) || empty($nc['last_name']) || empty($nc['phone'])) continue;
-            $contact = \App\Models\Contact::create([
-                'first_name'         => substr($nc['first_name'], 0, 100),
-                'last_name'          => substr($nc['last_name'],  0, 100),
-                'phone'              => substr($nc['phone'],       0, 30),
-                'email'              => !empty($nc['email']) ? substr($nc['email'], 0, 150) : null,
-                'contact_type_id'    => !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null,
-                'created_by_user_id' => auth()->id(),
-            ]);
+            $ncData = [
+                'first_name' => substr($nc['first_name'], 0, 100),
+                'last_name'  => substr($nc['last_name'],  0, 100),
+                'phone'      => substr($nc['phone'],       0, 30),
+                'email'      => !empty($nc['email']) ? substr($nc['email'], 0, 150) : null,
+            ];
+            // Auto-link if duplicate found (non-blocking in bulk create context)
+            $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
+            if ($existing) {
+                $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
+                $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => null]]);
+                $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
+                $dupService->logAttempt($agencyId, auth()->id(), 'auto_link', $match['field'], $match['value'], $existing->id, $ncData, 'auto_linked');
+                if (!$wasLinked) {
+                    event(new \App\Events\Contact\ContactLinkedToProperty(
+                        contact: $existing,
+                        property: $property,
+                        role: 'unknown',
+                        actorUserId: auth()->id(),
+                    ));
+                }
+                continue;
+            }
+            $ncData['contact_type_id'] = !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null;
+            $ncData['created_by_user_id'] = auth()->id();
+            $contact = \App\Models\Contact::create($ncData);
             $property->contacts()->attach($contact->id, ['role' => null]);
+            event(new \App\Events\Contact\ContactLinkedToProperty(
+                contact: $contact,
+                property: $property,
+                role: 'unknown',
+                actorUserId: auth()->id(),
+            ));
         }
 
         return redirect()->route('corex.properties.show', $property)
@@ -495,6 +646,12 @@ class PropertyController extends Controller
     public function update(Request $request, Property $property)
     {
         $this->authorizeProperty($property);
+
+        if ($property->contacts()->count() === 0) {
+            return back()
+                ->withInput()
+                ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
+        }
 
         $data = $request->validate([
             'title'            => 'required|string|max:200',
@@ -519,6 +676,11 @@ class PropertyController extends Controller
             'suburb'           => 'required|string|max:100',
             'address'          => 'nullable|string|max:300',
             'region'           => 'nullable|string|max:100',
+            'latitude'         => 'nullable|numeric|between:-90,90',
+            'longitude'        => 'nullable|numeric|between:-180,180',
+            'p24_province_id'  => 'nullable|integer|exists:p24_provinces,id',
+            'p24_city_id'      => 'nullable|integer|exists:p24_cities,id',
+            'p24_suburb_id'    => 'nullable|integer|exists:p24_suburbs,id',
             'beds'             => 'required|integer|min:0|max:20',
             'baths'            => 'required|integer|min:0|max:20',
             'garages'          => 'required|integer|min:0|max:20',
@@ -550,7 +712,7 @@ class PropertyController extends Controller
             'admin_fee'        => 'nullable|numeric|min:0',
             'marketing_fee'    => 'nullable|numeric|min:0',
             'listed_date'      => 'nullable|date',
-            'expiry_date'      => 'nullable|date',
+            'expiry_date'      => 'nullable|date|after_or_equal:listed_date',
             'lease_start_date' => 'nullable|date',
             'lease_end_date'   => 'nullable|date',
             'branch_id'        => 'nullable|exists:branches,id',
@@ -616,6 +778,7 @@ class PropertyController extends Controller
         $data['pp_hide_unit_number']   = $request->boolean('pp_hide_unit_number');
 
         $data = $this->processSpacesJson($data);
+        $data = $this->applyP24Location($data);
 
         if (! empty($data['publish']) && ! $property->isPublished()) {
             $data['published_at'] = now();
@@ -655,7 +818,18 @@ class PropertyController extends Controller
             }
         }
 
+        $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
+        if (isset($data['p24_suburb_id'])
+            && (int) $data['p24_suburb_id'] > 0
+            && (int) $previousP24SuburbId !== (int) $data['p24_suburb_id']) {
+            event(new \App\Events\Property\PropertySuburbLinked(
+                property: $property->fresh(),
+                previousP24SuburbId: $previousP24SuburbId ? (int) $previousP24SuburbId : null,
+                newP24SuburbId: (int) $data['p24_suburb_id'],
+                actorUserId: auth()->id(),
+            ));
+        }
         // Force-touch updated_at even when no fillable attribute changed (e.g. only photos uploaded),
         // so the Modified column always reflects the latest save action.
         if (! $property->wasChanged()) {
@@ -712,7 +886,9 @@ class PropertyController extends Controller
         $this->authorizeProperty($property);
 
         $action = $request->input('action', 'toggle');
+        // Gate: enforce marketing readiness when PUBLISHING (not when unpublishing)
         if ($action === 'publish' || $action === 'refresh' || ($action === 'toggle' && ! $property->published_at)) {
+            $this->enforceMarketingReadiness($property);
             $missing = [];
             if (! $property->agent)             $missing[] = 'Listing agent';
             elseif (empty($property->agent->phone)) $missing[] = 'Agent phone number';
@@ -827,6 +1003,11 @@ class PropertyController extends Controller
 
     public function livePreview(Property $property, \Illuminate\Http\Request $request)
     {
+        // Public listing preview — gate by marketing readiness
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+        if (!$svc->isMarketable($property)) {
+            abort(404);
+        }
         $property->load(['agent', 'branch', 'agency']);
 
         /** @var User|null $authUser */
@@ -841,6 +1022,48 @@ class PropertyController extends Controller
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
+
+    public function goLive(Request $request, Property $property)
+    {
+        $user = $request->user();
+
+        // Permission: listing agent, branch_manager, admin, super_admin
+        $isListingAgent = (int) $property->agent_id === (int) $user->id;
+        $isPrivileged = in_array($user->role ?? $user->effectiveRole(), ['super_admin', 'admin', 'owner', 'branch_manager']);
+        if (!$isListingAgent && !$isPrivileged) {
+            abort(403, 'Only the listing agent or a manager can go live.');
+        }
+
+        // Already live — return success idempotently
+        if ($property->compliance_snapshot_at !== null) {
+            return response()->json([
+                'ok' => true,
+                'snapshot_at' => $property->compliance_snapshot_at->toIso8601String(),
+                'message' => 'Property is already live.',
+            ]);
+        }
+
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+
+        try {
+            $svc->snapshotCompliance($property, $user);
+        } catch (\App\Services\Compliance\MarketingBlockedException $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Property does not meet marketing readiness requirements.',
+                'blocked_by' => $e->getReport()->blockedBy,
+                'checklist' => $e->getReport()->checklist,
+            ], 422);
+        }
+
+        $property->refresh();
+
+        return response()->json([
+            'ok' => true,
+            'snapshot_at' => $property->compliance_snapshot_at->toIso8601String(),
+            'message' => 'Property is now live and ready for marketing.',
+        ]);
+    }
 
     private function processSpacesJson(array $data): array
     {
@@ -947,12 +1170,13 @@ class PropertyController extends Controller
             return $input;
         }
 
-        // youtube.com/watch?v=ID or youtube.com/embed/ID or youtu.be/ID
-        if (preg_match('/(?:youtube\.com\/(?:watch\?.*v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/', $input, $m)) {
+        // youtube.com/watch?v=ID, /embed/ID, /shorts/ID, /live/ID, /v/ID, youtu.be/ID
+        if (preg_match('/(?:youtube\.com\/(?:watch\?\S*?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/', $input, $m)) {
             return $m[1];
         }
 
-        // Fallback: return first 11 chars if longer, or as-is
-        return substr($input, 0, 11);
+        // Not a recognisable YouTube id/URL — return empty rather than a
+        // garbage truncation that would silently pass PP's 11-char check.
+        return '';
     }
 }

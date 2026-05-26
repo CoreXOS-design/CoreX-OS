@@ -16,7 +16,7 @@
     </x-sticky-action-bar>
 --}}
 
-<div class="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm -mx-4 lg:-mx-6 -mt-4 lg:-mt-6 mb-4 lg:mb-6">
+<div class="sticky top-0 z-50 shadow-sm -mx-4 lg:-mx-6 -mt-4 lg:-mt-6 mb-4 lg:mb-6" style="background: var(--surface); border-bottom: 1px solid var(--border);">
     <div class="px-4 sm:px-6 lg:px-8">
         <div class="flex items-center justify-between h-14">
             {{-- Left side: Back button, breadcrumbs --}}
@@ -25,7 +25,7 @@
             </div>
 
             {{-- Center: Page title or context --}}
-            <div class="flex-1 text-center truncate mx-4">
+            <div class="flex-1 text-center truncate mx-4" style="color: var(--text-primary);">
                 {{ $center ?? '' }}
             </div>
 

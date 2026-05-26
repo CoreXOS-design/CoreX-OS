@@ -8,15 +8,15 @@
         body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11px; color: #1e293b; line-height: 1.5; padding: 40px; max-width: 210mm; margin: 0 auto; }
         @media print { body { padding: 20mm; } @page { size: A4; margin: 15mm; } }
         .header { text-align: center; border-bottom: 3px solid #0d9488; padding-bottom: 15px; margin-bottom: 25px; }
-        .header h1 { font-size: 20px; font-weight: 700; color: #0f172a; margin: 10px 0 2px; }
+        .header h1 { font-size: 20px; font-weight: 700; color: var(--text-primary); margin: 10px 0 2px; }
         .header .subtitle { font-size: 11px; color: #64748b; }
         .header img { max-height: 50px; }
         .section { margin-bottom: 20px; }
-        .section-title { font-size: 13px; font-weight: 700; color: #0f172a; border-bottom: 2px solid #0d9488; padding-bottom: 4px; margin-bottom: 10px; }
+        .section-title { font-size: 13px; font-weight: 700; color: var(--text-primary); border-bottom: 2px solid #0d9488; padding-bottom: 4px; margin-bottom: 10px; }
         .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; }
         .field { margin-bottom: 4px; }
         .field-label { font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
-        .field-value { font-size: 11px; color: #0f172a; }
+        .field-value { font-size: 11px; color: var(--text-primary); }
         .field-value.alert { color: #dc2626; font-weight: 600; }
         .full-width { grid-column: 1 / -1; }
         .signature-block { display: flex; align-items: flex-end; gap: 30px; margin-top: 15px; }
@@ -28,7 +28,7 @@
         .footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #94a3b8; text-align: center; }
         .no-print { display: flex; gap: 10px; margin-bottom: 20px; }
         .no-print button { padding: 8px 20px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; }
-        .no-print .print-btn { background: #0f172a; color: #fff; }
+        .no-print .print-btn { background: var(--text-primary); color: #fff; }
         .no-print .back-btn { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
         @media print { .no-print { display: none !important; } }
     </style>

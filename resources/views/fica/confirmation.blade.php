@@ -8,9 +8,9 @@
     <link href="https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700" rel="stylesheet">
     @vite(['resources/css/app.css'])
     <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f1f5f9; }
+        body { font-family: 'Figtree', sans-serif; background: #f1f5f9; }
         .conf-btn { display: inline-block; width: 100%; max-width: 320px; padding: 0.75rem 1.5rem; font-weight: 600; font-size: 0.9375rem; text-decoration: none; text-align: center; margin-bottom: 0.75rem; }
-        .conf-btn-primary { background: #0f172a; color: #fff; }
+        .conf-btn-primary { background: var(--text-primary); color: #fff; }
         .conf-btn-primary:hover { background: #1e293b; }
         .conf-btn-secondary { background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }
         .conf-btn-secondary:hover { background: #e2e8f0; }
@@ -29,7 +29,7 @@
                 </svg>
             </div>
 
-            <h1 style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 0 0 0.75rem;">FICA Form Submitted</h1>
+            <h1 style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary); margin: 0 0 0.75rem;">FICA Form Submitted</h1>
 
             @if(!empty($returnUrl))
                 <p style="color: #64748b; font-size: 0.9375rem; line-height: 1.7; max-width: 400px; margin: 0 auto;">

@@ -97,6 +97,20 @@ return [
             'retry_after' => 60,
         ],
 
+        // Dedicated mailer for client-auth OTP emails. Sends from
+        // Otp@corexos.co.za. SMTP credentials live in .env only.
+        // Spec: .ai/specs/client-auth.md
+        'otp' => [
+            'transport'   => 'smtp',
+            'host'        => env('MAIL_OTP_HOST', env('MAIL_HOST', '127.0.0.1')),
+            'port'        => env('MAIL_OTP_PORT', env('MAIL_PORT', 587)),
+            'encryption'  => env('MAIL_OTP_ENCRYPTION', env('MAIL_ENCRYPTION', 'tls')),
+            'username'    => env('MAIL_OTP_USERNAME'),
+            'password'    => env('MAIL_OTP_PASSWORD'),
+            'timeout'     => null,
+            'local_domain'=> env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
+        ],
+
     ],
 
     /*

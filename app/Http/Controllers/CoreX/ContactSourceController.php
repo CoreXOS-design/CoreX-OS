@@ -39,10 +39,7 @@ class ContactSourceController extends Controller
 
     public function destroy(ContactSource $contactSource)
     {
-        if ($contactSource->contacts()->count() > 0) {
-            return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'contacts'])
-                ->with('error', 'Cannot delete — contacts are using this source.');
-        }
+        $contactSource->contacts()->update(['contact_source_id' => null]);
 
         $contactSource->delete();
 

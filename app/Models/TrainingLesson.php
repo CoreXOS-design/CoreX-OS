@@ -6,7 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 
 class TrainingLesson extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'course_id',
+        'title',
+        'content',
+        'content_type',
+        'video_url',
+        'document_path',
+        'external_link',
+        'duration_minutes',
+        'sort_order',
+        'is_published',
+    ];
 
     protected $casts = [
         'is_published' => 'boolean',

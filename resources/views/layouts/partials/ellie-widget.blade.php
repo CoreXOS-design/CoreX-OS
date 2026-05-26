@@ -1,57 +1,86 @@
-{{-- ELLIE_WIDGET_2026 — design-system aligned --}}
-<div id="ellie-root" style="position: fixed; bottom: 90px; right: 24px; z-index: 9999;">
-    {{-- Trigger button --}}
-    <button id="ellie-btn" type="button" aria-label="Open Ellie" class="ellie-trigger">
-        <img src="/images/ellie-128-circle.png" alt="Ellie">
-    </button>
+{{-- ELLIE_WIDGET_2026 — design-system aligned + right-dock on desktop --}}
 
-    {{-- Panel --}}
-    <div id="ellie-panel" class="ellie-widget-panel rounded-md" style="display:none;">
-        <div class="ellie-widget-header">
-            <div class="flex items-center gap-2.5">
-                <img src="/images/ellie-32-circle.png" alt="" class="w-8 h-8 rounded-full">
-                <div>
-                    <div class="text-sm font-semibold leading-tight" style="color: var(--text-primary);">Ellie</div>
-                    <div class="text-xs font-medium" style="color: var(--text-muted);">HF Coastal Companion</div>
-                </div>
-            </div>
-            <button id="ellie-close" type="button" aria-label="Close Ellie" class="ellie-widget-close">&times;</button>
-        </div>
+{{-- Floating trigger button (always visible) --}}
+<button id="ellie-btn" type="button" aria-label="Open Ellie" class="ellie-trigger"
+        style="position:fixed; bottom:24px; right:24px; z-index:9998;">
+    <img src="/images/ellie-128-circle.png" alt="Ellie">
+    <span id="ellie-badge" style="display:none; position:absolute; top:2px; right:2px; width:18px; height:18px; border-radius:9999px; background:var(--ds-crimson, #ef4444); color:#fff; font-size:10px; font-weight:700; line-height:18px; text-align:center;">1</span>
+</button>
 
-        <div id="ellie-messages" class="ellie-widget-messages">
-            <div class="text-sm" style="color: var(--text-secondary);">
-                Hi, I'm Ellie. Ask me anything about your performance, targets, listings, or next actions.
+{{-- Right-docked panel (desktop: pushes content; mobile: overlay) --}}
+<div id="ellie-panel" class="ellie-dock-panel" style="display:none;">
+    <div class="ellie-widget-header">
+        <div class="flex items-center gap-2.5">
+            <img src="/images/ellie-32-circle.png" alt="" class="w-8 h-8 rounded-full">
+            <div>
+                <div class="text-sm font-semibold leading-tight" style="color: var(--text-primary);">Ellie</div>
+                <div class="text-xs font-medium" style="color: var(--text-muted);">HF Coastal Companion</div>
             </div>
         </div>
-
-        <form id="ellie-form" class="ellie-widget-form">
-            <input id="ellie-input" type="text" autocomplete="off" placeholder="Message Ellie…" class="ellie-widget-input">
-            <button id="ellie-send" type="submit" class="corex-btn-primary">Send</button>
-        </form>
+        <button id="ellie-close" type="button" aria-label="Close Ellie" class="ellie-widget-close">&times;</button>
     </div>
+
+    <div id="ellie-messages" class="ellie-widget-messages">
+        <div class="text-sm" style="color: var(--text-secondary);">
+            Hi, I'm Ellie. Ask me anything about your performance, targets, listings, or next actions.
+        </div>
+    </div>
+
+    <form id="ellie-form" class="ellie-widget-form">
+        <input id="ellie-input" type="text" autocomplete="off" placeholder="Message Ellie…" class="ellie-widget-input">
+        <button id="ellie-send" type="submit" class="corex-btn-primary">Send</button>
+    </form>
 </div>
 
 <style>
     @keyframes ellie-breathe { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-3px) } }
 
     .ellie-trigger {
-        width: 84px; height: 84px; border-radius: 9999px;
+        width: 64px; height: 64px; border-radius: 9999px;
         border: 0; padding: 0; background: transparent;
-        box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
         overflow: hidden; cursor: pointer; transform: translateZ(0);
         animation: ellie-breathe 3.6s ease-in-out infinite;
+        transition: opacity 0.2s;
     }
-    .ellie-trigger img { width: 84px; height: 84px; border-radius: 9999px; display:block; object-fit: cover; object-position: center; }
+    .ellie-trigger img { width: 64px; height: 64px; border-radius: 9999px; display:block; object-fit: cover; object-position: center; }
+    body.ellie-docked .ellie-trigger { opacity: 0; pointer-events: none; }
 
-    .ellie-widget-panel {
-        position: absolute; right: 0; bottom: 98px;
-        width: 360px; max-width: calc(100vw - 32px);
-        height: 520px; max-height: calc(100vh - 140px);
-        overflow: hidden;
+    /* Desktop: right-docked panel that pushes content */
+    .ellie-dock-panel {
+        position: fixed; top: 0; right: 0; bottom: 0;
+        width: 400px;
         background: var(--surface);
-        border: 1px solid var(--border);
-        box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+        border-left: 1px solid var(--border);
+        box-shadow: -4px 0 24px rgba(0,0,0,0.15);
         display: flex; flex-direction: column;
+        z-index: 40;
+    }
+
+    /* When Ellie is docked, push main content left */
+    body.ellie-docked .corex-main-content,
+    body.ellie-docked .corex-content-area,
+    body.ellie-docked [class*="corex-content"],
+    body.ellie-docked main {
+        margin-right: 400px;
+        transition: margin-right 0.2s ease;
+    }
+
+    /* Mobile: overlay instead of dock */
+    @media (max-width: 768px) {
+        .ellie-dock-panel {
+            width: 100%; max-width: 100%;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border-left: none;
+        }
+        body.ellie-docked .corex-main-content,
+        body.ellie-docked .corex-content-area,
+        body.ellie-docked [class*="corex-content"],
+        body.ellie-docked main {
+            margin-right: 0;
+        }
+        .ellie-trigger { width: 56px; height: 56px; }
+        .ellie-trigger img { width: 56px; height: 56px; }
     }
 
     .ellie-widget-header {
@@ -134,8 +163,8 @@
     const KEY = 'ellie_open_v1';
     const CONVO_KEY = 'ELLIE_CONVO_ID';
     const csrf = (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')) || '';
-    const open = () => { panel.style.display = 'flex'; localStorage.setItem(KEY,'1'); setTimeout(()=>input.focus(), 50); };
-    const close = () => { panel.style.display = 'none'; localStorage.setItem(KEY,'0'); };
+    const open = () => { panel.style.display = 'flex'; document.body.classList.add('ellie-docked'); localStorage.setItem(KEY,'1'); setTimeout(()=>input.focus(), 50); };
+    const close = () => { panel.style.display = 'none'; document.body.classList.remove('ellie-docked'); localStorage.setItem(KEY,'0'); };
 
     btn.addEventListener('click', () => {
         if (panel.style.display === 'flex') close(); else open();

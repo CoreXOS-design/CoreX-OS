@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -19,8 +20,8 @@
             </div>
         @else
             @php
-                $colourMap = ['teal' => '#00d4aa', 'amber' => '#f59e0b', 'red' => '#ef4444', 'slate' => '#94a3b8'];
-                $bgMap = ['teal' => 'rgba(0,212,170,0.08)', 'amber' => 'rgba(245,158,11,0.08)', 'red' => 'rgba(239,68,68,0.08)', 'slate' => 'rgba(148,163,184,0.06)'];
+                $colourMap = ['teal' => 'var(--brand-icon)', 'amber' => 'var(--ds-amber, #f59e0b)', 'red' => 'var(--ds-crimson)', 'slate' => 'var(--text-muted, #94a3b8)'];
+                $bgMap = ['teal' => 'color-mix(in srgb, var(--brand-icon) 8%, transparent)', 'amber' => 'color-mix(in srgb, var(--ds-amber) 8%, transparent)', 'red' => 'color-mix(in srgb, var(--ds-crimson) 8%, transparent)', 'slate' => 'var(--surface-2)'];
             @endphp
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -31,12 +32,12 @@
                     $status = $doc->status;
                     $colour = $status->colour;
                 @endphp
-                <div style="border:1px solid var(--border, #e5e7eb); border-radius:3px; overflow:hidden;">
+                <div style="border:1px solid var(--border, #e5e7eb); border-radius:6px; overflow:hidden;">
                     <div class="px-4 py-3" style="border-bottom:1px solid var(--border, #e5e7eb);">
                         <div class="flex items-start justify-between gap-2">
-                            <h4 class="text-sm font-bold" style="color:var(--text-primary, #0f172a); font-family:'Plus Jakarta Sans',sans-serif;">{{ $config->name }}</h4>
+                            <h4 class="text-sm font-bold" style="color:var(--text-primary, var(--text-primary));">{{ $config->name }}</h4>
                             @if($config->required)
-                                <span class="text-[10px] font-semibold px-1.5 py-0.5 flex-shrink-0" style="background:rgba(0,212,170,0.1); color:#00d4aa; border-radius:3px;">Required</span>
+                                <span class="text-[10px] font-semibold px-1.5 py-0.5 flex-shrink-0" style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border-radius:6px;">Required</span>
                             @endif
                         </div>
                         @if($config->description)
@@ -54,15 +55,13 @@
                         @if($prov)
                             {{-- Download + metadata --}}
                             <a href="{{ route('my-portal.agency-documents.download', $prov) }}"
-                               class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white transition mb-3"
-                               style="background:#00d4aa; border-radius:3px;"
-                               onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                               class="corex-btn-primary inline-flex items-center gap-1.5 mb-3">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                                 Download
                             </a>
                             <div class="text-[10px] space-y-0.5" style="color:var(--text-secondary, #94a3b8);">
                                 <div>Updated {{ $prov->created_at->format('d M Y') }}</div>
-                                    <span class="inline-block px-1 py-0.5 font-semibold" style="background:{{ $doc->scope === 'branch' ? 'rgba(0,212,170,0.1)' : 'rgba(148,163,184,0.1)' }}; color:{{ $doc->scope === 'branch' ? '#00d4aa' : '#94a3b8' }}; border-radius:3px;">
+                                    <span class="inline-block px-1 py-0.5 font-semibold" style="background:{{ $doc->scope === 'branch' ? 'color-mix(in srgb, var(--brand-icon) 10%, transparent)' : 'var(--surface-2)' }}; color:{{ $doc->scope === 'branch' ? 'var(--brand-icon)' : 'var(--text-muted, #94a3b8)' }}; border-radius:6px;">
                                         {{ $doc->scope === 'branch' ? ($branchName ?? 'Branch') : 'Company' }}
                                     </span>
                             </div>

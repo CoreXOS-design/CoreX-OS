@@ -85,8 +85,23 @@ class PermissionService
 
         $scopes  = static::getScopesForRole($role);
         $viewKey = $module . '.view';
+        $stored  = $scopes[$viewKey] ?? null;
 
-        return $scopes[$viewKey] ?? null;
+        // Properties + Contacts use a simple on/off toggle in Role Manager.
+        // OFF stores scope='own'; ON stores scope='all'. The *effective* breadth
+        // when ON is then dictated at request time by the agency's Data Isolation
+        // setting (agencies.split_branches_enabled): branch-only when enabled,
+        // agency-wide when disabled.
+        if (in_array($module, ['properties', 'contacts'], true) && $stored !== null && $stored !== 'own') {
+            $agencyId = $user->effectiveAgencyId();
+            if ($agencyId) {
+                $split = (bool) \App\Models\Agency::where('id', $agencyId)->value('split_branches_enabled');
+                return $split ? 'branch' : 'all';
+            }
+            return 'all';
+        }
+
+        return $stored;
     }
 
     /**

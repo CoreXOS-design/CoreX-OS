@@ -1,0 +1,24 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('properties', function (Blueprint $table) {
+            $table->timestamp('compliance_snapshot_at')->nullable()->after('last_activity_at');
+            $table->json('compliance_snapshot_data')->nullable()->after('compliance_snapshot_at');
+            $table->timestamp('first_marketed_at')->nullable()->after('compliance_snapshot_data');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('properties', function (Blueprint $table) {
+            $table->dropColumn(['compliance_snapshot_at', 'compliance_snapshot_data', 'first_marketed_at']);
+        });
+    }
+};

@@ -96,9 +96,9 @@
                                 <td class="px-4 py-3" style="color: var(--text-muted);">{{ number_format($row['age_hours']) }}h</td>
                                 <td class="px-4 py-3">
                                     @if($row['severity'] === 'high')
-                                        <span class="ds-badge ds-badge-danger">High</span>
+                                        <span class="ds-badge ds-badge-warning">High</span>
                                     @else
-                                        <span class="ds-badge ds-badge-warning">Medium</span>
+                                        <span class="ds-badge ds-badge-info">Medium</span>
                                     @endif
                                 </td>
                                 <td class="px-4 py-3 text-right">

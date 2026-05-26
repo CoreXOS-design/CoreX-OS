@@ -39,11 +39,9 @@ class SharedMatchController extends Controller
 
         Property::withoutEvents(fn () => null); // no-op, keep observers on
 
-        // Respect the agency-level "Allow cross-agent" setting on the shared
-        // (client-facing) page. When On → show the whole agency's matching
-        // stock. When Off → restrict to the listing agent's own properties.
-        $allowCrossAgent = (bool) \App\Models\PerformanceSetting::get('matches_allow_cross_agent', 0);
-        $overrides['agent_id'] = $allowCrossAgent ? null : $match->created_by_user_id;
+        // Respect the agency-level "matches_visibility_scope" setting on the shared
+        // (client-facing) page — agent / branch / agency stock.
+        $overrides += MatchingService::scopeOverridesFor($match);
 
         $properties = $this->matching->propertiesForMatch($match, $overrides);
 

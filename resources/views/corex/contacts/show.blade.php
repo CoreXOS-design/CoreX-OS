@@ -1,7 +1,18 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6"
+<style>
+    /* Contact show page — CoreX UI Design System token-based hover */
+    .contact-show-row { transition: background 150ms ease; }
+    .contact-show-row:hover { background: var(--surface-2); }
+    .contact-show-wa-card { transition: background 150ms ease, border-color 150ms ease; }
+    .contact-show-wa-card:hover { border-color: #25d366; background: color-mix(in srgb, #25d366 6%, transparent); }
+    .contact-show-email-card { transition: background 150ms ease, border-color 150ms ease; }
+    .contact-show-email-card:hover { border-color: var(--brand-icon, #0ea5e9); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 4%, transparent); }
+    .contact-show-btn-hover { transition: opacity 150ms ease; }
+    .contact-show-btn-hover:hover { opacity: 0.85; }
+</style>
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4 overflow-x-hidden"
      x-data="contactShowData('{{ route('corex.contacts.properties.search', $contact) }}', '{{ request('tab', 'info') }}')"
      x-init="activeTab = initTab">
 
@@ -26,7 +37,7 @@
         <div class="flex items-start gap-5 flex-wrap">
             {{-- Avatar --}}
             <div class="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 text-xl font-bold text-white"
-                 style="background: {{ $contact->type?->color ?? 'var(--brand-icon, #0ea5e9)' }};">
+                 style="background: var(--brand-icon, #0ea5e9);">
                 {{ $contact->initials }}
             </div>
 
@@ -35,8 +46,8 @@
                 <div class="flex items-center gap-3 flex-wrap">
                     <h1 class="text-xl font-bold text-white leading-tight">{{ $contact->full_name }}</h1>
                     @if($contact->type)
-                    <span class="text-xs px-2.5 py-1 rounded-md font-semibold"
-                          style="background:rgba(255,255,255,0.12); color:{{ $contact->type->color }}; border:1px solid rgba(255,255,255,0.2);">
+                    <span class="text-xs px-2.5 py-1 rounded-md font-semibold text-white"
+                          style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25);">
                         {{ $contact->type->name }}
                     </span>
                     @endif
@@ -81,10 +92,26 @@
                 </div>
             </div>
 
+            {{-- Schedule Event from Contact --}}
+            <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $contact->id, 'prefill_class' => $contact->is_buyer ? 'viewing' : 'meeting']) }}"
+               class="corex-btn-primary flex-shrink-0 no-underline">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+                Schedule Event
+            </a>
+
+            {{-- View as Buyer (if buyer) --}}
+            @if($contact->is_buyer)
+            <a href="{{ route('command-center.buyers.show', $contact) }}"
+               class="corex-btn-primary flex-shrink-0 no-underline">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+                Buyer Hub
+            </a>
+            @endif
+
             {{-- Create Listing from Contact (only if no linked properties) --}}
             @if(auth()->user()->hasPermission('access_properties') && $contact->properties()->count() === 0)
             <a href="{{ route('corex.properties.create') }}?contact_id={{ $contact->id }}"
-               class="corex-btn-outline flex-shrink-0 inline-flex items-center gap-1.5 no-underline">
+               class="corex-btn-primary flex-shrink-0 no-underline">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 Create Listing
             </a>
@@ -107,7 +134,7 @@
 
     {{-- Tab bar --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="flex" style="border-bottom: 1px solid var(--border);" id="tab-bar">
+        <div class="flex overflow-x-auto" style="border-bottom: 1px solid var(--border);" id="tab-bar">
             @php
                 $ficaStatus = $contact->ficaStatus();
                 $ficaIcon = match($ficaStatus) {
@@ -116,22 +143,30 @@
                     default => '<span class="ds-badge ds-badge-danger ml-1">Incomplete</span>',
                 };
             @endphp
+            @php
+                $outreachCount = $outreachSends?->count() ?? 0;
+                $outreachOptOutBadge = $contact->messaging_opt_out_at
+                    ? ' <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase" style="background:var(--ds-crimson); color:#fff;">opt-out</span>'
+                    : '';
+            @endphp
             @foreach([
                 ['key'=>'info','label'=>'Info'],
                 ['key'=>'properties','label'=>'Properties <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->properties->count() .'</span>'],
+                ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
                 ['key'=>'notes','label'=>'Notes <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->contactNotes->count() .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
-                ['key'=>'matches','label'=>'Core Matches <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->matches->count() .'</span>'],
+                ['key'=>'consent','label'=>'Consent'],
+                ['key'=>'outreach','label'=>'Outreach <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $outreachCount .'</span>' . $outreachOptOutBadge],
             ] as $t)
-            @if($t['key'] === 'matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !auth()->user()->hasPermission('access_core_matches')))
+            @if($t['key'] === 'outreach' && !auth()->user()->hasPermission('outreach.compose'))
                 @continue
             @endif
             <button type="button"
                     @click="activeTab = '{{ $t['key'] }}'"
                     :class="activeTab === '{{ $t['key'] }}' ? 'border-b-2' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $t['key'] }}' ? 'color:var(--brand-icon, #0ea5e9); border-color:var(--brand-icon, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);' : 'color:var(--text-secondary);'"
-                    class="px-6 py-4 text-sm font-semibold whitespace-nowrap transition-all duration-300 outline-none hover:opacity-80"
+                    class="px-4 py-4 text-sm font-semibold whitespace-nowrap transition-all duration-300 outline-none hover:opacity-80"
                     >
                 {!! $t['label'] !!}
             </button>
@@ -230,10 +265,9 @@
 
                     {{-- Box 2: WhatsApp --}}
                     @if(auth()->user()->hasPermission('contacts.whatsapp'))
-                    <div class="rounded-md px-5 py-4 cursor-pointer transition-all duration-300 group"
+                    <div class="rounded-md px-5 py-4 cursor-pointer group contact-show-wa-card"
                          style="background:var(--surface-2); border:2px solid rgba(37,211,102,0.25);"
-                         @click="showWa = !showWa; showEmail = false"
-                         onmouseover="this.style.borderColor='#25d366'; this.style.background='rgba(37,211,102,0.06)'" onmouseout="this.style.borderColor='rgba(37,211,102,0.25)'; this.style.background='var(--surface-2)'">
+                         @click="showWa = !showWa; showEmail = false">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex items-center gap-2">
                                 <svg class="w-5 h-5" style="color:#25d366;" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
@@ -248,10 +282,9 @@
 
                     {{-- Box 3: Email --}}
                     @if(auth()->user()->hasPermission('contacts.email'))
-                    <div class="rounded-md px-5 py-4 cursor-pointer transition-all duration-300 group"
+                    <div class="rounded-md px-5 py-4 cursor-pointer group contact-show-email-card"
                          style="background:var(--surface-2); border:2px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);"
-                         @click="showEmail = !showEmail; showWa = false"
-                         onmouseover="this.style.borderColor='var(--brand-icon, #0ea5e9)'; this.style.background='color-mix(in srgb, var(--brand-icon, #0ea5e9) 4%, transparent)'" onmouseout="this.style.borderColor='color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent)'; this.style.background='var(--surface-2)'">
+                         @click="showEmail = !showEmail; showWa = false">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex items-center gap-2">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
@@ -290,9 +323,8 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <button type="button" @click="sendWa()"
-                                class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md text-white transition-all duration-300"
-                                style="background:#25d366;"
-                                onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                                class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md text-white contact-show-btn-hover"
+                                style="background:#25d366;">
                             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                             Send WhatsApp
                         </button>
@@ -333,9 +365,8 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <button type="button" @click="sendEmail()"
-                                class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md text-white transition-all duration-300"
-                                style="background:var(--brand-icon, #0ea5e9);"
-                                onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                                class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md text-white contact-show-btn-hover"
+                                style="background:var(--brand-icon, #0ea5e9);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>
                             Send Email
                         </button>
@@ -511,11 +542,58 @@
                     </div>
                 </div>
 
+                {{-- Financial Position — buyer pre-approval (spec D3) --}}
+                <div x-data="{ open: {{ ($contact->preapproval_amount || $contact->preapproval_expires_at || $contact->preapproval_institution) ? 'true' : 'false' }} }">
+                    <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left mb-4">
+                        <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Financial Position</h3>
+                        @if($contact->hasValidPreapproval())
+                            <span class="ds-badge ds-badge-success">Pre-approved</span>
+                        @elseif($contact->preapproval_amount)
+                            <span class="ds-badge ds-badge-warning">Expired</span>
+                        @endif
+                        <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                    </button>
+                    <div x-show="open" x-cloak>
+                        <p class="text-[11px] mb-3" style="color:var(--text-muted);">Buyer's verified financial pre-approval. Used for demand intelligence — pre-approved buyers count separately in the prospecting summary.</p>
+                        @if($contact->preapproval_amount)
+                            <div class="text-[11px] mb-3 rounded-md p-2" style="background:var(--surface-2); color:var(--text-secondary);">
+                                Currently: <strong>R {{ number_format((float) $contact->preapproval_amount, 0, '.', ',') }}</strong>
+                                @if($contact->preapproval_institution) via {{ $contact->preapproval_institution }} @endif
+                                @if($contact->preapproval_expires_at) , expires {{ $contact->preapproval_expires_at->format('d M Y') }} @endif
+                            </div>
+                        @endif
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Pre-approval Amount (R)</label>
+                                <input type="number" name="preapproval_amount" value="{{ old('preapproval_amount', $contact->preapproval_amount) }}"
+                                       placeholder="e.g. 2500000" min="0" step="1000"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Pre-approval Expires</label>
+                                <input type="date" name="preapproval_expires_at" value="{{ old('preapproval_expires_at', $contact->preapproval_expires_at?->format('Y-m-d')) }}"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Pre-approval Institution</label>
+                                <input type="text" name="preapproval_institution" value="{{ old('preapproval_institution', $contact->preapproval_institution) }}"
+                                       placeholder="e.g. FNB Home Loans" maxlength="100"
+                                       class="w-full rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex items-center gap-3 pt-2">
                     <button type="submit" class="corex-btn-primary text-sm">Save Changes</button>
                     <a href="{{ route('corex.contacts.index') }}" class="text-sm" style="color:var(--text-muted);">Cancel</a>
                 </div>
             </form>
+
+            @include('corex.contacts.partials.client-app-access', ['contact' => $contact])
         </div>
 
         {{-- ════════════════════════════
@@ -567,6 +645,18 @@
                                 style="color: var(--ds-crimson); border: 1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);">Unlink</button>
                     </form>
                 </div>
+                @if(in_array($prop->pivot->role, ['owner', 'seller', 'landlord', 'lessor']))
+                    @php
+                        $sellerLink = \App\Models\PropertySellerLink::ensureExists($prop->id, $contact->id);
+                        $sellerLinkUrl = url('/property/live/' . $sellerLink->token);
+                    @endphp
+                    <div class="flex items-center gap-2 px-4 pb-2 -mt-1 text-[10px]" style="color:var(--text-muted);">
+                        <span style="color:var(--brand-icon);">Seller Live Link</span>
+                        <span class="truncate max-w-[200px]" title="{{ $sellerLinkUrl }}">{{ $sellerLinkUrl }}</span>
+                        <button type="button" onclick="navigator.clipboard.writeText('{{ $sellerLinkUrl }}'); this.textContent='Copied!';"
+                                class="font-medium px-1.5 py-0.5 rounded-md flex-shrink-0" style="color: var(--ds-green, #059669); background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);">Copy</button>
+                    </div>
+                @endif
                 @empty
                 <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
@@ -947,177 +1037,76 @@
         </div>
 
         {{-- ════════════════════════════
-             CORE MATCHES TAB
+             CONSENT & COMPLIANCE TAB (M3.4)
              ════════════════════════════ --}}
-        <div x-show="activeTab === 'matches'" x-cloak class="p-6 space-y-6" id="tab-matches">
+        <div x-show="activeTab === 'consent'" x-cloak class="p-6 space-y-4" id="tab-consent">
+            @php
+                $consentTypes = [
+                    'fica_processing' => 'FICA Processing',
+                    'marketing_communications' => 'Marketing Communications',
+                    'data_sharing' => 'Data Sharing',
+                    'channel_email' => 'Email Channel',
+                    'channel_sms' => 'SMS Channel',
+                    'channel_whatsapp' => 'WhatsApp Channel',
+                    'channel_call' => 'Phone Call Channel',
+                ];
+                $consentRecords = $contact->consentRecords;
+            @endphp
+
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Consent Records</h3>
+                <span class="text-xs" style="color: var(--text-muted);">POPIA + CPA compliant</span>
+            </div>
+
+            <div class="space-y-2">
+                @foreach($consentTypes as $typeKey => $typeLabel)
+                    @php
+                        $activeRecord = $consentRecords->where('consent_type', $typeKey)->whereNull('revoked_at')->first();
+                        $hasConsent = (bool) $activeRecord;
+                    @endphp
+                    <div class="flex items-center justify-between px-3 py-2 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div>
+                            <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $typeLabel }}</span>
+                            @if($hasConsent)
+                                <span class="ds-badge ds-badge-success ml-2">Active</span>
+                                <span class="ml-1 text-[10px]" style="color: var(--text-muted);">since {{ $activeRecord->given_at->format('d M Y') }}</span>
+                            @else
+                                <span class="ds-badge ds-badge-default ml-2">Not given</span>
+                            @endif
+                        </div>
+                        <div class="flex items-center gap-1">
+                            @if(!$hasConsent)
+                                <form method="POST" action="{{ route('corex.contacts.consent.record', $contact) }}">
+                                    @csrf
+                                    <input type="hidden" name="consent_type" value="{{ $typeKey }}">
+                                    <input type="hidden" name="method" value="electronic">
+                                    <button type="submit" class="corex-btn-primary text-[10px] px-2 py-1">Record</button>
+                                </form>
+                            @else
+                                <form method="POST" action="{{ route('corex.contacts.consent.revoke', $contact) }}">
+                                    @csrf
+                                    <input type="hidden" name="consent_type" value="{{ $typeKey }}">
+                                    <input type="hidden" name="reason" value="User requested revocation">
+                                    <button type="submit" class="corex-btn-outline text-[10px] px-2 py-1">Revoke</button>
+                                </form>
+                            @endif
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        {{-- ════════════════════════════
+             CORE MATCHES (merged into Properties tab)
+             ════════════════════════════ --}}
+        @if(\App\Models\PerformanceSetting::get('matches_enabled', 1) && auth()->user()->hasPermission('access_core_matches'))
+        <div x-show="activeTab === 'properties'" x-cloak class="p-6 pt-0 space-y-6" id="tab-matches">
 
             {{-- Add new match form --}}
             <div class="rounded-md p-5 space-y-5" style="background:var(--surface-2); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Add New Match Criteria</h3>
 
-                <form method="POST" action="{{ route('corex.contacts.matches.store', $contact) }}"
-                      x-data="{ listingType: 'sale' }"
-                      class="space-y-5">
-                    @csrf
-
-                    {{-- Listing type toggle --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Listing Type</label>
-                        <input type="hidden" name="listing_type" :value="listingType">
-                        <div class="inline-flex rounded-md p-0.5 gap-0.5" style="background:var(--surface); border:1px solid var(--border);">
-                            <button type="button"
-                                    @click="listingType = 'sale'"
-                                    :class="listingType === 'sale' ? 'text-white' : ''"
-                                    :style="listingType === 'sale' ? 'background:var(--brand-button, #0ea5e9);' : 'color:var(--text-secondary);'"
-                                    class="px-4 py-1.5 rounded-md text-xs font-semibold transition-all duration-150">
-                                For Sale
-                            </button>
-                            <button type="button"
-                                    @click="listingType = 'rental'"
-                                    :class="listingType === 'rental' ? 'text-white' : ''"
-                                    :style="listingType === 'rental' ? 'background:var(--brand-button, #0ea5e9);' : 'color:var(--text-secondary);'"
-                                    class="px-4 py-1.5 rounded-md text-xs font-semibold transition-all duration-150">
-                                Rental
-                            </button>
-                        </div>
-                    </div>
-
-                    {{-- Row 1: Category + Property Type + Suburb --}}
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Category</label>
-                            <select name="category" class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— Any —</option>
-                                @foreach($matchCategories as $cat)
-                                <option value="{{ $cat->name }}">{{ $cat->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Property Type</label>
-                            <select name="property_type" class="w-full rounded-md px-3 py-2 text-sm"
-                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <option value="">— Any —</option>
-                                @foreach($matchTypes as $type)
-                                <option value="{{ $type->name }}">{{ $type->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Suburb</label>
-                            <input type="text" name="suburb" placeholder="e.g. Uvongo, Margate"
-                                   class="w-full rounded-md px-3 py-2 text-sm"
-                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        </div>
-                    </div>
-
-                    {{-- Row 2: Price range --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Price Range (R)</label>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <input type="number" name="price_min" placeholder="Min price" min="0" step="50000"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            <div>
-                                <input type="number" name="price_max" placeholder="Max price" min="0" step="50000"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                        </div>
-                    </div>
-
-                    {{-- Row 3: Beds / Baths / Garages / Parking --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Minimum Rooms</label>
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            @foreach([['beds_min','Bedrooms'],['baths_min','Bathrooms'],['garages_min','Garages'],['parking_min','Parking']] as [$field,$label])
-                            <div>
-                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">{{ $label }}</label>
-                                <input type="number" name="{{ $field }}" placeholder="Any" min="0" max="20"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                            @endforeach
-                        </div>
-                    </div>
-
-                    {{-- Row 4: Floor size / Erf size --}}
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Floor Size (m²)</label>
-                            <div class="grid grid-cols-2 gap-2">
-                                <input type="number" name="floor_size_min" placeholder="Min" min="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <input type="number" name="floor_size_max" placeholder="Max" min="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Erf Size (m²)</label>
-                            <div class="grid grid-cols-2 gap-2">
-                                <input type="number" name="erf_size_min" placeholder="Min" min="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <input type="number" name="erf_size_max" placeholder="Max" min="0"
-                                       class="w-full rounded-md px-3 py-2 text-sm"
-                                       style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            </div>
-                        </div>
-                    </div>
-
-                    {{-- Features --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">Features</label>
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div>
-                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Pool</label>
-                                <select name="feat_pool" class="w-full rounded-md px-3 py-2 text-sm"
-                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <option value="">Any</option>
-                                    <option value="yes">Has pool</option>
-                                    <option value="no">No pool</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Furnished</label>
-                                <select name="feat_furnished" class="w-full rounded-md px-3 py-2 text-sm"
-                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <option value="">Any</option>
-                                    <option value="yes">Furnished</option>
-                                    <option value="no">Unfurnished</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-[10px] mb-1" style="color:var(--text-muted);">Pet friendly</label>
-                                <select name="feat_pets" class="w-full rounded-md px-3 py-2 text-sm"
-                                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    <option value="">Any</option>
-                                    <option value="yes">Pet friendly</option>
-                                    <option value="no">No pets</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    {{-- Notes --}}
-                    <div>
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notes (optional)</label>
-                        <textarea name="notes" rows="2" placeholder="Any additional requirements..."
-                                  class="w-full rounded-md px-3 py-2 text-sm resize-none"
-                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"></textarea>
-                    </div>
-
-                    <div class="flex justify-end">
-                        <button type="submit" class="corex-btn-primary text-sm">
-                            Save Match
-                        </button>
-                    </div>
-                </form>
+                @include('corex.contacts._match-form', ['contact' => $contact, 'match' => null])
             </div>
 
             {{-- Existing matches --}}
@@ -1129,12 +1118,19 @@
                     <div class="flex items-start justify-between gap-3">
                         <div class="flex-1 min-w-0 space-y-3">
 
-                            {{-- Header row: type badge + price --}}
+                            {{-- Header row: type badge + price + primary flag --}}
                             <div class="flex items-center gap-2 flex-wrap">
                                 <span class="ds-badge {{ $match->listing_type === 'rental' ? 'ds-badge-info' : 'ds-badge-default' }}"
                                       style="{{ $match->listing_type === 'rental' ? '' : 'background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);' }}">
                                     {{ $match->listingTypeLabel() }}
                                 </span>
+                                @if($match->is_primary)
+                                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md whitespace-nowrap"
+                                      style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);"
+                                      title="This is the contact's primary wishlist — used for demand intelligence">
+                                    ⭐ Primary
+                                </span>
+                                @endif
                                 @if($match->price_min || $match->price_max)
                                 <span class="text-sm font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
                                 @endif
@@ -1146,7 +1142,7 @@
                             </div>
 
                             {{-- Detail grid --}}
-                            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1.5">
+                            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1.5 min-w-0 break-words">
                                 @if($match->category)
                                 <div>
                                     <span class="text-[10px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Category</span>
@@ -1195,10 +1191,20 @@
                                     @if($match->createdBy) · by {{ $match->createdBy->name }} @endif
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    @if(!$match->is_primary)
+                                    <form method="POST" action="{{ route('corex.contacts.matches.update', [$contact, $match]) }}" class="inline">
+                                        @csrf @method('PUT')
+                                        <input type="hidden" name="is_primary" value="1">
+                                        <button type="submit"
+                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
+                                                style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);"
+                                                title="Mark this wishlist as the contact's primary">
+                                            ⭐ Make Primary
+                                        </button>
+                                    </form>
+                                    @endif
                                     <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
-                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold no-underline transition-all duration-300"
-                                       style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);"
-                                       onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon, #0ea5e9) 20%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent)'">
+                                       class="corex-btn-outline text-xs no-underline">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
                                         View Matches
                                     </a>
@@ -1232,7 +1238,133 @@
             </div>
             @endif
 
-        </div>{{-- /matches tab --}}
+        </div>{{-- /matches (under Properties) --}}
+        @endif
+
+        {{-- ══════════════════════════════════════════
+             VIEWINGS & FEEDBACK TAB
+             ════════════════════════════════════════ --}}
+        <div x-show="activeTab === 'viewings'" x-cloak class="p-6 space-y-6" id="tab-viewings">
+
+            {{-- Buyer perspective --}}
+            @if(($buyerUpcoming ?? collect())->isNotEmpty() || ($buyerPast ?? collect())->isNotEmpty())
+                {{-- Upcoming buyer viewings --}}
+                <div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Upcoming Viewings ({{ ($buyerUpcoming ?? collect())->count() }})</h3>
+                    @forelse($buyerUpcoming ?? [] as $bv)
+                        <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <a href="{{ route('corex.properties.show', $bv['property_id']) }}" target="_blank"
+                                       class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $bv['address'] }}</a>
+                                </div>
+                                <div class="text-right flex-shrink-0">
+                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($bv['event_date'])->format('D, j M Y') }}</div>
+                                    <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $bv['agent_name'] }}</div>
+                                    <span class="ds-badge ds-badge-info mt-0.5">Scheduled</span>
+                                </div>
+                            </div>
+                        </div>
+                    @empty
+                        <p class="text-xs py-3" style="color:var(--text-muted);">None</p>
+                    @endforelse
+                </div>
+
+                {{-- Past buyer viewings --}}
+                <div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Past Viewings ({{ ($buyerPast ?? collect())->count() }})</h3>
+                    @forelse($buyerPast ?? [] as $bv)
+                        <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <a href="{{ route('corex.properties.show', $bv['property_id']) }}" target="_blank"
+                                       class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $bv['address'] }}</a>
+                                </div>
+                                <div class="text-right flex-shrink-0">
+                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($bv['event_date'])->format('D, j M Y') }}</div>
+                                    <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $bv['agent_name'] }}</div>
+                                </div>
+                            </div>
+                            @if($bv['feedback'] ?? null)
+                                <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                                    @if($bv['feedback']['outcome_label'] ?? null)
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color:var(--ds-green, #059669);">{{ $bv['feedback']['outcome_label'] }}</span>
+                                    @endif
+                                    @if($bv['feedback']['seller_notes'] ?? null)
+                                        <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $bv['feedback']['seller_notes'] }}</p>
+                                    @endif
+                                    @if($bv['feedback']['internal_notes'] ?? null)
+                                        <p class="text-[11px] mt-1" style="color:var(--text-muted);"><span class="font-medium">Internal:</span> {{ $bv['feedback']['internal_notes'] }}</p>
+                                    @endif
+                                    <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($bv['feedback']['captured_at'])->diffForHumans() }}</div>
+                                </div>
+                            @else
+                                <span class="ds-badge ds-badge-default mt-1">No feedback</span>
+                            @endif
+                        </div>
+                    @empty
+                        <p class="text-xs py-3" style="color:var(--text-muted);">None</p>
+                    @endforelse
+                </div>
+            @endif
+
+            {{-- Seller perspective --}}
+            @if(($sellerUpcoming ?? collect())->isNotEmpty() || ($sellerPast ?? collect())->isNotEmpty())
+                <div>
+                    <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Seller — Feedback on Your Listings</h3>
+                    @foreach($sellerPast ?? [] as $sv)
+                        <div class="rounded-md p-4 mb-2" style="background:var(--surface); border:1px solid var(--border);">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <a href="{{ route('corex.properties.show', $sv['property_id']) }}" target="_blank"
+                                       class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">{{ $sv['address'] }}</a>
+                                    <div class="text-[10px] mt-0.5" style="color:var(--text-muted);">Viewed by: {{ $sv['buyer_label'] }}</div>
+                                </div>
+                                <div class="text-right flex-shrink-0">
+                                    <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($sv['event_date'])->format('D, j M Y') }}</div>
+                                    <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $sv['agent_name'] }}</div>
+                                </div>
+                            </div>
+                            @if($sv['feedback'] ?? null)
+                                <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                                    @if($sv['feedback']['outcome_label'] ?? null)
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color:var(--ds-green, #059669);">{{ $sv['feedback']['outcome_label'] }}</span>
+                                    @endif
+                                    @if($sv['feedback']['seller_notes'] ?? null)
+                                        <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $sv['feedback']['seller_notes'] }}</p>
+                                    @endif
+                                    <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($sv['feedback']['captured_at'])->diffForHumans() }}</div>
+                                </div>
+                            @else
+                                <span class="ds-badge ds-badge-default mt-1">No feedback</span>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+
+            @if(($buyerViewings ?? collect())->isEmpty() && ($sellerViewings ?? collect())->isEmpty())
+                <div class="py-12 text-center">
+                    <p class="text-sm" style="color:var(--text-muted);">No viewings or feedback recorded for this contact.</p>
+                </div>
+            @endif
+
+        </div>{{-- /viewings tab --}}
+
+        {{-- ════════════════════════════
+             OUTREACH TAB (Prompt 07)
+             ════════════════════════════ --}}
+        @if(auth()->user()->hasPermission('outreach.compose') && isset($outreachSends))
+        <div x-show="activeTab === 'outreach'" x-cloak class="p-6 space-y-6" id="tab-outreach">
+            @include('seller-outreach.contact-timeline._panel', [
+                'contact'        => $contact,
+                'sends'          => $outreachSends,
+                'clickCounts'    => $outreachClickCounts ?? collect(),
+                'optedOut'       => $contact->messaging_opt_out_at !== null,
+                'outcomeOptions' => $outreachOutcomeOptions ?? [],
+            ])
+        </div>
+        @endif
 
     </div>{{-- /tab container --}}
 
@@ -1240,6 +1372,8 @@
 
 <script>
 function contactShowData(searchUrl, initTab) {
+    // Core Matches was merged into the Properties tab — keep legacy ?tab=matches links working
+    if (initTab === 'matches') initTab = 'properties';
     return {
         activeTab: initTab || 'info',
         initTab: initTab || 'info',

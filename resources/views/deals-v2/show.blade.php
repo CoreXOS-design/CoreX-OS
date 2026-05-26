@@ -313,7 +313,7 @@
                                                 <div class="mb-2">
                                                     <label class="block text-xs mb-1" style="color: #f87171;">Reason for {{ $step->negative_outcome_label ?? 'decline' }} (required)</label>
                                                     <textarea name="reason" required rows="2" class="w-full rounded-md text-sm px-3 py-1.5 focus:outline-none"
-                                                              style="background: var(--surface-2); border: 1px solid rgba(239,68,68,0.3); color: var(--text-primary);"></textarea>
+                                                              style="background: var(--surface-2); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);"></textarea>
                                                 </div>
                                                 <div class="flex items-center gap-2">
                                                     <button type="submit" class="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-medium">

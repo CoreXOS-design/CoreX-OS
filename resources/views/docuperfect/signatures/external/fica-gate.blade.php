@@ -8,7 +8,7 @@
     <link href="https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f1f5f9; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+        body { font-family: 'Figtree', sans-serif; background: #f1f5f9; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
         .gate-card { background: #fff; border: 1px solid #e2e8f0; max-width: 480px; width: 100%; padding: 2.5rem; text-align: center; }
         .gate-card img { max-height: 50px; margin-bottom: 1.5rem; }
         .gate-icon { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem; }

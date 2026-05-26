@@ -343,10 +343,13 @@ class PpManage extends Command
             return 1;
         }
 
-        // PP internal listing UUIDs are GUID-shaped (8-4-4-4-12 hex with hyphens, ~36 chars).
-        // Be permissive in case PP varies the format slightly — require hyphens and length 16-64.
-        if (!str_contains($uuid, '-') || strlen($uuid) < 16 || strlen($uuid) > 64) {
-            $this->error("UUID does not look valid (got: {$uuid}). Expected hyphenated string, 16-64 chars.");
+        // pp_listing_feed_ref is PP's ListingFeedRef, which (verified against
+        // the live sandbox feed) is the listing reference WE submitted — our
+        // CoreX property id (e.g. "16"), NOT a GUID. Accept any non-empty
+        // alphanumeric/hyphen token up to 64 chars; reject obvious garbage
+        // (whitespace, URLs).
+        if (strlen($uuid) > 64 || !preg_match('/^[A-Za-z0-9_-]+$/', $uuid)) {
+            $this->error("Value does not look valid (got: {$uuid}). Expected the PP ListingFeedRef (our property id, e.g. \"16\") or a hyphenated id, ≤64 chars.");
             return 1;
         }
 

@@ -39,10 +39,7 @@ class ContactTagController extends Controller
 
     public function destroy(ContactTag $contactTag)
     {
-        if ($contactTag->contacts()->count() > 0) {
-            return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'contacts'])
-                ->with('error', 'Cannot delete — contacts are using this tag.');
-        }
+        $contactTag->contacts()->detach();
 
         $contactTag->delete();
 

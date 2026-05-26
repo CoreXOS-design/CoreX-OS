@@ -94,13 +94,33 @@ Every new feature includes permission keys in `config/corex-permissions.php`, si
 ### 6. Production quality only.
 No demo modes. No "we'll fix it later." No patches over root causes. If it works, it works correctly. If it doesn't, fix the root cause.
 
-### 7. Branch rules.
+### 7. Every API endpoint is registered and discoverable.
+All new HTTP API endpoints MUST live under `/api/v1/*` (or another versioned `/api/vN/*` namespace), MUST have a `->name()` on the route, and MUST be reachable from the **Admin → API** catalog page at `/admin/api`. The catalog is auto-generated from Laravel's route table — if the route is registered correctly with the `api/` URI prefix, it appears automatically. Do NOT build hidden JSON endpoints under arbitrary URIs (e.g. `/some-page/data`). One global frontend client (`window.CoreX.api`) consumes them; one catalog lists them. The session-authenticated "who am I" endpoint is `GET /api/v1/logged-user` — fired automatically on every authenticated page via `resources/js/corex-api.js`.
+
+### 8. Branch rules.
 - `main` = production server (91.99.130.85)
 - `HFC2402` = Johan's dev branch
 - `andre` = Andre's dev branch
 - Hotfixes only go directly to main. Everything else: dev branch → reviewed → merged to main.
 - Always check for the other person's commits before merging to main.
 - Never push `database.sqlite` — this file must be in `.gitignore`.
+
+### 9. Cross-pillar reactivity uses domain events.
+For any feature that involves cross-pillar reactivity — where a state change in one part of CoreX should trigger updates, notifications, recomputations, or side effects in another part — the relevant build prompt MUST read `.ai/specs/corex-domain-events-spec.md` and use the event/listener pattern from the catalogue. Do NOT invent ad-hoc observer hooks, ad-hoc service calls, or ad-hoc query paths between pillars. Emit a named event when state changes; subscribe to existing events when reacting to state changes. The events catalogue is the API contract between pillars.
+
+CoreX is built on the principle that every important domain action sends signals across an interconnected system. The events catalogue is the connective tissue between Property, Contact, Agent, Mandate, Deal, FICA, and Documents. Without this pattern, every feature invents its own reactivity — leading to inconsistent behaviour, hard-to-debug cascades, and architectural debt at branch-merge time. Both Johan's and Andre's branches build to the same catalogue so that features either of them ship plug seamlessly into the work the other is doing.
+
+### 10. Universal Match-or-Create Rule.
+Every data ingress into CoreX — CMA presentations, P24 alerts, PP feed events, Chrome capture imports, manual entries, mandate signings, scraping outputs, deeds-office lookups, any future source — MUST call `App\Services\Prospecting\TrackedPropertyMatchOrCreateService::matchOrCreate()` before storing property data. Match first, create only if no match. Every contribution appends to `source_chain` for audit. No property data ever sits orphaned.
+
+There are two property tiers, clearly separated:
+
+| Tier | Table | Purpose |
+|------|-------|---------|
+| Agency Stock | `properties` | Formal mandates HFC works (My Listings) |
+| Tracked Properties | `tracked_properties` | Every property CoreX has intelligence on (Prospecting → Tracked Properties) |
+
+Promotion from Tracked → Stock happens when a mandate is signed, via `promoteToStock()`. Promotion preserves the audit chain — the Tracked Property record stays as the long-lived audit trail, and its `promoted_to_property_id` points at the operational Property. Resolution uses a 5-strategy match: source-ref exact → GPS proximity (~5m) → erf+suburb → normalised address → token overlap. This is the architectural mechanism by which CoreX builds a comprehensive property intelligence dataset organically through normal agent work.
 
 ---
 
@@ -177,6 +197,7 @@ No demo modes. No "we'll fix it later." No patches over root causes. If it works
 | `specs/ellie.md` | Ellie AI assistant spec | When working on Ellie |
 | `specs/tvadisplay.md` | TV display spec | When working on TV |
 | `specs/multi-tenancy.md` | Agency isolation — global scope, switcher rules | Any feature touching the DB |
+| `specs/corex-domain-events-spec.md` | Domain events catalogue — system-wide event/listener pattern (architectural foundation) | Whenever a feature involves cross-pillar reactivity |
 
 ---
 

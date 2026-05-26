@@ -367,6 +367,67 @@
     </div>
 
     {{-- ═══════════════════════════════════════════════════════════════
+         COMING UP — Calendar agenda widget (next 7 days)
+    ═══════════════════════════════════════════════════════════════ --}}
+    <div class="corex-panel">
+        <div class="corex-panel-header">
+            <h3 class="corex-panel-title flex items-center gap-2">
+                <svg class="w-4 h-4" style="color:var(--brand-icon);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" /></svg>
+                Coming up
+                <span class="text-xs font-normal ml-1" style="color:var(--text-muted);">Next 7 days</span>
+            </h3>
+            <a href="{{ route('command-center.calendar') }}" class="text-xs font-medium hover:underline" style="color:var(--brand-icon);">View all &rarr;</a>
+        </div>
+        <div class="corex-panel-body">
+            @php
+                $widgetRagChip = [
+                    'red'     => 'background:#dc2626; color:#ffffff; border:1px solid #991b1b;',
+                    'amber'   => 'background:#d97706; color:#ffffff; border:1px solid #92400e;',
+                    'green'   => 'background:#0d9488; color:#ffffff; border:1px solid #115e59;',
+                    'neutral' => 'background:#475569; color:#ffffff; border:1px solid #334155;',
+                ];
+                $widgetRagDot = [
+                    'red'   => 'background:var(--ds-crimson);',
+                    'amber' => 'background:#f59e0b;',
+                    'green' => 'background:#14b8a6;',
+                ];
+            @endphp
+
+            @if($upcomingEvents->isEmpty())
+                <div class="py-8 text-center">
+                    <p class="text-sm" style="color:var(--text-muted);">Nothing in the next 7 days.</p>
+                    <a href="{{ route('command-center.calendar') }}" class="text-xs mt-2 inline-block hover:underline" style="color:var(--brand-icon);">Open calendar</a>
+                </div>
+            @else
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    @foreach($upcomingByDate as $date => $dateEvents)
+                        @php
+                            $dateObj = \Carbon\Carbon::parse($date);
+                            $dayLabel = $dateObj->isToday() ? 'Today' : ($dateObj->isTomorrow() ? 'Tomorrow' : $dateObj->format('D, j M'));
+                        @endphp
+                        <div>
+                            <div class="text-[0.6875rem] font-semibold uppercase tracking-wider mb-2" style="color:{{ $dateObj->isToday() ? 'var(--brand-icon)' : 'var(--text-muted)' }};">
+                                {{ $dayLabel }}
+                            </div>
+                            <div class="space-y-1.5">
+                                @foreach($dateEvents as $evt)
+                                    <a href="{{ route('command-center.calendar', ['view' => 'day', 'date' => $date]) }}"
+                                       class="flex items-center gap-2 px-2.5 py-1.5 rounded text-xs transition hover:opacity-80"
+                                       style="{{ $widgetRagChip[$evt->resolved_colour] ?? '' }}">
+                                        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="{{ $widgetRagDot[$evt->resolved_colour] ?? '' }}"></span>
+                                        <span class="flex-1 truncate font-medium">{{ $evt->title }}</span>
+                                        <span class="text-[10px] opacity-70 truncate flex-shrink-0">{{ $upcomingClassLabels[$evt->category] ?? $evt->category }}</span>
+                                    </a>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+        </div>
+    </div>
+
+    {{-- ═══════════════════════════════════════════════════════════════
          FOOTER STRIP — thin performance summary
     ═══════════════════════════════════════════════════════════════ --}}
     <div class="corex-panel">

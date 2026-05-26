@@ -210,7 +210,7 @@
                                 <select name="role" class="w-full rounded-lg px-3 py-2 text-sm outline-none"
                                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                     @foreach(\App\Models\Role::orderBy('sort_order')->get() as $role)
-                                        @if(!$role->is_owner || Auth::user()->isOwnerRole())
+                                        @if(!$role->is_owner)
                                         <option value="{{ $role->name }}" {{ $u->role===$role->name?'selected':'' }}>{{ $role->label }}</option>
                                         @endif
                                     @endforeach
@@ -404,15 +404,14 @@
                                     {{ $u->is_active ? 'Deactivate' : 'Activate' }}
                                 </button>
                             </form>
-                            <form method="POST" action="{{ route('admin.users.delete', $u) }}"
-                                  onsubmit="return confirm('Delete {{ addslashes($u->name) }}? This cannot be undone.');">
-                                @csrf
-                                <button type="submit"
-                                        class="px-3 py-1.5 rounded-lg text-sm font-medium"
-                                        style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca;">
-                                    Delete
-                                </button>
-                            </form>
+                            <button type="button"
+                                    data-agent-delete
+                                    data-user-id="{{ $u->id }}"
+                                    data-user-name="{{ $u->name }}"
+                                    class="px-3 py-1.5 rounded-lg text-sm font-medium"
+                                    style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca;">
+                                Delete
+                            </button>
                         </div>
                         <button type="submit" form="roleForm-{{ $u->id }}" class="corex-btn-primary text-sm">Save Changes</button>
                     </div>
@@ -423,4 +422,6 @@
     </div>
 
 </div>
+
+@include('admin.users._delete-modal')
 @endsection

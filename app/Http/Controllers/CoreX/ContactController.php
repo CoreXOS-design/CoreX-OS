@@ -9,6 +9,7 @@ use App\Models\ContactType;
 use App\Models\DocumentType;
 use App\Models\PropertySettingItem;
 use App\Models\User;
+use App\Services\ContactDuplicateService;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
 
@@ -21,21 +22,13 @@ class ContactController extends Controller
         $dataScope    = PermissionService::getDataScope($user, 'contacts');
         $canPickAgent = in_array($dataScope, ['all', 'branch']);
 
-        // Agent filter with session persistence
+        // Agent filter: always default to the current user's own contacts on a
+        // fresh visit. An explicit ?agent_id= (e.g. "All", or another agent)
+        // applies for that browse only and is NOT persisted across visits.
         if ($request->has('agent_id')) {
-            $raw           = $request->query('agent_id', '');
-            $filterAgentId = $raw;
-            session(['corex_contacts_agent_id' => $raw === '' ? 'all' : $raw]);
+            $filterAgentId = $request->query('agent_id', '');
         } elseif ($canPickAgent) {
-            $saved = session('corex_contacts_agent_id');
-            if ($saved === null) {
-                $filterAgentId = (string) $user->id;
-                session(['corex_contacts_agent_id' => $filterAgentId]);
-            } elseif ($saved === 'all') {
-                $filterAgentId = '';
-            } else {
-                $filterAgentId = $saved;
-            }
+            $filterAgentId = (string) $user->id;
         } else {
             $filterAgentId = '';
         }
@@ -84,8 +77,20 @@ class ContactController extends Controller
         ));
     }
 
-    public function show(Contact $contact)
+    public function show(Request $request, Contact $contact)
     {
+        // JSON response for prefill / AJAX
+        if ($request->wantsJson()) {
+            return response()->json([
+                'id' => $contact->id,
+                'first_name' => $contact->first_name,
+                'last_name' => $contact->last_name,
+                'phone' => $contact->phone,
+                'email' => $contact->email,
+                'is_buyer' => $contact->is_buyer,
+            ]);
+        }
+
         $contact->load(['type', 'createdBy', 'contactNotes.user', 'documents.uploader', 'documents.documentType', 'documents.properties', 'properties', 'matches.createdBy', 'tags']);
         $contactTypes     = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
         $contactTags      = ContactTag::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
@@ -107,7 +112,139 @@ class ContactController extends Controller
         }
         $drivePropertyMap = $contact->properties->keyBy('id');
 
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap'));
+        // Viewings & Feedback — buyer perspective: events where this contact is buyer/attendee
+        $buyerViewings = collect();
+        $buyerEventIds = \DB::table('calendar_event_links')
+            ->where('linkable_type', \App\Models\Contact::class)
+            ->where('linkable_id', $contact->id)
+            ->whereIn('role', ['buyer_contact', 'attendee'])
+            ->pluck('calendar_event_id');
+
+        if ($buyerEventIds->isNotEmpty()) {
+            $propLinks = \DB::table('calendar_event_links')
+                ->whereIn('calendar_event_id', $buyerEventIds)
+                ->where('role', 'subject_property')
+                ->where('linkable_type', \App\Models\Property::class)
+                ->get(['calendar_event_id', 'linkable_id']);
+
+            $events = \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()
+                ->whereIn('id', $buyerEventIds)->get()->keyBy('id');
+            $props = \App\Models\Property::withoutGlobalScopes()
+                ->whereIn('id', $propLinks->pluck('linkable_id')->unique())->get()->keyBy('id');
+            $feedbackRows = \DB::table('calendar_event_feedback')
+                ->where('contact_id', $contact->id)
+                ->whereIn('calendar_event_id', $buyerEventIds)->get()->groupBy('calendar_event_id');
+            $agents = \App\Models\User::withoutGlobalScopes()
+                ->whereIn('id', $events->pluck('user_id')->unique()->filter())->pluck('name', 'id');
+            $outcomeLabels = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
+
+            foreach ($propLinks as $pl) {
+                $ev = $events->get($pl->calendar_event_id);
+                $pr = $props->get($pl->linkable_id);
+                if (!$ev || !$pr) continue;
+                $fb = ($feedbackRows->get($pl->calendar_event_id, collect()))->firstWhere('property_id', $pl->linkable_id)
+                    ?? ($feedbackRows->get($pl->calendar_event_id, collect()))->first();
+                $buyerViewings->push([
+                    'property_id' => $pr->id,
+                    'address' => method_exists($pr, 'buildDisplayAddress') ? $pr->buildDisplayAddress() : ($pr->title ?? "Property #{$pr->id}"),
+                    'event_date' => $ev->event_date,
+                    'agent_name' => $agents->get($ev->user_id, 'Unknown'),
+                    'feedback' => $fb ? [
+                        'outcome_label' => $outcomeLabels->get($fb->outcome_option_id),
+                        'seller_notes' => $fb->seller_visible_notes,
+                        'internal_notes' => $fb->internal_notes,
+                        'captured_at' => $fb->captured_at,
+                    ] : null,
+                ]);
+            }
+            $buyerViewings = $buyerViewings->sortByDesc('event_date')->values();
+        }
+
+        // Seller perspective: properties this contact owns, and feedback from buyers on those
+        $sellerViewings = collect();
+        $ownedPropertyIds = \DB::table('contact_property')
+            ->where('contact_id', $contact->id)
+            ->whereIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->pluck('property_id');
+
+        if ($ownedPropertyIds->isNotEmpty()) {
+            $sellerEventIds = \DB::table('calendar_event_links')
+                ->where('linkable_type', \App\Models\Property::class)
+                ->whereIn('linkable_id', $ownedPropertyIds)
+                ->where('role', 'subject_property')
+                ->pluck('calendar_event_id')->unique();
+
+            if ($sellerEventIds->isNotEmpty()) {
+                $sEvents = \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()
+                    ->whereIn('id', $sellerEventIds)->get()->keyBy('id');
+                $sProps = \App\Models\Property::withoutGlobalScopes()
+                    ->whereIn('id', $ownedPropertyIds)->get()->keyBy('id');
+                // Filter internal_only feedback: only BM/admin/super_admin can see
+                $viewerCanSeeInternal = in_array($request->user()->role ?? 'agent', ['super_admin', 'admin', 'owner', 'branch_manager']);
+                $sFeedbackQuery = \DB::table('calendar_event_feedback')
+                    ->whereIn('calendar_event_id', $sellerEventIds);
+                if (!$viewerCanSeeInternal) {
+                    $sFeedbackQuery->where('visibility', '!=', 'internal_only');
+                }
+                $sFeedback = $sFeedbackQuery->get()->groupBy('calendar_event_id');
+                $sAgents = \App\Models\User::withoutGlobalScopes()
+                    ->whereIn('id', $sEvents->pluck('user_id')->unique()->filter())->pluck('name', 'id');
+                $sOutcomes = \DB::table('agency_feedback_options')->where('category', 'outcome')->pluck('label', 'id');
+
+                $sPropLinks = \DB::table('calendar_event_links')
+                    ->whereIn('calendar_event_id', $sellerEventIds)
+                    ->where('role', 'subject_property')
+                    ->whereIn('linkable_id', $ownedPropertyIds)
+                    ->get(['calendar_event_id', 'linkable_id']);
+
+                foreach ($sPropLinks as $sl) {
+                    $sEv = $sEvents->get($sl->calendar_event_id);
+                    $sPr = $sProps->get($sl->linkable_id);
+                    if (!$sEv || !$sPr) continue;
+                    $sFb = ($sFeedback->get($sl->calendar_event_id, collect()))->first();
+                    $sellerViewings->push([
+                        'property_id' => $sPr->id,
+                        'address' => method_exists($sPr, 'buildDisplayAddress') ? $sPr->buildDisplayAddress() : ($sPr->title ?? "Property #{$sPr->id}"),
+                        'event_date' => $sEv->event_date,
+                        'agent_name' => $sAgents->get($sEv->user_id, 'Unknown'),
+                        'buyer_label' => 'Interested Buyer',
+                        'feedback' => $sFb ? [
+                            'outcome_label' => $sOutcomes->get($sFb->outcome_option_id),
+                            'seller_notes' => $sFb->seller_visible_notes,
+                            'captured_at' => $sFb->captured_at,
+                        ] : null,
+                    ]);
+                }
+                $sellerViewings = $sellerViewings->sortByDesc('event_date')->values();
+            }
+        }
+
+        $now = now();
+        $buyerUpcoming = $buyerViewings->filter(fn ($v) => \Carbon\Carbon::parse($v['event_date'])->gte($now))->sortBy('event_date')->values();
+        $buyerPast = $buyerViewings->filter(fn ($v) => \Carbon\Carbon::parse($v['event_date'])->lt($now))->sortByDesc('event_date')->values();
+        $sellerUpcoming = $sellerViewings->filter(fn ($v) => \Carbon\Carbon::parse($v['event_date'])->gte($now))->sortBy('event_date')->values();
+        $sellerPast = $sellerViewings->filter(fn ($v) => \Carbon\Carbon::parse($v['event_date'])->lt($now))->sortByDesc('event_date')->values();
+        $viewingsCount = $buyerViewings->count() + $sellerViewings->count();
+
+        $featureOptions = \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS;
+
+        // Seller-outreach timeline (Prompt 07). Only fetched when the viewer
+        // has the composer permission — gated tab.
+        $outreachSends = collect();
+        $outreachClickCounts = collect();
+        $outreachOutcomeOptions = [];
+        if ($request->user()->hasPermission('outreach.compose')) {
+            $agencyId = $request->user()->effectiveAgencyId();
+            if ($agencyId !== null && (int) $contact->agency_id === (int) $agencyId) {
+                $timeline = app(\App\Http\Controllers\SellerOutreach\ContactTimelineController::class)
+                    ->buildTimelineData((int) $agencyId, $contact);
+                $outreachSends = $timeline['sends'];
+                $outreachClickCounts = $timeline['clickCounts'];
+                $outreachOutcomeOptions = $timeline['outcomeOptions'];
+            }
+        }
+
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions'));
     }
 
     public function checkDuplicate(Request $request)
@@ -162,29 +299,85 @@ class ContactController extends Controller
             'email'           => 'nullable|email|max:150',
             'contact_type_id' => 'nullable|exists:contact_types,id',
             'notes'           => 'nullable|string|max:1000',
+            // Duplicate bypass fields
+            'bypass_duplicate_check' => 'nullable|boolean',
+            'override_reason'        => 'nullable|string|max:500',
         ]);
 
-        // Duplicate check — email or phone already exists under a different contact
-        $duplicate = Contact::with('createdBy')
-            ->where(function ($q) use ($data) {
-                $q->where('phone', $data['phone']);
-                if (!empty($data['email'])) {
-                    $q->orWhere('email', $data['email']);
-                }
-            })
-            ->first();
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId() ?? 1;
+        $service = app(ContactDuplicateService::class);
 
-        if ($duplicate) {
-            $ownerName = optional($duplicate->createdBy)->name ?? 'another agent';
-            $field     = $duplicate->phone === $data['phone'] ? 'phone number' : 'email address';
-            return back()->withInput()->withErrors([
-                'phone' => "This contact's {$field} already exists under a contact created by {$ownerName}.",
-            ]);
+        // Skip duplicate check if explicitly bypassed (user already chose "create anyway")
+        if (empty($data['bypass_duplicate_check'])) {
+            $duplicates = $service->findDuplicates($data, $agencyId);
+
+            if ($duplicates->isNotEmpty()) {
+                $mode = $service->resolveMode($agencyId);
+                $match = $service->identifyMatch($data, $duplicates->first(), $agencyId);
+
+                // auto_link: silently redirect to existing contact
+                if ($mode === 'auto_link') {
+                    $existing = $duplicates->first();
+                    $service->logAttempt(
+                        $agencyId, $user->id, $mode,
+                        $match['field'], $match['value'],
+                        $existing->id, $data, 'auto_linked'
+                    );
+                    return redirect()->route('corex.contacts.show', $existing)
+                        ->with('info', 'Existing contact found and linked automatically.');
+                }
+
+                // Return 422 with duplicates for modal display
+                if ($request->wantsJson() || $request->ajax()) {
+                    return response()->json([
+                        'duplicates' => $duplicates->map(fn($c) => [
+                            'id' => $c->id,
+                            'name' => $c->full_name,
+                            'phone' => $mode === 'hard_block_request' ? null : $c->phone,
+                            'email' => $mode === 'hard_block_request' ? null : $c->email,
+                            'owner' => optional($c->createdBy)->name ?? 'Unknown',
+                            'url' => route('corex.contacts.show', $c),
+                        ]),
+                        'mode' => $mode,
+                        'match_field' => $match['field'],
+                        'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
+                    ], 422);
+                }
+
+                // Non-AJAX fallback: redirect back with duplicate info in session
+                return back()->withInput()->with('duplicate_detected', [
+                    'duplicates' => $duplicates->map(fn($c) => [
+                        'id' => $c->id,
+                        'name' => $c->full_name,
+                        'phone' => $mode === 'hard_block_request' ? null : $c->phone,
+                        'email' => $mode === 'hard_block_request' ? null : $c->email,
+                        'owner' => optional($c->createdBy)->name ?? 'Unknown',
+                        'url' => route('corex.contacts.show', $c),
+                    ])->toArray(),
+                    'mode' => $mode,
+                    'match_field' => $match['field'],
+                    'can_override' => $mode === 'hard_block_override' && in_array($user->effectiveRole(), ['admin', 'super_admin', 'owner']),
+                ]);
+            }
+        } else {
+            // Bypassed — log the override
+            $mode = $service->resolveMode($agencyId);
+            $actionTaken = !empty($data['override_reason']) ? 'override_with_reason' : 'created_anyway';
+            $service->logAttempt(
+                $agencyId, $user->id, $mode,
+                'bypass', '', null, $data, $actionTaken, $data['override_reason'] ?? null
+            );
         }
 
-        $data['created_by_user_id'] = auth()->id();
+        // Remove bypass fields before creating
+        unset($data['bypass_duplicate_check'], $data['override_reason']);
+        $data['created_by_user_id'] = $user->id;
+        $data['branch_id'] = $user->branch_id
+            ?? \DB::table('branches')->where('agency_id', $agencyId)->min('id')
+            ?? 1;
 
-        Contact::create($data);
+        $contact = Contact::create($data);
 
         return redirect()->route('corex.contacts.index')->with('success', 'Contact added successfully.');
     }
@@ -211,13 +404,32 @@ class ContactController extends Controller
             'bank_branch_name'    => 'nullable|string|max:255',
             'bank_branch_code'    => 'nullable|string|max:50',
             'bank_account_type'   => 'nullable|string|max:50',
+            // Financial position — buyer pre-approval (spec D3).
+            'preapproval_amount'      => 'nullable|numeric|min:0',
+            'preapproval_expires_at'  => 'nullable|date',
+            'preapproval_institution' => 'nullable|string|max:100',
         ]);
 
         $tagIds = $data['tag_ids'] ?? [];
         unset($data['tag_ids']);
 
         $contact->update($data);
+        $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();
         $contact->tags()->sync($tagIds);
+
+        // Domain event — ContactTagged for each newly attached tag.
+        // Spec: .ai/specs/corex-domain-events-spec.md
+        $newlyAttached = array_diff(array_map('intval', $tagIds), array_map('intval', $previousTagIds));
+        if (!empty($newlyAttached)) {
+            $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
+            foreach ($newlyAttached as $tagId) {
+                event(new \App\Events\Contact\ContactTagged(
+                    contact: $contact,
+                    tag: (string) ($tagNames[$tagId] ?? $tagId),
+                    actorUserId: auth()->id(),
+                ));
+            }
+        }
 
         // Redirect to show page if coming from there, otherwise index
         if ($request->has('_from_show')) {
@@ -262,6 +474,38 @@ class ContactController extends Controller
         return redirect()->route('corex.contacts.index')->with('success', 'Contact deleted.');
     }
 
+    public function recordConsent(Request $request, Contact $contact)
+    {
+        $request->validate([
+            'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
+            'method' => 'nullable|in:verbal,written,electronic,signed_document',
+        ]);
+
+        $contact->recordConsent(
+            $request->input('consent_type'),
+            $request->input('method', 'electronic'),
+            auth()->id()
+        );
+
+        return back()->with('success', 'Consent recorded.')->with('tab', 'consent');
+    }
+
+    public function revokeConsent(Request $request, Contact $contact)
+    {
+        $request->validate([
+            'consent_type' => 'required|in:fica_processing,marketing_communications,data_sharing,channel_email,channel_sms,channel_whatsapp,channel_call',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $contact->revokeConsent(
+            $request->input('consent_type'),
+            auth()->id(),
+            $request->input('reason')
+        );
+
+        return back()->with('success', 'Consent revoked.')->with('tab', 'consent');
+    }
+
     public function destroyAll()
     {
         $count = Contact::withTrashed()->count();
@@ -280,7 +524,22 @@ class ContactController extends Controller
             'tag_ids.*' => 'integer|exists:contact_tags,id',
         ]);
 
-        $contact->tags()->sync($data['tag_ids'] ?? []);
+        $newTagIds = $data['tag_ids'] ?? [];
+        $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();
+        $contact->tags()->sync($newTagIds);
+
+        // Domain event — ContactTagged for each newly attached tag.
+        $newlyAttached = array_diff(array_map('intval', $newTagIds), array_map('intval', $previousTagIds));
+        if (!empty($newlyAttached)) {
+            $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
+            foreach ($newlyAttached as $tagId) {
+                event(new \App\Events\Contact\ContactTagged(
+                    contact: $contact,
+                    tag: (string) ($tagNames[$tagId] ?? $tagId),
+                    actorUserId: auth()->id(),
+                ));
+            }
+        }
 
         return redirect()->route('corex.contacts.show', $contact)->with('success', 'Tags updated.');
     }
@@ -290,16 +549,17 @@ class ContactController extends Controller
     private function agentList(): \Illuminate\Support\Collection
     {
         /** @var User $user */
-        $user  = auth()->user();
-        $role  = $user->effectiveRole();
+        $user      = auth()->user();
+        $dataScope = PermissionService::getDataScope($user, 'contacts');
+
         $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
 
-        if ($role === 'branch_manager') {
+        if ($dataScope === 'branch') {
             $branchId = $user->effectiveBranchId();
             if ($branchId) {
                 $query->where('branch_id', $branchId);
             }
-        } elseif (! in_array($role, ['super_admin', 'admin'])) {
+        } elseif ($dataScope !== 'all') {
             $query->where('id', $user->id);
         }
 

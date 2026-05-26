@@ -124,6 +124,7 @@ class ProspectingApiController extends Controller
 
                 $existing->save();
                 $this->assignPropertyGroup($existing, $agencyId);
+                $this->linkToTrackedProperty($existing, $agencyId, $user->id);
                 $updated++;
             } else {
                 $listing = ProspectingListing::create([
@@ -150,6 +151,7 @@ class ProspectingApiController extends Controller
                 ]);
 
                 $this->assignPropertyGroup($listing, $agencyId);
+                $this->linkToTrackedProperty($listing, $agencyId, $user->id);
 
                 if (!empty($data['thumbnail_url'])) {
                     DownloadListingThumbnail::dispatch($listing, $data['thumbnail_url']);
@@ -204,6 +206,65 @@ class ProspectingApiController extends Controller
                 ->where('normalized_address', $normalized)
                 ->whereNull('property_group_id')
                 ->update(['property_group_id' => $listing->property_group_id]);
+        }
+    }
+
+    /**
+     * Universal Match-or-Create: every prospecting listing (P24 + PP, both Chrome-ext
+     * captured) contributes to the Tracked Property universe. Failure-isolated so a
+     * TP write blip never breaks the listing ingest.
+     *
+     * Spec: CLAUDE.md HARD RULE #10 (Universal Match-or-Create Rule, 2026-05-14).
+     */
+    private function linkToTrackedProperty(ProspectingListing $listing, int $agencyId, ?int $actorUserId): void
+    {
+        try {
+            $service = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
+
+            // Street parsing best-effort. The matcher tolerates nulls — when a P24
+            // alert hides the address, source-ref matching (portal_source + portal_ref)
+            // is the dominant signal anyway.
+            $streetNumber = null;
+            $streetName   = null;
+            $addr = trim((string) ($listing->address ?? ''));
+            if ($addr !== '' && $addr !== 'Address not available'
+                && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
+                $streetNumber = $m[1];
+                $streetName   = $m[2];
+            }
+
+            $tp = $service->matchOrCreate(
+                agencyId: $agencyId,
+                facts: array_filter([
+                    'address'                 => $addr !== '' && $addr !== 'Address not available' ? $addr : null,
+                    'street_number'           => $streetNumber,
+                    'street_name'             => $streetName,
+                    'suburb'                  => $listing->suburb !== '' ? $listing->suburb : null,
+                    'property_type'           => $listing->property_type,
+                    'bedrooms'                => $listing->bedrooms,
+                    'bathrooms'               => $listing->bathrooms,
+                    'garages'                 => $listing->garages,
+                    'floor_size_m2'           => $listing->property_size_m2,
+                    'erf_size_m2'             => $listing->erf_size_m2,
+                    'last_known_asking_price' => $listing->price,
+                ], fn ($v) => $v !== null && $v !== ''),
+                source: [
+                    'type'    => (string) $listing->portal_source,
+                    'ref'     => (string) $listing->portal_ref,
+                    'payload' => ['prospecting_listing_id' => $listing->id],
+                ],
+                actorUserId: $actorUserId,
+            );
+
+            if ($tp && (int) ($listing->tracked_property_id ?? 0) !== (int) $tp->id) {
+                $listing->tracked_property_id = $tp->id;
+                $listing->save();
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('TrackedProperty link from prospecting ingest failed', [
+                'prospecting_listing_id' => $listing->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

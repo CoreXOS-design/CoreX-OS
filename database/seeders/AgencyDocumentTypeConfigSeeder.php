@@ -18,7 +18,6 @@ class AgencyDocumentTypeConfigSeeder extends Seeder
                 'has_expiry'             => true,
                 'renewal_days'           => 60,
                 'required'               => true,
-                'allows_branch_override' => true,
                 'sort_order'             => 1,
             ],
             [
@@ -27,7 +26,6 @@ class AgencyDocumentTypeConfigSeeder extends Seeder
                 'has_expiry'             => true,
                 'renewal_days'           => 14,
                 'required'               => true,
-                'allows_branch_override' => false,
                 'sort_order'             => 2,
             ],
             [
@@ -36,7 +34,6 @@ class AgencyDocumentTypeConfigSeeder extends Seeder
                 'has_expiry'             => true,
                 'renewal_days'           => 30,
                 'required'               => false,
-                'allows_branch_override' => false,
                 'sort_order'             => 3,
             ],
             [
@@ -45,7 +42,6 @@ class AgencyDocumentTypeConfigSeeder extends Seeder
                 'has_expiry'             => false,
                 'renewal_days'           => null,
                 'required'               => true,
-                'allows_branch_override' => false,
                 'sort_order'             => 4,
             ],
             [
@@ -54,7 +50,6 @@ class AgencyDocumentTypeConfigSeeder extends Seeder
                 'has_expiry'             => false,
                 'renewal_days'           => null,
                 'required'               => false,
-                'allows_branch_override' => false,
                 'sort_order'             => 5,
             ],
         ];

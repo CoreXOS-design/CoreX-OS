@@ -44,7 +44,12 @@ class RoleManagerController extends Controller
             if ($agencyId) {
                 $q->where(fn ($q2) => $q2->where('agency_id', $agencyId)->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId)));
             }
-        }])->orderBy('sort_order')->get();
+        }])
+            // Hide owner roles from the Role Manager UI — they're platform
+            // identities and bypass permission checks. They still exist in the
+            // DB and continue to function; just not editable from this screen.
+            ->where('is_owner', false)
+            ->orderBy('sort_order')->get();
 
         $users = User::agencyMembers()
             ->where('is_active', 1)
@@ -96,6 +101,7 @@ class RoleManagerController extends Controller
             'settings'         => 'Settings',
             'roles'            => 'Role Manager',
             'data_scope'       => 'Data Scope',
+            'sidebar'          => 'Sidebar',
         ];
 
         $sectionLabels = [
@@ -128,6 +134,7 @@ class RoleManagerController extends Controller
             'settings'               => 'Settings & Roles',
             'role-manager'           => 'Settings & Roles',
             'data-scope'             => 'Data Scope',
+            'sidebar'                => 'Sidebar',
         ];
 
         $matrixSections = [];

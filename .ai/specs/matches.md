@@ -101,6 +101,34 @@ Weighted score (sum to 100):
 
 Score < 40 → not surfaced. 40-60 → surfaced as "weak". 60-80 "good". 80+ "strong".
 
+## 5.1 Relaxed Matching & Tiers (added 2026-05-22)
+
+Core Matches no longer show only exact (100%) matches. `MatchingService::propertiesForMatch()`
+runs in **relaxed mode by default**: the numeric criteria are widened into a tolerance band
+in SQL so a near-miss survives to the scoring stage, where `score()` decays it.
+
+| Criterion | Hard / Relaxed | Relaxed band |
+|---|---|---|
+| `listing_type` | HARD | never relaxed — sale ≠ rental |
+| property `status` | HARD | sold / draft / withdrawn etc. always excluded |
+| suburb (`p24_suburb_id`) | HARD | buyer's chosen suburb(s) only |
+| `must_have_features` | HARD | score() returns 0 if any missing |
+| price_min / price_max | Relaxed | ±30% band |
+| beds_min / baths_min / garages_min | Relaxed | allow 1 short |
+| floor / erf size | Relaxed | ±30% band |
+
+After scoring, anything below **`MIN_SCORE_TO_DISPLAY` = 50** is dropped. Each surfaced
+property carries `match_score` (0-100) and `match_tier`:
+
+- `strong` — score ≥ 80
+- `good`   — score 65-79
+- `fair`   — score 50-64
+
+`ClientMatchResolver` is now a thin facade over `MatchingService` — one scorer, one
+filter implementation for the agent web page, agent mobile app, buyer portal and the
+public shared page. Pass `['relaxed' => false]` to `propertiesForMatch()` for the legacy
+exact-bound behaviour.
+
 ## 6. Flow — Property-Triggered (the new behaviour)
 
 ```

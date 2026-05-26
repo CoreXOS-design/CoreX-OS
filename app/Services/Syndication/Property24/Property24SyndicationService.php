@@ -3,6 +3,7 @@
 namespace App\Services\Syndication\Property24;
 
 use App\Exceptions\Property24ConfigurationException;
+use App\Models\Agency;
 use App\Models\Property;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
@@ -19,8 +20,67 @@ class Property24SyndicationService
         $this->mapper = $mapper;
     }
 
+    /**
+     * Rebind $this->client to a fresh ApiClient scoped to the given agency's
+     * stored P24 credentials. Without this, the DI-resolved client falls back
+     * to .env — which is now empty in multi-tenant mode and yields HTTP 401.
+     */
+    private function bindClientForAgency(?Agency $agency): void
+    {
+        $this->client = new Property24ApiClient($agency);
+    }
+
+    private function bindClientForProperty(Property $property): void
+    {
+        $this->bindClientForAgency($property->agency ?? Agency::find($property->agency_id));
+    }
+
+    private function bindClientForUser(User $user): void
+    {
+        $this->bindClientForAgency($user->agency ?? Agency::find($user->agency_id));
+    }
+
+    /**
+     * Persist the P24 listingNumber as a TrackedProperty external ref so that
+     * subsequent ingress paths (e.g. P24 lead pull) can resolve back to this
+     * stock Property via TrackedPropertyMatchOrCreateService. Best-effort —
+     * any failure here must not break syndication.
+     */
+    private function writeP24ExternalRef(Property $property, string $listingNumber): void
+    {
+        try {
+            $svc = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
+            $facts = array_filter([
+                'address'       => $property->address ?? null,
+                'suburb'        => $property->suburb ?? null,
+                'latitude'      => $property->latitude ?? null,
+                'longitude'     => $property->longitude ?? null,
+                'property_type' => $property->property_type ?? null,
+                'bedrooms'      => $property->bedrooms ?? null,
+                'bathrooms'     => $property->bathrooms ?? null,
+                'garages'       => $property->garages ?? null,
+            ], fn ($v) => $v !== null && $v !== '');
+
+            $tracked = $svc->matchOrCreate(
+                agencyId: (int) $property->agency_id,
+                facts: $facts,
+                source: ['type' => 'property24', 'ref' => $listingNumber, 'payload' => ['property_id' => $property->id]],
+                actorUserId: null,
+            );
+
+            // Bind the tracked property to this stock property if not already.
+            if (empty($tracked->promoted_to_property_id)) {
+                $tracked->promoted_to_property_id = $property->id;
+                $tracked->save();
+            }
+        } catch (\Throwable $e) {
+            $this->log('warning', "writeP24ExternalRef failed for property #{$property->id}: {$e->getMessage()}");
+        }
+    }
+
     public function submitListing(Property $property): array
     {
+        $this->bindClientForProperty($property);
         $this->log('info', "submitListing called for property #{$property->id}, agent_id={$property->agent_id}");
 
         // Resolve the P24 agency ID up-front so agent registration and the
@@ -96,6 +156,14 @@ class Property24SyndicationService
 
         $property->update($updateData);
 
+        // Audit chain (CLAUDE.md rule #10): record the P24 listingNumber as an
+        // external ref on the Tracked Property so future ingress paths (e.g.
+        // P24 lead pull) can resolve back to this Property without touching
+        // syndication code. Best-effort — never break syndication on failure.
+        if (!empty($updateData['p24_ref'])) {
+            $this->writeP24ExternalRef($property, (string) $updateData['p24_ref']);
+        }
+
         $this->log('info', "Listing submitted for property #{$property->id}", [
             'p24_status' => $updateData['p24_syndication_status'],
             'p24_ref'    => $updateData['p24_ref'] ?? null,
@@ -115,6 +183,7 @@ class Property24SyndicationService
             return ['success' => false, 'message' => 'No P24 reference — listing was never submitted'];
         }
 
+        $this->bindClientForProperty($property);
         $result = $this->client->setListingStatus($property->id, (int) $property->p24_ref, 'Withdrawn');
 
         if (!$result['success']) {
@@ -133,6 +202,7 @@ class Property24SyndicationService
             return ['success' => false, 'message' => 'No P24 reference — listing was never submitted'];
         }
 
+        $this->bindClientForProperty($property);
         $result = $this->client->setListingStatus($property->id, (int) $property->p24_ref, 'BackOnMarket');
 
         if (!$result['success']) {
@@ -151,6 +221,7 @@ class Property24SyndicationService
             return ['success' => false, 'message' => 'No P24 reference — cannot check status'];
         }
 
+        $this->bindClientForProperty($property);
         $result = $this->client->isOnPortal($property->id, (int) $property->p24_ref);
 
         if (!$result['success']) {
@@ -219,6 +290,7 @@ class Property24SyndicationService
      */
     public function ensureAgentRegisteredByUser(User $user, ?int $p24AgencyId = null): string|bool
     {
+        $this->bindClientForUser($user);
         $this->log('info', "ensureAgentRegistered for user #{$user->id} ({$user->name}), agent_photo_path=" . ($user->agent_photo_path ?? 'NULL'));
 
         $agencyId = $p24AgencyId ?? $this->resolveAgencyIdForUser($user);
@@ -305,6 +377,7 @@ class Property24SyndicationService
      */
     public function getP24AgentId(User $user, ?int $p24AgencyId = null): ?int
     {
+        $this->bindClientForUser($user);
         $agencyId = $p24AgencyId ?? $this->resolveAgencyIdForUser($user);
         $result   = $this->client->getAgents($agencyId !== null ? (string) $agencyId : null);
         if (!$result['success']) return null;
@@ -325,6 +398,7 @@ class Property24SyndicationService
      */
     public function updateAgentOnP24(User $user, bool $pushPhoto = true): bool|string
     {
+        $this->bindClientForUser($user);
         $agencyId = $this->resolveAgencyIdForUser($user);
         if ($agencyId === null) {
             return "User's branch or agency has no Property24 agency ID configured.";

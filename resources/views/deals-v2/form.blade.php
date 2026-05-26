@@ -31,7 +31,7 @@
 
         <div class="p-4 lg:p-6 max-w-5xl mx-auto">
             @if($errors->any())
-                <div class="mb-4 p-3 rounded-lg text-sm" style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #f87171;">
+                <div class="mb-4 p-3 rounded-lg text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: #f87171;">
                     @foreach($errors->all() as $error)<div>{{ $error }}</div>@endforeach
                 </div>
             @endif

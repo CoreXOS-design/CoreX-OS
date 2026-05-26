@@ -6,8 +6,11 @@ use App\Models\Agency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class AgencyDashboardSetting extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
         'agency_id',
         'idle_alerts_enabled', 'idle_threshold_days', 'idle_alert_day', 'idle_alert_time',

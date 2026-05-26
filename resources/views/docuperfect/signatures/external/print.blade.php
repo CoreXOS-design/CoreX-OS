@@ -13,7 +13,7 @@
             margin: 0;
             padding: 0;
             background: #f1f5f9;
-            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
         }

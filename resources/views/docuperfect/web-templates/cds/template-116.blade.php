@@ -3,54 +3,121 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MARKETING PERMISSION</title>
+    <title>Marketing Permission v11</title>
     <link href="/css/corex-document.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-<div class="corex-document-wrapper">
+@php
+    // Resolve agency for template body — same logic as company-header component
+    $agency = null;
+    if (isset($previewAgency)) {
+        $agency = $previewAgency;
+    } elseif (isset($branch)) {
+        $agency = $branch->agency;
+    } elseif (Auth::check()) {
+        $branchId = Auth::user()->effectiveBranchId();
+        if ($branchId) {
+            $b = \App\Models\Branch::with('agency')->find($branchId);
+            $agency = $b?->agency;
+        }
+    }
+    if (!$agency) {
+        $agency = \App\Models\Agency::where('slug', 'hfc-coastal')->first();
+    }
+@endphp
+
+<div class="corex-document-wrapper" data-template-id="116">
 <div class="corex-page">
 
-@include("docuperfect.web-templates.components.company-header")
+@include('docuperfect.web-templates.components.company-header')
 
-<div class="corex-h1">MARKETING PERMISSION</div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">I / We <span class="corex-field-value" data-field="contact_full_names">{{ $contact_full_names ?? '' }}</span></span> the undersigned, being the registered owner/s, or duly authorised representative/s of the Lessor of the</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text"> Property Erf / Sectional Scheme / Unit no <span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span>in the Complex / Estate known as</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text"><span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span> in <span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">(Street) in <span class="corex-field-value" data-field="deal_amount_words">{{ $deal_amount_words ?? '' }}</span></span> (Township) <span class="corex-field-value" data-field="property_district">{{ $property_district ?? '' }}</span></span> (District) together with all fixtures and fittings of a permanent nature pertaining to the property, do hereby, irrevocably, grant to Home Finders Coastal the marketing permission, right and authority to rent the abovementioned property.</span></div>
-<div class="corex-h1">1. &nbsp;DOMICILUM CITANDI ET EXECUTANDI</div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Lessor 1:  </span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Physical address <span class="corex-field-value" data-field="contact_address">{{ $contact_address ?? '' }}</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Tel:<strong> </strong><span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span><strong> </strong>Email: <span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Lessor 2:  </span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Physical address <span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Tel: <span class="corex-field-value" data-field="contact_phone">{{ $contact_phone ?? '' }}</span></span><strong> </strong>Email: <span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-2"><span class="corex-clause-number">1.1</span> <span class="corex-clause-text">The rental amount required by the owner of the property is R<span class="corex-field-value" data-field="deal_amount">{{ $deal_amount ?? '' }}</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text"> (<span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span>) </span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Which includes Agencies commission of <span class="corex-field-value" data-field="deal_commission_percent">{{ $deal_commission_percent ?? '' }}</span></span> ( <span class="corex-field-value" data-field="deal_commission_percent">{{ $deal_commission_percent ?? '' }}</span></span> %) plus VAT</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">The Lessor hereby gives consent to Home Finders Coastal to place a “To Let” board on the Property.</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Other:<strong> </strong><span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">@include("docuperfect.web-templates.components.signature-line")</span></span></div>
-<table class="corex-table"><tbody><tr><td>Johan and Elize Properties T/AThe Emporium 5, Corner Kings Road &amp; Marine Drive, Shelly Beach                                                       Fax No: 086 514 7632     Reg no:   2017/431318/07                                                                                                                            FFC: 202615038880000Email Address:    @hfcoastal.co.za                                                                                                FIC AI/180629/0000019Vat: 4630287821                Elize Reichel Cell:  071 351 0291                                                                                              Johan Reichel Cell: 076 618 5578</td></tr></tbody></table><div class="corex-h2">Addendum A – Service Fee</div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">The parties hereby agree that the agent will be responsible for the following:</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">1.  Source a 	lessee</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">2.  Negotiate a rental contract 	</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">3.  Secure deposit	</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">4.  Secure first month’s rental	</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">5.  Report on defects to the lessor	</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">6.  Collect the monthly rental	</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">7.  Ongoing liaison with the lessee	</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">8.      Collect the monthly Municipal/Eskom account from lessor and pay over to the selected person.</span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">The Agent shall earn an ongoing Service Fee equal to 10 %( plus vat) of the monthly rental for the duration of the lease and any extension thereof.</span></div>
-<div class="corex-h2">Breakdown</div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Total Rental Amount 				<span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Less Agent’s Service Fee (Including VAT)	<span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Let’s Assist 					<span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Net Amount to Lessor				<span class="corex-field-value" style="border-bottom:1px solid #333; min-width:80pt; display:inline-block;">&nbsp;</span></span></span></div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">@include("docuperfect.web-templates.components.signature-line")</span></span></div>
+<div class="corex-title-banner">
+    <h1 class="corex-doc-title">MARKETING PERMISSION</h1>
+    <p class="corex-doc-subtitle">Sign this so we can legally market your property.</p>
+</div>
 
+<table class="corex-table mp-detail-table">
+    <tbody>
+        <tr>
+            <td class="mp-row-label">Property</td>
+            <td>
+                <div class="mp-detail-grid">
+                    <div>Erf / Unit: <span class="corex-field" data-field="property.erf">{{ $property_erf ?? '' }}</span></div>
+                    <div>Street address: <span class="corex-field" data-field="property.street_address">{{ $property_street_address ?? '' }}</span></div>
+                    <div>Suburb / Complex: <span class="corex-field" data-field="property.suburb">{{ $property_suburb ?? '' }}</span></div>
+                    <div>District: <span class="corex-field" data-field="property.district">{{ $property_district ?? '' }}</span></div>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td class="mp-row-label">Owner 1</td>
+            <td>
+                <div class="mp-detail-grid">
+                    <div>Name: <span class="corex-field" data-field="owner_1.full_name">{{ $owner_1_full_name ?? '' }}</span></div>
+                    <div>ID: <span class="corex-field" data-field="owner_1.id_number">{{ $owner_1_id_number ?? '' }}</span></div>
+                    <div>Cell: <span class="corex-field" data-field="owner_1.cell">{{ $owner_1_cell ?? '' }}</span></div>
+                    <div>Email: <span class="corex-field" data-field="owner_1.email">{{ $owner_1_email ?? '' }}</span></div>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td class="mp-row-label">Owner 2</td>
+            <td>
+                <div class="mp-detail-grid">
+                    <div>Name: <span class="corex-field" data-field="owner_2.full_name">{{ $owner_2_full_name ?? '' }}</span></div>
+                    <div>ID: <span class="corex-field" data-field="owner_2.id_number">{{ $owner_2_id_number ?? '' }}</span></div>
+                    <div>Cell: <span class="corex-field" data-field="owner_2.cell">{{ $owner_2_cell ?? '' }}</span></div>
+                    <div>Email: <span class="corex-field" data-field="owner_2.email">{{ $owner_2_email ?? '' }}</span></div>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td class="mp-row-label">Terms</td>
+            <td>
+                <div class="mp-terms-checkboxes" data-field="terms.transaction_type">
+                    <label><input type="checkbox" value="sale" {{ ($terms_transaction_type ?? '') === 'sale' ? 'checked' : '' }}> Sale</label>
+                    <label><input type="checkbox" value="lease" {{ ($terms_transaction_type ?? '') === 'lease' ? 'checked' : '' }}> Letting</label>
+                </div>
+                <div class="mp-detail-grid">
+                    <div>Price / Rental: R <span class="corex-field" data-field="terms.price">{{ $terms_price ?? '' }}</span></div>
+                    <div>Commission: <span class="corex-field" data-field="terms.commission_pct">{{ $terms_commission_pct ?? '' }}</span> %</div>
+                </div>
+            </td>
+        </tr>
+    </tbody>
+</table>
 
-@include("docuperfect.web-templates.components.signature-block", ["parties" => ["Lessor", "Agent"]])
+<div class="corex-clause">
+    <span class="corex-clause-text">
+        This is an <strong>OPEN MARKETING PERMISSION</strong> &mdash; you may list with other agents
+        at the same time. The property remains on the market until it is sold or let, or until
+        either party cancels on <strong>7 DAYS&rsquo; WRITTEN NOTICE</strong> (email or WhatsApp is
+        fine). Commission is only payable if {{ $agency->trading_name ?? '' }} is the effective cause
+        of a successful sale or lease, and is paid on transfer / lease commencement. We will market the
+        property only at the price agreed above. We will not act with power of attorney on your behalf,
+        and you are not obliged to use any conveyancer or service provider we recommend.
+    </span>
+</div>
+
+<div class="corex-ffc-warranty">
+    {{ $agency->trading_name ?? '' }} hereby warrants the validity of his/her/its Fidelity Fund
+    Certificate as at the date of signature of this Agreement.
+</div>
+
+<div class="corex-clause">
+    <span class="corex-clause-text corex-text-small">
+        <strong>ATTACHMENTS:</strong> Signed together with the Mandatory Disclosure Form (PPA s67) and
+        your FICA documents &mdash; marketing only begins once all three are complete.
+        <strong>POPIA:</strong> Information processed for this property&rsquo;s marketing, retained
+        5 years per law.
+        @if($agency->popi_url)
+            Privacy policy: {{ $agency->popi_url }}
+        @endif
+    </span>
+</div>
+
+@include('docuperfect.web-templates.components.signature-block', ['parties' => ['Seller', 'Agent']])
 
 </div>
 </div>

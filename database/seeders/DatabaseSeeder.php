@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\DevSetting;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -32,6 +33,10 @@ class DatabaseSeeder extends Seeder
         // Sync permissions from config/corex-permissions.php (with defaults for fresh install)
         Artisan::call('corex:sync-permissions', ['--seed-defaults' => true]);
 
+        // Re-enable demo mode after every reseed — the wipe empties dev_settings,
+        // and DemoLoginController::isEnabled() defaults to false without this row.
+        DevSetting::set('demo_mode_enabled', '1');
+
         // Call all other seeders
         $this->call([
             MultiDemoSeeder::class,
@@ -40,7 +45,13 @@ class DatabaseSeeder extends Seeder
             DepositTrustInterestSeeder::class,
             DealPipelineTemplateSeeder::class,
             AgencyDocumentTypeConfigSeeder::class,
-            NotificationEventTypeSeeder::class,
+            PayrollSeeder::class,
+            // NotificationEventTypeSeeder::class, // file missing - removed
+            PublicHolidaySeeder::class,
+            LeaveTypeSeeder::class,
+            ProspectingSetupSeeder::class,
+            SellerOutreachTemplatesSeeder::class,
+            SuggestedActionThresholdsSeeder::class,
         ]);
     }
 }

@@ -95,19 +95,25 @@ class PrivatePropertySyndicationService
             $updateData['pp_images_last_synced_at'] = now();
         }
 
-        // Extract PP references from response if present
-        if (isset($result['ListingFeedRef'])) {
-            $updateData['pp_listing_feed_ref'] = $result['ListingFeedRef'];
+        // Extract PP references from response. PHP SoapClient typically wraps
+        // the body in `{UpdateListingResult: {...}}`, and PP sometimes embeds
+        // the payload as raw XML inside an `any` element (same pattern used by
+        // `GetAllAgentsForBranchResult` — see ensureNoDuplicateBeforeUpdateAgent
+        // below). Walk all known wrapper shapes before giving up.
+        $listingFeedRef = $this->extractFromSoapResponse($result, 'UpdateListing', ['ListingFeedRef']);
+        $ppRef          = $this->extractFromSoapResponse($result, 'UpdateListing', ['PPRef']);
+        $delayUntil     = $this->extractFromSoapResponse($result, 'UpdateListing', ['DelayListingOnOtherWebsitesUntil']);
+
+        if ($listingFeedRef !== null) {
+            $updateData['pp_listing_feed_ref'] = $listingFeedRef;
         }
-        if (isset($result['PPRef'])) {
-            $updateData['pp_ref'] = $result['PPRef'];
+        if ($ppRef !== null) {
+            $updateData['pp_ref'] = $ppRef;
             $updateData['pp_syndication_status'] = 'active';
             $updateData['pp_activated_at'] = now();
         }
-
-        // Extract delay info from response
-        if (isset($result['DelayListingOnOtherWebsitesUntil'])) {
-            $updateData['pp_delay_until'] = $result['DelayListingOnOtherWebsitesUntil'];
+        if ($delayUntil !== null) {
+            $updateData['pp_delay_until'] = $delayUntil;
         }
 
         $property->update($updateData);
@@ -128,11 +134,51 @@ class PrivatePropertySyndicationService
             $this->log('warning', "Agent image auto-submit failed for property #{$property->id}: {$e->getMessage()}");
         }
 
+        // Auto-push YouTube video / Matterport after a successful submit so the
+        // "Refresh to portal" button sends everything in one action. PP carries
+        // video via a separate method (UpdateListingVideoOrMatterport) that only
+        // works post-publish, so this is best-effort: a failure here (e.g. the
+        // PP listing UUID has not arrived via the Event Feed yet) must NOT fail
+        // the listing submit itself — the video re-pushes on the next refresh
+        // or when the Activated event populates pp_listing_feed_ref.
+        $videoOutcome = null; // null = nothing to push; otherwise ['success'=>bool,'message'=>string]
+        try {
+            $fresh = $property->fresh();
+            if (!empty($fresh->youtube_video_id) || !empty($fresh->matterport_id)) {
+                $videoResult  = $this->pushVideoOrMatterport($fresh);
+                $videoOutcome = [
+                    'success' => (bool) ($videoResult['success'] ?? false),
+                    'message' => $videoResult['message'] ?? '',
+                ];
+                $this->log(
+                    $videoOutcome['success'] ? 'info' : 'warning',
+                    "Auto-push video/Matterport for property #{$property->id}: " . $videoOutcome['message']
+                );
+            }
+        } catch (\Throwable $e) {
+            $videoOutcome = ['success' => false, 'message' => 'Video push error: ' . $e->getMessage()];
+            $this->log('warning', "Video/Matterport auto-push failed for property #{$property->id}: {$e->getMessage()}");
+        }
+
+        // Surface a video-push failure to the agent instead of swallowing it.
+        // The listing itself submitted successfully, but if the agent added a
+        // video and it did NOT reach PP, the Refresh action must say so —
+        // otherwise they see a green success and the video silently never
+        // appears (the original reported symptom).
+        $message = 'Listing submitted to Private Property';
+        if ($videoOutcome !== null && !$videoOutcome['success']) {
+            $message .= ' — but the video/Matterport did NOT sync: ' . $videoOutcome['message'];
+        } elseif ($videoOutcome !== null && $videoOutcome['success']) {
+            $message .= ' (video/Matterport synced)';
+        }
+
         return [
-            'success' => true,
-            'message' => 'Listing submitted to Private Property',
-            'status'  => $updateData['pp_syndication_status'],
-            'pp_ref'  => $updateData['pp_ref'] ?? null,
+            'success'       => true,
+            'message'       => $message,
+            'status'        => $updateData['pp_syndication_status'],
+            'pp_ref'        => $updateData['pp_ref'] ?? null,
+            'video_synced'  => $videoOutcome === null ? null : $videoOutcome['success'],
+            'video_message' => $videoOutcome['message'] ?? null,
         ];
     }
 
@@ -171,6 +217,16 @@ class PrivatePropertySyndicationService
 
     /**
      * Sync activation status from PP for a property.
+     *
+     * PP returns two distinct response shapes that we have to handle:
+     *
+     *   GetListingStatus       → {"GetListingStatusResult": "For Sale"}        (scalar string)
+     *   GetReferenceNumberByListing → {"GetReferenceNumberByListingResult": "T2870172"}  (scalar string)
+     *
+     * GetListingStatus by itself does NOT carry the PP ref — only the public
+     * status string ("For Sale", "To Let", "Sold", "Pending Offer", "Inactive").
+     * If the listing is live but we have no ref yet, we must follow up with a
+     * GetReferenceNumberByListing call.
      */
     public function syncActivationStatus(Property $property): array
     {
@@ -184,20 +240,62 @@ class PrivatePropertySyndicationService
             ];
         }
 
-        // Check for active status and PP ref
-        $ppRef  = $result['PPRef'] ?? $result['PropertyRef'] ?? $result['ListingRef'] ?? null;
-        $status = $result['Status'] ?? $result['PropertyStatus'] ?? null;
+        // Extract the status string. PP returns it as a scalar in
+        // GetListingStatusResult — but some sandbox calls may return a richer
+        // shape with an inner Status key, so handle both.
+        $rawStatus = $result['GetListingStatusResult'] ?? null;
+        $statusString = null;
+        $ppRefFromStatus = null;
+        if (is_string($rawStatus)) {
+            $statusString = trim($rawStatus);
+        } elseif (is_array($rawStatus)) {
+            $statusString = $rawStatus['Status'] ?? $rawStatus['PropertyStatus'] ?? null;
+            $ppRefFromStatus = $rawStatus['PPRef'] ?? $rawStatus['PropertyRef'] ?? $rawStatus['ListingRef'] ?? null;
+        }
 
-        if ($status === 'Active' && empty($property->pp_ref) && $ppRef) {
-            $property->update([
-                'pp_ref'                => $ppRef,
-                'pp_activated_at'       => now(),
-                'pp_syndication_status' => 'active',
+        // PP's literal "live" status strings — any of these mean the listing
+        // is published and we should have a ref for it.
+        $liveStatuses = ['For Sale', 'To Let', 'Pending Offer', 'Sold', 'Active'];
+        $isLive = $statusString !== null && in_array($statusString, $liveStatuses, true);
+
+        // If live and we don't have a ref yet, pull it via the dedicated
+        // GetReferenceNumberByListing method (GetListingStatus does not return one).
+        $ppRef = $ppRefFromStatus;
+        if ($isLive && empty($property->pp_ref) && empty($ppRef)) {
+            $listingType = in_array(strtolower($property->mandate_type ?? $property->listing_type ?? ''), ['rental']) ? 'Rental' : 'Sale';
+            $refResult = $this->client->getReferenceNumber((string) $property->id, $listingType);
+            if (!(isset($refResult['error']) && $refResult['error'] === true)) {
+                $rawRef = $refResult['GetReferenceNumberByListingResult'] ?? null;
+                if (is_string($rawRef) && trim($rawRef) !== '') {
+                    $ppRef = trim($rawRef);
+                } elseif (is_array($rawRef)) {
+                    $ppRef = $rawRef['PPRef'] ?? $rawRef['Ref'] ?? null;
+                }
+            }
+        }
+
+        // Compose update data based on what we observed.
+        $updateData = [];
+        if ($isLive) {
+            if ($property->pp_syndication_status !== 'active') {
+                $updateData['pp_syndication_status'] = 'active';
+            }
+            if (empty($property->pp_activated_at)) {
+                $updateData['pp_activated_at'] = now();
+            }
+        }
+        if ($ppRef && empty($property->pp_ref)) {
+            $updateData['pp_ref'] = $ppRef;
+        }
+
+        if (!empty($updateData)) {
+            $property->update($updateData);
+            $this->log('info', "Property #{$property->id} synced from PP", [
+                'pp_status'  => $statusString,
+                'pp_ref'     => $ppRef ?: $property->pp_ref,
+                'is_live'    => $isLive,
+                'changes'    => array_keys($updateData),
             ]);
-
-            $this->log('info', "Property #{$property->id} activated on PP with ref: {$ppRef}");
-        } elseif ($ppRef && empty($property->pp_ref)) {
-            $property->update(['pp_ref' => $ppRef]);
         }
 
         return [
@@ -206,6 +304,7 @@ class PrivatePropertySyndicationService
             'status'  => $property->fresh()->pp_syndication_status,
             'pp_ref'  => $property->fresh()->pp_ref,
             'pp_activated_at' => $property->fresh()->pp_activated_at?->toDateTimeString(),
+            'pp_listing_status' => $statusString,
         ];
     }
 
@@ -632,6 +731,58 @@ class PrivatePropertySyndicationService
 
         $this->log('info', "Agent #{$user->id} registered on PP", ['result' => $result]);
         return true;
+    }
+
+    /**
+     * Extract a value from a PP SOAP response, defensively walking common
+     * envelope shapes returned by PHP's SoapClient.
+     *
+     * Tried, in order, for each candidate key:
+     *   1. Top level                                 ($response[$key])
+     *   2. <Operation>Result wrapper                 ($response["{$op}Result"][$key])
+     *   3. <Operation>Response/<Operation>Result     ($response["{$op}Response"]["{$op}Result"][$key])
+     *   4. Generic `return` wrapper                  ($response['return'][$key])
+     *   5. Raw XML in `any` element                  (regex <Key>value</Key>)
+     *
+     * Returns the first non-empty string match, or null.
+     */
+    private function extractFromSoapResponse(array $response, string $operation, array $keys): ?string
+    {
+        $candidateContainers = [
+            $response,
+            $response["{$operation}Result"] ?? null,
+            ($response["{$operation}Response"]["{$operation}Result"] ?? null),
+            $response['return'] ?? null,
+        ];
+
+        foreach ($keys as $key) {
+            foreach ($candidateContainers as $container) {
+                if (!is_array($container)) continue;
+                if (isset($container[$key]) && is_scalar($container[$key])) {
+                    $val = trim((string) $container[$key]);
+                    if ($val !== '') return $val;
+                }
+            }
+        }
+
+        // Last resort: PP sometimes wraps the payload as raw XML in an `any`
+        // element on the *Result envelope (proven shape for GetAllAgents).
+        $xmlCandidates = [
+            $response["{$operation}Result"]['any'] ?? null,
+            ($response["{$operation}Response"]["{$operation}Result"]['any'] ?? null),
+            $response['any'] ?? null,
+        ];
+        foreach ($xmlCandidates as $xml) {
+            if (!is_string($xml) || $xml === '') continue;
+            foreach ($keys as $key) {
+                if (preg_match('/<' . preg_quote($key, '/') . '\b[^>]*>(.*?)<\/' . preg_quote($key, '/') . '>/s', $xml, $m)) {
+                    $val = trim($m[1]);
+                    if ($val !== '') return $val;
+                }
+            }
+        }
+
+        return null;
     }
 
     private function log(string $level, string $message, array $context = []): void

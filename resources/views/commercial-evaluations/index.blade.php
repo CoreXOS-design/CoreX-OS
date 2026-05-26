@@ -1,7 +1,7 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="w-full space-y-5">
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
@@ -25,8 +25,7 @@
             {{ $showArchived ? 'archived' : 'active' }} {{ Str::plural('evaluation', $evaluations->count()) }}
         </div>
         <form method="GET" action="{{ route('commercial-evaluations.index') }}" class="sm:ml-auto">
-            <select name="status" onchange="this.form.submit()" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select name="status" onchange="this.form.submit()" class="list-header-filter">
                 <option value="active" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="archived" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
             </select>

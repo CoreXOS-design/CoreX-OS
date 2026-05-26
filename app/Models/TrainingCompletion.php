@@ -6,7 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 
 class TrainingCompletion extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'user_id',
+        'course_id',
+        'completed_at',
+        'acknowledged_at',
+        'acknowledgement_signature',
+        'certificate_path',
+        'expires_at',
+    ];
 
     protected $casts = [
         'completed_at' => 'datetime',
