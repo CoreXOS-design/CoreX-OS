@@ -112,7 +112,7 @@ class OversightService
             ->limit(200)
             ->get();
 
-        return $rows->map(function ($n) use ($agentMap) {
+        return $rows->map(function ($n) use ($agentMap, $hours) {
             $agent = $agentMap[$n->notifiable_id] ?? null;
             $age = Carbon::parse($n->created_at)->diffInHours(now());
             return [

@@ -34,6 +34,11 @@ class P24ImapImportService
             return ['status' => 'error', 'message' => 'P24 IMAP credentials not configured in .env'];
         }
 
+        $agencyId = $this->resolveAgencyId();
+        if (!$agencyId) {
+            return ['status' => 'error', 'message' => 'No agency with p24_agency_id configured — cannot attribute imported listings.'];
+        }
+
         try {
             $manager = new ClientManager([
                 'default' => 'p24',
@@ -147,6 +152,7 @@ class P24ImapImportService
                             $updatedCount++;
                         } else {
                             P24Listing::create([
+                                'agency_id' => $agencyId,
                                 'p24_listing_number' => $data['p24_listing_number'],
                                 'asking_price' => $data['asking_price'],
                                 'property_type' => $data['property_type'],
@@ -166,6 +172,7 @@ class P24ImapImportService
                     }
 
                     P24ImportLog::create([
+                        'agency_id' => $agencyId,
                         'email_uid' => $uid,
                         'email_subject' => Str::limit($subject, 250),
                         'email_date' => $date,
@@ -180,6 +187,7 @@ class P24ImapImportService
                     $stats['updated'] += $updatedCount;
                 } catch (\Throwable $e) {
                     P24ImportLog::create([
+                        'agency_id' => $agencyId,
                         'email_uid' => $uid,
                         'email_subject' => Str::limit($subject ?: 'Unknown', 250),
                         'email_date' => now(),
@@ -196,6 +204,7 @@ class P24ImapImportService
 
         // Always log a run-level summary so "Last Import" updates on every run
         P24ImportLog::create([
+            'agency_id'        => $agencyId,
             'email_uid'        => 'run_' . now()->timestamp,
             'email_subject'    => sprintf('Import run: %d processed, %d new, %d updated, %d skipped, %d errors',
                 $stats['processed'], $stats['new'], $stats['updated'], $stats['skipped'], $stats['errors']),
@@ -207,5 +216,15 @@ class P24ImapImportService
         ]);
 
         return ['status' => 'success', 'stats' => $stats];
+    }
+
+    private function resolveAgencyId(): ?int
+    {
+        $id = \Illuminate\Support\Facades\DB::table('agencies')
+            ->whereNotNull('p24_agency_id')
+            ->orderBy('id')
+            ->value('id');
+
+        return $id ? (int) $id : null;
     }
 }
