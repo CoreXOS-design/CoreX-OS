@@ -213,6 +213,83 @@ final class TrackedPropertiesLayerTest extends TestCase
         $this->assertNotContains($archivedId, $ids);
     }
 
+    public function test_raised_cap_lets_dense_suburb_zoom_return_more_than_333_pins(): void
+    {
+        // Phase 9a's zoom-aware cap is effectiveLimit/layerCount = 2000/6 = 333
+        // at suburb zoom. tracked_properties bumps via perLayerLimitFor() to
+        // min(max(333*3, 1000), 1500) = 1000. Verify that with 1200 seeded TPs
+        // the response returns close to 1000 — not capped at 333.
+        [$agencyId] = $this->makeTwoAgencies();
+
+        $seedCount = 1200;
+        $rows = [];
+        for ($i = 0; $i < $seedCount; $i++) {
+            // Spread within the bounding box (-30.4, -31.0, 30.0, 30.9).
+            $lat = -30.5 - ($i % 400) * 0.001;
+            $lng = 30.10 + ($i % 700) * 0.001;
+            $rows[] = [
+                'external_id'   => 'TP-DENSE-' . $i,
+                'agency_id'     => $agencyId,
+                'status'        => 'active',
+                'street_name'   => 'Dense Street ' . $i,
+                'latitude'      => $lat,
+                'longitude'     => $lng,
+                'first_seen_at' => now()->subDays(30),
+                'created_at'    => now()->subDays(30),
+                'updated_at'    => now(),
+            ];
+        }
+        // Insert in chunks to avoid placeholder limits.
+        foreach (array_chunk($rows, 200) as $chunk) {
+            DB::table('tracked_properties')->insert($chunk);
+        }
+
+        // 6 layers, suburb-zoom bounding box (the bounds() helper's box is
+        // span 0.6° × 0.9° — already region-ish, so widen to a smaller box
+        // for the true suburb-zoom path).
+        $req = new MapBoundsRequest(
+            north: -30.4, south: -31.0, east: 30.9, west: 30.0,
+            layers: ['hfc_listings', 'sold_comps', 'active_listings', 'mic_subjects', 'scheme_owners', 'tracked_properties'],
+            viewMode: 'agent',
+            agencyId: $agencyId,
+            scope: 'agency',
+            actorUserId: null,
+        );
+
+        $svc  = new MapPinService();
+        $resp = $svc->getPinsInBounds($req);
+
+        $countReturned = $resp['layer_counts']['tracked_properties'] ?? 0;
+        $this->assertGreaterThan(333, $countReturned,
+            'cap must lift above zoom-aware-base 333 for tracked_properties');
+        $this->assertLessThanOrEqual(1500, $countReturned,
+            'cap must not exceed 1500 ceiling');
+    }
+
+    public function test_other_layers_unchanged_by_per_layer_override(): void
+    {
+        // Sanity — perLayerLimitFor() leaves non-tracked layers alone at the
+        // zoom-aware base. This guards against accidentally bumping
+        // hfc_listings or any other layer.
+        $req = new MapBoundsRequest(
+            north: -30.4, south: -31.0, east: 30.9, west: 30.0,
+            layers: ['hfc_listings', 'sold_comps', 'active_listings', 'mic_subjects', 'scheme_owners', 'tracked_properties'],
+            viewMode: 'agent',
+            agencyId: 1,
+            scope: 'agency',
+            actorUserId: null,
+        );
+
+        $baseZoom = $req->zoomAwarePerLayerLimit(6);
+        $this->assertSame($baseZoom, $req->perLayerLimitFor('hfc_listings', 6));
+        $this->assertSame($baseZoom, $req->perLayerLimitFor('sold_comps', 6));
+        $this->assertSame($baseZoom, $req->perLayerLimitFor('active_listings', 6));
+        $this->assertSame($baseZoom, $req->perLayerLimitFor('mic_subjects', 6));
+        $this->assertSame($baseZoom, $req->perLayerLimitFor('scheme_owners', 6));
+        $this->assertGreaterThanOrEqual(1000, $req->perLayerLimitFor('tracked_properties', 6));
+        $this->assertLessThanOrEqual(1500, $req->perLayerLimitFor('tracked_properties', 6));
+    }
+
     public function test_search_filter_narrows_by_street_name(): void
     {
         [$agencyId] = $this->makeTwoAgencies();
