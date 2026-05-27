@@ -85,12 +85,24 @@ final class AddressResolverService
             return $this->cacheAndReturn($normalised, $address, $portalResult, $suburbNorm);
         }
 
+        // Track whether ANY external resolver actually ran. The fail-cache
+        // path below should only persist when an external attempt was made
+        // (Google or Nominatim returned no result). If both branches were
+        // skipped (no key, disabled, rate-limit-blocked) the failure must
+        // NOT be cached — otherwise the next caller is short-circuited by
+        // a stale row written under a transient condition.
+        $externalAttempted = false;
+        $googleStatus    = 'no_key';
+        $nominatimStatus = 'disabled';
+
         // ── 4. Google Geocoding (rate-limited per Phase 11a) ────────────────
         $googleKey = config('services.google.geocoding_api_key') ?: config('geo.geocoding.google_api_key');
         if (!empty($googleKey)) {
             /** @var GeocodeRateLimiter $limiter */
             $limiter = app(GeocodeRateLimiter::class);
             if ($limiter->canGeocode()) {
+                $externalAttempted = true;
+                $googleStatus      = 'attempted';
                 $googleResult = $this->callGoogle($normalised, (string) $googleKey);
                 // Record AFTER the call. Definitive failures still consume
                 // quota (Google bills failed-but-attempted). Transient nulls
@@ -101,6 +113,7 @@ final class AddressResolverService
                 }
                 // null = transient error → don't cache, retry next time.
             } else {
+                $googleStatus = 'rate_limited';
                 Log::channel('geocoding')->info('Google skipped — daily cap reached', [
                     'normalised' => $normalised,
                     'remaining'  => $limiter->getRemainingToday(),
@@ -113,25 +126,37 @@ final class AddressResolverService
             /** @var GeocodeRateLimiter $limiter */
             $limiter = app(GeocodeRateLimiter::class);
             if ($limiter->canGeocode()) {
+                $externalAttempted = true;
+                $nominatimStatus   = 'attempted';
                 $nomResult = $this->callNominatim($normalised);
                 $limiter->recordCall();
                 if ($nomResult !== null) {
                     return $this->cacheAndReturn($normalised, $address, $nomResult, $suburbNorm);
                 }
             } else {
+                $nominatimStatus = 'rate_limited';
                 Log::channel('geocoding')->info('Nominatim skipped — daily cap reached', [
                     'normalised' => $normalised,
                 ]);
             }
         }
 
-        // ── 6. Cache as failed ──────────────────────────────────────────────
-        return $this->cacheAndReturn(
-            $normalised,
-            $address,
-            new GeocodingResult(null, null, 'failed', 'cache', null, false, 'no source matched'),
-            $suburbNorm,
-        );
+        // ── 6. Cache as failed — ONLY when an external resolver ran ──────
+        // When no external resolver ran (no key + disabled, both rate-limited,
+        // etc.) we return the failure WITHOUT caching so the next attempt —
+        // once the missing source comes online — re-runs the waterfall
+        // instead of being short-circuited by a stale failure row.
+        $failure = new GeocodingResult(null, null, 'failed', 'cache', null, false, 'no source matched');
+        if (!$externalAttempted) {
+            Log::channel('geocoding')->info('resolver returned failure without caching — no external resolver ran', [
+                'normalised'       => $normalised,
+                'suburb'           => $suburbNorm,
+                'google_status'    => $googleStatus,
+                'nominatim_status' => $nominatimStatus,
+            ]);
+            return $failure;
+        }
+        return $this->cacheAndReturn($normalised, $address, $failure, $suburbNorm);
     }
 
     /**

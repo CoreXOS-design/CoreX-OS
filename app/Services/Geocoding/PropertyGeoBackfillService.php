@@ -133,7 +133,11 @@ final class PropertyGeoBackfillService
         ])));
 
         $result = null;
-        if (!$latLngBefore && $address !== '') {
+        // Gate opens when EITHER the composed street-address is non-empty
+        // OR the TP has a suburb — so suburb-only TPs reach the resolver
+        // (Google can still resolve them to suburb-level GPS). Mirrors the
+        // staging hot-patch deployed 2026-05-27.
+        if (!$latLngBefore && ($address !== '' || !empty($tp->suburb))) {
             $result = $this->resolver->resolve($address, $tp->suburb, $tp->town, 'tracked_property:' . $tp->id);
             if ($result->hasGps()) {
                 $tp->latitude        = $result->latitude;
