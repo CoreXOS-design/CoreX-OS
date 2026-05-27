@@ -36,14 +36,19 @@ class ImageConverterController extends Controller
         foreach ($files as $file) {
             $base    = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'image';
             $outPath = $outDir . DIRECTORY_SEPARATOR . $base . '_' . Str::random(6) . '.' . $format;
-            $ext     = strtolower($file->getClientOriginalExtension());
+            $ext       = strtolower($file->getClientOriginalExtension());
+            $mime      = strtolower((string) $file->getMimeType());
             $inputPath = $file->getRealPath();
+            $isHeif    = in_array($ext, ['heic', 'heif'], true)
+                || str_contains($mime, 'heic')
+                || str_contains($mime, 'heif')
+                || $this->sniffHeif($inputPath);
 
             // HEIC/HEIF from iPhones contain auxiliary images (depth, HDR gain) which
             // trip ImageMagick's libheif delegate. Pre-decode with heif-convert to PNG,
             // then let ImageMagick handle the final format/orientation step.
             $tmpDecoded = null;
-            if (in_array($ext, ['heic', 'heif'], true)) {
+            if ($isHeif) {
                 $tmpDecoded = $outDir . DIRECTORY_SEPARATOR . 'decoded_' . Str::random(6) . '.png';
                 $heif = new Process([self::heifConvertPath(), $inputPath, $tmpDecoded]);
                 $heif->setTimeout(120);
@@ -104,6 +109,19 @@ class ImageConverterController extends Controller
         foreach ($converted as $f) { @unlink($f); }
 
         return response()->download($zipPath, 'converted-images.zip')->deleteFileAfterSend(true);
+    }
+
+    private function sniffHeif(string $path): bool
+    {
+        $fh = @fopen($path, 'rb');
+        if (! $fh) { return false; }
+        $head = fread($fh, 32);
+        fclose($fh);
+        if (strlen($head) < 12) { return false; }
+        // ISO base media: bytes 4..8 are "ftyp", then a brand. HEIF brands: heic, heix, mif1, msf1, hevc, heim, heis, hevm, hevs.
+        if (substr($head, 4, 4) !== 'ftyp') { return false; }
+        $brand = substr($head, 8, 4);
+        return in_array($brand, ['heic', 'heix', 'mif1', 'msf1', 'hevc', 'heim', 'heis', 'hevm', 'hevs'], true);
     }
 
     private function outDir(): string
