@@ -36,7 +36,15 @@ class ImageConverterController extends Controller
             $base    = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'image';
             $outPath = $outDir . DIRECTORY_SEPARATOR . $base . '_' . Str::random(6) . '.' . $format;
 
-            $args = [self::magickPath(), $file->getRealPath(), '-auto-orient'];
+            // HEIC/HEIF from iPhones often contain auxiliary images (depth, HDR gain).
+            // Force ImageMagick to read only the primary image via [0].
+            $ext       = strtolower($file->getClientOriginalExtension());
+            $inputPath = $file->getRealPath();
+            if (in_array($ext, ['heic', 'heif'], true)) {
+                $inputPath = 'heic:' . $inputPath . '[0]';
+            }
+
+            $args = [self::magickPath(), $inputPath, '-auto-orient'];
 
             if ($format === 'jpg') {
                 $args = array_merge($args, ['-background', 'white', '-flatten', '-quality', '92']);
