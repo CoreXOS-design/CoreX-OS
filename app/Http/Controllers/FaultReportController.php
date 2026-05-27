@@ -214,7 +214,15 @@ class FaultReportController extends Controller
         $entries = preg_split('/(?=^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\])/m', (string) $tail) ?: [];
         $added = 0;
         $scanned = 0;
+        $skippedOld = 0;
         $cutoff = Carbon::now()->subDay();
+
+        // High-water mark: only ingest log entries newer than the previous scan
+        // so we don't keep re-importing the same historical errors every click.
+        // Stored in cache (never expires until the next scan overwrites it).
+        $lastScanTs = \Illuminate\Support\Facades\Cache::get('fault_reports.last_scan_log_ts');
+        $lastScanCarbon = $lastScanTs ? Carbon::parse($lastScanTs) : null;
+        $newestSeen = $lastScanCarbon;
 
         foreach ($entries as $entry) {
             $entry = trim($entry);
@@ -224,6 +232,23 @@ class FaultReportController extends Controller
             // Only ERROR / CRITICAL / ALERT / EMERGENCY rows.
             if (!preg_match('/\.(ERROR|CRITICAL|ALERT|EMERGENCY):/', $entry, $level)) {
                 continue;
+            }
+
+            // Parse the log line timestamp and skip anything we've scanned before.
+            $entryCarbon = null;
+            if (preg_match('/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/', $entry, $tm)) {
+                try {
+                    $entryCarbon = Carbon::parse($tm[1]);
+                } catch (\Throwable $e) {
+                    $entryCarbon = null;
+                }
+            }
+            if ($entryCarbon && $lastScanCarbon && $entryCarbon->lte($lastScanCarbon)) {
+                $skippedOld++;
+                continue;
+            }
+            if ($entryCarbon && (!$newestSeen || $entryCarbon->gt($newestSeen))) {
+                $newestSeen = $entryCarbon;
             }
             $scanned++;
 
@@ -284,7 +309,17 @@ class FaultReportController extends Controller
             $added++;
         }
 
-        return back()->with('success', "Scan complete. {$scanned} log entries scanned, {$added} new fault report(s) added.");
+        // Advance the high-water mark to the newest log timestamp we saw
+        // (or to now() if the log was empty / unparseable) so the next scan
+        // starts strictly after this one.
+        $newWatermark = ($newestSeen ?? Carbon::now())->format('Y-m-d H:i:s');
+        \Illuminate\Support\Facades\Cache::forever('fault_reports.last_scan_log_ts', $newWatermark);
+
+        $msg = "Scan complete. {$scanned} new log entries scanned, {$added} fault report(s) added.";
+        if ($skippedOld > 0) {
+            $msg .= " Skipped {$skippedOld} already-scanned entries.";
+        }
+        return back()->with('success', $msg);
     }
 
     /**
