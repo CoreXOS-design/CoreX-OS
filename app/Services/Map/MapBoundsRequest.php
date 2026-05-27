@@ -123,4 +123,25 @@ final class MapBoundsRequest
         if ($span >= 0.05) return min($base, 500);
         return $base;
     }
+
+    /**
+     * Per-key cap override on top of zoomAwarePerLayerLimit(). Most layers
+     * use the zoom-aware base verbatim. tracked_properties gets a bump
+     * because it's the most numerous layer post-2026-05-27 Google
+     * geocoding backfill (~2100 rows on staging, mostly clustered in the
+     * KZN South + North Coast bands). At suburb zoom (span < 0.05°) the
+     * base = effectiveLimit / layerCount = 2000/6 = 333, which truncates
+     * dense areas like Ballito or Margate. Tripling gets us 1000 pins
+     * with a floor at 1000 (so region-zoom queries still get useful
+     * coverage) and a ceiling at 1500 (so country-zoom queries don't
+     * balloon into thousands of pins the user can't even render).
+     */
+    public function perLayerLimitFor(string $key, int $layerCount): int
+    {
+        $base = $this->zoomAwarePerLayerLimit($layerCount);
+        if ($key === 'tracked_properties') {
+            return min(max($base * 3, 1000), 1500);
+        }
+        return $base;
+    }
 }

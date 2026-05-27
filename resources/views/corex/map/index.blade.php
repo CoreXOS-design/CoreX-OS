@@ -1017,6 +1017,27 @@ document.addEventListener('DOMContentLoaded', function () {
                     logPayload:{ ...baseLog, action: 'contact_owner_launched', record_id: recId, channel: 'whatsapp' },
                 }];
             }
+
+            case 'tracked_properties': {
+                // Tracked properties are prospecting candidates with no
+                // detail-card JSON endpoint — the bounds-query payload is
+                // the full detail. The CTA opens the MIC opportunities
+                // surface (canonical full-detail page). In-page nav, no
+                // fetch — the activity log fires before the URL is
+                // navigated to.
+                const tpId = record.tracked_property_id ?? (typeof recId === 'number' ? recId : null);
+                if (tpId === null) return [];
+                return [{
+                    key:       'cma_opened',
+                    label:     'Open in MIC →',
+                    iconLabel: 'Open in MIC opportunities',
+                    iconSvg:   ICON_OPEN,
+                    style:     'primary',
+                    destUrl:   '/corex/market-intelligence/opportunities/' + tpId,
+                    newTab:    false,
+                    logPayload:{ ...baseLog, action: 'cma_opened', record_id: tpId },
+                }];
+            }
         }
         return [];
     }
@@ -1593,6 +1614,20 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('detail-ctas').innerHTML = '';
         setPanelOpen(true);
 
+        // T layer short-circuit — the bounds-query payload already carries
+        // every field the detail panel needs (street_number, street_name,
+        // property_type, erf_number, geo_confidence, first_seen_at,
+        // tracked_property_id). No fetch needed; the canonical full-detail
+        // page is the MIC opportunities surface and is wired as a CTA
+        // ("Open in MIC →") rather than a detail-card endpoint.
+        // Fixes the JSON parse error caused by detail_url previously
+        // pointing at a 301 redirect that returned HTML.
+        if (record.category === 'tracked_properties') {
+            renderTrackedPropertyInline(record);
+            renderSingleDetailCtas(record, locationKey, null);
+            return;
+        }
+
         const url = record.deep_link || record.detail_url;
         if (url) {
             try {
@@ -1759,6 +1794,66 @@ document.addEventListener('DOMContentLoaded', function () {
         fireActivityLog(act.logPayload);
         // newTab handled by the anchor's target=_blank attribute; default
         // <a> navigation continues.
+    }
+
+    /**
+     * Inline detail render for tracked_properties layer. The bounds-query
+     * payload carries every field the panel needs, so we skip the
+     * round-trip fetch and build the card from the record directly.
+     *
+     * Renders address + property type + erf number + GPS confidence +
+     * first seen date as structured facts, plus a "Promoted: No" badge
+     * (the query already filters out promoted rows). The "Open in MIC →"
+     * CTA is wired by renderSingleDetailCtas() via actionsForRecord().
+     */
+    function renderTrackedPropertyInline(record) {
+        const addrEl = document.getElementById('detail-address');
+        const street = [record.street_number, record.street_name].filter(s => s && String(s).trim() !== '').join(' ');
+        const addressLine = street !== '' ? (street + (record.suburb ? ', ' + record.suburb : '')) : (record.suburb || '');
+        if (addressLine !== '') {
+            addrEl.textContent = addressLine;
+            addrEl.style.display = 'block';
+        }
+
+        const facts = [];
+        if (record.property_type) {
+            facts.push({ label: 'Property type', value: record.property_type });
+        }
+        if (record.erf_number) {
+            facts.push({ label: 'Erf number', value: 'Erf ' + record.erf_number });
+        }
+        if (record.geo_confidence) {
+            facts.push({ label: 'GPS precision', value: record.geo_confidence });
+        }
+        if (record.geo_source) {
+            facts.push({ label: 'GPS source', value: record.geo_source });
+        }
+        if (record.first_seen_at || record.date) {
+            const raw = record.first_seen_at || record.date;
+            const shortDate = typeof raw === 'string' ? raw.slice(0, 10) : '';
+            if (shortDate) {
+                facts.push({ label: 'First seen', value: shortDate });
+            }
+        }
+        // Promoted gate — the bounds-query already excludes promoted rows,
+        // so this is always "No" when the pin is on the map. Surfacing it
+        // explicitly so the agent knows the prospect hasn't been pitched
+        // to stock yet.
+        facts.push({ label: 'On agency books', value: 'No (prospect candidate)' });
+
+        const factsHtml = facts.map(f =>
+            '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:0.8125rem;">'
+            + '<span style="color:var(--text-muted);">' + escapeHtml(f.label) + '</span>'
+            + '<span style="color:var(--text-primary);font-weight:500;">' + escapeHtml(String(f.value)) + '</span>'
+            + '</div>'
+        ).join('');
+        document.getElementById('detail-facts').innerHTML = factsHtml
+            || '<div style="font-size:0.75rem;color:var(--text-muted);">No facts available.</div>';
+
+        // Tracked properties have no sensitive_facts and no relationships
+        // (the MIC opportunities surface is the canonical detail page).
+        document.getElementById('detail-sensitive').style.display = 'none';
+        document.getElementById('detail-relationships').innerHTML = '';
     }
 
     function renderCard(card) {

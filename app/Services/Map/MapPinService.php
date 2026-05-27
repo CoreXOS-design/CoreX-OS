@@ -60,28 +60,29 @@ final class MapPinService
     {
         // Phase 9a hardening — at wide-zoom (country/region) the view gains
         // no detail from 2000 pins; cap aggressively to keep query cost
-        // bounded. See MapBoundsRequest::zoomAwarePerLayerLimit().
-        $perLayerLimit = $req->zoomAwarePerLayerLimit(count($req->layers));
-
+        // bounded. Per-layer cap resolved via MapBoundsRequest::perLayerLimitFor()
+        // which lets tracked_properties bump above the zoom-aware base
+        // (most numerous layer post-Google backfill).
+        $layerCount   = count($req->layers);
         $layerCounts  = [];
         $totals       = [];
         $cappedLayers = [];
         $allRecords   = [];
 
         $sources = [
-            'hfc_listings'       => fn () => $this->hfcListings($req, $perLayerLimit),
-            'sold_comps'         => fn () => $this->soldComps($req, $perLayerLimit),
-            'active_listings'    => fn () => $this->activeListings($req, $perLayerLimit),
-            'mic_subjects'       => fn () => $this->micSubjects($req, $perLayerLimit),
+            'hfc_listings'       => fn () => $this->hfcListings($req, $req->perLayerLimitFor('hfc_listings', $layerCount)),
+            'sold_comps'         => fn () => $this->soldComps($req, $req->perLayerLimitFor('sold_comps', $layerCount)),
+            'active_listings'    => fn () => $this->activeListings($req, $req->perLayerLimitFor('active_listings', $layerCount)),
+            'mic_subjects'       => fn () => $this->micSubjects($req, $req->perLayerLimitFor('mic_subjects', $layerCount)),
             // A.2.3 Item 3 — Sectional schemes now appear in Seller View too,
             // but with owner identity redacted at the toRecord boundary below.
             // (Pre-A.2.3 the whole layer was suppressed in Seller View — that
             // was over-cautious and hid useful scheme metadata.)
-            'scheme_owners'      => fn () => $this->schemeOwners($req, $perLayerLimit),
+            'scheme_owners'      => fn () => $this->schemeOwners($req, $req->perLayerLimitFor('scheme_owners', $layerCount)),
             // T layer — prospecting candidates with geocoded GPS. Sensitive:
             // suppressed entirely from Seller View (see the dispatch guard
             // below). Wired post-2026-05-27 Google geocoding backfill.
-            'tracked_properties' => fn () => $this->trackedProperties($req, $perLayerLimit),
+            'tracked_properties' => fn () => $this->trackedProperties($req, $req->perLayerLimitFor('tracked_properties', $layerCount)),
         ];
 
         foreach ($sources as $key => $fetch) {
@@ -366,11 +367,27 @@ final class MapPinService
                 'subtitle'            => implode(' · ', $subParts),
                 'price'               => null,
                 'date'                => $r->first_seen_at ?: null,
-                'detail_url'          => route('corex.tracked-properties.show', ['trackedProperty' => $r->id]),
+                // detail_url points at the MIC opportunities surface (the
+                // canonical full-detail page for a tracked property). The
+                // JS detail-panel short-circuits the fetch for this layer
+                // and renders inline from the bounds-query record; the
+                // URL is reused as the "Open in MIC →" CTA target.
+                'detail_url'          => '/corex/market-intelligence/opportunities/' . $r->id,
                 'sensitive'           => true,
                 'status'              => null,
                 'tracked_property_id' => (int) $r->id,
                 'suburb'              => $r->suburb,
+                // Structured fields exposed for the inline detail-panel
+                // render (no separate JSON endpoint). Mirror the bounds-
+                // query payload so the JS can build the card without a
+                // round-trip.
+                'street_number'       => $r->street_number,
+                'street_name'         => $r->street_name,
+                'property_type'       => $r->property_type,
+                'erf_number'          => $r->erf_number,
+                'geo_confidence'      => $r->geo_confidence,
+                'geo_source'          => $r->geo_source,
+                'first_seen_at'       => $r->first_seen_at,
             ];
         })->all();
 
