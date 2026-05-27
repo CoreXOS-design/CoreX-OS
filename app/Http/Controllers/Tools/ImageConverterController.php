@@ -11,8 +11,9 @@ class ImageConverterController extends Controller
 {
     private const OUTPUT_FORMATS = ['png', 'jpg', 'webp'];
 
-    private static function magickPath(): string  { return config('image-converter.magick_path', 'magick'); }
-    private static function maxKb(): int          { return (int) config('image-converter.max_upload_kb', 51200); }
+    private static function magickPath(): string      { return config('image-converter.magick_path', 'magick'); }
+    private static function heifConvertPath(): string { return config('image-converter.heif_convert_path', 'heif-convert'); }
+    private static function maxKb(): int              { return (int) config('image-converter.max_upload_kb', 51200); }
 
     public function index()
     {
@@ -35,13 +36,29 @@ class ImageConverterController extends Controller
         foreach ($files as $file) {
             $base    = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'image';
             $outPath = $outDir . DIRECTORY_SEPARATOR . $base . '_' . Str::random(6) . '.' . $format;
-
-            // HEIC/HEIF from iPhones often contain auxiliary images (depth, HDR gain).
-            // Force ImageMagick to read only the primary image via [0].
-            $ext       = strtolower($file->getClientOriginalExtension());
+            $ext     = strtolower($file->getClientOriginalExtension());
             $inputPath = $file->getRealPath();
+
+            // HEIC/HEIF from iPhones contain auxiliary images (depth, HDR gain) which
+            // trip ImageMagick's libheif delegate. Pre-decode with heif-convert to PNG,
+            // then let ImageMagick handle the final format/orientation step.
+            $tmpDecoded = null;
             if (in_array($ext, ['heic', 'heif'], true)) {
-                $inputPath = 'heic:' . $inputPath . '[0]';
+                $tmpDecoded = $outDir . DIRECTORY_SEPARATOR . 'decoded_' . Str::random(6) . '.png';
+                $heif = new Process([self::heifConvertPath(), $inputPath, $tmpDecoded]);
+                $heif->setTimeout(120);
+                try { $heif->run(); } catch (\Throwable $e) { /* fall through to error */ }
+
+                if (! $heif->isSuccessful() || ! is_file($tmpDecoded)) {
+                    $err = trim($heif->getErrorOutput());
+                    if ($err === '' || stripos($err, 'not found') !== false || stripos($err, 'not recognized') !== false) {
+                        return back()->withErrors([
+                            'images' => 'HEIC decoding requires libheif-examples. Install with `apt install -y libheif-examples` (Linux) or use ImageMagick 7 with HEIC delegate (Windows).',
+                        ]);
+                    }
+                    return back()->withErrors(['images' => 'HEIC decode failed: ' . Str::limit($err, 240)]);
+                }
+                $inputPath = $tmpDecoded;
             }
 
             $args = [self::magickPath(), $inputPath, '-auto-orient'];
@@ -67,6 +84,8 @@ class ImageConverterController extends Controller
                 }
                 return back()->withErrors(['images' => 'Conversion failed: ' . Str::limit($err, 240)]);
             }
+
+            if ($tmpDecoded && is_file($tmpDecoded)) { @unlink($tmpDecoded); }
 
             $converted[] = $outPath;
         }
