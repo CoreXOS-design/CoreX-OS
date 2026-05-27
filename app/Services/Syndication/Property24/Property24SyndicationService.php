@@ -80,6 +80,11 @@ class Property24SyndicationService
 
     public function submitListing(Property $property): array
     {
+        // Photo payload (up to 30 base64-encoded images) plus Guzzle's JSON
+        // encode buffer can exceed the default 256MB limit. Bump for this
+        // request only — restored automatically at request end.
+        @ini_set('memory_limit', '512M');
+
         $this->bindClientForProperty($property);
         $this->log('info', "submitListing called for property #{$property->id}, agent_id={$property->agent_id}");
 
