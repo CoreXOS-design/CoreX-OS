@@ -420,6 +420,10 @@ Route::middleware(['auth'])->group(function () {
         ->name('admin.fault-reports.update-status');
     Route::post('/admin/fault-reports/bulk', [\App\Http\Controllers\FaultReportController::class, 'bulkAction'])
         ->name('admin.fault-reports.bulk');
+    Route::post('/admin/fault-reports/clear-all', [\App\Http\Controllers\FaultReportController::class, 'clearAll'])
+        ->name('admin.fault-reports.clear-all');
+    Route::post('/admin/fault-reports/scan', [\App\Http\Controllers\FaultReportController::class, 'scan'])
+        ->name('admin.fault-reports.scan');
     Route::get('/admin/fault-reports', [\App\Http\Controllers\FaultReportController::class, 'index'])
         ->name('admin.fault-reports');
 });

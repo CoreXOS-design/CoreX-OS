@@ -85,10 +85,17 @@ class P24ImapImportService
                 $since = Carbon::now()->subDays(30);
             }
 
-            $messages = $folder->search()
-                ->from('no-reply@property24.com')
-                ->since($since)
-                ->get();
+            try {
+                $messages = $folder->search()
+                    ->from('no-reply@property24.com')
+                    ->since($since)
+                    ->get();
+            } catch (\Webklex\PHPIMAP\Exceptions\GetMessagesFailedException $e) {
+                // "empty response" from the IMAP server means no matches — treat as zero results, not failure.
+                Log::info("P24 IMAP search returned no results: {$e->getMessage()}");
+                $client->disconnect();
+                return ['status' => 'success', 'message' => 'No P24 emails found', 'stats' => $stats];
+            }
 
             if ($messages->count() === 0) {
                 $client->disconnect();

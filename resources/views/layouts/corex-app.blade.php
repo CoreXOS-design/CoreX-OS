@@ -18,9 +18,11 @@
         <!-- Theme init: apply dark class before paint to prevent flash -->
         <script>
             (function(){
+                var authed = {{ auth()->check() ? 'true' : 'false' }};
                 var dbTheme = '{{ auth()->check() ? (auth()->user()->theme ?? 'dark') : 'dark' }}';
-                var stored = localStorage.getItem('corex-theme');
-                var theme = stored || dbTheme;
+                // When authenticated, the user's DB record is authoritative — never let a
+                // previous user's localStorage value bleed into this session.
+                var theme = authed ? dbTheme : (localStorage.getItem('corex-theme') || dbTheme);
                 if(theme === 'dark'){
                     document.documentElement.classList.add('dark');
                 }

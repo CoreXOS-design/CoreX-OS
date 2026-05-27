@@ -375,7 +375,7 @@ class PropertyController extends Controller
             'mandateTypes' => PropertySettingItem::group('mandate_type')->get(),
         ];
         $branches  = Branch::orderBy('name')->get();
-        $agents    = $this->agentList();
+        $agents    = $this->agentList($property);
         $activeTab = 'info';
 
         return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact'));
@@ -1115,22 +1115,33 @@ class PropertyController extends Controller
         return $urls;
     }
 
-    private function agentList(): \Illuminate\Support\Collection
+    private function agentList(?Property $property = null): \Illuminate\Support\Collection
     {
         /** @var User $user */
         $user = auth()->user();
         $scope = PermissionService::getDataScope($user, 'properties');
 
-        $query = User::agencyMembers()->orderBy('name')->where('is_active', 1);
+        $assignedIds = array_filter([
+            $property?->agent_id,
+            $property?->pp_second_agent_id,
+        ]);
 
-        if ($scope === 'branch') {
-            $branchId = $user->effectiveBranchId();
-            if ($branchId) {
-                $query->where('branch_id', $branchId);
+        $query = User::agencyMembers()->orderBy('name')->where(function ($q) use ($scope, $user, $assignedIds) {
+            $q->where('is_active', 1);
+
+            if ($scope === 'branch') {
+                $branchId = $user->effectiveBranchId();
+                if ($branchId) {
+                    $q->where('branch_id', $branchId);
+                }
+            } elseif ($scope !== 'all') {
+                $q->where('id', $user->id);
             }
-        } elseif ($scope !== 'all') {
-            $query->where('id', $user->id);
-        }
+
+            if (!empty($assignedIds)) {
+                $q->orWhereIn('id', $assignedIds);
+            }
+        });
 
         return $query->get(['id', 'name', 'email']);
     }

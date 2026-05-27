@@ -178,6 +178,116 @@ class FaultReportController extends Controller
     }
 
     /**
+     * Clear (soft-delete) all fault reports.
+     */
+    public function clearAll(Request $request)
+    {
+        $count = FaultReport::query()->delete();
+
+        return back()->with('success', "Cleared {$count} fault report(s).");
+    }
+
+    /**
+     * Scan the Laravel log file for recent errors and create fault reports
+     * for any not already captured. Returns how many new reports were added.
+     */
+    public function scan(Request $request)
+    {
+        $logPath = storage_path('logs/laravel.log');
+        if (!is_file($logPath) || !is_readable($logPath)) {
+            return back()->with('error', 'Log file not found or not readable.');
+        }
+
+        // Read the tail of the file (~512KB) to avoid loading huge logs.
+        $maxBytes = 512 * 1024;
+        $size = filesize($logPath);
+        $fh = fopen($logPath, 'rb');
+        if ($size > $maxBytes) {
+            fseek($fh, $size - $maxBytes);
+            // Skip the partial line at the seek point.
+            fgets($fh);
+        }
+        $tail = stream_get_contents($fh);
+        fclose($fh);
+
+        // Each entry begins with [YYYY-MM-DD HH:MM:SS] ... laravel.ERROR: ...
+        $entries = preg_split('/(?=^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\])/m', (string) $tail) ?: [];
+        $added = 0;
+        $scanned = 0;
+        $cutoff = Carbon::now()->subDay();
+
+        foreach ($entries as $entry) {
+            $entry = trim($entry);
+            if ($entry === '') {
+                continue;
+            }
+            // Only ERROR / CRITICAL / ALERT / EMERGENCY rows.
+            if (!preg_match('/\.(ERROR|CRITICAL|ALERT|EMERGENCY):/', $entry, $level)) {
+                continue;
+            }
+            $scanned++;
+
+            $exceptionClass = null;
+            $file = null;
+            $line = null;
+            $title = '';
+
+            // Try the standard "ClassName: message at /path/file.php:NNN" pattern.
+            if (preg_match('/([A-Z][A-Za-z0-9_\\\\]+(?:Exception|Error)): (.+?)(?: in (\/[^\s:]+):(\d+))?$/m', $entry, $m)) {
+                $exceptionClass = $m[1];
+                $title = mb_substr(trim($m[2]), 0, 500);
+                $file = $m[3] ?? null;
+                $line = isset($m[4]) ? (int) $m[4] : null;
+            } else {
+                // Fallback: first line after the level marker.
+                $firstLine = strtok($entry, "\n");
+                $title = mb_substr(trim(preg_replace('/^\[[^\]]+\]\s+\w+\.\w+:\s*/', '', $firstLine) ?? ''), 0, 500);
+            }
+
+            if ($title === '') {
+                continue;
+            }
+
+            // Dedupe: same class+file+line in last 24h, or same title.
+            $existing = null;
+            if ($exceptionClass && $file && $line) {
+                $existing = FaultReport::where('exception_class', $exceptionClass)
+                    ->where('file', $file)
+                    ->where('line', $line)
+                    ->where('last_seen_at', '>=', $cutoff)
+                    ->first();
+            }
+            if (!$existing) {
+                $existing = FaultReport::where('title', $title)
+                    ->where('type', 'backend')
+                    ->where('last_seen_at', '>=', $cutoff)
+                    ->first();
+            }
+
+            if ($existing) {
+                $existing->incrementOccurrence();
+                continue;
+            }
+
+            FaultReport::create([
+                'type' => 'backend',
+                'severity' => 'error',
+                'title' => $title,
+                'message' => mb_substr($entry, 0, 5000),
+                'exception_class' => $exceptionClass,
+                'file' => $file,
+                'line' => $line,
+                'trace' => mb_substr($entry, 0, 5000),
+                'first_seen_at' => now(),
+                'last_seen_at' => now(),
+            ]);
+            $added++;
+        }
+
+        return back()->with('success', "Scan complete. {$scanned} log entries scanned, {$added} new fault report(s) added.");
+    }
+
+    /**
      * Strip sensitive fields from request data before storing.
      */
     private function sanitiseRequestData(?array $data): ?array

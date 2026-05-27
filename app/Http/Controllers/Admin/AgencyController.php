@@ -229,13 +229,12 @@ class AgencyController extends Controller
 
         $extraFlash = null;
         if ($credsChanged && $agency->p24_enabled && !empty($agency->p24_username) && !empty($agency->p24_password)) {
-            try {
-                \Artisan::call('p24:sync-locations', ['--agency' => $agency->id]);
-                $extraFlash = ['key' => 'success', 'msg' => 'Property24 locations sync triggered. This may take a few minutes — refresh the page to see updated status.'];
-            } catch (\Throwable $e) {
-                $agency->forceFill(['p24_last_sync_error' => $e->getMessage()])->save();
-                $extraFlash = ['key' => 'error', 'msg' => 'P24 sync failed: ' . $e->getMessage()];
-            }
+            $agencyId = $agency->id;
+            dispatch(function () use ($agencyId) {
+                @set_time_limit(0);
+                \Artisan::call('p24:sync-locations', ['--agency' => $agencyId]);
+            })->afterResponse();
+            $extraFlash = ['key' => 'success', 'msg' => 'Property24 locations sync queued. Refresh the page in a few minutes to see updated status.'];
         }
 
         $user = auth()->user();
@@ -284,10 +283,14 @@ class AgencyController extends Controller
         }
 
         try {
-            \Artisan::call('p24:sync-locations', ['--agency' => $agency->id]);
+            $agencyId = $agency->id;
+            dispatch(function () use ($agencyId) {
+                @set_time_limit(0);
+                \Artisan::call('p24:sync-locations', ['--agency' => $agencyId]);
+            })->afterResponse();
             return response()->json([
                 'success' => true,
-                'message' => 'Sync triggered. Refresh the page in a few minutes to see the new last-synced timestamp.',
+                'message' => 'Sync queued. Refresh the page in a few minutes to see the new last-synced timestamp.',
             ]);
         } catch (\Throwable $e) {
             $agency->forceFill(['p24_last_sync_error' => $e->getMessage()])->save();

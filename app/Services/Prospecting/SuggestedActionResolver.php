@@ -174,7 +174,7 @@ final class SuggestedActionResolver
             icon:        'alarm-clock',
             tooltipHtml: $tooltip,
             clickType:   'alpine',
-            alpineCall:  "openFeedbackModal({$listing->id}, '" . e((string) ($claim['status'] ?? '')) . "')",
+            alpineCall:  "\$dispatch('open-feedback', { id: {$listing->id}, status: '" . e((string) ($claim['status'] ?? '')) . "' })",
         );
     }
 
@@ -216,7 +216,7 @@ final class SuggestedActionResolver
             icon:        'target',
             tooltipHtml: $tooltip,
             clickType:   'alpine',
-            alpineCall:  "openFeedbackModal({$listing->id}, '" . e((string) ($claim['status'] ?? '')) . "')",
+            alpineCall:  "\$dispatch('open-feedback', { id: {$listing->id}, status: '" . e((string) ($claim['status'] ?? '')) . "' })",
         );
     }
 
