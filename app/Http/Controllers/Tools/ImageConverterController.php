@@ -73,10 +73,12 @@ class ImageConverterController extends Controller
         if (! empty($heifJobs)) {
             $procs = [];
             foreach ($heifJobs as $idx => $j) {
-                $target = $j['magickStage']
-                    ? $outDir . DIRECTORY_SEPARATOR . 'decoded_' . Str::random(6) . '.png'
-                    : $j['out'];
-                $jobs[$idx]['interim'] = $target;
+                if ($j['magickStage']) {
+                    $target = $outDir . DIRECTORY_SEPARATOR . 'decoded_' . Str::random(6) . '.png';
+                    $jobs[$idx]['interim'] = $target;
+                } else {
+                    $target = $j['out']; // heif-convert writes the final file directly
+                }
 
                 $args = [self::heifConvertPath()];
                 if ($format === 'jpg' && ! $j['magickStage']) { $args[] = '-q'; $args[] = '92'; }
