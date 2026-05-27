@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Tools;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Symfony\Component\Process\Process;
 
 class ImageConverterController extends Controller
 {
-    private const MAX_KB = 51200;
-
     private const OUTPUT_FORMATS = ['png', 'jpg', 'webp'];
+
+    private static function magickPath(): string  { return config('image-converter.magick_path', 'magick'); }
+    private static function maxKb(): int          { return (int) config('image-converter.max_upload_kb', 51200); }
 
     public function index()
     {
@@ -21,44 +23,44 @@ class ImageConverterController extends Controller
     {
         $request->validate([
             'images'   => 'required|array|min:1|max:50',
-            'images.*' => 'file|mimes:jpg,jpeg,png,heic,heif,webp,bmp,tiff,gif|max:' . self::MAX_KB,
+            'images.*' => 'file|mimes:jpg,jpeg,png,heic,heif,webp,bmp,tiff,gif|max:' . self::maxKb(),
             'format'   => 'required|in:' . implode(',', self::OUTPUT_FORMATS),
         ]);
 
-        if (! extension_loaded('imagick')) {
-            return back()->withErrors(['images' => 'Imagick PHP extension is required for image conversion.']);
-        }
-
-        $format  = $request->input('format');
-        $files   = $request->file('images');
-        $outDir  = $this->outDir();
+        $format    = $request->input('format');
+        $files     = $request->file('images');
+        $outDir    = $this->outDir();
         $converted = [];
 
-        try {
-            foreach ($files as $file) {
-                $img = new \Imagick($file->getRealPath());
-                if (method_exists($img, 'autoOrient')) { $img->autoOrient(); }
-                $img->setImageFormat($format);
+        foreach ($files as $file) {
+            $base    = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'image';
+            $outPath = $outDir . DIRECTORY_SEPARATOR . $base . '_' . Str::random(6) . '.' . $format;
 
-                if ($format === 'jpg') {
-                    $img->setImageCompressionQuality(92);
-                    $img->setImageBackgroundColor('white');
-                    $img = $img->mergeImageLayers(\Imagick::LAYERMETHOD_FLATTEN);
-                    $img->setImageFormat('jpg');
-                } elseif ($format === 'webp') {
-                    $img->setImageCompressionQuality(90);
-                }
+            $args = [self::magickPath(), $file->getRealPath(), '-auto-orient'];
 
-                $base = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME) ?: 'image';
-                $base = Str::slug($base) ?: 'image';
-                $outPath = $outDir . DIRECTORY_SEPARATOR . $base . '_' . Str::random(6) . '.' . $format;
-                $img->writeImage($outPath);
-                $img->clear();
-
-                $converted[] = $outPath;
+            if ($format === 'jpg') {
+                $args = array_merge($args, ['-background', 'white', '-flatten', '-quality', '92']);
+            } elseif ($format === 'webp') {
+                $args = array_merge($args, ['-quality', '90']);
             }
-        } catch (\Throwable $e) {
-            return back()->withErrors(['images' => 'Conversion failed: ' . $e->getMessage()]);
+
+            $args[] = $outPath;
+
+            $proc = new Process($args);
+            $proc->setTimeout(120);
+
+            try { $proc->run(); }
+            catch (\Throwable $e) { return $this->binaryError(); }
+
+            if (! $proc->isSuccessful() || ! is_file($outPath)) {
+                $err = trim($proc->getErrorOutput());
+                if ($err === '' || stripos($err, 'not recognized') !== false || stripos($err, 'not found') !== false) {
+                    return $this->binaryError();
+                }
+                return back()->withErrors(['images' => 'Conversion failed: ' . Str::limit($err, 240)]);
+            }
+
+            $converted[] = $outPath;
         }
 
         if (count($converted) === 1) {
@@ -72,7 +74,6 @@ class ImageConverterController extends Controller
         }
         foreach ($converted as $f) { $zip->addFile($f, basename($f)); }
         $zip->close();
-
         foreach ($converted as $f) { @unlink($f); }
 
         return response()->download($zipPath, 'converted-images.zip')->deleteFileAfterSend(true);
@@ -83,5 +84,12 @@ class ImageConverterController extends Controller
         $dir = storage_path('app/private/image-converter/' . (auth()->id() ?? 'anon') . '/' . Str::uuid());
         if (! is_dir($dir)) { @mkdir($dir, 0775, true); }
         return $dir;
+    }
+
+    private function binaryError()
+    {
+        return back()->withErrors([
+            'images' => 'ImageMagick is not installed or not on PATH. Install via `winget install ImageMagick.ImageMagick`, then set IMAGE_CONVERTER_MAGICK_PATH in .env to the full path of magick.exe.',
+        ]);
     }
 }
