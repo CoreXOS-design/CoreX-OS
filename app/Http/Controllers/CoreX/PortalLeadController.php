@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Events\Leads\NewPortalLeadReceived;
 use App\Http\Controllers\Controller;
+use App\Models\DeviceToken;
 use App\Models\PortalLead;
 use App\Models\Property;
 use App\Models\User;
@@ -150,12 +151,43 @@ class PortalLeadController extends Controller
         $lead->agency_id = $agencyId;
         $lead->save();
 
+        // Push diagnostics — gather BEFORE firing the event so we can tell the
+        // user exactly why mobile push will / won't reach them.
+        $agentDeviceCount   = DeviceToken::query()->where('user_id', $agent->id)->count();
+        $agencyDeviceCount  = DeviceToken::query()
+            ->whereIn('user_id', User::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->pluck('id'))
+            ->count();
+        $fcmClassExists     = class_exists(\App\Services\Push\FcmService::class);
+        $fcmMessagingBound  = false;
+        if ($fcmClassExists) {
+            try {
+                app(\Kreait\Firebase\Contract\Messaging::class);
+                $fcmMessagingBound = true;
+            } catch (\Throwable) {
+                $fcmMessagingBound = false;
+            }
+        }
+
         event(new NewPortalLeadReceived($lead));
 
+        $pushReadiness = ($agentDeviceCount > 0) && $fcmClassExists && $fcmMessagingBound;
+        $pushBlocker = null;
+        if (!$fcmClassExists)      $pushBlocker = 'FcmService class missing — package not installed.';
+        elseif (!$fcmMessagingBound) $pushBlocker = 'Firebase Messaging not configured — check FIREBASE_CREDENTIALS / service provider binding.';
+        elseif ($agentDeviceCount === 0) $pushBlocker = "Agent has 0 device tokens registered. They must log into the mobile app to register a device.";
+
         return response()->json([
-            'ok'      => true,
-            'message' => "Test lead sent to {$agent->name}. Popup should appear within ~10s; mobile push fires immediately to their registered devices.",
-            'lead_id' => $lead->id,
+            'ok'         => true,
+            'lead_id'    => $lead->id,
+            'message'    => $pushReadiness
+                ? "Test lead sent to {$agent->name}. Popup within ~10s. Push fired to {$agentDeviceCount} device(s)."
+                : "Test lead saved (popup will appear within ~10s). Push NOT delivered: {$pushBlocker}",
+            'diagnostics' => [
+                'agent_device_tokens'  => $agentDeviceCount,
+                'agency_device_tokens' => $agencyDeviceCount,
+                'fcm_class_exists'     => $fcmClassExists,
+                'fcm_messaging_bound'  => $fcmMessagingBound,
+            ],
         ]);
     }
 

@@ -22,6 +22,7 @@
                         sending: false,
                         msg: '',
                         ok: null,
+                        diag: null,
                         async send() {
                             if (!this.agentId) { this.msg = 'Pick an agent first.'; this.ok = false; return; }
                             this.sending = true; this.msg = ''; this.ok = null;
@@ -38,6 +39,7 @@
                                 const data = await res.json();
                                 this.ok = res.ok && data.ok;
                                 this.msg = data.message || (this.ok ? 'Test lead sent.' : 'Failed.');
+                                this.diag = data.diagnostics || null;
                             } catch (e) {
                                 this.ok = false; this.msg = 'Network error: ' + e.message;
                             } finally { this.sending = false; }
@@ -78,6 +80,12 @@
                             <span x-show="sending">Sending…</span>
                         </button>
                         <p x-show="msg" x-text="msg" :class="ok ? 'text-emerald-600' : 'text-red-600'" class="text-xs"></p>
+                        <div x-show="diag" class="text-[10px] space-y-0.5 rounded p-2" style="background: var(--surface-2); color: var(--text-muted);">
+                            <div>Agent device tokens: <span class="font-mono" x-text="diag?.agent_device_tokens"></span></div>
+                            <div>Agency device tokens: <span class="font-mono" x-text="diag?.agency_device_tokens"></span></div>
+                            <div>FCM class loaded: <span class="font-mono" x-text="diag?.fcm_class_exists ? 'yes' : 'NO'"></span></div>
+                            <div>Firebase Messaging bound: <span class="font-mono" x-text="diag?.fcm_messaging_bound ? 'yes' : 'NO'"></span></div>
+                        </div>
                         <p class="text-[10px]" style="color: var(--text-muted);">
                             Fires the same NewPortalLeadReceived event as a real lead — popup polls within ~10s and FCM push goes to the agent's registered devices.
                         </p>
