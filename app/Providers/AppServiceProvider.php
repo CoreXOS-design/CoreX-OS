@@ -19,6 +19,7 @@ use App\Models\ContactAccessLog;
 use App\Models\ContactConsentRecord;
 use App\Models\ContactMatch;
 use App\Models\Deal;
+use App\Models\DealMoneyLine;
 use App\Models\DealSettlement;
 use App\Models\Presentation;
 use App\Models\Property;
@@ -90,6 +91,7 @@ class AppServiceProvider extends ServiceProvider
         ContactConsentRecord::observe(ContactConsentRecordObserver::class);
         ContactMatch::observe(ContactMatchObserver::class);
         Deal::observe(DealObserver::class);
+        DealMoneyLine::observe(\App\Observers\DealMoneyLineObserver::class);
         Presentation::observe(PresentationObserver::class);
         DealSettlement::observe(DealSettlementObserver::class);
         Property::observe(PropertyObserver::class);
@@ -252,6 +254,50 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\SellerOutreach\OptOutRecorded::class,
             \App\Listeners\SellerOutreach\RecordOptOutOnContact::class,
         );
+
+        // Wave 6: pillar paper-trail listeners. Each pillar has a dedicated
+        // Log<Pillar>Event listener that writes a structured Log::info line for
+        // every event in that pillar. The wildcard RecordDomainEvent already
+        // captures the full payload in domain_event_log; these per-pillar
+        // listeners give operators a lightweight tail-able trail per
+        // .ai/specs/corex-domain-events-spec.md (Non-Negotiable #9).
+        $wave6 = [
+            // Deal pillar
+            \App\Events\Deal\DealCreated::class              => \App\Listeners\Deal\LogDealEvent::class,
+            \App\Events\Deal\DealStatusChanged::class        => \App\Listeners\Deal\LogDealEvent::class,
+            \App\Events\Deal\DealStageAdvanced::class        => \App\Listeners\Deal\LogDealEvent::class,
+            \App\Events\Deal\DealClosed::class               => \App\Listeners\Deal\LogDealEvent::class,
+            \App\Events\Deal\DealMoneyLineChanged::class     => \App\Listeners\Deal\LogDealEvent::class,
+            \App\Events\Deal\DealCommissionFinalised::class  => \App\Listeners\Deal\LogDealEvent::class,
+            // Contact pillar
+            \App\Events\Contact\ContactCreated::class           => \App\Listeners\Contact\LogContactEvent::class,
+            \App\Events\Contact\ContactMergedInto::class        => \App\Listeners\Contact\LogContactEvent::class,
+            \App\Events\Contact\ContactTagged::class            => \App\Listeners\Contact\LogContactEvent::class,
+            \App\Events\Contact\ContactConsentChanged::class    => \App\Listeners\Contact\LogContactEvent::class,
+            \App\Events\Contact\ContactLinkedToProperty::class  => \App\Listeners\Contact\LogContactEvent::class,
+            // Agent pillar
+            \App\Events\Agent\AgentActivated::class             => \App\Listeners\Agent\LogAgentEvent::class,
+            \App\Events\Agent\AgentDeactivated::class           => \App\Listeners\Agent\LogAgentEvent::class,
+            \App\Events\Agent\AgentFfcStatusChanged::class      => \App\Listeners\Agent\LogAgentEvent::class,
+            \App\Events\Agent\AgentCommissionPlanChanged::class => \App\Listeners\Agent\LogAgentEvent::class,
+            \App\Events\Agent\AgentBranchAssigned::class        => \App\Listeners\Agent\LogAgentEvent::class,
+            // Mandate pillar
+            \App\Events\Mandate\MandateSigned::class    => \App\Listeners\Mandate\LogMandateEvent::class,
+            \App\Events\Mandate\MandateExpired::class   => \App\Listeners\Mandate\LogMandateEvent::class,
+            \App\Events\Mandate\MandateConverted::class => \App\Listeners\Mandate\LogMandateEvent::class,
+            // FICA pillar
+            \App\Events\Fica\FicaSubmitted::class => \App\Listeners\Fica\LogFicaEvent::class,
+            \App\Events\Fica\FicaApproved::class  => \App\Listeners\Fica\LogFicaEvent::class,
+            \App\Events\Fica\FicaRejected::class  => \App\Listeners\Fica\LogFicaEvent::class,
+            \App\Events\Fica\FicaExpired::class   => \App\Listeners\Fica\LogFicaEvent::class,
+            // Document pillar
+            \App\Events\Document\DocumentUploaded::class => \App\Listeners\Document\LogDocumentEvent::class,
+            \App\Events\Document\DocumentArchived::class => \App\Listeners\Document\LogDocumentEvent::class,
+            \App\Events\Document\DocumentSigned::class   => \App\Listeners\Document\LogDocumentEvent::class,
+        ];
+        foreach ($wave6 as $eventClass => $listenerClass) {
+            Event::listen($eventClass, $listenerClass);
+        }
 
         // CMA back-propagation: when presentation_fields are written, propagate the
         // CMAInfo-extracted erf / GPS / municipal valuation back to the linked Property.

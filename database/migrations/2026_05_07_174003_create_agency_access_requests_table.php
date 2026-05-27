@@ -19,7 +19,7 @@ return new class extends Migration
             $table->text('denial_reason')->nullable();
             $table->foreignId('authorized_by_user_id')->nullable()->constrained('users');
             $table->timestamp('authorized_at')->nullable();
-            $table->timestamp('expires_at');
+            $table->timestamp('expires_at')->useCurrent();
             $table->timestamp('granted_session_expires_at')->nullable();
             $table->timestamps();
             $table->softDeletes();

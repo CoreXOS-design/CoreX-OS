@@ -9,8 +9,11 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class SellerInfoShareLink extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
         'tier',
         'seller_name',

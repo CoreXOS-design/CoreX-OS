@@ -6,8 +6,11 @@ use App\Models\Agency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class RmcpVariable extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
         'agency_id',
         'variable_key',

@@ -6,7 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class ApplicationDocument extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'application_id',
+        'document_type',
+        'file_path',
+        'file_name',
+        'rejection_reason',
+    ];
+    // INTENTIONALLY EXCLUDED: status (set by verify flow), verified_by, verified_at.
 
     protected $casts = [
         'verified_at' => 'datetime',

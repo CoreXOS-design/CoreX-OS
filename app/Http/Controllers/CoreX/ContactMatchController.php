@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\Deal;
+use App\Models\User;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -43,13 +44,16 @@ class ContactMatchController extends Controller
         /** @var \App\Models\User $user */
         $user = auth()->user();
 
-        $matches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
+        $allMatches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
             ->whereHas('contact')
             ->where('created_by_user_id', $user->id)
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest()
-            ->get()
-            ->groupBy('contact_id');
+            ->get();
+
+        $matchCounts = $this->propertyCountsFor($allMatches);
+
+        $matches = $allMatches->groupBy('contact_id');
 
         $contacts = Contact::whereIn('id', $matches->keys())
             ->with('type')
@@ -60,7 +64,95 @@ class ContactMatchController extends Controller
                 'matches' => $matches->get($c->id, collect()),
             ]);
 
-        return view('corex.core-matches.index', compact('contacts'));
+        return view('corex.core-matches.index', compact('contacts', 'matchCounts'));
+    }
+
+    /**
+     * All View — agency-wide (or branch-wide when branch-split is on) list of
+     * every Core Match, for branch managers and admins to oversee what their
+     * agents are doing. Gated by the `core_matches.all_view` permission.
+     */
+    public function allView(Request $request)
+    {
+        /** @var \App\Models\User $user */
+        $user = auth()->user();
+
+        // Scope: whole agency, or just the viewer's branch when branch-split is on.
+        $agency   = \App\Models\Agency::find($user->effectiveAgencyId());
+        $splitOn  = (bool) ($agency?->split_branches_enabled);
+        $branchId = $user->effectiveBranchId();
+        $branchLimited = $splitOn && $branchId;
+
+        // Agents available in the filter dropdown.
+        $agentsQuery = User::agencyMembers()
+            ->where('is_active', 1)
+            ->orderBy('name');
+        if ($branchLimited) {
+            $agentsQuery->where('branch_id', $branchId);
+        }
+        $agents = $agentsQuery->get(['id', 'name']);
+
+        // Resolve the selected agent filter (ignored if outside the viewer's scope).
+        $agentId = $request->query('agent_id');
+        $agentId = ($agentId === null || $agentId === '' || $agentId === 'all') ? null : (int) $agentId;
+        if ($agentId !== null && ! $agents->pluck('id')->contains($agentId)) {
+            $agentId = null;
+        }
+
+        // ContactMatch carries BelongsToAgency, so the agency is already scoped.
+        $query = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
+            ->whereHas('contact')
+            ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
+            ->latest();
+
+        if ($branchLimited) {
+            $query->whereHas('createdBy', fn ($q) => $q->where('branch_id', $branchId));
+        }
+        if ($agentId !== null) {
+            $query->where('created_by_user_id', $agentId);
+        }
+
+        $allMatches  = $query->get();
+        $matchCounts = $this->propertyCountsFor($allMatches);
+
+        // Group by owning agent for the oversight view.
+        $byAgent = $allMatches->groupBy('created_by_user_id')
+            ->map(fn ($items) => [
+                'agent'   => $items->first()->createdBy,
+                'matches' => $items,
+            ])
+            ->sortBy(fn ($row) => $row['agent']?->name ?? 'zzz')
+            ->values();
+
+        return view('corex.core-matches.all', compact(
+            'byAgent', 'matchCounts', 'agents', 'agentId', 'branchLimited'
+        ));
+    }
+
+    /**
+     * Per-match property counts (total resolved / visible / hidden), keyed by
+     * match id. Resolved agency-wide so the figures line up with the results page.
+     *
+     * @param  \Illuminate\Support\Collection<int,ContactMatch>  $matches
+     * @return array<int,array{total:int,visible:int,hidden:int}>
+     */
+    private function propertyCountsFor($matches): array
+    {
+        $counts = [];
+        foreach ($matches as $m) {
+            $resolved  = $this->matching->propertiesForMatch($m, [
+                'agent_id'       => null,
+                'include_hidden' => true,
+            ]);
+            $hiddenIds = $m->hidden_property_ids ?? [];
+            $hidden    = $resolved->filter(fn ($p) => in_array($p->id, $hiddenIds, true))->count();
+            $counts[$m->id] = [
+                'total'   => $resolved->count(),
+                'hidden'  => $hidden,
+                'visible' => $resolved->count() - $hidden,
+            ];
+        }
+        return $counts;
     }
 
     public function store(Request $request, Contact $contact)
@@ -102,7 +194,9 @@ class ContactMatchController extends Controller
         // Use the strict ClientMatchResolver so the agent web view applies the
         // same hard filters as the mobile client API — sale matches never show
         // rentals, and vice versa. Spec: .ai/specs/client-auth.md (round 4).
-        $properties = app(\App\Services\Matching\ClientMatchResolver::class)->resolve($match);
+        // includeHidden: true — the agent must still see hidden properties so
+        // they can review the hide reason and un-hide them.
+        $properties = app(\App\Services\Matching\ClientMatchResolver::class)->resolve($match, includeHidden: true);
         $feedback   = $match->feedback()->get()->keyBy('property_id');
 
         return view('corex.contacts.match-results', compact(

@@ -182,6 +182,7 @@ class CalendarDemoSeeder extends Seeder
                     'linkable_type' => 'App\\Models\\Property',
                     'linkable_id' => $property->id,
                     'role' => 'subject_property',
+                    'agency_id' => self::AGENCY_ID,
                     'created_by_user_id' => $agent->id,
                     'created_at' => $now, 'updated_at' => $now,
                 ];
@@ -201,6 +202,7 @@ class CalendarDemoSeeder extends Seeder
                         'linkable_type' => 'App\\Models\\Contact',
                         'linkable_id' => $cid,
                         'role' => 'attendee',
+                        'agency_id' => self::AGENCY_ID,
                         'created_by_user_id' => $agent->id,
                         'created_at' => $now, 'updated_at' => $now,
                     ];

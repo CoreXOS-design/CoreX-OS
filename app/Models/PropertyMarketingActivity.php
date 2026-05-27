@@ -5,11 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class PropertyMarketingActivity extends Model
 {
+    use BelongsToAgency;
+
     public $timestamps = false;
 
     protected $fillable = [
+        'agency_id',
         'property_id', 'activity_type', 'activity_data',
         'occurred_at', 'logged_by_user_id', 'internal_only',
     ];

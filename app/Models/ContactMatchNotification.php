@@ -5,11 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class ContactMatchNotification extends Model
 {
+    use BelongsToAgency;
+
     public $timestamps = false;
 
     protected $fillable = [
+        'agency_id',
         'contact_match_id',
         'property_id',
         'score',

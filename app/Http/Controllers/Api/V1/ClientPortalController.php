@@ -120,6 +120,7 @@ class ClientPortalController extends Controller
                 'price_display' => method_exists($p, 'formattedPrice') ? $p->formattedPrice() : null,
                 'thumbnail'     => ($p->gallery_images_json ?? [])[0] ?? null,
                 'match_score'   => $p->match_score ?? null,
+                'match_tier'    => $p->match_tier ?? null,   // 'strong' | 'good' | 'fair'
                 'listing_type'  => $p->listing_type ?? null,
                 'status'        => $p->status ?? null,
                 'hidden'        => $match->isPropertyHidden($p->id),

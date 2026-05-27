@@ -5,8 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class P24PortalEvent extends Model
 {
+    use BelongsToAgency;
+
     public $timestamps = false;
 
     protected $table = 'p24_portal_events';

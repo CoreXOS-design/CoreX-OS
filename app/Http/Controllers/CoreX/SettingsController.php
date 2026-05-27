@@ -181,6 +181,25 @@ class SettingsController extends Controller
         return response()->json(['ok' => true, 'saved' => $saved]);
     }
 
+    public function updatePortalPreferences(Request $request)
+    {
+        $user = auth()->user();
+        abort_unless($user, 403);
+
+        $data = $request->validate([
+            'portal_show_api_token'        => 'sometimes|boolean',
+            'portal_show_social_accounts'  => 'sometimes|boolean',
+        ]);
+
+        $user->forceFill([
+            'portal_show_api_token'       => (bool) ($data['portal_show_api_token'] ?? false),
+            'portal_show_social_accounts' => (bool) ($data['portal_show_social_accounts'] ?? false),
+        ])->save();
+
+        return redirect()->route('corex.settings', ['section' => 'my-portal'])
+            ->with('success', 'My Portal preferences updated.');
+    }
+
     // ── Property Setting Items CRUD ─────────────────────────────────────────
 
     public function storePropertySettingItem(Request $request)

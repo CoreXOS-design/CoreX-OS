@@ -1,6 +1,14 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
+<style>
+    .clause-delete-link { transition: color 150ms ease; }
+    .clause-delete-link:hover { color: var(--ds-crimson, #c41e3a); }
+    .clause-cancel-link { transition: color 150ms ease; }
+    .clause-cancel-link:hover { color: var(--text-primary); }
+    .clause-input:focus { border-color: var(--brand-button) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button) 15%, transparent); outline: none; }
+</style>
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
 
     <x-list-header
@@ -53,9 +61,8 @@
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
                     <input name="name" required
-                           class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300"
+                           class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                           onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'"
                            placeholder="e.g. Subject to Viewing">
                 </div>
                 <div class="flex items-center gap-4 mt-5">
@@ -68,9 +75,8 @@
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Clause Text</label>
                 <textarea name="text" required rows="4"
-                          class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300"
+                          class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                          onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'"
                           placeholder="Enter the full clause wording..."></textarea>
             </div>
             <div>
@@ -137,7 +143,7 @@
                             <form method="POST" action="{{ route('docuperfect.clauses.destroy', $clause->id) }}" class="inline" onsubmit="return confirm('Delete this clause?');">
                                 @csrf
                                 @method('DELETE')
-                                <button class="text-xs transition-all duration-300" style="color: var(--text-muted);" onmouseover="this.style.color='var(--ds-crimson)'" onmouseout="this.style.color='var(--text-muted)'">Delete</button>
+                                <button class="text-xs font-medium clause-delete-link" style="color: var(--text-muted);">Delete</button>
                             </form>
                         </div>
                         @endif
@@ -154,9 +160,8 @@
                             <div>
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
                                 <input name="name" value="{{ $clause->name }}" required
-                                       class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300"
-                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                                       onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                                       class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
+                                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             </div>
                             <div class="flex items-center gap-4 mt-5">
                                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);">
@@ -168,9 +173,8 @@
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Clause Text</label>
                             <textarea name="text" required rows="4"
-                                      class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300"
-                                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                                      onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">{{ $clause->text }}</textarea>
+                                      class="w-full rounded-md px-3 py-2 text-sm focus:outline-none transition-all duration-300 clause-input"
+                                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ $clause->text }}</textarea>
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch Access</label>
@@ -185,7 +189,7 @@
                         </div>
                         <div class="flex items-center gap-3">
                             <button class="corex-btn-primary text-sm">Save</button>
-                            <button type="button" @click="editing = false" class="text-sm transition-all duration-300" style="color: var(--text-muted);" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">Cancel</button>
+                            <button type="button" @click="editing = false" class="text-sm clause-cancel-link" style="color: var(--text-muted);">Cancel</button>
                         </div>
                     </form>
                 </div>

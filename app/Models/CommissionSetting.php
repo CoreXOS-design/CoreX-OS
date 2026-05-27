@@ -4,9 +4,38 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+use App\Models\Concerns\BelongsToAgency;
 class CommissionSetting extends Model
 {
-    protected $guarded = [];
+    use BelongsToAgency;
+
+    protected $fillable = [
+        'agency_id',
+        'commission_split_agent',
+        'commission_split_agency',
+        'annual_cap',
+        'post_cap_transaction_fee',
+        'post_cap_fee_cap',
+        'post_cap_reduced_fee',
+        'monthly_platform_fee',
+        'mentor_extra_split',
+        'mentor_transactions',
+        'risk_management_fee',
+        'risk_management_cap',
+        'revenue_share_enabled',
+        'revenue_share_pool_percent',
+        'tier_1_percent',
+        'tier_2_percent',
+        'tier_3_percent',
+        'tier_4_percent',
+        'tier_5_percent',
+        'tier_6_percent',
+        'tier_7_percent',
+        'tier_4_flqa_requirement',
+        'tier_5_flqa_requirement',
+        'tier_6_flqa_requirement',
+        'tier_7_flqa_requirement',
+    ];
 
     protected $casts = [
         'annual_cap' => 'decimal:2',

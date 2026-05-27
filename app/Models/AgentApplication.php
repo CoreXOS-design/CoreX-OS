@@ -5,11 +5,36 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class AgentApplication extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
-    protected $guarded = [];
+    protected $fillable = [
+        // Applicant identity (public intake fields)
+        'first_name',
+        'last_name',
+        'email',
+        'phone',
+        'id_number',
+        // Professional background
+        'current_agency',
+        'years_experience',
+        'ffc_number',
+        'ffc_expiry',
+        'ppra_status',
+        'designation',
+        'motivation',
+        'referral_source',
+        'referred_by_user_id',
+        // Tenancy + lifecycle (set by owner controllers, not public payloads)
+        'agency_id',
+        'status',
+        'status_changed_at',
+        'status_notes',
+    ];
+    // INTENTIONALLY EXCLUDED from $fillable (must be set explicitly, never mass-assigned):
+    //   reviewed_by, activated_at, activated_by, user_id (privilege/identity binding fields).
 
     protected $casts = [
         'ffc_expiry' => 'date',

@@ -5,13 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class PresentationSoldComp extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     public $timestamps = false;
 
     protected $fillable = [
+        'agency_id',
         'presentation_id',
         'source_upload_id',
         'sold_date',

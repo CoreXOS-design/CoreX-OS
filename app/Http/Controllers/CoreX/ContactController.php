@@ -388,6 +388,9 @@ class ContactController extends Controller
         // Remove bypass fields before creating
         unset($data['bypass_duplicate_check'], $data['override_reason']);
         $data['created_by_user_id'] = $user->id;
+        $data['branch_id'] = $user->branch_id
+            ?? \DB::table('branches')->where('agency_id', $agencyId)->min('id')
+            ?? 1;
 
         $contact = Contact::create($data);
 
@@ -426,7 +429,22 @@ class ContactController extends Controller
         unset($data['tag_ids']);
 
         $contact->update($data);
+        $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();
         $contact->tags()->sync($tagIds);
+
+        // Domain event — ContactTagged for each newly attached tag.
+        // Spec: .ai/specs/corex-domain-events-spec.md
+        $newlyAttached = array_diff(array_map('intval', $tagIds), array_map('intval', $previousTagIds));
+        if (!empty($newlyAttached)) {
+            $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
+            foreach ($newlyAttached as $tagId) {
+                event(new \App\Events\Contact\ContactTagged(
+                    contact: $contact,
+                    tag: (string) ($tagNames[$tagId] ?? $tagId),
+                    actorUserId: auth()->id(),
+                ));
+            }
+        }
 
         // Redirect to show page if coming from there, otherwise index
         if ($request->has('_from_show')) {
@@ -521,7 +539,22 @@ class ContactController extends Controller
             'tag_ids.*' => 'integer|exists:contact_tags,id',
         ]);
 
-        $contact->tags()->sync($data['tag_ids'] ?? []);
+        $newTagIds = $data['tag_ids'] ?? [];
+        $previousTagIds = $contact->tags()->pluck('contact_tags.id')->all();
+        $contact->tags()->sync($newTagIds);
+
+        // Domain event — ContactTagged for each newly attached tag.
+        $newlyAttached = array_diff(array_map('intval', $newTagIds), array_map('intval', $previousTagIds));
+        if (!empty($newlyAttached)) {
+            $tagNames = ContactTag::whereIn('id', $newlyAttached)->pluck('name', 'id');
+            foreach ($newlyAttached as $tagId) {
+                event(new \App\Events\Contact\ContactTagged(
+                    contact: $contact,
+                    tag: (string) ($tagNames[$tagId] ?? $tagId),
+                    actorUserId: auth()->id(),
+                ));
+            }
+        }
 
         return redirect()->route('corex.contacts.show', $contact)->with('success', 'Tags updated.');
     }

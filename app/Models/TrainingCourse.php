@@ -5,11 +5,22 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class TrainingCourse extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'agency_id',
+        'title',
+        'description',
+        'category',
+        'is_required',
+        'is_required_for_activation',
+        'sort_order',
+        'is_published',
+        'created_by',
+    ];
 
     protected $casts = [
         'is_required' => 'boolean',

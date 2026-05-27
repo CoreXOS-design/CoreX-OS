@@ -1,14 +1,18 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<x-page-header title="Password Protect" subtitle="Lock or unlock a PDF with a password." :flush="true">
-    <x-slot:actions>
-        <button type="submit" form="pdf-suite-form" class="corex-btn-primary text-sm">Apply &amp; Download</button>
-    </x-slot:actions>
-</x-page-header>
-@include('tools.pdf-suite._switcher')
+<div class="space-y-5">
 
-<div class="p-4 lg:p-8">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Password Protect</h1>
+                <p class="text-sm text-white/60">Lock or unlock a PDF with a password.</p>
+            </div>
+        </div>
+    </div>
+
+    @include('tools.pdf-suite._switcher')
     <div class="max-w-5xl mx-auto">
         @include('tools.pdf-suite._alerts')
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -30,7 +34,7 @@
                 <div class="rounded-md p-6" style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
                     <h3 class="font-semibold text-base mb-1" style="color: var(--text-primary);">Lock or unlock a PDF</h3>
                     <p class="text-sm mb-5" style="color: var(--text-secondary);">Choose mode and supply the password.</p>
-                    <form id="pdf-suite-form" method="POST" action="{{ route('tools.pdf_suite.protect.run') }}" enctype="multipart/form-data">
+                    <form id="pdf-suite-form" method="POST" action="{{ route('tools.pdf_suite.protect.run') }}" enctype="multipart/form-data" x-data="{ hasFile: false }">
                         @csrf
                         <div class="mb-4">
                             <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">Mode</label>
@@ -41,7 +45,7 @@
                         </div>
                         <div class="mb-4">
                             <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">PDF File</label>
-                            <input type="file" name="pdf" accept="application/pdf" required class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                            <input type="file" name="pdf" accept="application/pdf" required @change="hasFile = $event.target.files.length > 0" class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
                         <div class="mb-4">
                             <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">Password</label>
@@ -51,6 +55,7 @@
                             <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">Owner password <span class="text-xs font-normal normal-case" style="color: var(--text-muted);">(optional, lock mode only)</span></label>
                             <input type="text" name="owner_password" maxlength="128" class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
+                        <button type="submit" :disabled="!hasFile" :class="hasFile ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'" class="text-sm w-full mt-5">Apply &amp; Download</button>
                     </form>
                 </div>
             </div>

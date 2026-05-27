@@ -8,7 +8,14 @@ class TrainingProgress extends Model
 {
     protected $table = 'training_progress';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'user_id',
+        'course_id',
+        'lesson_id',
+        'started_at',
+        'completed_at',
+        'time_spent_seconds',
+    ];
 
     protected $casts = [
         'started_at' => 'datetime',

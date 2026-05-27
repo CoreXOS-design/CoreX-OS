@@ -620,6 +620,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/pdf-splitter/confirm', [PdfSplitterController::class, 'confirm'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.confirm');
     Route::get('/tools/pdf-splitter/thumb/{page}', [PdfSplitterController::class, 'serveThumb'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.thumb')->where('page', '[0-9]+');
     Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.download');
+    Route::get('/tools/pdf-splitter/properties/search', [PdfSplitterController::class, 'searchProperties'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.search');
 
     // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
     Route::middleware('permission:access_pdf_suite')->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {
@@ -941,8 +942,8 @@ use App\Http\Controllers\CoreX\RoleManagerController as CoreXRoleManagerControll
 
 Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/', [CommandCenterDashboardController::class, 'today'])->name('corex.dashboard');
-    Route::get('/command-center/today', [CommandCenterDashboardController::class, 'today'])->name('command-center.today');
-    Route::get('/command-center/today/cards', [CommandCenterDashboardController::class, 'todayCards'])->name('command-center.today.cards');
+    Route::get('/command-center/Today', [CommandCenterDashboardController::class, 'today'])->name('command-center.today');
+    Route::get('/command-center/Today/cards', [CommandCenterDashboardController::class, 'todayCards'])->name('command-center.today.cards');
     Route::get('/legacy-dashboard', [CommandCenterDashboardController::class, 'index'])->middleware('permission:view_dashboard')->name('corex.dashboard.legacy');
 
     // ── Notifications ──
@@ -1614,6 +1615,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->middleware('permission:access_settings')->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
+    Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
     Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
     Route::post('/settings/presentations', [CoreXSettingsController::class, 'updatePresentations'])->middleware('permission:access_settings')->name('corex.settings.presentations.update');
@@ -1775,6 +1777,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::middleware('owner_only')->prefix('admin/dev-settings')->name('admin.dev-settings.')->group(function () {
         Route::get('/',  [\App\Http\Controllers\Admin\DevSettingsController::class, 'index'])->name('index');
         Route::put('/', [\App\Http\Controllers\Admin\DevSettingsController::class, 'update'])->name('update');
+    });
+
+    // Developer Users — System Owner / Developer roster, visible across all
+    // agencies (cross-agency owner view). See .ai/specs/developer-users.md.
+    Route::middleware('owner_only')->prefix('admin/developer-users')->name('admin.developer-users.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\DeveloperUserController::class, 'index'])->name('index');
+        Route::post('/{userId}/toggle', [\App\Http\Controllers\Admin\DeveloperUserController::class, 'toggleActive'])->name('toggle');
     });
 
     // Agency Management — index/create/store/destroy/toggle-active are owner-only.
@@ -2020,6 +2029,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
         ->middleware('permission:access_contacts')
         ->name('corex.core-matches.index');
+
+    // Core Matches — All View (agency / branch oversight for managers & admins)
+    Route::get('/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
+        ->middleware('permission:core_matches.all_view')
+        ->name('corex.core-matches.all');
 
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     Route::prefix('real-estate/portal-leads')

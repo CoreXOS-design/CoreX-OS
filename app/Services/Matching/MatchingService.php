@@ -6,6 +6,7 @@ use App\Models\ContactMatch;
 use App\Models\Property;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Core matching engine. SQL-first. Applies hard filters via the database,
@@ -17,10 +18,42 @@ class MatchingService
 {
     public const MIN_SCORE_TO_SURFACE = 40;
 
+    /**
+     * Lowest score a property may have and still be shown on a Core Match.
+     * Anything below this is treated as "not a match" and dropped.
+     */
+    public const MIN_SCORE_TO_DISPLAY = 50;
+
+    /** Tier cut-offs (inclusive lower bounds). See tierFor(). */
+    public const TIER_STRONG_MIN = 80;
+    public const TIER_GOOD_MIN   = 65;
+    public const TIER_FAIR_MIN   = 50;
+
+    /**
+     * Property statuses considered valid for each listing intent. A sale match
+     * must never surface a rental listing's status and vice versa.
+     */
+    private const STATUS_BY_LISTING_TYPE = [
+        'sale'   => ['for_sale', 'forsale', 'active', 'available', 'on_market'],
+        'rental' => ['for_rent', 'forrent', 'to_rent', 'torent', 'available_rent', 'active'],
+    ];
+
     /** Allowed values for the agency `matches_visibility_scope` setting. */
     public const SCOPE_AGENT  = 'agent';
     public const SCOPE_BRANCH = 'branch';
     public const SCOPE_AGENCY = 'agency';
+
+    /**
+     * Classify a 0-100 score into a display tier.
+     * Returns null when the score is below the display floor.
+     */
+    public static function tierFor(int $score): ?string
+    {
+        if ($score >= self::TIER_STRONG_MIN) return 'strong';
+        if ($score >= self::TIER_GOOD_MIN)   return 'good';
+        if ($score >= self::TIER_FAIR_MIN)   return 'fair';
+        return null;
+    }
 
     /**
      * Read the agency-wide visibility scope setting and translate it into
@@ -93,12 +126,24 @@ class MatchingService
 
     /**
      * All properties that satisfy this match, sorted by score desc.
-     * Used by the match results page and the public shared page.
+     * Used by the match results page, the agent mobile app, the buyer portal
+     * and the public shared page.
+     *
+     * Relaxed matching (default): numeric criteria (price, beds, baths,
+     * garages, sizes) are widened into a tolerance band in SQL so a near-miss
+     * — e.g. a 2-bed for a 3-bed search at the right price — still surfaces.
+     * score() then decays it, and anything below MIN_SCORE_TO_DISPLAY (50%)
+     * is dropped. Each returned Property carries `match_score` (0-100) and
+     * `match_tier` ('strong'|'good'|'fair'). listing_type, property status
+     * and suburb remain HARD filters and are never relaxed.
+     *
+     * Pass `['relaxed' => false]` to restore exact-bound behaviour.
      *
      * @param  array<string,mixed>  $overrides  optional UI filter overrides (price, suburb, etc.)
      */
     public function propertiesForMatch(ContactMatch $match, array $overrides = []): Collection
     {
+        $relaxed = $overrides['relaxed'] ?? true;
         $query = Property::query()
             ->whereNotIn('status', self::EXCLUDED_FOR_DISPLAY);
 
@@ -146,7 +191,22 @@ class MatchingService
         };
         // listing_type uses STRICT equality — sale vs rental are different markets and
         // properties with NULL listing_type are bad data, not legitimate ambiguity.
-        if ($listingType)  $query->where('listing_type', $listingType);
+        // This is a HARD filter and is never relaxed.
+        if ($listingType) {
+            $query->where('listing_type', $listingType);
+
+            // Belt-and-braces: also constrain by status so a property mis-tagged
+            // with the wrong listing_type but correct status doesn't slip through.
+            $allowedStatuses = self::STATUS_BY_LISTING_TYPE[$listingType] ?? null;
+            if ($allowedStatuses) {
+                $query->where(function (Builder $sub) use ($allowedStatuses) {
+                    $sub->whereNull('status')
+                        ->orWhereRaw('LOWER(status) IN ('
+                            . collect($allowedStatuses)->map(fn ($s) => "'$s'")->implode(',')
+                            . ')');
+                });
+            }
+        }
         // category / property_type stay loose — half-filled listings still appear.
         if ($category)     $strLoose($query, 'category', $category);
         if ($propertyType) $strLoose($query, 'property_type', $propertyType);
@@ -157,15 +217,22 @@ class MatchingService
                 $q2->whereNull($col)->orWhere($col, $op, $val);
             });
         };
-        if ($priceMin)     $numLoose($query, 'price', '>=', $priceMin);
-        if ($priceMax)     $numLoose($query, 'price', '<=', $priceMax);
-        if ($bedsMin)      $numLoose($query, 'beds', '>=', $bedsMin);
-        if ($bathsMin)     $numLoose($query, 'baths', '>=', $bathsMin);
-        if ($garagesMin)   $numLoose($query, 'garages', '>=', $garagesMin);
-        if ($floorMin)     $numLoose($query, 'size_m2', '>=', $floorMin);
-        if ($floorMax)     $numLoose($query, 'size_m2', '<=', $floorMax);
-        if ($erfMin)       $numLoose($query, 'erf_size_m2', '>=', $erfMin);
-        if ($erfMax)       $numLoose($query, 'erf_size_m2', '<=', $erfMax);
+        // In relaxed mode the SQL bound is widened into a tolerance band so a
+        // near-miss survives to the scoring stage — score() then decays it and
+        // the MIN_SCORE_TO_DISPLAY floor drops anything genuinely too far off.
+        $priceTol = $relaxed ? 0.30 : 0.0;  // ±30% price band
+        $countTol = $relaxed ? 1    : 0;    // allow 1 short on beds / baths / garages
+        $sizeTol  = $relaxed ? 0.30 : 0.0;  // ±30% floor / erf size band
+
+        if ($priceMin)   $numLoose($query, 'price', '>=', (int) floor($priceMin * (1 - $priceTol)));
+        if ($priceMax)   $numLoose($query, 'price', '<=', (int) ceil($priceMax * (1 + $priceTol)));
+        if ($bedsMin)    $numLoose($query, 'beds', '>=', max(0, (int) $bedsMin - $countTol));
+        if ($bathsMin)   $numLoose($query, 'baths', '>=', max(0, (int) $bathsMin - $countTol));
+        if ($garagesMin) $numLoose($query, 'garages', '>=', max(0, (int) $garagesMin - $countTol));
+        if ($floorMin)   $numLoose($query, 'size_m2', '>=', (int) floor($floorMin * (1 - $sizeTol)));
+        if ($floorMax)   $numLoose($query, 'size_m2', '<=', (int) ceil($floorMax * (1 + $sizeTol)));
+        if ($erfMin)     $numLoose($query, 'erf_size_m2', '>=', (int) floor($erfMin * (1 - $sizeTol)));
+        if ($erfMax)     $numLoose($query, 'erf_size_m2', '<=', (int) ceil($erfMax * (1 + $sizeTol)));
 
         // Hard-cutover suburb filter: match by P24 suburb id.
         $suburbIds = $overrides['p24_suburb_ids'] ?? $match->p24SuburbIdList();
@@ -176,9 +243,13 @@ class MatchingService
         return $query->with(['agent', 'branch'])
             ->get()
             ->map(function (Property $p) use ($match) {
-                $p->setAttribute('match_score', $this->score($p, $match));
+                $sc = $this->score($p, $match);
+                $p->setAttribute('match_score', $sc);
+                $p->setAttribute('match_tier', self::tierFor($sc));
                 return $p;
             })
+            // In relaxed mode drop anything below the display floor (50%).
+            ->filter(fn (Property $p) => !$relaxed || $p->match_score >= self::MIN_SCORE_TO_DISPLAY)
             ->sortByDesc('match_score')
             ->values();
     }

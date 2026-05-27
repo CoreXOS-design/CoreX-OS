@@ -17,17 +17,19 @@ class DealPipelineTemplateSeeder extends Seeder
 
         $admin = User::where('is_admin', true)->first() ?? User::first();
         $adminId = $admin?->id ?? 1;
+        $agencyId = $admin?->agency_id ?? (int) (\DB::table('agencies')->value('id') ?? 1);
 
-        $this->seedBondSale($adminId);
-        $this->seedCashSale($adminId);
-        $this->seedSaleOf2nd($adminId);
+        $this->seedBondSale($adminId, $agencyId);
+        $this->seedCashSale($adminId, $agencyId);
+        $this->seedSaleOf2nd($adminId, $agencyId);
     }
 
-    private function seedBondSale(int $adminId): void
+    private function seedBondSale(int $adminId, int $agencyId): void
     {
         $template = DealPipelineTemplate::create([
             'name' => 'Standard Bond Sale',
             'deal_type' => 'bond',
+            'agency_id' => $agencyId,
             'branch_id' => null,
             'is_default' => true,
             'is_active' => true,
@@ -56,11 +58,12 @@ class DealPipelineTemplateSeeder extends Seeder
         $this->createSteps($template, $steps);
     }
 
-    private function seedCashSale(int $adminId): void
+    private function seedCashSale(int $adminId, int $agencyId): void
     {
         $template = DealPipelineTemplate::create([
             'name' => 'Cash Sale',
             'deal_type' => 'cash',
+            'agency_id' => $agencyId,
             'branch_id' => null,
             'is_default' => false,
             'is_active' => true,
@@ -82,11 +85,12 @@ class DealPipelineTemplateSeeder extends Seeder
         $this->createSteps($template, $steps);
     }
 
-    private function seedSaleOf2nd(int $adminId): void
+    private function seedSaleOf2nd(int $adminId, int $agencyId): void
     {
         $template = DealPipelineTemplate::create([
             'name' => 'Sale of Second Property',
             'deal_type' => 'sale_of_2nd',
+            'agency_id' => $agencyId,
             'branch_id' => null,
             'is_default' => false,
             'is_active' => true,
@@ -121,6 +125,7 @@ class DealPipelineTemplateSeeder extends Seeder
 
         foreach ($steps as [$position, $name, $isLocked, $isMilestone, $completionType, $triggerType, $triggerStepName, $daysOffset, $ragGreen, $ragAmber, $ragRed, $statusTrigger, $negativeStatusTrigger, $negativeOutcomeLabel, $requiresBmApproval]) {
             $step = $template->steps()->create([
+                'agency_id' => $template->agency_id,
                 'name' => $name,
                 'position' => $position,
                 'is_locked' => $isLocked,

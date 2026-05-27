@@ -6,10 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class ToolHistoryEntry extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
     protected $fillable = [
+        'agency_id',
         'user_id',
         'branch_id',
         'type',

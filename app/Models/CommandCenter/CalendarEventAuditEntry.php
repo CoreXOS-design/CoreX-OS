@@ -6,11 +6,15 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class CalendarEventAuditEntry extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'calendar_event_audit_log';
 
     protected $fillable = [
+        'agency_id',
         'calendar_event_id', 'action',
         'old_values', 'new_values',
         'performed_by_user_id', 'performed_at',

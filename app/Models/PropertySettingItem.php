@@ -5,11 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class PropertySettingItem extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
-    protected $fillable = ['group', 'name', 'sort_order', 'is_default', 'active'];
+    protected $fillable = [
+        'agency_id','group', 'name', 'sort_order', 'is_default', 'active'];
 
     protected $casts = [
         'sort_order' => 'integer',

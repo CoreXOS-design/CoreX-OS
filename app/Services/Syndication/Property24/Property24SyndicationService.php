@@ -3,6 +3,7 @@
 namespace App\Services\Syndication\Property24;
 
 use App\Exceptions\Property24ConfigurationException;
+use App\Models\Agency;
 use App\Models\Property;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,26 @@ class Property24SyndicationService
     {
         $this->client = $client;
         $this->mapper = $mapper;
+    }
+
+    /**
+     * Rebind $this->client to a fresh ApiClient scoped to the given agency's
+     * stored P24 credentials. Without this, the DI-resolved client falls back
+     * to .env — which is now empty in multi-tenant mode and yields HTTP 401.
+     */
+    private function bindClientForAgency(?Agency $agency): void
+    {
+        $this->client = new Property24ApiClient($agency);
+    }
+
+    private function bindClientForProperty(Property $property): void
+    {
+        $this->bindClientForAgency($property->agency ?? Agency::find($property->agency_id));
+    }
+
+    private function bindClientForUser(User $user): void
+    {
+        $this->bindClientForAgency($user->agency ?? Agency::find($user->agency_id));
     }
 
     /**
@@ -59,6 +80,7 @@ class Property24SyndicationService
 
     public function submitListing(Property $property): array
     {
+        $this->bindClientForProperty($property);
         $this->log('info', "submitListing called for property #{$property->id}, agent_id={$property->agent_id}");
 
         // Resolve the P24 agency ID up-front so agent registration and the
@@ -161,6 +183,7 @@ class Property24SyndicationService
             return ['success' => false, 'message' => 'No P24 reference — listing was never submitted'];
         }
 
+        $this->bindClientForProperty($property);
         $result = $this->client->setListingStatus($property->id, (int) $property->p24_ref, 'Withdrawn');
 
         if (!$result['success']) {
@@ -179,6 +202,7 @@ class Property24SyndicationService
             return ['success' => false, 'message' => 'No P24 reference — listing was never submitted'];
         }
 
+        $this->bindClientForProperty($property);
         $result = $this->client->setListingStatus($property->id, (int) $property->p24_ref, 'BackOnMarket');
 
         if (!$result['success']) {
@@ -197,6 +221,7 @@ class Property24SyndicationService
             return ['success' => false, 'message' => 'No P24 reference — cannot check status'];
         }
 
+        $this->bindClientForProperty($property);
         $result = $this->client->isOnPortal($property->id, (int) $property->p24_ref);
 
         if (!$result['success']) {
@@ -265,6 +290,7 @@ class Property24SyndicationService
      */
     public function ensureAgentRegisteredByUser(User $user, ?int $p24AgencyId = null): string|bool
     {
+        $this->bindClientForUser($user);
         $this->log('info', "ensureAgentRegistered for user #{$user->id} ({$user->name}), agent_photo_path=" . ($user->agent_photo_path ?? 'NULL'));
 
         $agencyId = $p24AgencyId ?? $this->resolveAgencyIdForUser($user);
@@ -351,6 +377,7 @@ class Property24SyndicationService
      */
     public function getP24AgentId(User $user, ?int $p24AgencyId = null): ?int
     {
+        $this->bindClientForUser($user);
         $agencyId = $p24AgencyId ?? $this->resolveAgencyIdForUser($user);
         $result   = $this->client->getAgents($agencyId !== null ? (string) $agencyId : null);
         if (!$result['success']) return null;
@@ -371,6 +398,7 @@ class Property24SyndicationService
      */
     public function updateAgentOnP24(User $user, bool $pushPhoto = true): bool|string
     {
+        $this->bindClientForUser($user);
         $agencyId = $this->resolveAgencyIdForUser($user);
         if ($agencyId === null) {
             return "User's branch or agency has no Property24 agency ID configured.";

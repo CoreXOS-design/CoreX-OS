@@ -120,9 +120,18 @@ class PropertyContactController extends Controller
                 $mode = $service->resolveMode($agencyId);
                 if ($mode === 'auto_link') {
                     $existing = $duplicates->first();
+                    $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
                     $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $role]]);
                     if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
                         \App\Models\PropertySellerLink::ensureExists($property->id, $existing->id);
+                    }
+                    if (!$wasLinked) {
+                        event(new \App\Events\Contact\ContactLinkedToProperty(
+                            contact: $existing,
+                            property: $property,
+                            role: (string) ($role ?? 'unknown'),
+                            actorUserId: auth()->id(),
+                        ));
                     }
                     $match = $service->identifyMatch($data, $existing, $agencyId);
                     $service->logAttempt($agencyId, $user->id, $mode, $match['field'], $match['value'], $existing->id, $data, 'auto_linked');
@@ -172,6 +181,14 @@ class PropertyContactController extends Controller
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
         }
+        // Domain event — new contact↔property link.
+        // Spec: .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Contact\ContactLinkedToProperty(
+            contact: $contact,
+            property: $property,
+            role: (string) ($role ?? 'unknown'),
+            actorUserId: auth()->id(),
+        ));
 
         if ($request->expectsJson() || $request->wantsJson()) {
             return response()->json([

@@ -10,7 +10,15 @@ class RentalDocumentType extends Model
 {
     use SoftDeletes;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'name',
+        'slug',
+        'color',
+        'is_system',
+        'is_lease',
+        'is_active',
+        'sort_order',
+    ];
 
     protected $casts = [
         'is_system' => 'boolean',

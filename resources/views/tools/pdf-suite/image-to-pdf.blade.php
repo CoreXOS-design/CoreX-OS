@@ -1,14 +1,18 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<x-page-header title="Image to PDF" subtitle="Turn JPG, PNG or HEIC photos into a clean PDF." :flush="true">
-    <x-slot:actions>
-        <button type="submit" form="pdf-suite-form" class="corex-btn-primary text-sm">Convert &amp; Download</button>
-    </x-slot:actions>
-</x-page-header>
-@include('tools.pdf-suite._switcher')
+<div class="space-y-5">
 
-<div class="p-4 lg:p-8">
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">Image to PDF</h1>
+                <p class="text-sm text-white/60">Turn JPG, PNG or HEIC photos into a clean PDF.</p>
+            </div>
+        </div>
+    </div>
+
+    @include('tools.pdf-suite._switcher')
     <div class="max-w-5xl mx-auto">
         @include('tools.pdf-suite._alerts')
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -30,10 +34,11 @@
                 <div class="rounded-md p-6" style="background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
                     <h3 class="font-semibold text-base mb-1" style="color: var(--text-primary);">Images to PDF</h3>
                     <p class="text-sm mb-5" style="color: var(--text-secondary);">JPG / PNG / HEIC / WEBP supported.</p>
-                    <form id="pdf-suite-form" method="POST" action="{{ route('tools.pdf_suite.image-to-pdf.run') }}" enctype="multipart/form-data">
+                    <form id="pdf-suite-form" method="POST" action="{{ route('tools.pdf_suite.image-to-pdf.run') }}" enctype="multipart/form-data" x-data="{ hasFile: false }">
                         @csrf
                         <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">Images</label>
-                        <input type="file" name="images[]" accept="image/*" multiple required class="w-full px-3 py-2.5 rounded-md text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <input type="file" name="images[]" accept="image/*" multiple required @change="hasFile = $event.target.files.length > 0" class="w-full px-3 py-2.5 rounded-md text-sm mb-5" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                        <button type="submit" :disabled="!hasFile" :class="hasFile ? 'corex-btn-primary' : 'opacity-50 cursor-not-allowed corex-btn-primary'" class="text-sm w-full">Convert &amp; Download</button>
                     </form>
                 </div>
             </div>

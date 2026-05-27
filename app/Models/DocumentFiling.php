@@ -6,13 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Carbon\Carbon;
 
+use App\Models\Concerns\BelongsToAgency;
 class DocumentFiling extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'document_filing_register';
 
     protected $fillable = [
+        'agency_id',
         'branch_id',
         'agent_id',
         'document_type',

@@ -575,7 +575,19 @@ class PropertyController extends Controller
         foreach ((array) $request->input('pending_contact_ids', []) as $cid) {
             $cid = (int) $cid;
             if ($cid > 0) {
+                $wasLinked = $property->contacts()->where('contacts.id', $cid)->exists();
                 $property->contacts()->syncWithoutDetaching([$cid => ['role' => null]]);
+                if (!$wasLinked) {
+                    $linkedContact = \App\Models\Contact::find($cid);
+                    if ($linkedContact) {
+                        event(new \App\Events\Contact\ContactLinkedToProperty(
+                            contact: $linkedContact,
+                            property: $property,
+                            role: 'unknown',
+                            actorUserId: auth()->id(),
+                        ));
+                    }
+                }
             }
         }
 
@@ -594,15 +606,30 @@ class PropertyController extends Controller
             // Auto-link if duplicate found (non-blocking in bulk create context)
             $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
             if ($existing) {
+                $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
                 $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => null]]);
                 $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
                 $dupService->logAttempt($agencyId, auth()->id(), 'auto_link', $match['field'], $match['value'], $existing->id, $ncData, 'auto_linked');
+                if (!$wasLinked) {
+                    event(new \App\Events\Contact\ContactLinkedToProperty(
+                        contact: $existing,
+                        property: $property,
+                        role: 'unknown',
+                        actorUserId: auth()->id(),
+                    ));
+                }
                 continue;
             }
             $ncData['contact_type_id'] = !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null;
             $ncData['created_by_user_id'] = auth()->id();
             $contact = \App\Models\Contact::create($ncData);
             $property->contacts()->attach($contact->id, ['role' => null]);
+            event(new \App\Events\Contact\ContactLinkedToProperty(
+                contact: $contact,
+                property: $property,
+                role: 'unknown',
+                actorUserId: auth()->id(),
+            ));
         }
 
         return redirect()->route('corex.properties.show', $property)

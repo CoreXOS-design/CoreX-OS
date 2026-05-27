@@ -17,6 +17,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Mobile (Flutter) is a pure bearer-token API client — never stateful.
+        // Strip Sanctum's stateful-promotion middleware from the api group so
+        // an Origin/Referer header can never trick a bearer-token request into
+        // booting the session stack. Prevents session-row deadlocks under
+        // parallel cold-start requests on mobile. Idempotent if not present.
+        $middleware->api(remove: [
+            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+        ]);
+
         $middleware->alias([
             'tv' => \App\Http\Middleware\TvTokenMiddleware::class,
             'admin' => \App\Http\Middleware\AdminMiddleware::class,

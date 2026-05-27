@@ -9,7 +9,23 @@ class RentalProperty extends Model
 {
     use SoftDeletes;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'address_line_1',
+        'address_line_2',
+        'suburb',
+        'city',
+        'postal_code',
+        'province',
+        'full_address',
+        'property_type',
+        'landlord_name',
+        'landlord_email',
+        'landlord_phone',
+        'monthly_rental',
+        'notes',
+        'is_active',
+        'created_by',
+    ];
 
     protected $casts = [
         'is_active' => 'boolean',

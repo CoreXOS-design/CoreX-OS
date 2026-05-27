@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -55,8 +56,7 @@
                         <span class="font-normal" style="color: var(--text-muted);">· R {{ number_format($contextListing->price) }}</span>
                     @endif
                     @if(!empty($contextListing->portal_source))
-                        <span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
-                              style="{{ $contextListing->portal_source === 'p24' ? 'background:#1e40af;color:#fff;' : 'background:#059669;color:#fff;' }}">
+                        <span class="ds-badge {{ $contextListing->portal_source === 'p24' ? 'ds-badge-info' : 'ds-badge-success' }} ml-1">
                             {{ strtoupper($contextListing->portal_source) === 'P24' ? 'P24' : 'PP' }}
                         </span>
                     @endif
@@ -77,10 +77,10 @@
             @foreach(['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost'] as $stateKey => $stateLabel)
                 @php
                     $stateColour = match($stateKey) {
-                        'new' => '#3b82f6',
-                        'warm' => '#10b981',
-                        'cold' => '#f59e0b',
-                        'lost' => '#ef4444',
+                        'new' => 'var(--brand-icon, #0ea5e9)',
+                        'warm' => 'var(--ds-green, #059669)',
+                        'cold' => 'var(--ds-amber, #f59e0b)',
+                        'lost' => 'var(--ds-crimson, #c41e3a)',
                     };
                     $stateItems = $columns[$stateKey] ?? collect();
                 @endphp
@@ -90,7 +90,7 @@
                      :style="dragTarget === '{{ $stateKey }}' ? 'outline: 2px solid {{ $stateColour }}; outline-offset: -2px;' : ''">
                     <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 2px solid {{ $stateColour }};">
                         <span class="text-sm font-semibold" style="color: var(--text-primary);">{{ $stateLabel }}</span>
-                        <span class="text-xs px-2 py-0.5 rounded-full font-bold" style="background: {{ $stateColour }}20; color: {{ $stateColour }};">{{ $counts[$stateKey] ?? 0 }}</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap" style="background: color-mix(in srgb, {{ $stateColour }} 15%, transparent); color: {{ $stateColour }};">{{ number_format($counts[$stateKey] ?? 0) }}</span>
                     </div>
                     <div class="p-2 space-y-2 max-h-[60vh] overflow-y-auto">
                         @forelse($stateItems as $buyer)
@@ -103,8 +103,8 @@
                                style="background: var(--surface-2); border: 1px solid var(--border);">
                                 @if($buyerRisk !== null && $buyerRisk > 30)
                                     <span class="absolute top-2 right-2 w-2.5 h-2.5 rounded-full"
-                                          style="background: {{ $buyerRisk > 60 ? '#ef4444' : '#f59e0b' }};"
-                                          title="Lost risk: {{ $buyerRisk }}/100"></span>
+                                          style="background: {{ $buyerRisk > 60 ? 'var(--ds-crimson, #c41e3a)' : 'var(--ds-amber, #f59e0b)' }};"
+                                          title="Lost risk: {{ number_format($buyerRisk) }}/100"></span>
                                 @endif
                                 <div class="flex items-center gap-2 mb-1">
                                     <div class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
@@ -122,8 +122,8 @@
                                 </div>
                             </a>
                             <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
-                               class="block mt-1 text-center text-[10px] font-medium py-1 rounded no-underline hover:opacity-80"
-                               style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 8%, transparent);">
+                               class="block mt-1 text-center text-[10px] font-medium py-1 rounded no-underline hover:opacity-80 transition"
+                               style="color: var(--ds-green, #059669); background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);">
                                 Schedule Viewing
                             </a>
                         @empty
@@ -149,12 +149,12 @@
                 <tbody>
                     @forelse($buyers as $buyer)
                         @php
-                            $statePill = match($buyer->buyer_state) {
-                                'new' => ['bg' => '#3b82f620', 'color' => '#3b82f6'],
-                                'warm' => ['bg' => '#10b98120', 'color' => '#10b981'],
-                                'cold' => ['bg' => '#f59e0b20', 'color' => '#f59e0b'],
-                                'lost' => ['bg' => '#ef444420', 'color' => '#ef4444'],
-                                default => ['bg' => '#64748b20', 'color' => '#64748b'],
+                            $stateBadgeClass = match($buyer->buyer_state) {
+                                'new' => 'ds-badge-info',
+                                'warm' => 'ds-badge-success',
+                                'cold' => 'ds-badge-warning',
+                                'lost' => 'ds-badge-danger',
+                                default => 'ds-badge-default',
                             };
                         @endphp
                         <tr style="border-bottom: 1px solid var(--border);">
@@ -164,17 +164,16 @@
                                 </a>
                             </td>
                             <td class="px-4 py-3">
-                                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase"
-                                      style="background: {{ $statePill['bg'] }}; color: {{ $statePill['color'] }};">
-                                    {{ $buyer->buyer_state ?? 'unknown' }}
+                                <span class="ds-badge {{ $stateBadgeClass }}">
+                                    {{ ucfirst($buyer->buyer_state ?? 'unknown') }}
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $buyer->createdBy?->name ?? '—' }}</td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $buyer->buyerPropertyViews()->count() }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ number_format($buyer->buyerPropertyViews()->count()) }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="5" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">No buyers found.</td></tr>
+                        <tr><td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No buyers found.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -230,10 +229,10 @@ function kanbanDrag() {
                 if (r.ok) {
                     window.location.reload();
                 } else {
-                    alert('Could not transition buyer state.');
+                    (window.showToast || alert)('Could not transition buyer state.', 'error');
                 }
             } catch (e) {
-                alert('Network error.');
+                (window.showToast || alert)('Network error.', 'error');
             }
             this.endDrag();
         },

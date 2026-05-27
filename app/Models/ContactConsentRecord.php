@@ -5,8 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class ContactConsentRecord extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
         'contact_id', 'agency_id', 'consent_type', 'given_at',
         'given_by_user_id', 'method', 'evidence_document_id',

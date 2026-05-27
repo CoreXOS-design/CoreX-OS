@@ -4,11 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+use App\Models\Concerns\BelongsToAgency;
 class RevenueShareLedger extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'revenue_share_ledger';
 
     protected $fillable = [
+        'agency_id',
         'commission_ledger_id',
         'producing_agent_id',
         'receiving_agent_id',

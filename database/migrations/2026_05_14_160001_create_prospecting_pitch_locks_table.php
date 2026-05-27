@@ -15,7 +15,7 @@ return new class extends Migration {
             $table->foreignId('prospecting_listing_id')->constrained('prospecting_listings')->cascadeOnDelete();
             $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->timestamp('locked_at')->useCurrent();
-            $table->timestamp('expires_at');
+            $table->timestamp('expires_at')->useCurrent();
             $table->timestamp('released_at')->nullable();
             // release_reason values: consumed_by_send | manual_release | auto_expired
             $table->string('release_reason', 50)->nullable();

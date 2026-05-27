@@ -5,13 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class PresentationLink extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
 
     // type values: property24 | lightstone | active_listing | competitor_listing | market_article | other
     protected $fillable = [
+        'agency_id',
         'presentation_id',
         'type',
         'url',

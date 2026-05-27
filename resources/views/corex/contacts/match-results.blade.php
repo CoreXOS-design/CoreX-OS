@@ -222,10 +222,26 @@
                 }
                 return true;
             });
+
+            // Visible properties first, hidden ones grouped at the bottom.
+            $visibleProperties = $filteredProperties->reject(fn ($p) => $match->isPropertyHidden($p->id))->values();
+            $hiddenProperties  = $filteredProperties->filter(fn ($p) => $match->isPropertyHidden($p->id))->values();
+            $orderedProperties = $visibleProperties->concat($hiddenProperties);
+            $firstHiddenId     = $hiddenProperties->first()?->id;
         @endphp
-        @foreach($filteredProperties as $property)
+        @foreach($orderedProperties as $property)
         @php
             $isHidden = $match->isPropertyHidden($property->id);
+        @endphp
+        @if($isHidden && $property->id === $firstHiddenId)
+        <div class="flex items-center gap-3 pt-6 pb-1">
+            <div class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                Hidden from this match ({{ $hiddenProperties->count() }})
+            </div>
+            <div class="flex-1" style="height:1px; background: var(--border);"></div>
+        </div>
+        @endif
+        @php
             $views = $match->propertyViewCount($property->id);
             $thumb = $property->gallery_images_json[0]
                 ?? $property->dawn_images_json[0]
@@ -239,8 +255,17 @@
                 default     => 'ds-badge-default',
             };
             $score = (int) ($property->match_score ?? 0);
-            $scoreVariant = $score >= 80 ? 'ds-badge-success' : ($score >= 60 ? 'ds-badge-info' : 'ds-badge-warning');
-            $scoreLabel = $score >= 80 ? 'Strong' : ($score >= 60 ? 'Good' : 'Weak');
+            $tier  = $property->match_tier ?? \App\Services\Matching\MatchingService::tierFor($score);
+            $scoreVariant = match($tier) {
+                'strong' => 'ds-badge-success',
+                'good'   => 'ds-badge-info',
+                default  => 'ds-badge-warning',
+            };
+            $scoreLabel = match($tier) {
+                'strong' => 'Strong',
+                'good'   => 'Good',
+                default  => 'Fair',
+            };
 
             $fb = $feedback[$property->id] ?? null;
             $reactionMeta = [
@@ -283,7 +308,7 @@
                         @endif
                         <span class="ds-badge {{ $statusVariant }}">{{ ucfirst($property->status) }}</span>
                         @if($isHidden)
-                        @php($hiddenReason = $match->hiddenReasonFor($property->id))
+                        @php $hiddenReason = $match->hiddenReasonFor($property->id); @endphp
                         <span class="ds-badge ds-badge-warning" @if($hiddenReason) title="Reason: {{ $hiddenReason }}" @endif>Hidden</span>
                         @endif
                         @if($fbMeta)

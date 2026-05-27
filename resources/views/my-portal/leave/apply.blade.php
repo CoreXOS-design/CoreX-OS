@@ -1,3 +1,4 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')
@@ -55,7 +56,7 @@
                 {{-- 1. Leave Type --}}
                 <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">1. Leave Type</h4>
-                    <select name="leave_type_id" x-model="typeId" @change="calculate()" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                    <select name="leave_type_id" x-model="typeId" @change="calculate()" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                         <option value="">-- Select leave type --</option>
                         @foreach($leaveTypes as $lt)
                             <option value="{{ $lt->id }}">{{ $lt->label }} ({{ number_format((float)($balances[$lt->id]['available_days'] ?? 0), 1) }} days available)</option>
@@ -70,12 +71,12 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">Start Date <span class="text-red-500">*</span></label>
-                            <input type="date" name="start_date" x-model="startDate" @change="calculate()" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                            <input type="date" name="start_date" x-model="startDate" @change="calculate()" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                             @error('start_date') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary, #6b7280);">End Date <span class="text-red-500">*</span></label>
-                            <input type="date" name="end_date" x-model="endDate" @change="calculate()" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
+                            <input type="date" name="end_date" x-model="endDate" @change="calculate()" required class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;">
                             @error('end_date') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                         </div>
                     </div>
@@ -92,7 +93,7 @@
                     </div>
 
                     {{-- Live calculation --}}
-                    <div x-show="workingDays !== null" x-cloak class="mt-3 p-3" style="background:rgba(0,212,170,0.04); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
+                    <div x-show="workingDays !== null" x-cloak class="mt-3 p-3" style="background:color-mix(in srgb, var(--brand-icon) 6%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); border-radius:6px;">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                             <div><span style="color:var(--text-secondary, #94a3b8);">Working days:</span><br><strong x-text="workingDays" style="color:var(--text-primary, #0f172a);"></strong></div>
                             <div><span style="color:var(--text-secondary, #94a3b8);">Balance before:</span><br><strong x-text="parseFloat(balanceBefore || 0).toFixed(2)" style="color:var(--text-primary, #0f172a);"></strong></div>
@@ -110,7 +111,7 @@
                 {{-- 3. Reason --}}
                 <div class="p-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
                     <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">3. Reason</h4>
-                    <textarea name="reason" rows="3" maxlength="2000" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:#fff; border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;" placeholder="Required for family responsibility, special, and unpaid leave. Optional for others.">{{ old('reason', '') }}</textarea>
+                    <textarea name="reason" rows="3" maxlength="2000" class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface); border:1px solid var(--border, #e5e7eb); color:var(--text-primary, #0f172a); border-radius:6px;" placeholder="Required for family responsibility, special, and unpaid leave. Optional for others.">{{ old('reason', '') }}</textarea>
                     @error('reason') <p class="text-xs text-red-500 mt-1">{{ $message }}</p> @enderror
                 </div>
 
@@ -138,8 +139,8 @@
 
                 {{-- Actions --}}
                 <div class="flex items-center gap-3">
-                    <button type="submit" class="px-4 py-2 text-sm font-semibold text-white transition" style="background:var(--brand-icon); border-radius:6px;">Submit Application</button>
-                    <a href="{{ route('my-portal.leave.index') }}" class="px-4 py-2 text-sm font-semibold transition" style="color:var(--text-secondary, #6b7280); border:1px solid var(--border, #e5e7eb); border-radius:6px;">Cancel</a>
+                    <button type="submit" class="corex-btn-primary">Submit Application</button>
+                    <a href="{{ route('my-portal.leave.index') }}" class="corex-btn-outline">Cancel</a>
                 </div>
             </div>
         </form>

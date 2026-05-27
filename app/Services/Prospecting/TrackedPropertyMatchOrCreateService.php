@@ -689,6 +689,15 @@ final class TrackedPropertyMatchOrCreateService
                 actorUserId: $promotingUserId,
             ));
 
+            // Mandate pillar: promotion from tracked → stock is the architectural
+            // conversion moment. Spec .ai/specs/corex-domain-events-spec.md.
+            event(new \App\Events\Mandate\MandateConverted(
+                mandate: $tp,
+                deal: null,
+                agencyIdHint: (int) $tp->agency_id,
+                actorUserId: $promotingUserId,
+            ));
+
             return $property;
         });
     }

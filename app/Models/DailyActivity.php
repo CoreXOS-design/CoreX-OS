@@ -5,11 +5,39 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class DailyActivity extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'agency_id',
+        'activity_date',
+        'period',
+        'user_id',
+        'branch_id',
+        'calls_made',
+        'doors_knocked',
+        'whatsapps_sent',
+        'referrals_asked',
+        'flyers_dropped',
+        'presentations_booked',
+        'presentations_done',
+        'oats_signed',
+        'eats_signed',
+        'buyer_leads',
+        'seller_leads',
+        'portal_leads',
+        'referral_leads',
+        'buyer_appointments',
+        'otps_written',
+        'otps_accepted',
+        'otps_collapsed',
+        'prospecting',
+        'notes',
+        'created_by',
+        'updated_by',
+    ];
 
     protected $casts = [
         'activity_date' => 'date',

@@ -1,51 +1,59 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div x-data="commandCentre()" x-init="startAutoRefresh()">
-    {{-- Header --}}
-    <div class="flex items-end justify-between mb-5 gap-4 flex-wrap">
-        <div class="min-w-0">
-            <h1 class="text-2xl font-bold leading-tight" style="color:var(--text-primary);">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>
-            <p class="text-sm mt-0.5" style="color:var(--text-muted);">{{ now()->format('l, d F Y') }}</p>
-        </div>
-        <div class="flex items-center gap-3 flex-shrink-0">
-            <span class="text-xs hidden md:inline" style="color:var(--text-muted);" x-text="lastRefresh"></span>
-
-            <button type="button" @click="refresh()" :disabled="refreshing"
-                    class="p-1.5 rounded-md transition-colors"
-                    style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);" title="Refresh">
-                <svg class="w-4 h-4" :class="refreshing && 'animate-spin'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
-                </svg>
-            </button>
+<div x-data="commandCentre()" x-init="startAutoRefresh()" class="space-y-6">
+    {{-- Page header (Pattern A — branded) --}}
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-xl font-bold text-white leading-tight">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>
+                <p class="text-sm text-white/60">{{ now()->format('l, d F Y') }}</p>
+            </div>
+            <div class="flex items-center gap-3 flex-shrink-0">
+                <span class="text-xs hidden md:inline text-white/60" x-text="lastRefresh"></span>
+                <button type="button" @click="refresh()" :disabled="refreshing"
+                        class="corex-btn-outline disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                        title="Refresh">
+                    <svg class="w-4 h-4" :class="refreshing && 'animate-spin'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+                    </svg>
+                    <span>Refresh</span>
+                </button>
+            </div>
         </div>
     </div>
 
     {{-- Empty state --}}
     <template x-if="cards.length === 0">
-        <div class="rounded-lg p-12 text-center" style="background:var(--surface);border:1px solid var(--border);">
-            <div class="text-4xl mb-3" style="color:var(--text-muted);opacity:0.4;">&#10003;</div>
-            <h2 class="text-lg font-semibold mb-1" style="color:var(--text-primary);">Nothing pressing</h2>
-            <p class="text-sm" style="color:var(--text-muted);">Enjoy your day. All caught up.</p>
+        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+            </div>
+            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">Nothing pressing</h3>
+            <p class="text-sm" style="color: var(--text-muted);">Enjoy your day. All caught up.</p>
         </div>
     </template>
 
     {{-- ═══════════ GROUPED SECTIONS ═══════════ --}}
     <template x-for="group in groups" :key="group.key">
-        <section x-show="group.cards.length > 0" class="mb-6">
+        <section x-show="group.cards.length > 0">
             {{-- Section label --}}
             <div class="flex items-center gap-2 mb-3">
                 <span class="w-2 h-2 rounded-full" :style="'background:' + group.colour"></span>
-                <h2 class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-secondary);" x-text="group.label"></h2>
-                <span class="text-xs tabular-nums" style="color:var(--text-muted);" x-text="'· ' + group.cards.length"></span>
-                <div class="flex-1 h-px" style="background:var(--border);"></div>
+                <h2 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-secondary);" x-text="group.label"></h2>
+                <span class="text-xs tabular-nums" style="color: var(--text-muted);" x-text="'· ' + group.cards.length"></span>
+                <div class="flex-1 h-px" style="background: var(--border);"></div>
             </div>
 
             {{-- Card grid: capped at 4 cols, responsive --}}
             <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <template x-for="card in group.cards" :key="card.card_id">
                     <a :href="card.view_all_url || '#'"
-                       class="group flex flex-col rounded-lg overflow-hidden transition-all no-underline hover:-translate-y-0.5 hover:shadow-lg h-full"
+                       class="group flex flex-col rounded-md overflow-hidden transition-all no-underline hover:-translate-y-0.5 shadow-sm hover:shadow h-full"
                        :style="cardStyle(card)"
                        @mouseenter="hoveredCard = card.card_id" @mouseleave="hoveredCard = null">
 
@@ -54,11 +62,11 @@
                             <div class="flex items-start justify-between gap-2">
                                 <div class="flex items-center gap-2 min-w-0">
                                     <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
-                                         :style="'background:' + urgencyColour(card.urgency) + '20; color:' + urgencyColour(card.urgency)">
+                                         :style="'background: color-mix(in srgb, ' + urgencyColour(card.urgency) + ' 15%, transparent); color: ' + urgencyColour(card.urgency)">
                                         <span x-html="cardIcon(card.icon)" class="w-4 h-4"></span>
                                     </div>
-                                    <span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded"
-                                          :style="'background:' + urgencyColour(card.urgency) + '15; color:' + urgencyColour(card.urgency)"
+                                    <span class="text-[0.6875rem] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded-md"
+                                          :style="'background: color-mix(in srgb, ' + urgencyColour(card.urgency) + ' 12%, transparent); color: ' + urgencyColour(card.urgency)"
                                           x-text="urgencyLabel(card.urgency)"></span>
                                 </div>
                                 <span class="font-bold tabular-nums leading-none text-3xl"
@@ -76,13 +84,13 @@
                             <div class="flex items-center justify-between mb-3 gap-2">
                                 <div class="flex items-center gap-2 min-w-0">
                                     <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
-                                         :style="'background:' + urgencyColour(card.urgency) + '20; color:' + urgencyColour(card.urgency)">
+                                         :style="'background: color-mix(in srgb, ' + urgencyColour(card.urgency) + ' 15%, transparent); color: ' + urgencyColour(card.urgency)">
                                         <span x-html="cardIcon(card.icon)" class="w-4 h-4"></span>
                                     </div>
                                     <div class="min-w-0">
-                                        <h3 class="text-sm font-semibold truncate leading-tight" style="color:var(--text-primary);" x-text="card.title"></h3>
-                                        <span class="text-[10px] uppercase tracking-wider font-semibold"
-                                              :style="'color:' + urgencyColour(card.urgency)"
+                                        <h3 class="text-sm font-semibold truncate leading-tight" style="color: var(--text-primary);" x-text="card.title"></h3>
+                                        <span class="text-[0.6875rem] uppercase tracking-wider font-semibold"
+                                              :style="'color: ' + urgencyColour(card.urgency)"
                                               x-text="urgencyLabel(card.urgency)"></span>
                                     </div>
                                 </div>
@@ -97,9 +105,9 @@
                                         <div>
                                             <div class="truncate font-medium" style="color:var(--text-primary);" x-text="item.title"></div>
                                             <div class="flex items-center gap-1 mt-1">
-                                                <button type="button" @click.prevent="respondInvitation(item, 'accepted')" class="text-[10px] px-2 py-0.5 rounded text-white font-medium" style="background:#10b981;">Accept</button>
-                                                <button type="button" @click.prevent="respondInvitation(item, 'tentative')" class="text-[10px] px-2 py-0.5 rounded font-medium" style="color:#f59e0b;background:var(--surface);">Tentative</button>
-                                                <button type="button" @click.prevent="respondInvitation(item, 'declined')" class="text-[10px] px-2 py-0.5 rounded font-medium" style="color:#ef4444;background:var(--surface);">Decline</button>
+                                                <button type="button" @click.prevent="respondInvitation(item, 'accepted')" class="text-[0.6875rem] px-2 py-0.5 rounded-md text-white font-semibold" style="background: var(--ds-green, #059669);">Accept</button>
+                                                <button type="button" @click.prevent="respondInvitation(item, 'tentative')" class="text-[0.6875rem] px-2 py-0.5 rounded-md font-semibold" style="color: var(--ds-amber, #f59e0b); background: var(--surface); border: 1px solid var(--border);">Tentative</button>
+                                                <button type="button" @click.prevent="respondInvitation(item, 'declined')" class="text-[0.6875rem] px-2 py-0.5 rounded-md font-semibold" style="color: var(--ds-crimson, #c41e3a); background: var(--surface); border: 1px solid var(--border);">Decline</button>
                                             </div>
                                         </div>
                                     </template>
@@ -139,7 +147,7 @@
                                     <template x-for="(item, idx) in card.items.slice(0, 4)" :key="idx">
                                         <div class="truncate" style="color:var(--text-secondary);" x-text="detailedItemText(card, item)"></div>
                                     </template>
-                                    <template x-if="card.items.length > 4"><div class="text-[11px]" style="color:var(--text-muted);" x-text="'+ ' + (card.items.length - 4) + ' more'"></div></template>
+                                    <template x-if="card.items.length > 4"><div class="text-[0.6875rem]" style="color: var(--text-muted);" x-text="'+ ' + (card.items.length - 4) + ' more'"></div></template>
                                 </div>
                             </template>
 
@@ -157,7 +165,7 @@
     <template x-if="hoveredCard && viewMode === 'compact'">
         <div class="fixed z-50 pointer-events-none" :style="tooltipPos()" x-cloak>
             <template x-for="card in cards.filter(c => c.card_id === hoveredCard)" :key="card.card_id">
-                <div class="rounded-lg shadow-xl p-3 text-xs max-w-xs" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);">
+                <div class="rounded-md p-3 text-xs max-w-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
                     <div class="font-semibold mb-1.5" x-text="card.title"></div>
                     <template x-for="(item, idx) in card.items.slice(0, 3)" :key="idx">
                         <div class="py-0.5 truncate" style="color:var(--text-secondary);" x-text="tooltipItemText(card, item)"></div>
@@ -192,10 +200,12 @@ function commandCentre() {
         // Group cards by urgency for the three-tier layout
         get groups() {
             const by = (urgencies) => this.cards.filter(c => urgencies.includes(c.urgency));
+            const css = getComputedStyle(document.documentElement);
+            const tok = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
             return [
-                { key: 'now',   label: 'Action Required', colour: '#ef4444', cards: by(['critical','high']) },
-                { key: 'today', label: 'Today',           colour: '#0ea5e9', cards: by(['medium']) },
-                { key: 'fyi',   label: 'Snapshot',        colour: '#64748b', cards: by(['low']) },
+                { key: 'now',   label: 'Action Required', colour: tok('--ds-crimson', '#c41e3a'), cards: by(['critical','high']) },
+                { key: 'today', label: 'Today',           colour: tok('--brand-icon', '#0ea5e9'), cards: by(['medium']) },
+                { key: 'fyi',   label: 'Snapshot',        colour: tok('--text-muted', '#9ca3af'), cards: by(['low']) },
             ];
         },
 
@@ -238,7 +248,15 @@ function commandCentre() {
         },
 
         urgencyColour(u) {
-            return { critical: '#ef4444', high: '#f59e0b', medium: '#0ea5e9', low: '#64748b' }[u] || '#64748b';
+            const css = getComputedStyle(document.documentElement);
+            const tok = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+            const map = {
+                critical: tok('--ds-crimson', '#c41e3a'),
+                high:     tok('--ds-amber',   '#f59e0b'),
+                medium:   tok('--brand-icon', '#0ea5e9'),
+                low:      tok('--text-muted', '#9ca3af'),
+            };
+            return map[u] || map.low;
         },
 
         tooltipPos() {

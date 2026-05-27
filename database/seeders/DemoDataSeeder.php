@@ -143,6 +143,7 @@ class DemoDataSeeder extends Seeder
         $this->stage8_fica();
         $this->stage9_esign();
         $this->stage10_otp();
+        $this->stage10b_buyerActivity();
         $this->stage11_deals();
         $this->stage12_calendar();
         $this->stageViewingFeedback_demoShowcase();
@@ -1163,6 +1164,23 @@ class DemoDataSeeder extends Seeder
                     'updated_at'    => now(),
                 ]);
             }
+
+            // Marketing activities for active properties (~60%) [origin/Staging UNION]
+            if ($status === 'available' && rand(0, 2) > 0) {
+                $activities = ['portal_listed', 'photos_refreshed', 'price_adjusted', 'show_day_held', 'social_share'];
+                for ($a = 0; $a < rand(1, 3); $a++) {
+                    DB::table('property_marketing_activities')->insert([
+                        'property_id'       => $property->id,
+                        'agency_id'         => self::AGENCY_ID,
+                        'activity_type'     => $activities[array_rand($activities)],
+                        'occurred_at'       => now()->subDays(rand(1, 60)),
+                        'logged_by_user_id' => $agentId,
+                        'internal_only'     => false,
+                        'created_at'        => now(),
+                    ]);
+                }
+            }
+
             $ok++;
         }
 
@@ -1576,6 +1594,58 @@ class DemoDataSeeder extends Seeder
             $made++;
         }
         $this->command->info("  Stage 10: {$made} OTP rows (mix verified / pending)");
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    //  STAGE 10b — buyer responses + activity log [origin/Staging UNION]
+    // ───────────────────────────────────────────────────────────────────
+
+    private function stage10b_buyerActivity(): void
+    {
+        $demoContactIds = DB::table('contacts')
+            ->where('agency_id', self::AGENCY_ID)
+            ->where('first_name', 'like', '[DEMO]%')
+            ->where('is_buyer', 1)
+            ->pluck('id')->toArray();
+
+        $propertyIds = DB::table('properties')
+            ->where('agency_id', self::AGENCY_ID)
+            ->where('status', 'available')
+            ->pluck('id')->toArray();
+
+        if (empty($demoContactIds) || empty($propertyIds)) return;
+
+        $count = 0;
+        foreach (array_slice($demoContactIds, 0, 20) as $contactId) {
+            for ($r = 0; $r < rand(1, 3); $r++) {
+                $propId = $propertyIds[array_rand($propertyIds)];
+                DB::table('buyer_property_responses')->insertOrIgnore([
+                    'contact_id'   => $contactId,
+                    'agency_id'    => self::AGENCY_ID,
+                    'property_id'  => $propId,
+                    'response'     => ['interested', 'interested', 'viewing_requested', 'not_interested'][rand(0, 3)],
+                    'source'       => 'buyer_portal',
+                    'responded_at' => now()->subDays(rand(0, 14)),
+                    'created_at'   => now(),
+                    'updated_at'   => now(),
+                ]);
+                $count++;
+            }
+
+            // Pick any random agent (HEAD doesn't keep a flat $agentIds list;
+            // derive via agentForBranch on a random branch).
+            $randomAgentId = $this->agentForBranch(array_rand($this->branchByTown));
+
+            DB::table('buyer_activity_log')->insert([
+                'contact_id'        => $contactId,
+                'agency_id'         => self::AGENCY_ID,
+                'activity_type'     => ['viewing_completed', 'call_logged', 'email_sent', 'note_added', 'manual'][rand(0, 4)],
+                'activity_date'     => now()->subDays(rand(0, 30)),
+                'logged_by_user_id' => $randomAgentId,
+                'created_at'        => now(),
+            ]);
+        }
+        $this->command->info("  Stage 10b: {$count} buyer responses + activity rows");
     }
 
     // ───────────────────────────────────────────────────────────────────

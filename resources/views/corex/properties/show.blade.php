@@ -3,30 +3,11 @@
 @section('corex-content')
 @php $isNew = !$property->exists; @endphp
 <div class="w-full space-y-4"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), formDirty: false, wbReportOpen: false, complianceModalOpen: false, unsavedModalOpen: false, pendingNavUrl: null, contactRequiredModalOpen: false }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: false, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
-     @corex:clear-dirty.window="formDirty = false"
-     x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')"
-     @beforeunload.window="if (formDirty && !unsavedModalOpen) { $event.preventDefault(); $event.returnValue = ''; }"
-     x-init="
-        document.addEventListener('click', (e) => {
-            if (!formDirty || unsavedModalOpen) return;
-            const a = e.target.closest('a[href]');
-            if (!a) return;
-            const href = a.getAttribute('href');
-            if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
-            if (a.target === '_blank' || a.hasAttribute('download')) return;
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-            const url = new URL(a.href, window.location.href);
-            if (url.origin !== window.location.origin) return;
-            if (url.pathname === window.location.pathname && url.search === window.location.search) return;
-            e.preventDefault();
-            e.stopPropagation();
-            pendingNavUrl = a.href;
-            unsavedModalOpen = true;
-        }, true);
-     ">
+     @corex:switch-tab.window="activeTab = $event.detail"
+     x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')">
 
     {{-- Top bar: back + flash --}}
     <div class="flex items-center gap-4 flex-wrap">
@@ -118,8 +99,17 @@
                     </div>
                 @endif
                 <div class="min-w-0 flex-1">
+                    @php
+                        $listingTypeLabel = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
+                            'rental' => 'For Rent',
+                            default  => 'For Sale',
+                        };
+                        $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                        $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+                    @endphp
                     <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="ds-badge {{ $scBadge }}">{{ ucfirst($property->status ?: 'Draft') }}</span>
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
                         @if($property->isPublished())
                             <span class="ds-badge ds-badge-success">Published</span>
                         @endif
@@ -152,11 +142,10 @@
             <div class="rounded-md p-3 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
                 <p class="text-[0.6875rem] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Actions</p>
 
-                <button type="submit" form="prop-update-form"
-                        class="prop-action-btn prop-action-btn-success"
-                        :class="formDirty ? 'is-dirty' : ''">
+                <button type="submit" form="prop-update-form" data-prop-save
+                        class="prop-action-btn prop-action-btn-success">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-                    <span x-text="formDirty ? 'Save Changes *' : 'Save Changes'"></span>
+                    <span class="prop-save-label">Save Changes</span>
                 </button>
 
                 @php
@@ -693,8 +682,16 @@
                     <h1 class="text-base font-extrabold leading-tight" style="color:var(--text-primary);">{{ $property->title ?: 'New Property' }}</h1>
                     <div class="text-base font-bold mt-0.5" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</div>
                     <div class="flex items-center gap-2 mt-1 flex-wrap">
-                        <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
-                              style="background:{{ $sc }}22; color:{{ $sc }}; border:1px solid {{ $sc }}44;">{{ ucfirst($property->status) }}</span>
+                        @php
+                            $listingTypeLabel2 = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
+                                'rental' => 'For Rent',
+                                default  => 'For Sale',
+                            };
+                            $statusLabel2 = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+                            $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
+                        @endphp
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
                         <span class="text-xs" style="color:var(--text-secondary);">{{ $property->beds }}bd · {{ $property->baths }}ba</span>
                     </div>
                 </div>
@@ -1316,6 +1313,7 @@
                 @continue
             @endif
             <button type="button"
+                    data-prop-tab="{{ $tab['key'] }}"
                     @click="activeTab = '{{ $tab['key'] }}'"
                     :class="activeTab === '{{ $tab['key'] }}' ? 'border-b-2 border-sky-500 bg-sky-500/5' : 'border-b-2 border-transparent'"
                     :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
@@ -1641,11 +1639,9 @@
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
                   class="space-y-0"
                   novalidate
-                  @input="formDirty = true"
-                  @change="formDirty = true"
                   data-is-new="{{ $isNew ? '1' : '0' }}"
                   data-contact-count="{{ $isNew ? 0 : $property->contacts->count() }}"
-                  @submit="if (!window.coreXPropertyContactGuard($event, $el)) { return; } formDirty = false;"
+                  @submit="if (!window.coreXPropertyContactGuard($event, $el)) { return; } window.coreXPropDirty && window.coreXPropDirty.clear();"
                   x-data="{
                       info: {
                           identity: true,
@@ -4640,44 +4636,24 @@
         </div>
     </div>
 
-    <div x-show="unsavedModalOpen" x-cloak
-         class="fixed inset-0 z-[9999] flex items-center justify-center"
-         style="background: rgba(0,0,0,0.6);"
-         @keydown.escape.window="unsavedModalOpen = false; pendingNavUrl = null;">
-        <div class="rounded-md shadow-2xl w-full max-w-md mx-4 p-6"
-             style="background: var(--surface); border: 1px solid var(--border);"
-             @click.stop>
-            <h3 class="text-lg font-semibold mb-2" style="color: var(--text-primary);">Unsaved changes</h3>
-            <p class="text-sm mb-5" style="color: var(--text-secondary);">
+    {{-- Unsaved-changes modal (vanilla, lives outside Alpine scope chaos) --}}
+    <div id="prop-unsaved-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.6); align-items:center; justify-content:center;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); width:100%; max-width:28rem; margin:0 1rem; padding:1.5rem;">
+            <h3 style="font-size:1.125rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-primary);">Unsaved changes</h3>
+            <p style="font-size:0.875rem; margin-bottom:1.25rem; color:var(--text-secondary);">
                 You have unsaved changes on this property. What would you like to do?
             </p>
-            <div class="flex flex-wrap gap-2 justify-end">
-                <button type="button"
-                        class="px-4 py-2 text-sm rounded-md"
-                        style="background: transparent; color: var(--text-secondary); border: 1px solid var(--border);"
-                        @click="unsavedModalOpen = false; pendingNavUrl = null;">
+            <div style="display:flex; flex-wrap:wrap; gap:0.5rem; justify-content:flex-end;">
+                <button type="button" data-prop-unsaved="cancel"
+                        style="padding:0.5rem 1rem; font-size:0.875rem; border-radius:6px; background:transparent; color:var(--text-secondary); border:1px solid var(--border); cursor:pointer;">
                     Cancel
                 </button>
-                <button type="button"
-                        class="px-4 py-2 text-sm rounded-md font-medium"
-                        style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);"
-                        @click="formDirty = false; const url = pendingNavUrl; unsavedModalOpen = false; pendingNavUrl = null; if (url) window.location.href = url;">
+                <button type="button" data-prop-unsaved="discard"
+                        style="padding:0.5rem 1rem; font-size:0.875rem; border-radius:6px; font-weight:500; background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); cursor:pointer;">
                     Discard changes
                 </button>
-                <button type="button"
-                        class="px-4 py-2 text-sm rounded-md font-medium text-white"
-                        style="background: var(--brand-button, #0ea5e9);"
-                        @click="
-                            const form = document.getElementById('prop-update-form');
-                            if (form && !window.coreXPropertyContactGuard(null, form)) {
-                                unsavedModalOpen = false;
-                                return;
-                            }
-                            formDirty = false;
-                            unsavedModalOpen = false;
-                            pendingNavUrl = null;
-                            if (form) form.submit();
-                        ">
+                <button type="button" data-prop-unsaved="save"
+                        style="padding:0.5rem 1rem; font-size:0.875rem; border-radius:6px; font-weight:500; color:white; background:var(--brand-button, #0ea5e9); border:none; cursor:pointer;">
                     Save changes
                 </button>
             </div>
@@ -4688,25 +4664,174 @@
 
 @push('scripts')
 <script>
-// Returns true if the form may submit, false if a contact is missing.
-// When false, the submit event (if provided) is preventDefault'ed and a
-// confirm() is shown. On OK, the Contacts tab is opened.
-// Any non-main form submitting from this page (e.g. link/unlink contact)
-// causes a full navigation. Clear the main form's dirty flag so the
-// browser's beforeunload prompt doesn't fire on intentional navigation.
-document.addEventListener('submit', function (e) {
-    if (!e.target || e.target.id === 'prop-update-form') return;
-    window.dispatchEvent(new CustomEvent('corex:clear-dirty'));
-}, true);
-// Same for plain link navigation inside the page (e.g. anchor clicks
-// that the user explicitly initiates) — let them go through.
-document.addEventListener('click', function (e) {
-    var a = e.target && e.target.closest && e.target.closest('a[href]');
-    if (!a) return;
-    var href = a.getAttribute('href') || '';
-    if (href.startsWith('#') || a.target === '_blank') return;
-    window.dispatchEvent(new CustomEvent('corex:clear-dirty'));
-}, true);
+// ─────────────────────────────────────────────────────────────────────
+// Property page: unsaved-changes guard (self-contained, no Alpine deps)
+// ─────────────────────────────────────────────────────────────────────
+(function () {
+    var dirty = false;
+    var pending = null; // { type: 'tab'|'url', value: string }
+    var initialSnapshot = null;
+
+    function form() { return document.getElementById('prop-update-form'); }
+    function modal() { return document.getElementById('prop-unsaved-modal'); }
+    function saveBtn() { return document.querySelector('[data-prop-save]'); }
+    function saveLabel() { return document.querySelector('[data-prop-save] .prop-save-label'); }
+
+    function snapshot() {
+        var f = form();
+        if (!f) return '';
+        try { return new URLSearchParams(new FormData(f)).toString(); } catch (e) { return ''; }
+    }
+
+    function paintSaveBtn() {
+        var btn = saveBtn(); var lbl = saveLabel();
+        if (lbl) lbl.textContent = dirty ? 'Save Changes *' : 'Save Changes';
+        if (btn) {
+            if (dirty) {
+                btn.style.background = 'var(--brand-button, #0ea5e9)';
+                btn.style.color = '#fff';
+                btn.style.borderColor = 'var(--brand-button, #0ea5e9)';
+                btn.classList.add('is-dirty');
+            } else {
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+                btn.classList.remove('is-dirty');
+            }
+        }
+    }
+
+    function recompute() {
+        var current = snapshot();
+        dirty = (current !== initialSnapshot);
+        paintSaveBtn();
+    }
+
+    function setClean() {
+        initialSnapshot = snapshot();
+        dirty = false;
+        paintSaveBtn();
+    }
+
+    function showModal() { var m = modal(); if (m) m.style.display = 'flex'; }
+    function hideModal() { var m = modal(); if (m) m.style.display = 'none'; pending = null; }
+
+    function isInternalNavigableAnchor(a, e) {
+        if (!a) return false;
+        var href = a.getAttribute('href') || '';
+        if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0 || href.indexOf('mailto:') === 0 || href.indexOf('tel:') === 0) return false;
+        if (a.target === '_blank' || a.hasAttribute('download')) return false;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+        try {
+            var url = new URL(a.href, window.location.href);
+            if (url.origin !== window.location.origin) return false;
+            if (url.pathname === window.location.pathname && url.search === window.location.search) return false;
+        } catch (err) { return false; }
+        return true;
+    }
+
+    // Capture-phase listener: catch tab buttons and internal anchor nav
+    document.addEventListener('click', function (e) {
+        if (!dirty) return;
+        if (modal() && modal().style.display === 'flex') return;
+
+        var tabBtn = e.target.closest && e.target.closest('[data-prop-tab]');
+        if (tabBtn) {
+            // ignore click on already-active tab
+            var key = tabBtn.getAttribute('data-prop-tab');
+            var rootEl = document.querySelector('[x-data*="activeTab"]');
+            var activeKey = null;
+            try { activeKey = rootEl && window.Alpine && Alpine.$data(rootEl).activeTab; } catch (err) {}
+            if (key && key !== activeKey) {
+                e.preventDefault(); e.stopPropagation();
+                pending = { type: 'tab', value: key };
+                showModal();
+            }
+            return;
+        }
+
+        var a = e.target.closest && e.target.closest('a[href]');
+        if (a && isInternalNavigableAnchor(a, e)) {
+            e.preventDefault(); e.stopPropagation();
+            pending = { type: 'url', value: a.href };
+            showModal();
+        }
+    }, true);
+
+    // Modal buttons
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('[data-prop-unsaved]');
+        if (!btn) return;
+        var action = btn.getAttribute('data-prop-unsaved');
+
+        if (action === 'cancel') { hideModal(); return; }
+
+        if (action === 'discard') {
+            var p = pending; hideModal(); setClean();
+            if (p && p.type === 'tab') {
+                window.dispatchEvent(new CustomEvent('corex:switch-tab', { detail: p.value }));
+            } else if (p && p.type === 'url') {
+                window.location.href = p.value;
+            }
+            return;
+        }
+
+        if (action === 'save') {
+            var f = form();
+            if (f && window.coreXPropertyContactGuard && !window.coreXPropertyContactGuard(null, f)) {
+                hideModal(); return;
+            }
+            hideModal(); setClean();
+            if (f) f.submit();
+        }
+    });
+
+    // ESC closes modal
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && modal() && modal().style.display === 'flex') hideModal();
+    });
+
+    // beforeunload: warn on hard navigation away
+    window.addEventListener('beforeunload', function (e) {
+        if (!dirty) return;
+        if (modal() && modal().style.display === 'flex') return;
+        e.preventDefault(); e.returnValue = '';
+    });
+
+    // Recompute dirty on every input/change in the form
+    document.addEventListener('input', function (e) {
+        if (!e.target.closest || !e.target.closest('#prop-update-form')) return;
+        recompute();
+    }, true);
+    document.addEventListener('change', function (e) {
+        if (!e.target.closest || !e.target.closest('#prop-update-form')) return;
+        recompute();
+    }, true);
+
+    // Any other form submitting (link/unlink contact, delete note, etc.) is intentional —
+    // clear dirty so beforeunload doesn't prompt.
+    document.addEventListener('submit', function (e) {
+        if (!e.target || e.target.id === 'prop-update-form') return;
+        setClean();
+    }, true);
+
+    function init() {
+        if (!form()) return;
+        initialSnapshot = snapshot();
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    // Expose for save form @submit handler
+    window.coreXPropDirty = {
+        isDirty: function () { return dirty; },
+        clear: setClean,
+        recompute: recompute,
+    };
+})();
 
 window.coreXPropertyContactGuard = function (event, form) {
     if (!form) return true;

@@ -156,6 +156,10 @@ class ContactImportController extends Controller
         $skipped  = 0;
         $errors   = [];
 
+        // Collect (contact, tagIds) for post-commit domain event emission.
+        $pendingTagEvents = [];
+        $tagNameById = ContactTag::pluck('name', 'id')->all();
+
         DB::beginTransaction();
 
         try {
@@ -251,12 +255,24 @@ class ContactImportController extends Controller
                 // Attach tags
                 if (!empty($tagIds)) {
                     $contact->tags()->attach($tagIds);
+                    $pendingTagEvents[] = [$contact, $tagIds];
                 }
 
                 $created++;
             }
 
             DB::commit();
+
+            // Fire ContactTagged events AFTER commit (spec corex-domain-events-spec.md).
+            foreach ($pendingTagEvents as [$contact, $tagIds]) {
+                foreach ($tagIds as $tagId) {
+                    event(new \App\Events\Contact\ContactTagged(
+                        contact: $contact,
+                        tag: (string) ($tagNameById[$tagId] ?? $tagId),
+                        actorUserId: auth()->id(),
+                    ));
+                }
+            }
 
             return redirect()->route('corex.contacts.index')
                 ->with('success', "Import complete. Created: {$created}, Skipped (duplicates/empty): {$skipped}.");

@@ -4,9 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Home Finders Coastal</title>
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=2">
-    <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=2">
-    <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=4">
+    <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=4">
+    <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=4">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col">

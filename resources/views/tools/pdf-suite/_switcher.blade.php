@@ -11,21 +11,20 @@
         ['route' => 'tools.pdf_suite.redact',       'label' => 'Redact'],
     ];
 @endphp
-<div style="background: var(--surface); border-bottom: 1px solid var(--border);">
-    <div class="max-w-7xl mx-auto px-4 lg:px-8 py-3 flex flex-wrap gap-2 overflow-x-auto">
-        @foreach($pills as $p)
-            @if(\Illuminate\Support\Facades\Route::has($p['route']))
-                @php
-                    $active = $p['route'] === 'tools.pdf_suite.hub'
-                        ? request()->routeIs('tools.pdf_suite.hub')
-                        : request()->routeIs($p['route']);
-                @endphp
-                <a href="{{ route($p['route']) }}"
-                   class="text-xs font-semibold px-3.5 py-2 rounded-md transition-all duration-300 whitespace-nowrap"
-                   style="@if($active) background: var(--brand-button, #0ea5e9); color: white; box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--brand-button, #0ea5e9) 50%, transparent); @else background: transparent; color: var(--text-secondary); @endif">
-                    {{ $p['label'] }}
-                </a>
-            @endif
-        @endforeach
-    </div>
+<div class="rounded-md p-1.5 flex flex-wrap items-center justify-center gap-1 overflow-x-auto"
+     style="background: var(--surface); border: 1px solid var(--border);">
+    @foreach($pills as $p)
+        @if(\Illuminate\Support\Facades\Route::has($p['route']))
+            @php
+                $active = request()->routeIs($p['route']);
+            @endphp
+            <a href="{{ route($p['route']) }}"
+               class="text-xs font-semibold px-3.5 py-1.5 rounded-md transition-all duration-150 whitespace-nowrap"
+               style="@if($active) background: var(--brand-button, #0ea5e9); color: #fff; @else background: transparent; color: var(--text-secondary); @endif"
+               @if(!$active) onmouseover="this.style.background='var(--surface-2)'; this.style.color='var(--text-primary)';"
+                             onmouseout="this.style.background='transparent'; this.style.color='var(--text-secondary)';" @endif>
+                {{ $p['label'] }}
+            </a>
+        @endif
+    @endforeach
 </div>

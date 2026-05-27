@@ -6,13 +6,17 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class WhistleblowEmailLog extends Model
 {
+    use BelongsToAgency;
+
     const UPDATED_AT = null;
 
     protected $table = 'whistleblow_email_log';
 
     protected $fillable = [
+        'agency_id',
         'complaint_id',
         'sent_at',
         'email_type',

@@ -6,11 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class ContactNote extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
-    protected $fillable = ['contact_id', 'user_id', 'body'];
+    protected $fillable = [
+        'agency_id','contact_id', 'user_id', 'body'];
 
     public function contact(): BelongsTo
     {

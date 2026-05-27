@@ -25,7 +25,7 @@
             $isOthers = $row['name'] === 'Others';
             $barColor = $isSelf
                 ? 'var(--brand-icon, #0ea5e9)'
-                : ($isOthers ? 'var(--text-muted)' : '#7c3aed');
+                : ($isOthers ? 'var(--text-muted)' : 'var(--portal-cma, #7c3aed)');
             $rowBg = $isSelf ? 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface))' : 'var(--surface)';
             $widthPct = max(2, ($row['percentage'] / $maxPct) * 100);
             $href = (!$isOthers && !empty($row['name']))

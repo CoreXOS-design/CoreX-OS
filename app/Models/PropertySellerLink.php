@@ -5,9 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class PropertySellerLink extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
+        'agency_id',
         'property_id', 'token', 'contact_id', 'generated_by_user_id',
         'generated_at', 'last_accessed_at', 'access_count',
         'revoked_at', 'revoked_by_user_id',

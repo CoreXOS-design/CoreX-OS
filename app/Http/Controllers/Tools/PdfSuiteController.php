@@ -142,16 +142,46 @@ class PdfSuiteController extends Controller
     public function rotateRun(Request $request)
     {
         $data = $request->validate([
-            'pdf'   => 'required|file|mimes:pdf|max:' . self::MAX_KB,
-            'angle' => 'required|in:90,180,270',
+            'pdf'       => 'required|file|mimes:pdf|max:' . self::MAX_KB,
+            'rotations' => 'nullable|string',
+            'angle'     => 'nullable|in:90,180,270',
         ]);
+
+        // Build per-page rotation map. Prefer JSON rotations payload; fall back to legacy single angle.
+        $map = [];
+        if (! empty($data['rotations'])) {
+            $decoded = json_decode($data['rotations'], true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $page => $angle) {
+                    $angle = (int) $angle;
+                    if (in_array($angle, [90, 180, 270], true)) {
+                        $map[(int) $page] = $angle;
+                    }
+                }
+            }
+        }
 
         $in  = $this->stash($data['pdf']);
         $out = $this->outPath('rotated');
 
-        $proc = new Process([
-            self::qpdfPath(), '--rotate=+' . $data['angle'], $in, $out,
-        ]);
+        $args = [self::qpdfPath()];
+        if (! empty($map)) {
+            // Group pages by angle: --rotate=+90:1,3,5
+            $byAngle = [];
+            foreach ($map as $page => $angle) { $byAngle[$angle][] = $page; }
+            foreach ($byAngle as $angle => $pages) {
+                sort($pages);
+                $args[] = '--rotate=+' . $angle . ':' . implode(',', $pages);
+            }
+        } elseif (! empty($data['angle'])) {
+            $args[] = '--rotate=+' . $data['angle'];
+        } else {
+            return back()->withErrors(['pdf' => 'No rotation specified.']);
+        }
+        $args[] = $in;
+        $args[] = $out;
+
+        $proc = new Process($args);
         $proc->setTimeout(180);
         $proc->run();
 
@@ -292,21 +322,33 @@ class PdfSuiteController extends Controller
             if ($p > 0) { $byPage[$p][] = $r; }
         }
 
-        // 150 dpi vs PDF 72pt → scale factor
-        $scale = 150 / 72;
-
         $output = new \Imagick();
         foreach ($files as $i => $file) {
             $pageNum = $i + 1;
             $img = new \Imagick($file);
             if (! empty($byPage[$pageNum])) {
+                $imgW = $img->getImageWidth();
+                $imgH = $img->getImageHeight();
                 $draw = new \ImagickDraw();
                 $draw->setFillColor('#000000');
                 foreach ($byPage[$pageNum] as $r) {
-                    $x = (float)$r['x'] * $scale;
-                    $y = (float)$r['y'] * $scale;
-                    $w = (float)$r['w'] * $scale;
-                    $h = (float)$r['h'] * $scale;
+                    // Coords from browser are fractional (0..1), top-left origin.
+                    // Legacy callers may still send PDF points — detect by magnitude.
+                    $rx = (float)$r['x']; $ry = (float)$r['y'];
+                    $rw = (float)$r['w']; $rh = (float)$r['h'];
+                    if ($rx <= 1 && $ry <= 1 && $rw <= 1 && $rh <= 1) {
+                        $x = $rx * $imgW;
+                        $y = $ry * $imgH;
+                        $w = $rw * $imgW;
+                        $h = $rh * $imgH;
+                    } else {
+                        // Legacy PDF-points path (72pt → 150dpi)
+                        $scale = 150 / 72;
+                        $x = $rx * $scale;
+                        $y = $ry * $scale;
+                        $w = $rw * $scale;
+                        $h = $rh * $scale;
+                    }
                     $draw->rectangle($x, $y, $x + $w, $y + $h);
                 }
                 $img->drawImage($draw);

@@ -294,6 +294,19 @@ class UserManagementController extends Controller
 
         $fullName = trim($data['name'] . ' ' . $data['surname']);
 
+        // Capture originals BEFORE mutation for change-detection (domain events).
+        $originalPpraStatus      = $user->getOriginal('ppra_status');
+        $originalBranchId        = $user->getOriginal('branch_id');
+        $originalCommissionPlan  = [
+            'agent_cut_percent'         => $user->getOriginal('agent_cut_percent'),
+            'paye_method'               => $user->getOriginal('paye_method'),
+            'paye_value'                => $user->getOriginal('paye_value'),
+            'sliding_enabled'           => $user->getOriginal('sliding_enabled'),
+            'sliding_tier1_cut_percent' => $user->getOriginal('sliding_tier1_cut_percent'),
+            'sliding_tier2_cut_percent' => $user->getOriginal('sliding_tier2_cut_percent'),
+            'sliding_tier3_cut_percent' => $user->getOriginal('sliding_tier3_cut_percent'),
+        ];
+
         $user->name       = $fullName;
         $user->email      = $data['email'];
         $user->role       = $data['role'];
@@ -333,6 +346,43 @@ class UserManagementController extends Controller
         }
 
         $user->save();
+
+        // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
+        $fresh = $user->fresh() ?? $user;
+        if ((string) $originalPpraStatus !== (string) $fresh->ppra_status) {
+            event(new \App\Events\Agent\AgentFfcStatusChanged(
+                user: $fresh,
+                fromStatus: $originalPpraStatus !== null ? (string) $originalPpraStatus : null,
+                toStatus: $fresh->ppra_status !== null ? (string) $fresh->ppra_status : null,
+                actorUserId: auth()->id(),
+            ));
+        }
+        if ((int) $originalBranchId !== (int) $fresh->branch_id && $fresh->branch_id) {
+            $branch = \App\Models\Branch::find($fresh->branch_id);
+            if ($branch) {
+                event(new \App\Events\Agent\AgentBranchAssigned(
+                    user: $fresh,
+                    branch: $branch,
+                    actorUserId: auth()->id(),
+                ));
+            }
+        }
+        $currentCommissionPlan = [
+            'agent_cut_percent'         => $fresh->agent_cut_percent,
+            'paye_method'               => $fresh->paye_method,
+            'paye_value'                => $fresh->paye_value,
+            'sliding_enabled'           => $fresh->sliding_enabled,
+            'sliding_tier1_cut_percent' => $fresh->sliding_tier1_cut_percent,
+            'sliding_tier2_cut_percent' => $fresh->sliding_tier2_cut_percent,
+            'sliding_tier3_cut_percent' => $fresh->sliding_tier3_cut_percent,
+        ];
+        if ($originalCommissionPlan != $currentCommissionPlan) {
+            event(new \App\Events\Agent\AgentCommissionPlanChanged(
+                user: $fresh,
+                plan: $currentCommissionPlan,
+                actorUserId: auth()->id(),
+            ));
+        }
 
         // Sync FFC expiry date to latest FFC certificate document
         if (isset($data['ffc_expiry_date'])) {
@@ -446,6 +496,16 @@ class UserManagementController extends Controller
             if ($tier3 === '') $tier3 = null;
         }
 
+        $beforePlan = [
+            'agent_cut_percent'         => $user->agent_cut_percent,
+            'paye_method'               => $user->paye_method,
+            'paye_value'                => $user->paye_value,
+            'sliding_enabled'           => $user->sliding_enabled,
+            'sliding_tier1_cut_percent' => $user->sliding_tier1_cut_percent,
+            'sliding_tier2_cut_percent' => $user->sliding_tier2_cut_percent,
+            'sliding_tier3_cut_percent' => $user->sliding_tier3_cut_percent,
+        ];
+
         $user->update([
             'agent_cut_percent' => ($agentCut === null || $agentCut === '') ? null : (float)$agentCut,
             'paye_method' => $payeMethod,
@@ -456,6 +516,25 @@ class UserManagementController extends Controller
             'sliding_tier2_cut_percent' => ($tier2 === null || $tier2 === '') ? null : (float)$tier2,
             'sliding_tier3_cut_percent' => ($tier3 === null || $tier3 === '') ? null : (float)$tier3,
         ]);
+
+        // Domain event — AgentCommissionPlanChanged on actual change.
+        $fresh = $user->fresh() ?? $user;
+        $afterPlan = [
+            'agent_cut_percent'         => $fresh->agent_cut_percent,
+            'paye_method'               => $fresh->paye_method,
+            'paye_value'                => $fresh->paye_value,
+            'sliding_enabled'           => $fresh->sliding_enabled,
+            'sliding_tier1_cut_percent' => $fresh->sliding_tier1_cut_percent,
+            'sliding_tier2_cut_percent' => $fresh->sliding_tier2_cut_percent,
+            'sliding_tier3_cut_percent' => $fresh->sliding_tier3_cut_percent,
+        ];
+        if ($beforePlan != $afterPlan) {
+            event(new \App\Events\Agent\AgentCommissionPlanChanged(
+                user: $fresh,
+                plan: $afterPlan,
+                actorUserId: auth()->id(),
+            ));
+        }
 
         return back()->with('status', "Defaults updated for {$user->name}.");
     }
@@ -475,6 +554,18 @@ class UserManagementController extends Controller
             'can_capture_rentals' => ['nullable','in:0,1'],
               'counts_for_branch_split' => ['nullable','in:0,1'],
         ]);
+
+        // Capture originals BEFORE mutation for change-detection (domain events).
+        $originalBranchIdUR        = $user->getOriginal('branch_id');
+        $originalCommissionPlanUR  = [
+            'agent_cut_percent'         => $user->getOriginal('agent_cut_percent'),
+            'paye_method'               => $user->getOriginal('paye_method'),
+            'paye_value'                => $user->getOriginal('paye_value'),
+            'sliding_enabled'           => $user->getOriginal('sliding_enabled'),
+            'sliding_tier1_cut_percent' => $user->getOriginal('sliding_tier1_cut_percent'),
+            'sliding_tier2_cut_percent' => $user->getOriginal('sliding_tier2_cut_percent'),
+            'sliding_tier3_cut_percent' => $user->getOriginal('sliding_tier3_cut_percent'),
+        ];
 
         $user->agent_cut_percent = $defaults['agent_cut_percent'] ?? $user->agent_cut_percent;
         $user->paye_method = $defaults['paye_method'] ?? $user->paye_method;
@@ -559,6 +650,35 @@ class UserManagementController extends Controller
         $user->is_active = 1;
         if (!$user->email_verified_at) $user->email_verified_at = now();
         $user->save();
+
+        // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
+        $freshUR = $user->fresh() ?? $user;
+        if ((int) $originalBranchIdUR !== (int) $freshUR->branch_id && $freshUR->branch_id) {
+            $branch = \App\Models\Branch::find($freshUR->branch_id);
+            if ($branch) {
+                event(new \App\Events\Agent\AgentBranchAssigned(
+                    user: $freshUR,
+                    branch: $branch,
+                    actorUserId: auth()->id(),
+                ));
+            }
+        }
+        $currentCommissionPlanUR = [
+            'agent_cut_percent'         => $freshUR->agent_cut_percent,
+            'paye_method'               => $freshUR->paye_method,
+            'paye_value'                => $freshUR->paye_value,
+            'sliding_enabled'           => $freshUR->sliding_enabled,
+            'sliding_tier1_cut_percent' => $freshUR->sliding_tier1_cut_percent,
+            'sliding_tier2_cut_percent' => $freshUR->sliding_tier2_cut_percent,
+            'sliding_tier3_cut_percent' => $freshUR->sliding_tier3_cut_percent,
+        ];
+        if ($originalCommissionPlanUR != $currentCommissionPlanUR) {
+            event(new \App\Events\Agent\AgentCommissionPlanChanged(
+                user: $freshUR,
+                plan: $currentCommissionPlanUR,
+                actorUserId: auth()->id(),
+            ));
+        }
 
         // Keep branch_assignments in sync for any older logic that relies on it
         if ($branchId !== null) {
@@ -679,8 +799,16 @@ class UserManagementController extends Controller
             'is_active' => !$user->is_active
         ]);
 
-        $p24Note = $this->pushUserToP24($user->fresh());
-        $state = $user->fresh()->is_active ? 'activated' : 'deactivated';
+        $fresh = $user->fresh();
+        $p24Note = $this->pushUserToP24($fresh);
+        $state = $fresh->is_active ? 'activated' : 'deactivated';
+
+        // Domain events — spec .ai/specs/corex-domain-events-spec.md
+        if ($fresh->is_active) {
+            event(new \App\Events\Agent\AgentActivated($fresh, auth()->id()));
+        } else {
+            event(new \App\Events\Agent\AgentDeactivated($fresh, auth()->id()));
+        }
 
         return back()->with('status', "{$user->name} {$state}.{$p24Note}");
     }

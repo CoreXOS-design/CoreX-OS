@@ -4,8 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+use App\Models\Concerns\BelongsToAgency;
 class ProspectingSearch extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
         'agency_id',
         'user_id',

@@ -6,9 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+use App\Models\Concerns\BelongsToAgency;
 class RmcpSection extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     const TYPE_SECTION        = 'section';
     const TYPE_SCHEDULE       = 'schedule';
@@ -16,6 +17,7 @@ class RmcpSection extends Model
     const TYPE_ACKNOWLEDGEMENT = 'acknowledgement';
 
     protected $fillable = [
+        'agency_id',
         'rmcp_version_id',
         'section_type',
         'display_order',

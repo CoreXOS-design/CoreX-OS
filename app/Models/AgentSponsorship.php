@@ -4,9 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+use App\Models\Concerns\BelongsToAgency;
 class AgentSponsorship extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
+        'agency_id',
         'agent_user_id',
         'sponsor_user_id',
         'sponsored_at',

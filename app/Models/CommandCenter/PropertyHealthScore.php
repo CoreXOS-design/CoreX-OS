@@ -6,9 +6,13 @@ use App\Models\Property;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class PropertyHealthScore extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
+        'agency_id',
         'property_id', 'score', 'grade', 'factors', 'last_calculated_at',
     ];
 

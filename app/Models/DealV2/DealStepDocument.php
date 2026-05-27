@@ -6,11 +6,15 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class DealStepDocument extends Model
 {
+    use BelongsToAgency;
+
     public $timestamps = false;
 
     protected $fillable = [
+        'agency_id',
         'deal_step_instance_id',
         'document_id',
         'file_path',

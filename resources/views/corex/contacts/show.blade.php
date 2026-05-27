@@ -1,6 +1,17 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
+<style>
+    /* Contact show page — CoreX UI Design System token-based hover */
+    .contact-show-row { transition: background 150ms ease; }
+    .contact-show-row:hover { background: var(--surface-2); }
+    .contact-show-wa-card { transition: background 150ms ease, border-color 150ms ease; }
+    .contact-show-wa-card:hover { border-color: #25d366; background: color-mix(in srgb, #25d366 6%, transparent); }
+    .contact-show-email-card { transition: background 150ms ease, border-color 150ms ease; }
+    .contact-show-email-card:hover { border-color: var(--brand-icon, #0ea5e9); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 4%, transparent); }
+    .contact-show-btn-hover { transition: opacity 150ms ease; }
+    .contact-show-btn-hover:hover { opacity: 0.85; }
+</style>
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4 overflow-x-hidden"
      x-data="contactShowData('{{ route('corex.contacts.properties.search', $contact) }}', '{{ request('tab', 'info') }}')"
      x-init="activeTab = initTab">
@@ -26,7 +37,7 @@
         <div class="flex items-start gap-5 flex-wrap">
             {{-- Avatar --}}
             <div class="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 text-xl font-bold text-white"
-                 style="background: {{ $contact->type?->color ?? 'var(--brand-icon, #0ea5e9)' }};">
+                 style="background: var(--brand-icon, #0ea5e9);">
                 {{ $contact->initials }}
             </div>
 
@@ -35,8 +46,8 @@
                 <div class="flex items-center gap-3 flex-wrap">
                     <h1 class="text-xl font-bold text-white leading-tight">{{ $contact->full_name }}</h1>
                     @if($contact->type)
-                    <span class="text-xs px-2.5 py-1 rounded-md font-semibold"
-                          style="background:rgba(255,255,255,0.12); color:{{ $contact->type->color }}; border:1px solid rgba(255,255,255,0.2);">
+                    <span class="text-xs px-2.5 py-1 rounded-md font-semibold text-white"
+                          style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25);">
                         {{ $contact->type->name }}
                     </span>
                     @endif
@@ -83,34 +94,15 @@
 
             {{-- Schedule Event from Contact --}}
             <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $contact->id, 'prefill_class' => $contact->is_buyer ? 'viewing' : 'meeting']) }}"
-               class="corex-btn-outline corex-btn-on-brand flex-shrink-0 no-underline">
+               class="corex-btn-primary flex-shrink-0 no-underline">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
                 Schedule Event
             </a>
 
-            {{-- Compose Seller Pitch (Prompt 08 entry-point) --}}
-            @if(auth()->user()->hasPermission('outreach.compose'))
-                @if($contact->messaging_opt_out_at)
-                    <span class="corex-btn-outline corex-btn-on-brand flex-shrink-0"
-                          style="color:var(--ds-crimson); border-color:color-mix(in srgb, var(--ds-crimson) 45%, transparent);"
-                          title="This contact has opted out of messaging">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
-                        Opted out
-                    </span>
-                @else
-                    <a href="{{ route('seller-outreach.composer.show', $contact) }}"
-                       class="corex-btn-outline corex-btn-on-brand flex-shrink-0 no-underline"
-                       title="Compose a WhatsApp/Email pitch about a property linked to this contact">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z"/></svg>
-                        Compose pitch
-                    </a>
-                @endif
-            @endif
-
             {{-- View as Buyer (if buyer) --}}
             @if($contact->is_buyer)
             <a href="{{ route('command-center.buyers.show', $contact) }}"
-               class="corex-btn-outline corex-btn-on-brand flex-shrink-0 no-underline">
+               class="corex-btn-primary flex-shrink-0 no-underline">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
                 Buyer Hub
             </a>
@@ -119,7 +111,7 @@
             {{-- Create Listing from Contact (only if no linked properties) --}}
             @if(auth()->user()->hasPermission('access_properties') && $contact->properties()->count() === 0)
             <a href="{{ route('corex.properties.create') }}?contact_id={{ $contact->id }}"
-               class="corex-btn-outline corex-btn-on-brand flex-shrink-0 no-underline">
+               class="corex-btn-primary flex-shrink-0 no-underline">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 Create Listing
             </a>
@@ -273,10 +265,9 @@
 
                     {{-- Box 2: WhatsApp --}}
                     @if(auth()->user()->hasPermission('contacts.whatsapp'))
-                    <div class="rounded-md px-5 py-4 cursor-pointer transition-all duration-300 group"
+                    <div class="rounded-md px-5 py-4 cursor-pointer group contact-show-wa-card"
                          style="background:var(--surface-2); border:2px solid rgba(37,211,102,0.25);"
-                         @click="showWa = !showWa; showEmail = false"
-                         onmouseover="this.style.borderColor='#25d366'; this.style.background='rgba(37,211,102,0.06)'" onmouseout="this.style.borderColor='rgba(37,211,102,0.25)'; this.style.background='var(--surface-2)'">
+                         @click="showWa = !showWa; showEmail = false">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex items-center gap-2">
                                 <svg class="w-5 h-5" style="color:#25d366;" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
@@ -291,10 +282,9 @@
 
                     {{-- Box 3: Email --}}
                     @if(auth()->user()->hasPermission('contacts.email'))
-                    <div class="rounded-md px-5 py-4 cursor-pointer transition-all duration-300 group"
+                    <div class="rounded-md px-5 py-4 cursor-pointer group contact-show-email-card"
                          style="background:var(--surface-2); border:2px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);"
-                         @click="showEmail = !showEmail; showWa = false"
-                         onmouseover="this.style.borderColor='var(--brand-icon, #0ea5e9)'; this.style.background='color-mix(in srgb, var(--brand-icon, #0ea5e9) 4%, transparent)'" onmouseout="this.style.borderColor='color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent)'; this.style.background='var(--surface-2)'">
+                         @click="showEmail = !showEmail; showWa = false">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex items-center gap-2">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
@@ -333,9 +323,8 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <button type="button" @click="sendWa()"
-                                class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md text-white transition-all duration-300"
-                                style="background:#25d366;"
-                                onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                                class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md text-white contact-show-btn-hover"
+                                style="background:#25d366;">
                             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                             Send WhatsApp
                         </button>
@@ -376,9 +365,8 @@
                     </div>
                     <div class="flex items-center gap-2">
                         <button type="button" @click="sendEmail()"
-                                class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md text-white transition-all duration-300"
-                                style="background:var(--brand-icon, #0ea5e9);"
-                                onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+                                class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-md text-white contact-show-btn-hover"
+                                style="background:var(--brand-icon, #0ea5e9);">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" /></svg>
                             Send Email
                         </button>
@@ -559,9 +547,9 @@
                     <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left mb-4">
                         <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Financial Position</h3>
                         @if($contact->hasValidPreapproval())
-                            <span class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">Pre-approved</span>
+                            <span class="ds-badge ds-badge-success">Pre-approved</span>
                         @elseif($contact->preapproval_amount)
-                            <span class="text-[10px] px-1.5 py-0.5 rounded" style="background:rgba(234,179,8,.15); color:#a16207;">Pre-approval expired</span>
+                            <span class="ds-badge ds-badge-warning">Expired</span>
                         @endif
                         <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
                     </button>
@@ -666,7 +654,7 @@
                         <span style="color:var(--brand-icon);">Seller Live Link</span>
                         <span class="truncate max-w-[200px]" title="{{ $sellerLinkUrl }}">{{ $sellerLinkUrl }}</span>
                         <button type="button" onclick="navigator.clipboard.writeText('{{ $sellerLinkUrl }}'); this.textContent='Copied!';"
-                                class="font-medium px-1.5 py-0.5 rounded flex-shrink-0" style="color: #00d4aa; background: color-mix(in srgb, #00d4aa 10%, transparent);">Copy</button>
+                                class="font-medium px-1.5 py-0.5 rounded-md flex-shrink-0" style="color: var(--ds-green, #059669); background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);">Copy</button>
                     </div>
                 @endif
                 @empty
@@ -1080,10 +1068,10 @@
                         <div>
                             <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $typeLabel }}</span>
                             @if($hasConsent)
-                                <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded" style="background: rgba(16,185,129,0.15); color: #10b981;">Active</span>
+                                <span class="ds-badge ds-badge-success ml-2">Active</span>
                                 <span class="ml-1 text-[10px]" style="color: var(--text-muted);">since {{ $activeRecord->given_at->format('d M Y') }}</span>
                             @else
-                                <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: #ef4444;">Not given</span>
+                                <span class="ds-badge ds-badge-default ml-2">Not given</span>
                             @endif
                         </div>
                         <div class="flex items-center gap-1">
@@ -1092,16 +1080,14 @@
                                     @csrf
                                     <input type="hidden" name="consent_type" value="{{ $typeKey }}">
                                     <input type="hidden" name="method" value="electronic">
-                                    <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded hover:opacity-80"
-                                            style="background: var(--brand-button); color: #fff;">Record</button>
+                                    <button type="submit" class="corex-btn-primary text-[10px] px-2 py-1">Record</button>
                                 </form>
                             @else
                                 <form method="POST" action="{{ route('corex.contacts.consent.revoke', $contact) }}">
                                     @csrf
                                     <input type="hidden" name="consent_type" value="{{ $typeKey }}">
                                     <input type="hidden" name="reason" value="User requested revocation">
-                                    <button type="submit" class="text-[10px] font-medium px-2 py-1 rounded hover:opacity-80"
-                                            style="background: var(--surface); color: var(--text-muted); border: 1px solid var(--border);">Revoke</button>
+                                    <button type="submit" class="corex-btn-outline text-[10px] px-2 py-1">Revoke</button>
                                 </form>
                             @endif
                         </div>
@@ -1139,8 +1125,8 @@
                                     {{ $match->listingTypeLabel() }}
                                 </span>
                                 @if($match->is_primary)
-                                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
-                                      style="background:rgba(245,158,11,.18); color:#b45309; border:1px solid rgba(245,158,11,.35);"
+                                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md whitespace-nowrap"
+                                      style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);"
                                       title="This is the contact's primary wishlist — used for demand intelligence">
                                     ⭐ Primary
                                 </span>
@@ -1211,16 +1197,14 @@
                                         <input type="hidden" name="is_primary" value="1">
                                         <button type="submit"
                                                 class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300"
-                                                style="background:rgba(245,158,11,.10); color:#b45309; border:1px solid rgba(245,158,11,.25);"
+                                                style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);"
                                                 title="Mark this wishlist as the contact's primary">
                                             ⭐ Make Primary
                                         </button>
                                     </form>
                                     @endif
                                     <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
-                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold no-underline transition-all duration-300"
-                                       style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); color:var(--brand-icon, #0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent);"
-                                       onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon, #0ea5e9) 20%, transparent)'" onmouseout="this.style.background='color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent)'">
+                                       class="corex-btn-outline text-xs no-underline">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
                                         View Matches
                                     </a>
@@ -1277,7 +1261,7 @@
                                 <div class="text-right flex-shrink-0">
                                     <div class="text-[10px]" style="color:var(--text-muted);">{{ \Carbon\Carbon::parse($bv['event_date'])->format('D, j M Y') }}</div>
                                     <div class="text-[10px]" style="color:var(--text-muted);">Agent: {{ $bv['agent_name'] }}</div>
-                                    <span class="text-[9px] px-1.5 py-0.5 rounded mt-0.5 inline-block" style="background:rgba(59,130,246,.15); color:#2563eb;">Scheduled</span>
+                                    <span class="ds-badge ds-badge-info mt-0.5">Scheduled</span>
                                 </div>
                             </div>
                         </div>
@@ -1304,7 +1288,7 @@
                             @if($bv['feedback'] ?? null)
                                 <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
                                     @if($bv['feedback']['outcome_label'] ?? null)
-                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $bv['feedback']['outcome_label'] }}</span>
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color:var(--ds-green, #059669);">{{ $bv['feedback']['outcome_label'] }}</span>
                                     @endif
                                     @if($bv['feedback']['seller_notes'] ?? null)
                                         <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $bv['feedback']['seller_notes'] }}</p>
@@ -1315,7 +1299,7 @@
                                     <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($bv['feedback']['captured_at'])->diffForHumans() }}</div>
                                 </div>
                             @else
-                                <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                                <span class="ds-badge ds-badge-default mt-1">No feedback</span>
                             @endif
                         </div>
                     @empty
@@ -1344,7 +1328,7 @@
                             @if($sv['feedback'] ?? null)
                                 <div class="mt-2 rounded px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border);">
                                     @if($sv['feedback']['outcome_label'] ?? null)
-                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $sv['feedback']['outcome_label'] }}</span>
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color:var(--ds-green, #059669);">{{ $sv['feedback']['outcome_label'] }}</span>
                                     @endif
                                     @if($sv['feedback']['seller_notes'] ?? null)
                                         <p class="text-xs mt-1" style="color:var(--text-secondary);">{{ $sv['feedback']['seller_notes'] }}</p>
@@ -1352,7 +1336,7 @@
                                     <div class="text-[10px] mt-1" style="color:var(--text-muted);">Captured {{ \Carbon\Carbon::parse($sv['feedback']['captured_at'])->diffForHumans() }}</div>
                                 </div>
                             @else
-                                <span class="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded" style="background:rgba(107,114,128,.15); color:#6b7280;">No feedback captured</span>
+                                <span class="ds-badge ds-badge-default mt-1">No feedback</span>
                             @endif
                         </div>
                     @endforeach

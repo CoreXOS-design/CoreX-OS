@@ -231,6 +231,13 @@ class FicaController extends Controller
             }
         });
 
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Fica\FicaSubmitted(
+            contact: $contact,
+            package: $submission,
+            actorUserId: Auth::id(),
+        ));
+
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'Wet-ink FICA created. Complete Section 10 verification next.');
     }
@@ -357,6 +364,13 @@ class FicaController extends Controller
             'contact_id'    => $submission->contact_id,
         ]);
 
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Fica\FicaApproved(
+            contact: $submission->contact,
+            package: $submission,
+            approvedByUserId: Auth::id(),
+        ));
+
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'FICA submission approved by compliance officer. Contact record updated and documents filed.');
     }
@@ -402,6 +416,14 @@ class FicaController extends Controller
             'verified_at'    => now(),
         ]);
 
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Fica\FicaRejected(
+            contact: $submission->contact,
+            package: $submission,
+            reason: $validated['reviewer_notes'],
+            actorUserId: Auth::id(),
+        ));
+
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'FICA submission rejected.');
     }
@@ -423,6 +445,14 @@ class FicaController extends Controller
             'verified_by'    => Auth::id(),
             'verified_at'    => now(),
         ]);
+
+        // Domain event — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Fica\FicaRejected(
+            contact: $submission->contact,
+            package: $submission,
+            reason: $validated['reviewer_notes'],
+            actorUserId: Auth::id(),
+        ));
 
         return redirect()->route('compliance.fica.show', $submission)
             ->with('success', 'FICA submission rejected.');

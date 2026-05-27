@@ -72,6 +72,8 @@ class MobileCoreMatchController extends Controller
                 'price'         => $p->price,
                 'price_display' => $p->formattedPrice(),
                 'thumbnail'     => ($p->gallery_images_json ?? [])[0] ?? null,
+                'match_score'   => (int) ($p->match_score ?? 0),
+                'match_tier'    => $p->match_tier,        // 'strong' | 'good' | 'fair'
                 'hidden'        => $match->isPropertyHidden($p->id),
                 'hidden_reason' => $match->hiddenReasonFor($p->id),
                 'reaction'      => $fb?->reaction,        // 'interested' | 'not_interested' | 'saved' | null

@@ -20,7 +20,13 @@ class MultiDemoSeeder extends Seeder
                 [$db, $table]
             ))->pluck('name')->all();
         };
-        $filter = function(array $data, array $columns) {
+        // Wave 3b: auto-stamp agency_id where the table requires it.
+        // Demo seeder works against a single demo agency; resolve it once here.
+        $demoAgencyId = (int) (DB::table('agencies')->value('id') ?? 1);
+        $filter = function(array $data, array $columns) use ($demoAgencyId) {
+            if (in_array('agency_id', $columns, true) && !array_key_exists('agency_id', $data)) {
+                $data['agency_id'] = $demoAgencyId;
+            }
             return array_intersect_key($data, array_flip($columns));
         };
 

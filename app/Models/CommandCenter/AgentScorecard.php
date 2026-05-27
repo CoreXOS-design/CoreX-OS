@@ -6,9 +6,13 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use App\Models\Concerns\BelongsToAgency;
 class AgentScorecard extends Model
 {
+    use BelongsToAgency;
+
     protected $fillable = [
+        'agency_id',
         'user_id', 'period_type', 'period_start', 'period_end',
         'tasks_completed', 'tasks_overdue', 'tasks_total',
         'properties_attended', 'properties_total',

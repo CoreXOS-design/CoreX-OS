@@ -102,7 +102,7 @@ class RichDemoSeeder extends Seeder
 
             $agents = DB::table('users')
                 ->whereIn('email', $agentEmails)
-                ->select('id', 'email', 'branch_id')
+                ->select('id', 'email', 'branch_id', 'agency_id')
                 ->get()
                 ->keyBy('email');
 
@@ -159,6 +159,7 @@ class RichDemoSeeder extends Seeder
                         ],
                         [
                             'user_id' => $agent->id,
+                            'agency_id' => $agent->agency_id ?? 1,
                             'branch_id' => $agent->branch_id,
                             'period' => $p,
                             'listings_target' => $listingsTarget,
@@ -331,6 +332,7 @@ class RichDemoSeeder extends Seeder
                             ],
                             [
                                 'user_id' => $agent->id,
+                                'agency_id' => $agent->agency_id ?? 1,
                                 'activity_date' => $date,
                                 'period' => $period,
                                 'branch_id' => $agent->branch_id,

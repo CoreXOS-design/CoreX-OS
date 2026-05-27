@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('email')->index();
             $table->string('purpose')->default('activation'); // activation | recovery
             $table->string('code_hash');
-            $table->timestamp('expires_at');
+            $table->timestamp('expires_at')->useCurrent();
             $table->timestamp('used_at')->nullable();
             $table->unsignedTinyInteger('attempts')->default(0);
             $table->string('ip')->nullable();
