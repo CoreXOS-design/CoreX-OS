@@ -76,10 +76,10 @@ Schedule::job(new \App\Jobs\ProcessPrivatePropertyEventFeed())
 // Property24 ExDev activation polling — runs every 15 minutes
 Schedule::job(new \App\Jobs\SyncProperty24Activations())->everyFifteenMinutes()->withoutOverlapping();
 
-// Property24 ExDev buyer-enquiry leads pull — runs every 15 minutes.
+// Property24 ExDev buyer-enquiry leads pull — runs every 5 minutes.
 // Persists into portal_leads alongside PP leads. See .ai/specs/portal-leads.md.
 Schedule::job(new \App\Jobs\Syndication\Property24\PullP24LeadsJob())
-    ->everyFifteenMinutes()
+    ->everyFiveMinutes()
     ->withoutOverlapping()
     ->name('p24-leads-pull');
 
