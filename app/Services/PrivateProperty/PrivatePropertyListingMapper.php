@@ -215,12 +215,6 @@ class PrivatePropertyListingMapper
             }
         }
 
-        // Suburb and Town must not be identical (PP cannot shape the listing)
-        if (!empty($payload['Suburb']) && !empty($payload['Town'])
-            && strtolower(trim($payload['Suburb'])) === strtolower(trim($payload['Town']))) {
-            $errors[] = 'Suburb and Town must not be identical — PP requires a correct geographic hierarchy (e.g. Suburb=Uvongo, Town=Margate)';
-        }
-
         // StreetName validation
         $streetName = $payload['StreetName'] ?? '';
         if (empty($streetName)) {
@@ -321,13 +315,6 @@ class PrivatePropertyListingMapper
         // Town is required for PP geographic hierarchy (suburb → town → province)
         if (empty($property->town) && empty($property->city) && empty($property->pp_suburb_id)) {
             $missing[] = ['field' => 'town', 'label' => 'Town (e.g. "Margate") — required for PP location hierarchy', 'tab' => 'info'];
-        }
-
-        // Suburb and Town must not be identical — PP cannot shape the listing without a correct hierarchy
-        $suburb = trim($property->suburb ?? '');
-        $town   = trim($property->town ?? $property->city ?? '');
-        if ($suburb !== '' && $town !== '' && strtolower($suburb) === strtolower($town)) {
-            $missing[] = ['field' => 'suburb', 'label' => "Suburb and Town are identical (\"{$suburb}\") — PP requires different values (e.g. Suburb=Uvongo, Town=Margate)", 'tab' => 'info'];
         }
 
         // StreetName must not contain listing title keywords
