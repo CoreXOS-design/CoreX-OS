@@ -110,7 +110,7 @@ class SyncPpLocations extends Command
         $saCountryId = null;
         foreach ($countries as $c) {
             $name = $c['Name'] ?? null;
-            $id   = $c['Id'] ?? null;
+            $id   = ($c['CityId'] ?? $c['Id'] ?? null);
             if (!$id || !$name) continue;
             if (stripos($name, 'south africa') !== false) {
                 $saCountryId = (int) $id;
@@ -138,7 +138,7 @@ class SyncPpLocations extends Command
 
         foreach ($provinces as $p) {
             $pname = $p['Name'] ?? null;
-            $pid   = $p['Id'] ?? null;
+            $pid   = $p['ProvinceId'] ?? $p['Id'] ?? null;
             if (!$pname || !$pid) continue;
 
             $province = PpProvince::updateOrCreate(
@@ -166,7 +166,7 @@ class SyncPpLocations extends Command
 
         foreach ($list as $c) {
             $name = $c['Name'] ?? null;
-            $cid  = $c['Id'] ?? null;
+            $cid  = ($c['CityId'] ?? $c['Id'] ?? null);
             if (!$name || !$cid) continue;
 
             $city = PpCity::updateOrCreate(
@@ -185,12 +185,14 @@ class SyncPpLocations extends Command
     private function syncSuburbs(PrivatePropertySoapClient $client, PpCity $city): void
     {
         $resp = $client->getSuburbs($city->pp_city_id);
-        $this->guardSoap($resp, 'GetSuburbs');
+        if (isset($resp['error']) && $resp['error'] === true) {
+            throw new \RuntimeException("PP GetSuburbs failed for CityID={$city->pp_city_id} ({$city->name}): " . ($resp['message'] ?? 'unknown'));
+        }
         $list = $this->extractList($resp, 'SuburbModel');
 
         foreach ($list as $s) {
             $name = $s['Name'] ?? null;
-            $sid  = $s['Id'] ?? null;
+            $sid  = $s['SuburbId'] ?? $s['Id'] ?? null;
             if (!$name || !$sid) continue;
 
             PpSuburb::updateOrCreate(
