@@ -113,6 +113,21 @@ class MarketReportTypesSeeder extends Seeder
                 ],
             ],
             [
+                'key'             => 'cma_info_vicinity_sale',
+                'display_name'    => 'CMA Info — Vicinity Sale (Residential / Vacant Land)',
+                'parser_class'    => 'App\\Services\\MarketReports\\Parsers\\CmaInfoVicinitySaleParser',
+                'auto_approve'    => true,
+                'expected_fields' => [
+                    'subject_property.address', 'subject_property.suburb_scope',
+                    'subject_property_type', 'radius_meters',
+                    'sales[].distance_m', 'sales[].erf_number', 'sales[].address',
+                    'sales[].erf_usage', 'sales[].property_type', 'sales[].extent_m2',
+                    'sales[].sale_date', 'sales[].sale_price', 'sales[].r_per_m2',
+                    'summary.lower_range', 'summary.middle_range', 'summary.upper_range',
+                    'summary.average', 'summary.average_r_per_m2',
+                ],
+            ],
+            [
                 'key'             => 'lightstone_avm',
                 'display_name'    => 'Lightstone — AVM',
                 'parser_class'    => 'App\\Services\\MarketReports\\Parsers\\LightstoneAvmParser',
