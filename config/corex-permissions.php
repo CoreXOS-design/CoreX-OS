@@ -311,6 +311,7 @@ return [
         ['key' => 'mic.view_team',               'label' => 'View BM Team Dashboard',              'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 53],
         ['key' => 'mic.regenerate_brief',        'label' => 'Regenerate Strategic Brief (manual)', 'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 54],
         ['key' => 'mic.view_ai_costs',           'label' => 'View AI Token / Cost Dashboard',      'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 55],
+        ['key' => 'mic.restore_reports',         'label' => 'Restore Archived Market Reports',     'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 56],
 
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
@@ -481,6 +482,7 @@ return [
                 // MIC (Phase A2) — admin gets every MIC permission
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
+                'mic.restore_reports',
             ],
         ],
 

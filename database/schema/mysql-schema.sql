@@ -5161,7 +5161,7 @@ DROP TABLE IF EXISTS `market_data_discrepancies`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `market_data_discrepancies` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `report_id` bigint unsigned NOT NULL,
+  `report_id` bigint unsigned DEFAULT NULL,
   `data_point_id` bigint unsigned NOT NULL,
   `parsed_value` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'What the deterministic parser said.',
   `audit_value` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'What the AI re-extraction said.',
@@ -5173,13 +5173,14 @@ CREATE TABLE `market_data_discrepancies` (
   `resolution_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `market_data_discrepancies_data_point_id_foreign` (`data_point_id`),
   KEY `market_data_discrepancies_resolved_by_user_id_foreign` (`resolved_by_user_id`),
   KEY `idx_mdd_report_resolved` (`report_id`,`resolved`),
   KEY `idx_mdd_severity_resolved` (`severity`,`resolved`),
   CONSTRAINT `market_data_discrepancies_data_point_id_foreign` FOREIGN KEY (`data_point_id`) REFERENCES `market_data_points` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `market_data_discrepancies_report_id_foreign` FOREIGN KEY (`report_id`) REFERENCES `market_reports` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `market_data_discrepancies_report_id_foreign` FOREIGN KEY (`report_id`) REFERENCES `market_reports` (`id`) ON DELETE SET NULL,
   CONSTRAINT `market_data_discrepancies_resolved_by_user_id_foreign` FOREIGN KEY (`resolved_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI spot-check diffs vs deterministic parser output. ≥medium severity notifies super-admin.';
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -5224,7 +5225,7 @@ DROP TABLE IF EXISTS `market_report_comp_rows`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `market_report_comp_rows` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `market_report_id` bigint unsigned NOT NULL,
+  `market_report_id` bigint unsigned DEFAULT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `row_index` smallint unsigned NOT NULL DEFAULT '0' COMMENT '0-based order within the report; subject row is typically 0.',
   `row_type` enum('subject','comp','listing','owner') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'subject = the property being valued; comp = sold comparable; listing = active for-sale; owner = scheme owner entry.',
@@ -5262,7 +5263,7 @@ CREATE TABLE `market_report_comp_rows` (
   KEY `idx_mrcr_scheme` (`scheme_name`),
   KEY `idx_market_report_comp_rows_is_demo` (`is_demo`),
   CONSTRAINT `market_report_comp_rows_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`),
-  CONSTRAINT `market_report_comp_rows_market_report_id_foreign` FOREIGN KEY (`market_report_id`) REFERENCES `market_reports` (`id`) ON DELETE CASCADE
+  CONSTRAINT `market_report_comp_rows_market_report_id_foreign` FOREIGN KEY (`market_report_id`) REFERENCES `market_reports` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `market_report_types`;
@@ -7773,7 +7774,8 @@ DROP TABLE IF EXISTS `prospecting_pitch_locks`;
 CREATE TABLE `prospecting_pitch_locks` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `prospecting_listing_id` bigint unsigned NOT NULL,
+  `prospecting_listing_id` bigint unsigned DEFAULT NULL,
+  `tracked_property_id` bigint unsigned DEFAULT NULL,
   `user_id` bigint unsigned NOT NULL,
   `locked_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `expires_at` timestamp NOT NULL,
@@ -7786,8 +7788,10 @@ CREATE TABLE `prospecting_pitch_locks` (
   KEY `idx_pitch_locks_active` (`prospecting_listing_id`,`released_at`,`expires_at`),
   KEY `idx_pitch_locks_agency_user` (`agency_id`,`user_id`),
   KEY `idx_pitch_locks_expires` (`expires_at`),
+  KEY `idx_pitch_locks_tp_active` (`tracked_property_id`,`released_at`,`expires_at`),
   CONSTRAINT `prospecting_pitch_locks_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_pitch_locks_prospecting_listing_id_foreign` FOREIGN KEY (`prospecting_listing_id`) REFERENCES `prospecting_listings` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `prospecting_pitch_locks_tracked_property_id_foreign` FOREIGN KEY (`tracked_property_id`) REFERENCES `tracked_properties` (`id`) ON DELETE CASCADE,
   CONSTRAINT `prospecting_pitch_locks_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -9222,6 +9226,7 @@ CREATE TABLE `tracked_properties` (
   `promoted_to_property_id` bigint unsigned DEFAULT NULL,
   `promoted_at` timestamp NULL DEFAULT NULL,
   `promoted_by_user_id` bigint unsigned DEFAULT NULL,
+  `owner_contact_id` bigint unsigned DEFAULT NULL,
   `source_chain` json DEFAULT NULL,
   `first_seen_at` timestamp NULL DEFAULT NULL,
   `last_enriched_at` timestamp NULL DEFAULT NULL,
@@ -9242,7 +9247,9 @@ CREATE TABLE `tracked_properties` (
   KEY `idx_tracked_props_geo` (`latitude`,`longitude`),
   KEY `idx_tracked_props_cma_geo` (`cma_gps_lat`,`cma_gps_lng`),
   KEY `idx_tracked_properties_is_demo` (`is_demo`),
+  KEY `idx_tracked_props_owner_contact` (`owner_contact_id`),
   CONSTRAINT `tracked_properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `tracked_properties_owner_contact_id_foreign` FOREIGN KEY (`owner_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
   CONSTRAINT `tracked_properties_promoted_by_user_id_foreign` FOREIGN KEY (`promoted_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `tracked_properties_promoted_to_property_id_foreign` FOREIGN KEY (`promoted_to_property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -10802,3 +10809,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (776,'2026_05_23_09
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (777,'2026_05_23_090800_add_agency_id_to_whistleblow_email_log_table',226);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (778,'2026_05_23_091000_add_agency_id_to_p24_import_log_table',226);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (779,'2026_05_25_120000_add_portal_visibility_prefs_to_users_table',226);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (780,'2026_06_16_121000_add_tp_outreach_columns',227);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (781,'2026_06_16_122000_fix_market_report_cascade_to_preserve_audit',227);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (782,'2026_06_16_122100_seed_mic_restore_reports_permission',227);

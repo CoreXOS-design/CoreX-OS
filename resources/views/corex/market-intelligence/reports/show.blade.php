@@ -14,6 +14,43 @@
         </div>
     @endif
 
+    @if(session('error'))
+        <div style="margin-bottom: 12px; padding: 8px 12px; font-size: 0.8125rem;
+                    background: color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent);
+                    color: var(--ds-crimson, #dc2626);
+                    border: 1px solid var(--ds-crimson, #dc2626); border-radius: 4px;">
+            {{ session('error') }}
+        </div>
+    @endif
+
+    {{-- Report-lifecycle Phase 1+2 — archived banner with Restore CTA when
+         the user has mic.restore_reports. Without the permission the agent
+         still sees the banner (so they know why edits look stale) but no
+         button. --}}
+    @if($report->trashed())
+        <div style="margin-bottom: 12px; padding: 10px 14px; font-size: 0.8125rem;
+                    background: color-mix(in srgb, var(--ds-amber, #d97706) 14%, transparent);
+                    color: var(--text-primary);
+                    border: 1px solid var(--ds-amber, #d97706); border-radius: 4px;
+                    display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <div>
+                <strong style="color: var(--ds-amber, #d97706);">Archived report.</strong>
+                Archived {{ $report->deleted_at?->diffForHumans() ?? 'previously' }}. Stats below are read-only until restored.
+            </div>
+            @permission('mic.restore_reports')
+                <form method="POST" action="{{ route('market-intelligence.reports.restore', $report) }}" style="margin: 0;">
+                    @csrf
+                    <button type="submit"
+                            style="padding: 6px 12px; font-size: 0.75rem; font-weight: 600;
+                                   background: var(--ds-amber, #d97706); color: #fff;
+                                   border: none; border-radius: 4px; cursor: pointer;">
+                        Restore from archive
+                    </button>
+                </form>
+            @endpermission
+        </div>
+    @endif
+
     <nav style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">
         <a href="{{ route('market-intelligence.reports.index') }}" style="color: var(--brand-button); text-decoration: none;">← All reports</a>
     </nav>
@@ -80,6 +117,22 @@
                     </button>
                 </form>
             @endif
+
+            {{-- Report-lifecycle Phase 4 — Re-parse keeps the row + PDF,
+                 clears existing data_points + comp_rows + discrepancies,
+                 re-dispatches the parse job. Useful when a new parser ships
+                 and an older report (often parsed via GenericFallback)
+                 should be re-extracted. --}}
+            <form method="POST" action="{{ route('market-intelligence.reports.reparse', $report) }}" style="margin: 0;"
+                  onsubmit="return confirm('Re-parse this report? Existing data points, comp rows, and discrepancies for this report will be cleared and re-extracted from the original PDF.');">
+                @csrf
+                <button type="submit"
+                        style="padding: 6px 12px; font-size: 0.75rem; font-weight: 500;
+                               background: var(--surface); color: var(--text-secondary);
+                               border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">
+                    Re-parse
+                </button>
+            </form>
             @if($report->discrepancies->count() > 0)
                 <a href="{{ route('market-intelligence.reports.discrepancies', $report) }}"
                    style="padding: 6px 12px; font-size: 0.75rem; font-weight: 500;
@@ -88,17 +141,21 @@
                     View {{ $report->discrepancies->count() }} discrepancies
                 </a>
             @endif
-            <form method="POST" action="{{ route('market-intelligence.reports.destroy', $report) }}" style="margin: 0 0 0 auto;"
-                  onsubmit="return confirm('Archive this report? It can be recovered from admin if needed.');">
-                @csrf
-                @method('DELETE')
-                <button type="submit"
-                        style="padding: 6px 12px; font-size: 0.75rem; font-weight: 500;
-                               background: var(--surface); color: var(--text-secondary);
-                               border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">
-                    Archive
-                </button>
-            </form>
+            {{-- Archive only when not already trashed. Restore lives in the
+                 archived banner above; that's the recovery path. --}}
+            @if(!$report->trashed())
+                <form method="POST" action="{{ route('market-intelligence.reports.destroy', $report) }}" style="margin: 0 0 0 auto;"
+                      onsubmit="return confirm('Archive this report? It can be recovered from admin if needed.');">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit"
+                            style="padding: 6px 12px; font-size: 0.75rem; font-weight: 500;
+                                   background: var(--surface); color: var(--text-secondary);
+                                   border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">
+                        Archive
+                    </button>
+                </form>
+            @endif
         </div>
     </div>
 

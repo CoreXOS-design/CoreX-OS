@@ -40,27 +40,45 @@ final class MarketReportController extends Controller
     {
         $agencyId = $this->resolveAgencyId($request);
 
-        $reports = MarketReport::query()
-            ->withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
+        // Report-lifecycle Phase 2 — "Show archived" toggle. Default view
+        // hides soft-deleted rows (Laravel's SoftDeletes default scope).
+        // ?archived=1 widens the query to include trashed rows so admins
+        // can find and restore them.
+        $showArchived = $request->boolean('archived');
+
+        // Surgically strip only AgencyScope (the agency_id is being applied
+        // explicitly below). The previous broad withoutGlobalScopes() also
+        // stripped SoftDeletingScope, accidentally showing archived reports
+        // by default — the bug the Phase 2 archived toggle is supposed to
+        // prevent. Keep SoftDeletingScope intact so the default view hides
+        // trashed, and only widen via ->withTrashed() when the toggle is on.
+        $base = MarketReport::query()
+            ->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('agency_id', $agencyId);
+        if ($showArchived) {
+            $base->withTrashed();
+        }
+
+        $reports = (clone $base)
             ->with(['reportType', 'uploader'])
             ->withCount('discrepancies')
             ->orderByDesc('created_at')
-            ->paginate(50);
+            ->paginate(50)
+            ->withQueryString();
 
         $stats = [
-            'total'     => (clone $reports->getCollection())->count() > 0
-                ? MarketReport::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->count()
-                : 0,
+            'total'     => MarketReport::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->count(),
             'parsed'    => MarketReport::query()->withoutGlobalScopes()->where('agency_id', $agencyId)
                             ->where('parse_status', MarketReport::PARSE_PARSED)->count(),
             'flagged'   => MarketReport::query()->withoutGlobalScopes()->where('agency_id', $agencyId)
                             ->where('spot_check_status', MarketReport::SPOT_FLAGGED)->count(),
             'pending'   => MarketReport::query()->withoutGlobalScopes()->where('agency_id', $agencyId)
                             ->whereIn('parse_status', [MarketReport::PARSE_PENDING, MarketReport::PARSE_PARSING])->count(),
+            'archived'  => MarketReport::query()->withoutGlobalScopes()->where('agency_id', $agencyId)
+                            ->onlyTrashed()->count(),
         ];
 
-        return view('corex.market-intelligence.reports.index', compact('reports', 'stats'));
+        return view('corex.market-intelligence.reports.index', compact('reports', 'stats', 'showArchived'));
     }
 
     public function create(Request $request): View
@@ -85,13 +103,27 @@ final class MarketReportController extends Controller
         $upload = $request->file('file');
         $fileHash = hash_file('sha256', $upload->getRealPath());
 
-        // Deduplicate.
+        // Report-lifecycle Phase 3 — restore-on-rehash dedup.
+        // withTrashed() so the UNIQUE(agency_id, file_hash) constraint
+        // doesn't block re-import of a previously-archived report's file.
+        //   - Active match  → redirect to existing (no-op, current UX preserved)
+        //   - Archived match → restore + re-parse, redirect with status
+        //   - No match      → store + create + parse (the new-upload path)
         $existing = MarketReport::query()
             ->withoutGlobalScopes()
+            ->withTrashed()
             ->where('agency_id', $agencyId)
             ->where('file_hash', $fileHash)
             ->first();
         if ($existing) {
+            if ($existing->trashed()) {
+                $existing->restore();
+                $this->resetReportForReparse($existing);
+                ParseMarketReportJob::dispatchSync($existing->id);
+                return redirect()
+                    ->route('market-intelligence.reports.show', $existing)
+                    ->with('status', 'Archived report restored from the same file and re-parsed.');
+            }
             return redirect()
                 ->route('market-intelligence.reports.show', $existing)
                 ->with('status', 'This report was already uploaded on ' . $existing->created_at->format('j M Y') . '.');
@@ -198,13 +230,31 @@ final class MarketReportController extends Controller
         try {
             $fileHash = hash_file('sha256', $upload->getRealPath());
 
-            // Dedupe per agency.
+            // Dedupe per agency. Phase 3 — restore-on-rehash for archived
+            // matches; preserve the duplicate UX for active matches.
             $existing = MarketReport::query()
                 ->withoutGlobalScopes()
+                ->withTrashed()
                 ->where('agency_id', $agencyId)
                 ->where('file_hash', $fileHash)
                 ->first();
             if ($existing) {
+                if ($existing->trashed()) {
+                    $existing->restore();
+                    $this->resetReportForReparse($existing);
+                    ParseMarketReportJob::dispatchSync($existing->id);
+                    $existing->refresh()->load('reportType');
+                    return response()->json([
+                        'status'             => 'restored',
+                        'filename'           => $original,
+                        'report_id'          => $existing->id,
+                        'report_type_key'    => $existing->reportType?->key,
+                        'report_type_display'=> $existing->reportType?->display_name,
+                        'parse_status'       => $existing->parse_status,
+                        'data_points_count'  => $existing->data_points_count,
+                        'message'            => 'Archived report restored from the same file and re-parsed.',
+                    ]);
+                }
                 return response()->json([
                     'status'             => 'duplicate',
                     'filename'           => $original,
@@ -299,9 +349,97 @@ final class MarketReportController extends Controller
     public function destroy(Request $request, MarketReport $report): RedirectResponse
     {
         $this->assertOwnership($request, $report);
+        // Already archived → no-op + flash a hint. Prevents a confusing
+        // double-archive flow if a stale show view's Archive button is
+        // submitted on a trashed record.
+        if ($report->trashed()) {
+            return redirect()
+                ->route('market-intelligence.reports.show', $report)
+                ->with('status', 'Report is already archived.');
+        }
         $report->delete();
         return redirect()->route('market-intelligence.reports.index')
             ->with('status', 'Report archived (soft-deleted). Recoverable via admin.');
+    }
+
+    /**
+     * Report-lifecycle Phase 2 — restore a soft-deleted (archived) report.
+     *
+     * Idempotent: restoring an active report is a no-op with a flash.
+     * Permission gated at the route level (mic.restore_reports).
+     */
+    public function restore(Request $request, MarketReport $report): RedirectResponse
+    {
+        $this->assertOwnership($request, $report);
+        if (!$report->trashed()) {
+            return redirect()
+                ->route('market-intelligence.reports.show', $report)
+                ->with('status', 'Report is already active — nothing to restore.');
+        }
+        $report->restore();
+        return redirect()
+            ->route('market-intelligence.reports.show', $report)
+            ->with('status', 'Report restored from archive.');
+    }
+
+    /**
+     * Report-lifecycle Phase 4 — re-parse an existing report. Keeps the
+     * market_reports row + the original PDF; clears the report's previous
+     * data_points + comp_rows + discrepancies; re-runs the parse job. Use
+     * case: a report uploaded before its parser existed (fell through to
+     * GenericFallbackParser with 0 facts) → after a new parser ships,
+     * re-parse to back-fill the facts without losing the audit trail or
+     * needing to re-upload the file.
+     *
+     * Active OR archived reports may be re-parsed (archived → still
+     * accessible via the withTrashed() route binding). For archived rows
+     * the row stays archived; only the per-report rows are cleared and
+     * re-extracted. To make the data visible on the index, restore the
+     * row first (or use the bulk re-import which restores + re-parses).
+     */
+    public function reparse(Request $request, MarketReport $report): RedirectResponse
+    {
+        $this->assertOwnership($request, $report);
+        $absolutePath = Storage::disk('local')->path($report->file_path);
+        if (empty($report->file_path) || !is_file($absolutePath)) {
+            return redirect()
+                ->route('market-intelligence.reports.show', $report)
+                ->with('error', 'Source PDF missing on disk — cannot re-parse. Re-upload the original file to recover.');
+        }
+        $this->resetReportForReparse($report);
+        ParseMarketReportJob::dispatchSync($report->id);
+        return redirect()
+            ->route('market-intelligence.reports.show', $report)
+            ->with('status', 'Report re-parsed.');
+    }
+
+    /**
+     * Clear a report's previously-extracted rows + reset its parse status
+     * so the next ParseMarketReportJob dispatch starts from a clean slate.
+     * Force-deletes (not soft) — the rows belong to a SINGLE parse run and
+     * have no meaning outside it.
+     *
+     * NOTE: this is the simple, current model. Once Phase 2 of the
+     * fact-history work lands the re-parse path will become supersession-
+     * aware (mark old as superseded, append new with provenance) so the
+     * per-fact dated trail survives a re-parse. Out of scope here per the
+     * Phase 1+4 lifecycle prompt.
+     */
+    private function resetReportForReparse(MarketReport $report): void
+    {
+        DB::table('market_data_discrepancies')->where('report_id', $report->id)->delete();
+        DB::table('market_report_comp_rows')->where('market_report_id', $report->id)->delete();
+        DB::table('market_data_points')->where('report_id', $report->id)->delete();
+        $report->update([
+            'parse_status'        => MarketReport::PARSE_PENDING,
+            'parse_started_at'    => null,
+            'parse_completed_at'  => null,
+            'parser_version'      => null,
+            'raw_extracted_json'  => null,
+            'data_points_count'   => 0,
+            'spot_check_status'   => MarketReport::SPOT_PENDING,
+            'spot_check_results'  => null,
+        ]);
     }
 
     public function runSpotCheck(Request $request, MarketReport $report): RedirectResponse

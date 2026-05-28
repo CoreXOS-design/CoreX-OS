@@ -22,7 +22,25 @@
                 Upload CMAs, Lightstone reports, and other market intelligence. Parsed data lands in market_data_points and feeds Property Intelligence + Strategic Brief.
             </p>
         </div>
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+            {{-- Report-lifecycle Phase 2 — Show archived toggle. Widens the
+                 query to ->withTrashed() so admins can find and restore
+                 soft-deleted reports. Default view hides archived rows. --}}
+            @if($showArchived)
+                <a href="{{ route('market-intelligence.reports.index') }}"
+                   style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500;
+                          color: var(--ds-amber, #d97706); background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent);
+                          border: 1px solid var(--ds-amber, #d97706); border-radius: 4px; text-decoration: none;">
+                    Hide archived
+                </a>
+            @else
+                <a href="{{ route('market-intelligence.reports.index', ['archived' => 1]) }}"
+                   style="padding: 6px 10px; font-size: 0.75rem; font-weight: 500;
+                          color: var(--text-secondary); background: var(--surface);
+                          border: 1px solid var(--border); border-radius: 4px; text-decoration: none;">
+                    Show archived ({{ number_format($stats['archived'] ?? 0) }})
+                </a>
+            @endif
             <a href="{{ route('market-intelligence.reports.bulk-import') }}"
                style="padding: 8px 14px; font-size: 0.8125rem; font-weight: 500;
                       color: var(--text-secondary); background: var(--surface);
@@ -101,11 +119,17 @@
                                 default   => 'var(--text-muted)',
                             };
                         @endphp
-                        <tr style="border-top: 1px solid var(--border);">
+                        <tr style="border-top: 1px solid var(--border); {{ $r->trashed() ? 'opacity: 0.6;' : '' }}">
                             <td style="padding: 8px 12px;">
                                 <a href="{{ route('market-intelligence.reports.show', $r) }}" style="color: var(--brand-button); text-decoration: none;">
                                     {{ $r->file_name }}
                                 </a>
+                                @if($r->trashed())
+                                    <span style="margin-left: 6px; padding: 1px 6px; font-size: 0.625rem; font-weight: 600;
+                                                 color: var(--ds-amber, #d97706);
+                                                 background: color-mix(in srgb, var(--ds-amber, #d97706) 14%, transparent);
+                                                 border-radius: 8px; vertical-align: middle;">Archived</span>
+                                @endif
                             </td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $r->reportType?->display_name ?? '—' }}</td>
                             <td style="padding: 8px 12px; color: {{ $parseColor }}; font-weight: 600;">{{ ucfirst((string) $r->parse_status) }}</td>

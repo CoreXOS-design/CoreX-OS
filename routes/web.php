@@ -2858,9 +2858,21 @@ Route::middleware(['auth', 'permission:access_prospecting'])
         // Phase F — CMA report import pipeline. Every route gated by
         // permission:mic.upload_reports (Laravel 11 — middleware is at the
         // route level, not the controller constructor).
+        //
+        // Report-lifecycle Phase 1: the {report} param binds via
+        // withTrashed() so soft-deleted (archived) reports resolve. The
+        // show view renders an "Archived" banner + Restore button when
+        // $report->trashed(). Without this binding, /reports/<trashed_id>
+        // returns 404 — the report-90 symptom.
         Route::prefix('reports')->name('reports.')
             ->middleware('permission:mic.upload_reports')
             ->group(function () {
+                Route::bind('report', function (string $value) {
+                    return \App\Models\MarketReports\MarketReport::query()
+                        ->withTrashed()
+                        ->findOrFail((int) $value);
+                });
+
                 Route::get('/',                       [\App\Http\Controllers\CoreX\MarketReportController::class, 'index'])->name('index');
                 Route::get('/create',                 [\App\Http\Controllers\CoreX\MarketReportController::class, 'create'])->name('create');
                 Route::post('/',                      [\App\Http\Controllers\CoreX\MarketReportController::class, 'store'])->name('store');
@@ -2873,6 +2885,20 @@ Route::middleware(['auth', 'permission:access_prospecting'])
                 Route::delete('/{report}',            [\App\Http\Controllers\CoreX\MarketReportController::class, 'destroy'])->name('destroy');
                 Route::post('/{report}/spot-check',   [\App\Http\Controllers\CoreX\MarketReportController::class, 'runSpotCheck'])->name('spot-check');
                 Route::get('/{report}/discrepancies', [\App\Http\Controllers\CoreX\MarketReportController::class, 'discrepancies'])->name('discrepancies');
+
+                // Phase 4 — re-parse keeps the market_reports row + original PDF,
+                // clears existing data_points + comp_rows for the report, and
+                // re-dispatches the parse job. Permission is the upload role
+                // because re-parsing is conceptually within the agent's
+                // ingest workflow (parser improved → re-extract).
+                Route::post('/{report}/reparse', [\App\Http\Controllers\CoreX\MarketReportController::class, 'reparse'])->name('reparse');
+
+                // Phase 2 — restore an archived report. Tighter permission:
+                // mic.restore_reports (admin/super_admin only). Agents can
+                // archive their own uploads but can't undo another agent's.
+                Route::post('/{report}/restore', [\App\Http\Controllers\CoreX\MarketReportController::class, 'restore'])
+                    ->middleware('permission:mic.restore_reports')
+                    ->name('restore');
             });
 
         // Intelligence layer — declared before the {listing} catch-alls so
