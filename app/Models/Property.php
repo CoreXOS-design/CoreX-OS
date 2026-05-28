@@ -46,6 +46,7 @@ class Property extends Model
         'marketing_fee',
         'city',
         'suburb',
+        'suburb_normalised',
         'address',
         'region',
         'district',
@@ -83,6 +84,7 @@ class Property extends Model
         'lease_end_date',
         'headline',
         'street_name',
+        'street_name_normalised',
         'street_number',
         'province',
         'town',
@@ -222,6 +224,20 @@ class Property extends Model
         static::creating(function (Property $property) {
             if (empty($property->external_id)) {
                 $property->external_id = (string) Str::uuid();
+            }
+        });
+
+        // Dedup foundation Q4 Phase B Step 2 — keep the normalised-address
+        // cache in sync with the raw source columns on every save. The
+        // cache lets cross-source dedup match this Property against TPs +
+        // portal-scrape rows + LocationGrouper composites via the same
+        // composite key shape they all share (see PropertyAddressKey).
+        static::saving(function (Property $property) {
+            if ($property->isDirty('suburb') || $property->suburb_normalised === null) {
+                $property->suburb_normalised = \App\Models\Prospecting\TrackedPropertyAddress::normaliseSuburb($property->suburb);
+            }
+            if ($property->isDirty('street_name') || $property->street_name_normalised === null) {
+                $property->street_name_normalised = \App\Models\Prospecting\TrackedPropertyAddress::normaliseStreet($property->street_name);
             }
         });
     }

@@ -2831,6 +2831,13 @@ Route::middleware(['auth', 'permission:access_prospecting'])
         Route::get('/analyse',       [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'analyse'])->name('analyse');
         Route::get('/market-pulse',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'marketPulse'])->name('market-pulse');
 
+        // Q4/D1 — "P24 alerts — awaiting address" prospecting list. Surfaces
+        // every p24_listings row (no address column → 100% pin-blocked) +
+        // every ungeocoded prospecting_listing. Sidebar link below the
+        // MIC menu group satisfies CLAUDE.md NN#2 (nav-with-feature).
+        Route::get('/portal-alerts', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'portalAlertsAwaitingAddress'])
+            ->name('portal-alerts');
+
         // Phase G2 — BM team dashboard. Permission-gated via the controller.
         Route::get('/team', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'team'])->name('team');
 

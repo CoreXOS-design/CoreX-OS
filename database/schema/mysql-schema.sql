@@ -6302,6 +6302,7 @@ DROP TABLE IF EXISTS `presentation_active_listings`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `presentation_active_listings` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `mic_comp_row_id` bigint unsigned DEFAULT NULL,
   `presentation_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `source_upload_id` bigint unsigned DEFAULT NULL,
@@ -6336,7 +6337,9 @@ CREATE TABLE `presentation_active_listings` (
   KEY `presentation_active_listings_presentation_id_is_active_index` (`presentation_id`,`is_active`),
   KEY `idx_presentation_active_listings_is_demo` (`is_demo`),
   KEY `presentation_active_listings_agency_id_idx` (`agency_id`),
+  KEY `presentation_active_listings_mic_comp_row_id_foreign` (`mic_comp_row_id`),
   CONSTRAINT `presentation_active_listings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `presentation_active_listings_mic_comp_row_id_foreign` FOREIGN KEY (`mic_comp_row_id`) REFERENCES `market_report_comp_rows` (`id`) ON DELETE SET NULL,
   CONSTRAINT `presentation_active_listings_presentation_id_foreign` FOREIGN KEY (`presentation_id`) REFERENCES `presentations` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -6812,6 +6815,7 @@ DROP TABLE IF EXISTS `presentation_sold_comps`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `presentation_sold_comps` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `mic_comp_row_id` bigint unsigned DEFAULT NULL,
   `presentation_id` bigint unsigned NOT NULL,
   `agency_id` bigint unsigned NOT NULL,
   `source_upload_id` bigint unsigned DEFAULT NULL,
@@ -6832,7 +6836,9 @@ CREATE TABLE `presentation_sold_comps` (
   KEY `presentation_sold_comps_presentation_id_foreign` (`presentation_id`),
   KEY `idx_presentation_sold_comps_is_demo` (`is_demo`),
   KEY `presentation_sold_comps_agency_id_idx` (`agency_id`),
+  KEY `presentation_sold_comps_mic_comp_row_id_foreign` (`mic_comp_row_id`),
   CONSTRAINT `presentation_sold_comps_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `presentation_sold_comps_mic_comp_row_id_foreign` FOREIGN KEY (`mic_comp_row_id`) REFERENCES `market_report_comp_rows` (`id`) ON DELETE SET NULL,
   CONSTRAINT `presentation_sold_comps_presentation_id_foreign` FOREIGN KEY (`presentation_id`) REFERENCES `presentations` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -7085,12 +7091,14 @@ CREATE TABLE `properties` (
   `admin_fee` decimal(12,2) DEFAULT NULL,
   `marketing_fee` decimal(12,2) DEFAULT NULL,
   `suburb` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `suburb_normalised` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_suburb_id` bigint unsigned DEFAULT NULL,
   `p24_city_id` bigint unsigned DEFAULT NULL,
   `p24_province_id` bigint unsigned DEFAULT NULL,
   `p24_suburb_mismatch` tinyint(1) NOT NULL DEFAULT '0',
   `address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `street_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `street_name_normalised` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `street_number` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `city` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `region` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -7204,6 +7212,7 @@ CREATE TABLE `properties` (
   KEY `idx_properties_title_deed_number` (`title_deed_number`),
   KEY `idx_properties_geo` (`latitude`,`longitude`),
   KEY `idx_properties_is_demo` (`is_demo`),
+  KEY `idx_properties_address_key` (`agency_id`,`suburb_normalised`,`street_name_normalised`,`street_number`,`unit_number`),
   CONSTRAINT `properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `properties_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `properties_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
@@ -10814,3 +10823,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (781,'2026_06_16_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (782,'2026_06_16_122100_seed_mic_restore_reports_permission',227);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (783,'2026_06_16_122200_seed_cma_info_vicinity_sale_type',228);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (784,'2026_06_16_122300_make_market_reports_report_type_id_nullable',229);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (785,'2026_06_16_122400_add_normalised_address_columns_to_properties',230);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (786,'2026_06_16_122500_add_mic_comp_row_id_fk_to_presentation_tables',231);

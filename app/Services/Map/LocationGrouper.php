@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Map;
 
 use App\Support\Geocoding\AddressNormaliser;
+use App\Support\Geocoding\PropertyAddressKey;
 
 /**
  * Phase A.1 — composite-pin grouping for the Map module.
@@ -44,15 +45,49 @@ final class LocationGrouper
 {
     /**
      * Category priority — higher = wins as primary record for the pin.
-     * Same order as the V1 cross-layer coalesce, kept for visual continuity.
+     *
+     * Q3 taxonomy (post-map-pin-taxonomy investigation Finding #3):
+     *   prospecting (H > P > S) wins primacy, CMA (M / O) is subordinate,
+     *   T (tracked_properties) is the spine — present in many composites
+     *   but never the primary pin when something else is at the same
+     *   address. T defaults to 100 so it always loses primacy to every
+     *   real-world layer; previously T was absent from this list and
+     *   defaulted to 0 implicitly, which was the same numerical outcome
+     *   but undocumented. Made explicit here.
+     *
+     * Priority governs COMPOSITING ONLY, never EXISTENCE — a T-alone
+     * location still renders first-class as a tracked pin, and any
+     * composite containing T carries a `has_tracked_record` badge data
+     * flag for the UI to render (visual treatment lands in a later
+     * visual track, per Q3's "DATA flag only this pass" rule).
      */
     private const PRIORITY = [
-        'hfc_listings'    => 1000,
-        'active_listings' => 800,
-        'sold_comps'      => 600,
-        'mic_subjects'    => 400,
-        'scheme_owners'   => 200,
+        'hfc_listings'       => 1000,
+        'active_listings'    =>  800,
+        'sold_comps'         =>  600,
+        'mic_subjects'       =>  400,
+        'scheme_owners'      =>  200,
+        'tracked_properties' =>  100,
     ];
+
+    /**
+     * Categories considered CMA-information rather than prospecting peers.
+     * M is the CMA subject. O (scheme_owners) is a CMA-derived listing of
+     * units within a sectional title scheme. Per Q3 taxonomy, M collapses
+     * into the primary pin when prospecting/own/tracked records share its
+     * address; O stays as a peer because a scheme-owners pin is a useful
+     * standalone "this scheme has N units" surface that doesn't duplicate
+     * the H/S/P/T identity of a specific unit.
+     *
+     * Used by:
+     *   - the M-collapse step in group() (only M is collapsed)
+     *   - the is_cma_orphan flag (true when no NON-CMA peers exist; O at
+     *     the same address as M still counts as a CMA-only location).
+     */
+    private const CMA_CATEGORIES = ['mic_subjects', 'scheme_owners'];
+
+    /** Just the categories that collapse into `cma_info` (subset of CMA_CATEGORIES). */
+    private const COLLAPSING_CMA_CATEGORIES = ['mic_subjects'];
 
     /**
      * @param array<int, array<string, mixed>> $records
@@ -86,8 +121,96 @@ final class LocationGrouper
             }
         }
 
+        // ── Dedup foundation Q4 Phase B Step 5 — address-key second-pass merge ──
+        //
+        // CRITICAL ORDERING: this merge runs AFTER the GPS-bucket build
+        // (above) and BEFORE the M-collapse / is_cma_orphan / priority
+        // post-processing loop (below). Reason: an M-subject and an H-
+        // property at the same real-world address can land in DIFFERENT
+        // GPS buckets when their geocoders disagree by more than ~1m (the
+        // 5dp GPS-bucket resolution). Without this merge, M-collapse fires
+        // on each bucket independently — H bucket has no M to collapse,
+        // M bucket has no H peer so M stays as an orphan pin → duplicate
+        // pins at one real-world address. After the merge, the two
+        // buckets are one entry and M-collapse correctly folds M into
+        // the H pin's cma_info.
+        //
+        // The merge does NOT widen the GPS bucket — two flats in the same
+        // building with different unit numbers produce DIFFERENT
+        // PropertyAddressKey outputs (unit_number is in the key tail)
+        // and stay as separate locations.
+        $byKey = $this->mergeByAddressKey($byKey);
+
         $out = [];
         foreach ($byKey as $loc) {
+            // ── Q3 M-collapse step ───────────────────────────────────────
+            // CMA subject (M) is NOT a peer when a prospecting/own/tracked
+            // record shares the same address. Extract M records into a
+            // separate `cma_info` array and remove them from `records[]`
+            // so the composite shows the agent ONE pin owned by the
+            // prospecting layer with CMA context attached, not a competing
+            // M pin at the same dot. Standalone M (no non-CMA peers) stays
+            // in records[] so it renders as today + the is_cma_orphan flag.
+            $hasNonCmaPeer = collect($loc['records'])->contains(
+                fn ($r) => !in_array(($r['category'] ?? null), self::CMA_CATEGORIES, true),
+            );
+            $loc['cma_info'] = [];
+            if ($hasNonCmaPeer) {
+                $kept = [];
+                foreach ($loc['records'] as $r) {
+                    if (in_array(($r['category'] ?? null), self::COLLAPSING_CMA_CATEGORIES, true)) {
+                        $loc['cma_info'][] = [
+                            'id'               => $r['id']               ?? null,
+                            'title'            => $r['title']             ?? null,
+                            'subtitle'         => $r['subtitle']          ?? null,
+                            'detail_url'       => $r['detail_url']        ?? null,
+                            'parent_report_id' => $r['parent_report_id']  ?? ($r['id'] ?? null),
+                            'date'             => $r['date']              ?? null,
+                            'report_type_name' => $r['report_type_name']  ?? null,
+                            'report_type_key'  => $r['report_type_key']   ?? null,
+                        ];
+                        continue;
+                    }
+                    $kept[] = $r;
+                }
+                $loc['records'] = $kept;
+                // After collapsing, categories_present must drop any
+                // collapsed CMA categories that no longer have peer records.
+                $loc['categories_present'] = array_values(array_unique(array_map(
+                    fn ($r) => $r['category'],
+                    $loc['records'],
+                )));
+            }
+
+            // ── Q3 orphan-CMA flag ──────────────────────────────────────
+            // Set when every record at this location is in the CMA bucket
+            // (M and/or O). Visual treatment ("faint" marker) is the later
+            // visual track — this pass only emits the data flag.
+            $loc['is_cma_orphan'] = !empty($loc['records']) && collect($loc['records'])->every(
+                fn ($r) => in_array(($r['category'] ?? null), self::CMA_CATEGORIES, true),
+            );
+
+            // ── Q3 tracked-badge flag ───────────────────────────────────
+            // Set when any record at this location is a tracked_properties
+            // record AND the location is composite (multi-record). T-alone
+            // (record_count=1) is NOT a badge — it's a first-class pin in
+            // its own right. The badge is for "this location ALSO has a
+            // tracked record beside its primary identity".
+            $loc['has_tracked_record'] = count($loc['records']) > 1 && collect($loc['records'])->contains(
+                fn ($r) => ($r['category'] ?? null) === 'tracked_properties',
+            );
+
+            // Locations whose ONLY record was an M that we just collapsed
+            // into cma_info will have an empty records[] now. They become
+            // CMA-orphan candidates rendered from the cma_info itself.
+            // For shape consistency, drop them from the output — they have
+            // no record to anchor a pin. The cma_info attaches via the
+            // sibling location that triggered the collapse (the H/P/S/T
+            // pin that "stole" the M peer record).
+            if (empty($loc['records'])) {
+                continue;
+            }
+
             // Sort records by category priority (primary first), then by id
             // for deterministic ordering on retry/replay.
             usort($loc['records'], function ($a, $b) {
@@ -155,6 +278,78 @@ final class LocationGrouper
         });
 
         return $out;
+    }
+
+    /**
+     * Dedup foundation Q4 Phase B Step 5 — address-key second-pass merge.
+     *
+     * Walks the GPS-keyed buckets, computes a `PropertyAddressKey` for
+     * each (using the highest-category-priority record's address as the
+     * authoritative source — the H record's title beats the M record's
+     * title for accuracy when both are present), and merges buckets that
+     * share the same key into a single location.
+     *
+     * Buckets that compute a null address-key (no usable address) stay
+     * separate — they're handled by the GPS-only path. The merge is
+     * additive: when two buckets merge, the survivor keeps its
+     * location_key + grouping_basis + initial lat/lng; the existing
+     * post-processing loop later re-anchors lat/lng to the primary
+     * record's coordinates.
+     *
+     * @param  array<string, array<string,mixed>> $byKey
+     * @return array<string, array<string,mixed>>
+     */
+    private function mergeByAddressKey(array $byKey): array
+    {
+        $addrToKey = [];      // address-key → first $byKey key seen with it
+        $mergePlan = [];      // source $byKey key → target $byKey key
+
+        foreach ($byKey as $gpsKey => $loc) {
+            // Pick the highest-priority record that has a parseable
+            // address — its title is the canonical source for this
+            // bucket's address-key.
+            $bestRec = null;
+            $bestPri = -1;
+            foreach ($loc['records'] as $rec) {
+                if (empty($rec['address']) && empty($rec['title'])) continue;
+                $pri = self::PRIORITY[$rec['category'] ?? ''] ?? 0;
+                if ($pri > $bestPri) {
+                    $bestRec = $rec;
+                    $bestPri = $pri;
+                }
+            }
+            if ($bestRec === null) continue;
+
+            $address = (string) ($bestRec['address'] ?? $bestRec['title'] ?? '');
+            $suburb  = isset($bestRec['suburb']) && is_string($bestRec['suburb']) ? $bestRec['suburb'] : null;
+            $key     = PropertyAddressKey::fromAddressString($address, $suburb);
+            if ($key === null) continue;        // unparseable — leave on GPS-only path
+
+            if (isset($addrToKey[$key])) {
+                // This bucket needs to merge into the one that claimed
+                // the address-key first. Defer the actual move until
+                // after the scan so we don't mutate $byKey mid-iteration.
+                $mergePlan[$gpsKey] = $addrToKey[$key];
+            } else {
+                $addrToKey[$key] = $gpsKey;
+            }
+        }
+
+        // Execute the merges. Source bucket's records + categories_present
+        // get concatenated into target; source is then dropped.
+        foreach ($mergePlan as $source => $target) {
+            if (!isset($byKey[$source]) || !isset($byKey[$target])) continue;
+            foreach ($byKey[$source]['records'] as $r) {
+                $byKey[$target]['records'][] = $r;
+                $cat = $r['category'] ?? null;
+                if ($cat !== null && !in_array($cat, $byKey[$target]['categories_present'], true)) {
+                    $byKey[$target]['categories_present'][] = $cat;
+                }
+            }
+            unset($byKey[$source]);
+        }
+
+        return $byKey;
     }
 
     /**

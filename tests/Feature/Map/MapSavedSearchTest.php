@@ -137,6 +137,110 @@ final class MapSavedSearchTest extends TestCase
         $this->assertNotContains('Doomed', $names);
     }
 
+    /**
+     * M89 — v2 saved-search payload round-trips through store + index.
+     *
+     * Saved-search persistence Phase B added four categories to the JS
+     * payload (enabled_layers, display_mode, base_layer, map_view) that
+     * the legacy flat-filter shape missed. The controller validates
+     * `filter_payload: required|array`, accepts any array shape — this
+     * test guards that the new wrapped shape comes back identical.
+     */
+    public function test_m89_v2_payload_round_trips_intact(): void
+    {
+        $user = $this->makeUser();
+
+        $payload = [
+            'schema_version' => 2,
+            'filters' => [
+                'scope'        => 'agency',
+                'search'       => '',
+                'types'        => ['house', 'sectional'],
+                'priceMin'     => 1_500_000,
+                'priceMax'     => 3_000_000,
+                'bedroomsMin'  => 3,
+                'listingStatus'=> [],
+                'soldWindow'   => '12mo',
+            ],
+            'enabled_layers' => ['hfc_listings', 'tracked_properties'],
+            'display_mode'   => 'both',
+            'base_layer'     => 'satellite',
+            'map_view'       => ['lat' => -30.85123, 'lng' => 30.39456, 'zoom' => 15],
+        ];
+
+        $this->actingAs($user)->postJson(route('corex.map.saved-searches.store'), [
+            'name'           => 'Margate sectional 1.5-3m',
+            'filter_payload' => $payload,
+            'is_default'     => false,
+        ])->assertCreated();
+
+        $rows = $this->actingAs($user)
+            ->getJson(route('corex.map.saved-searches.index'))
+            ->assertOk()
+            ->json('saved_searches');
+
+        $this->assertCount(1, $rows);
+        $loaded = $rows[0]['filter_payload'];
+        $this->assertSame(2, $loaded['schema_version']);
+        $this->assertSame(['hfc_listings', 'tracked_properties'], $loaded['enabled_layers']);
+        $this->assertSame('both', $loaded['display_mode']);
+        $this->assertSame('satellite', $loaded['base_layer']);
+        $this->assertSame(-30.85123, $loaded['map_view']['lat']);
+        $this->assertSame(30.39456, $loaded['map_view']['lng']);
+        $this->assertSame(15, $loaded['map_view']['zoom']);
+        $this->assertSame('agency', $loaded['filters']['scope']);
+        $this->assertSame(['house', 'sectional'], $loaded['filters']['types']);
+        $this->assertSame(3_000_000, $loaded['filters']['priceMax']);
+        $this->assertSame('12mo', $loaded['filters']['soldWindow']);
+    }
+
+    /**
+     * M90 — legacy (flat) payload still loads via the index endpoint with
+     * its original shape. The JS load path detects the absence of
+     * `schema_version`/`filters` keys and treats the payload as the
+     * legacy FILTER_DEFAULTS shape (back-compat).
+     */
+    public function test_m90_legacy_flat_payload_still_loads(): void
+    {
+        $user = $this->makeUser();
+
+        // Insert a row with the legacy shape directly (mimics rows saved
+        // before the persistence fix shipped).
+        DB::table('map_saved_searches')->insert([
+            'agency_id' => $user->agency_id,
+            'user_id'   => $user->id,
+            'name'      => 'Legacy view',
+            'filter_payload' => json_encode([
+                'scope' => 'agency', 'search' => '', 'types' => ['house'],
+                'priceMin' => 1_000_000, 'priceMax' => null,
+                'bedroomsMin' => null, 'bedroomsMax' => null,
+                'bathroomsMin' => null, 'bathroomsMax' => null,
+                'standMin' => null, 'standMax' => null,
+                'buildingMin' => null, 'buildingMax' => null,
+                'listingStatus' => [], 'soldWindow' => '',
+                'domMin' => null, 'domMax' => null,
+                'yearFrom' => null, 'yearTo' => null,
+            ]),
+            'is_default' => 0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $rows = $this->actingAs($user)
+            ->getJson(route('corex.map.saved-searches.index'))
+            ->assertOk()
+            ->json('saved_searches');
+
+        $this->assertCount(1, $rows);
+        $loaded = $rows[0]['filter_payload'];
+        // Legacy shape — no schema_version, no nested filters key.
+        $this->assertArrayNotHasKey('schema_version', $loaded);
+        $this->assertArrayNotHasKey('filters', $loaded);
+        // The top-level keys ARE the filters themselves.
+        $this->assertSame('agency', $loaded['scope']);
+        $this->assertSame(['house'], $loaded['types']);
+        $this->assertSame(1_000_000, $loaded['priceMin']);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function makeUser(?int $agencyId = null): User

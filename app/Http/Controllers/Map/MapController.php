@@ -11,6 +11,7 @@ use App\Models\MarketReports\SchemeOwner;
 use App\Models\PresentationActiveListing;
 use App\Models\PresentationSoldComp;
 use App\Models\Property;
+use App\Models\Scopes\AgencyScope;
 use App\Services\Map\MapBoundsRequest;
 use App\Services\Map\MapPinService;
 use App\Services\Map\MapProspectStatusService;
@@ -108,13 +109,17 @@ final class MapController extends Controller
 
         $layers = $validated['layers'] ?? MapBoundsRequest::VALID_LAYERS;
 
+        // POPIA owner-detail gate — resolve the trusted viewMode server-side.
+        // Default Seller; Agent only when the user holds access_prospecting.
+        $resolvedViewMode = self::resolveViewMode($request);
+
         $req = new MapBoundsRequest(
             north:         (float) $validated['north'],
             south:         (float) $validated['south'],
             east:          (float) $validated['east'],
             west:          (float) $validated['west'],
             layers:        $layers,
-            viewMode:      $validated['viewMode']  ?? 'agent',
+            viewMode:      $resolvedViewMode,
             agencyId:      (int) $effectiveAgencyId,
             dateFrom:      $validated['dateFrom']  ?? null,
             dateTo:        $validated['dateTo']    ?? null,
@@ -176,8 +181,16 @@ final class MapController extends Controller
         $this->assertSameAgency($request, $presentation->agency_id);
 
         // Subject GPS comes from the linked Property when available.
+        // Strip only AgencyScope (per CLAUDE.md NN#7); the upstream
+        // assertSameAgency($presentation->agency_id) above confirms the
+        // presentation belongs to the requesting user's agency, and we
+        // explicitly clamp the Property by the presentation's agency_id
+        // so a referenced-but-cross-agency property row cannot leak.
+        // SoftDeletes + BranchScope stay active.
         $property = $presentation->property_id
-            ? \App\Models\Property::withoutGlobalScopes()->find($presentation->property_id)
+            ? \App\Models\Property::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $presentation->agency_id)
+                ->find($presentation->property_id)
             : null;
 
         $subject = null;
@@ -282,7 +295,7 @@ final class MapController extends Controller
     public function propertyCard(Request $request, Property $property): JsonResponse
     {
         $this->assertSameAgency($request, $property->agency_id);
-        $viewMode = $request->query('viewMode', 'agent');
+        $viewMode = self::resolveViewMode($request);
 
         $facts = array_filter([
             ['label' => 'Type',         'value' => $property->property_type ?: '—'],
@@ -318,7 +331,7 @@ final class MapController extends Controller
     public function soldCard(Request $request, string $layerId): JsonResponse
     {
         [$kind, $id] = $this->splitLayerId($layerId);
-        $viewMode = $request->query('viewMode', 'agent');
+        $viewMode = self::resolveViewMode($request);
 
         $card = match ($kind) {
             'mrcr' => $this->soldCardFromMrcr($request, (int) $id),
@@ -337,7 +350,7 @@ final class MapController extends Controller
     public function activeCard(Request $request, string $layerId): JsonResponse
     {
         [$kind, $id] = $this->splitLayerId($layerId);
-        $viewMode = $request->query('viewMode', 'agent');
+        $viewMode = self::resolveViewMode($request);
 
         $card = match ($kind) {
             'mrcr' => $this->activeCardFromMrcr($request, (int) $id),
@@ -399,7 +412,7 @@ final class MapController extends Controller
         ];
         // MIC subjects carry no PII — sensitive_facts stays empty regardless
         // of view mode (kept for client-side gating consistency).
-        if ($request->query('viewMode', 'agent') === 'agent') {
+        if (self::resolveViewMode($request) === 'agent') {
             $card['sensitive_facts'] = [];
         }
         return response()->json($card);
@@ -413,10 +426,10 @@ final class MapController extends Controller
     public function schemeOwnerCard(Request $request, SchemeOwner $owner): JsonResponse
     {
         $this->assertSameAgency($request, $owner->agency_id);
-        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+        $isAgentView = self::resolveViewMode($request) === 'agent';
 
         $matching = MarketReport::query()
-            ->withoutGlobalScopes()
+            ->withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $owner->agency_id)
             ->whereNotNull('subject_latitude')
             ->whereRaw('LOWER(subject_scheme_name) = ?', [mb_strtolower((string) $owner->scheme_name)])
@@ -516,7 +529,7 @@ final class MapController extends Controller
         $this->assertSameAgency($request, (int) $row->agency_id);
 
         // A.2.4 — enrich with every column the row carries.
-        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+        $isAgentView = self::resolveViewMode($request) === 'agent';
         $rPerM2 = $row->r_per_m2;
         if (!$rPerM2 && $row->sale_price && $row->extent_m2) {
             $rPerM2 = (int) round(((int) $row->sale_price) / max(1, (int) $row->extent_m2));
@@ -571,7 +584,7 @@ final class MapController extends Controller
         $this->assertSameAgency($request, (int) $row->agency_id);
 
         $raw = is_string($row->raw_row_json) ? (json_decode($row->raw_row_json, true) ?: []) : ((array) $row->raw_row_json ?: []);
-        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+        $isAgentView = self::resolveViewMode($request) === 'agent';
 
         // A.2.4 — compute R/m² and surface every available field from the
         // base columns + raw_row_json blob.
@@ -628,7 +641,7 @@ final class MapController extends Controller
         if (!$row) return null;
         $this->assertSameAgency($request, (int) $row->agency_id);
 
-        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+        $isAgentView = self::resolveViewMode($request) === 'agent';
 
         // A.2.4 — enrich Portal Stock detail (from MIC report row_type=listing).
         $card = [
@@ -683,7 +696,7 @@ final class MapController extends Controller
         $this->assertSameAgency($request, (int) $row->agency_id);
 
         $raw = is_string($row->raw_row_json) ? (json_decode($row->raw_row_json, true) ?: []) : ((array) $row->raw_row_json ?: []);
-        $isAgentView = $request->query('viewMode', 'agent') === 'agent';
+        $isAgentView = self::resolveViewMode($request) === 'agent';
 
         // Days on portal — prefer raw_row_json (most accurate) then computed
         // from first_seen_at/last_seen_at if those make it onto PAL.
@@ -784,5 +797,36 @@ final class MapController extends Controller
         if (!$user || $effectiveAgencyId === null || $effectiveAgencyId !== $agencyId) {
             abort(403, 'Cross-agency access denied.');
         }
+    }
+
+    /**
+     * POPIA owner-detail gate. Returns 'agent' only when the request both
+     * asks for Agent View AND the caller holds the `access_prospecting`
+     * permission (the same key that gates the MIC module, which is the
+     * canonical owner-PII surface). Default for anything else — missing
+     * flag, unknown flag, missing permission — is 'seller'.
+     *
+     * Seller View must never receive owner PII at the network-payload
+     * level. CSS/JS hiding is non-compliant; the bytes must not leave
+     * the server.
+     */
+    public static function resolveViewMode(Request $request): string
+    {
+        $requested = $request->query('viewMode');
+        if ($requested !== 'agent') {
+            return 'seller';
+        }
+        $user = $request->user();
+        if ($user === null) {
+            return 'seller';
+        }
+        try {
+            if (!$user->hasPermission('access_prospecting')) {
+                return 'seller';
+            }
+        } catch (\Throwable) {
+            return 'seller';
+        }
+        return 'agent';
     }
 }

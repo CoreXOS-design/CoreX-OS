@@ -170,7 +170,14 @@ final class MapLocationsTest extends TestCase
     /** M12 — A.1.1 fix. Two records at *identical* GPS but parsing to
      *        different geocode_target strings now collapse to ONE composite
      *        location (the Highland Park / Sunset Manor § N case found in
-     *        live data). Pre-fix this was the duplicate-pin bug. */
+     *        live data). Pre-fix this was the duplicate-pin bug.
+     *
+     *  Updated 2026-05-28: post-Q3 taxonomy, M (mic_subjects) collapses
+     *  into the H pin's `cma_info` attribute when both share an address,
+     *  so the location has ONE record now (the H), not two. The grouping
+     *  itself still succeeds — same `gps` basis, single location — which
+     *  is what M12 was originally proving. The M record persists in
+     *  `cma_info` so it isn't lost from the response. */
     public function test_m12_same_gps_different_geocode_targets_collapse(): void
     {
         $grouper = new LocationGrouper();
@@ -188,7 +195,10 @@ final class MapLocationsTest extends TestCase
         $locs = $grouper->group($records);
 
         $this->assertCount(1, $locs, 'same-GPS records must group regardless of parsed address divergence');
-        $this->assertSame(2, $locs[0]['record_count']);
+        $this->assertSame(1, $locs[0]['record_count'],
+            'M collapses into cma_info — only H remains in records[]');
+        $this->assertCount(1, $locs[0]['cma_info'],
+            'The M peer is preserved as a cma_info attachment, not dropped');
         $this->assertSame('gps', $locs[0]['grouping_basis']);
     }
 
