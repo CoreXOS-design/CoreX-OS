@@ -21,24 +21,47 @@
         </div>
     @endif
 
-    {{-- Listing summary --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
-            Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}
+    {{-- Source summary — listing OR tracked property. Map Workspace Phase B
+         extends the view to render either context; the form below posts to
+         the matching store route. --}}
+    @if(!empty($trackedProperty))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
+                Tracked Property
+            </div>
+            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                {{ $trackedProperty->displayAddress() }}
+            </div>
+            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                @if(!empty($trackedProperty->last_known_asking_price))R {{ number_format((float) $trackedProperty->last_known_asking_price, 0, '.', ',') }} · @endif
+                {{ $trackedProperty->property_type ?? 'property' }}
+                @if(!empty($trackedProperty->bedrooms)) · {{ $trackedProperty->bedrooms }} beds @endif
+                @if(!empty($trackedProperty->bathrooms)) · {{ $trackedProperty->bathrooms }} baths @endif
+                @if(!empty($trackedProperty->erf_number)) · Erf {{ $trackedProperty->erf_number }} @endif
+            </div>
         </div>
-        <div class="font-semibold text-sm" style="color: var(--text-primary);">
-            {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
+    @elseif(!empty($listing))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
+                Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}
+            </div>
+            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                {{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}
+            </div>
+            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                @if(!empty($listing->price))R {{ number_format((float) $listing->price, 0, '.', ',') }} · @endif
+                {{ $listing->property_type ?? 'property' }}
+                @if(!empty($listing->bedrooms)) · {{ $listing->bedrooms }} beds @endif
+                @if(!empty($listing->bathrooms)) · {{ $listing->bathrooms }} baths @endif
+            </div>
         </div>
-        <div class="text-xs mt-1" style="color: var(--text-muted);">
-            @if(!empty($listing->price))R {{ number_format((float) $listing->price, 0, '.', ',') }} · @endif
-            {{ $listing->property_type ?? 'property' }}
-            @if(!empty($listing->bedrooms)) · {{ $listing->bedrooms }} beds @endif
-            @if(!empty($listing->bathrooms)) · {{ $listing->bathrooms }} baths @endif
-        </div>
-    </div>
+    @endif
 
-    {{-- Contact form --}}
-    <form method="POST" action="{{ route('seller-outreach.entry.store-from-prospecting', $listing->id) }}">
+    {{-- Contact form — posts to the store route matching the source. --}}
+    <form method="POST"
+          action="{{ !empty($trackedProperty)
+              ? route('seller-outreach.entry.store-from-tracked-property', $trackedProperty->id)
+              : route('seller-outreach.entry.store-from-prospecting', $listing->id) }}">
         @csrf
 
         <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">

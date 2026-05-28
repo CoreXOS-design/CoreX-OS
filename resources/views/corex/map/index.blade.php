@@ -386,6 +386,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const PROPERTY_OUTREACH_TPL  = @json(route('seller-outreach.entry.from-property', ['property' => '__ID__']));
     const MIC_REPORT_SHOW_TPL    = @json(route('market-intelligence.reports.show', ['report' => '__ID__']));
     const MIC_OPPORTUNITIES_URL  = @json(route('market-intelligence.opportunities'));
+    // Phase B Fix 2+3 — T-pin "WhatsApp / Pitch" entry point (mirrors fromProspecting).
+    const TP_OUTREACH_TPL        = @json(route('seller-outreach.entry.from-tracked-property', ['trackedProperty' => '__ID__']));
 
     // Single-record category visuals — composite pins use the neutral scheme below.
     const LAYER_COLOURS = {
@@ -438,6 +440,13 @@ document.addEventListener('DOMContentLoaded', function () {
     // Encoded keys (omitted when at default to keep URLs tidy):
     //   scope, q, types[], status[], sw,
     //   pn/px, bdn/bdx, btn/btx, sn/sx, bn/bx, dn/dx, yf/yt
+    // Phase B Fix 1a — map view + layer state in URL.
+    // Defaults (omitted from URL when at default):
+    //   layers = all 6 enabled
+    //   view (lat/lng/z) = HFC default fitBounds. Suppressed for one syncUrlState
+    //   cycle after "Reset to HFC area" so the URL is clean post-reset.
+    let suppressViewInUrl = false;
+    const ALL_LAYER_KEYS = ['active_listings','hfc_listings','mic_subjects','scheme_owners','sold_comps','tracked_properties'];
     function buildUrlStateParams() {
         const p = new URLSearchParams();
         const set = (k, v) => { if (v !== null && v !== undefined && v !== '') p.set(k, String(v)); };
@@ -451,6 +460,26 @@ document.addEventListener('DOMContentLoaded', function () {
             .forEach(k => { if (filters[k] !== null) set(k, filters[k]); });
         if (filters.listingStatus.length) filters.listingStatus.forEach(s => p.append('status[]', s));
         if (filters.soldWindow) set('sw', filters.soldWindow);
+
+        // Phase B Fix 1a — map center/zoom (5dp lat/lng is ≈1m at this latitude).
+        if (!suppressViewInUrl && typeof map !== 'undefined' && map) {
+            try {
+                const c = map.getCenter();
+                const z = map.getZoom();
+                if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng) && Number.isFinite(z)) {
+                    set('lat', c.lat.toFixed(5));
+                    set('lng', c.lng.toFixed(5));
+                    set('z',   String(z));
+                }
+            } catch (e) { /* map not ready */ }
+        }
+        suppressViewInUrl = false;
+
+        // Phase B Fix 1a — enabled layers (only when not the full default set).
+        const enabled = Array.from(enabledLayers).sort();
+        const isDefaultLayers = enabled.length === ALL_LAYER_KEYS.length
+            && ALL_LAYER_KEYS.every(k => enabled.includes(k));
+        if (!isDefaultLayers) set('layers', enabled.join(','));
         return p;
     }
     function syncUrlState() {
@@ -498,7 +527,37 @@ document.addEventListener('DOMContentLoaded', function () {
         if (p.has('sw') && ['','3mo','6mo','12mo','24mo'].includes(p.get('sw'))) {
             filters.soldWindow = p.get('sw');
         }
+
+        // Phase B Fix 1a — enabled layers (?layers=a,b,c). When the param
+        // is present we overwrite the in-memory set; missing means "keep
+        // the existing default (all on)".
+        if (p.has('layers')) {
+            const requested = p.get('layers').split(',').map(s => s.trim()).filter(Boolean);
+            enabledLayers.clear();
+            requested.forEach(k => { if (ALL_LAYER_KEYS.includes(k)) enabledLayers.add(k); });
+            // Reflect on the left-rail buttons so the UI matches state.
+            document.querySelectorAll('[data-layer-toggle]').forEach(btn => {
+                const on = enabledLayers.has(btn.dataset.layerToggle);
+                btn.dataset.on = on ? '1' : '0';
+                paintLayerBtn(btn);
+            });
+        }
         return true;
+    }
+
+    // Phase B Fix 1a — read map view (lat/lng/zoom) directly from URL.
+    // Returns {lat, lng, zoom} or null. Called inline at map init, before
+    // the rest of readUrlStateIntoFilters() runs, because the view applies
+    // to the Leaflet map (not to the filters object).
+    function readMapViewFromUrl() {
+        const p = new URLSearchParams(window.location.search);
+        if (!p.has('lat') || !p.has('lng') || !p.has('z')) return null;
+        const lat = parseFloat(p.get('lat'));
+        const lng = parseFloat(p.get('lng'));
+        const z   = parseInt(p.get('z'), 10);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(z)) return null;
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180 || z < 1 || z > 22) return null;
+        return { lat, lng, zoom: z };
     }
 
     // Phase 3g V2 — display mode + filter state.
@@ -633,10 +692,20 @@ document.addEventListener('DOMContentLoaded', function () {
     let lastPayload = null; // kept for layer-toggle re-render without refetch
 
     // ── Map init ──────────────────────────────────────────────────────────
-    const map = L.map('corex-map', { zoomControl: true, attributionControl: true }).fitBounds([
-        [HFC_BOUNDS.south, HFC_BOUNDS.west],
-        [HFC_BOUNDS.north, HFC_BOUNDS.east],
-    ]);
+    // Phase B Fix 1a — URL view (?lat=&lng=&z=) takes precedence over
+    // HFC_BOUNDS. Falls back to fitBounds when URL params are absent or
+    // out of range. Done after map creation so setView/fitBounds run on
+    // the live instance.
+    const map = L.map('corex-map', { zoomControl: true, attributionControl: true });
+    const __urlView = readMapViewFromUrl();
+    if (__urlView) {
+        map.setView([__urlView.lat, __urlView.lng], __urlView.zoom);
+    } else {
+        map.fitBounds([
+            [HFC_BOUNDS.south, HFC_BOUNDS.west],
+            [HFC_BOUNDS.north, HFC_BOUNDS.east],
+        ]);
+    }
 
     const streetsLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
@@ -875,7 +944,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     iconSvg:   ICON_FIND,
                     style:     'primary',
                     destUrl:   MIC_OPPORTUNITIES_URL,
-                    newTab:    false,
+                    // Phase B Fix 1b — prospect flow is a separate workflow surface (MIC).
+                    // Open in new tab so the agent can return to the map view.
+                    newTab:    true,
                     awaitServerRedirect: true,
                     logPayload: {
                         ...baseLog,
@@ -899,7 +970,8 @@ document.addEventListener('DOMContentLoaded', function () {
                             iconSvg:   ICON_OPEN,
                             style:     'primary',
                             destUrl:   openUrl,
-                            newTab:    false,
+                            // Phase B Fix 1b — property record is a separate workflow surface.
+                            newTab:    true,
                             banner:    { tone: 'info', text: 'Already on HFC books' },
                             logPayload:{ ...baseLog, action: 'listing_opened', record_id: ps.property_id, portal: 'hfc' },
                         }];
@@ -914,7 +986,8 @@ document.addEventListener('DOMContentLoaded', function () {
                             iconSvg:   ICON_OPEN,
                             style:     'primary',
                             destUrl:   openUrl,
-                            newTab:    false,
+                            // Phase B Fix 1b — draft editor is a separate workflow surface.
+                            newTab:    true,
                             logPayload:{ ...baseLog, action: 'listing_opened', record_id: ps.property_id, portal: 'hfc' },
                         }];
                     }
@@ -930,7 +1003,9 @@ document.addEventListener('DOMContentLoaded', function () {
                                 iconSvg:   ICON_WHATSAPP,
                                 style:     'primary',
                                 destUrl:   '#', // no nav — clicking opens an info toast
-                                newTab:    false,
+                                // Phase B Fix 1b — disableNav means newTab is academic, but flip
+                                // for consistency with the other workflow CTAs in this case.
+                                newTab:    true,
                                 disableNav: true,
                                 logPayload:{ ...baseLog, action: 'prospect_launched', record_id: String(recId) },
                             },
@@ -941,7 +1016,8 @@ document.addEventListener('DOMContentLoaded', function () {
                                 iconSvg:   ICON_FIND,
                                 style:     'secondary',
                                 destUrl:   null,
-                                newTab:    false,
+                                // Phase B Fix 1b — override modal continues to prospect_launched (separate workflow).
+                                newTab:    true,
                                 // Tells handleActionClick to open the override
                                 // modal (collects reason) → fires prospect_override
                                 // activity event → then proceeds with the
@@ -1019,24 +1095,37 @@ document.addEventListener('DOMContentLoaded', function () {
             }
 
             case 'tracked_properties': {
-                // Tracked properties are prospecting candidates with no
-                // detail-card JSON endpoint — the bounds-query payload is
-                // the full detail. The CTA opens the MIC opportunities
-                // surface (canonical full-detail page). In-page nav, no
-                // fetch — the activity log fires before the URL is
-                // navigated to.
+                // Phase B Fix 2+3 — T-pins get TWO CTAs:
+                //   1. "WhatsApp / Pitch →" (primary) — contact-capture modal
+                //      mirroring the MIC Work-tab fromProspecting flow.
+                //   2. "Open in MIC →" (secondary) — the existing MIC
+                //      opportunities deep-link, retained as a fallback.
+                // Both open in a new tab (Fix 1b) since they navigate to
+                // separate workflow surfaces.
                 const tpId = record.tracked_property_id ?? (typeof recId === 'number' ? recId : null);
                 if (tpId === null) return [];
-                return [{
-                    key:       'cma_opened',
-                    label:     'Open in MIC →',
-                    iconLabel: 'Open in MIC opportunities',
-                    iconSvg:   ICON_OPEN,
-                    style:     'primary',
-                    destUrl:   '/corex/market-intelligence/opportunities/' + tpId,
-                    newTab:    false,
-                    logPayload:{ ...baseLog, action: 'cma_opened', record_id: tpId },
-                }];
+                return [
+                    {
+                        key:       'whatsapp_launched',
+                        label:     'WhatsApp / Pitch →',
+                        iconLabel: 'WhatsApp / pitch this tracked property',
+                        iconSvg:   ICON_WHATSAPP,
+                        style:     'primary',
+                        destUrl:   TP_OUTREACH_TPL.replace('__ID__', String(tpId)),
+                        newTab:    true,
+                        logPayload:{ ...baseLog, action: 'whatsapp_launched', record_id: tpId, channel: 'whatsapp' },
+                    },
+                    {
+                        key:       'cma_opened',
+                        label:     'Open in MIC →',
+                        iconLabel: 'Open in MIC opportunities',
+                        iconSvg:   ICON_OPEN,
+                        style:     'secondary',
+                        destUrl:   '/corex/market-intelligence/opportunities/' + tpId,
+                        newTab:    true,
+                        logPayload:{ ...baseLog, action: 'cma_opened', record_id: tpId },
+                    },
+                ];
             }
         }
         return [];
@@ -2033,6 +2122,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     document.getElementById('reset-bounds-btn').addEventListener('click', () => {
+        // Phase B Fix 1a — suppress lat/lng/z encoding for the next
+        // syncUrlState() cycle so the URL is clean after reset. The
+        // ensuing moveend will trigger a fetch which calls syncUrlState;
+        // the flag prevents the new HFC-area center from being re-pinned.
+        suppressViewInUrl = true;
         map.fitBounds([[HFC_BOUNDS.south, HFC_BOUNDS.west], [HFC_BOUNDS.north, HFC_BOUNDS.east]]);
     });
 
@@ -2339,6 +2433,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     map.on('moveend zoomend', debouncedFetch);
+    // Phase B Fix 1a — sync URL on every move/zoom even when the fetch
+    // is served from cache (which would otherwise skip syncUrlState).
+    map.on('moveend zoomend', syncUrlState);
 
     // Initial render of seller view from persisted preference.
     if (viewMode === 'seller') {

@@ -145,23 +145,33 @@ final class EntryPointController extends Controller
             // Branch context is mandatory on Contact rows in CoreX schema.
             $branchId = $request->user()->branch_id;
 
-            $contact = $existing ?: Contact::create(array_filter([
-                'agency_id'             => $agencyId,
-                'branch_id'             => $branchId,
-                'first_name'            => $validated['first_name'],
-                // contacts.last_name is NOT NULL in the schema — store an empty
-                // string when the agent skipped it. The spec's S3 dedupe only
-                // needs first_name + phone/email anyway.
-                'last_name'             => $validated['last_name'] ?? '',
-                'phone'                 => $validated['phone'] ?? null,
-                'email'                 => $validated['email'] ?? null,
-                'created_by_user_id'    => $request->user()->id,
-                // A.2.5 — POPIA audit. captured_at + source are only set when
-                // the agent actually filled in the ID; null otherwise.
-                'id_number'             => $idNumber,
-                'id_number_captured_at' => $idNumber ? now() : null,
-                'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
-            ], static fn ($v) => $v !== null && $v !== ''));
+            // contacts.last_name + contacts.phone are NOT NULL in the schema —
+            // they must reach Contact::create even when empty, so we merge the
+            // NOT-NULL columns AFTER the array_filter that strips empty values
+            // from the optional ones. Same shape as storeFromTrackedProperty
+            // below. The A.2.5 commit (ea2b0295) introduced the array_filter
+            // wrapper to keep id_number+audit fields out when empty, and in
+            // doing so accidentally stripped last_name='' and phone=null,
+            // causing SQL 1364 on every Pitch Now submit where the agent
+            // skipped last_name or used email-only contact.
+            $contact = $existing ?: Contact::create(array_merge(
+                array_filter([
+                    'agency_id'             => $agencyId,
+                    'branch_id'             => $branchId,
+                    'first_name'            => $validated['first_name'],
+                    'email'                 => $validated['email'] ?? null,
+                    'created_by_user_id'    => $request->user()->id,
+                    // A.2.5 — POPIA audit. captured_at + source are only set when
+                    // the agent actually filled in the ID; null otherwise.
+                    'id_number'             => $idNumber,
+                    'id_number_captured_at' => $idNumber ? now() : null,
+                    'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
+                ], static fn ($v) => $v !== null && $v !== ''),
+                [
+                    'last_name' => $validated['last_name'] ?? '',
+                    'phone'     => $validated['phone'] ?? '',
+                ],
+            ));
 
             // If the contact ALREADY existed (deduped) but the agent supplied
             // an ID at this entry point, capture-fill it on the existing row
@@ -270,6 +280,132 @@ final class EntryPointController extends Controller
             ->route('seller-outreach.composer.show', [
                 'contact'     => $contact->id,
                 'property_id' => $property->id,
+            ])
+            ->with('status', $isNew
+                ? "Created new contact: {$name}"
+                : "Linked to existing contact: {$name}");
+    }
+
+    /**
+     * Map Workspace Phase B (Fix 2+3) — T-pin entry point.
+     *
+     * Mirrors fromProspecting() but the source-of-truth is a TrackedProperty
+     * instead of a portal listing. Locks the TP for 30 min (temp lock keyed
+     * to tracked_property_id) and renders the same contact-capture form
+     * extended to display TP context. NO collision check — T-pins by
+     * definition aren't HFC stock; if the address WAS held/sold the map
+     * already routes the user to the H/sold_comp pin instead.
+     */
+    public function fromTrackedProperty(Request $request, TrackedProperty $trackedProperty)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        if ((int) $trackedProperty->agency_id !== $agencyId) {
+            abort(404);
+        }
+
+        try {
+            app(ProspectingClaimService::class)->createTempLockForTrackedProperty(
+                trackedPropertyId: (int) $trackedProperty->id,
+                userId:            (int) $request->user()->id,
+                agencyId:          $agencyId,
+            );
+        } catch (PitchLockConflictException $e) {
+            $blockerName = DB::table('users')->where('id', $e->lockedByUserId)->value('name') ?? 'another agent';
+            $expiresIn = $e->expiresAt instanceof \Carbon\Carbon
+                ? $e->expiresAt->diffForHumans()
+                : \Carbon\Carbon::parse($e->expiresAt)->diffForHumans();
+            return redirect()
+                ->route('corex.map.index')
+                ->with('error', "⏳ {$blockerName} is currently pitching this property. Try again after their lock expires ({$expiresIn}).");
+        }
+
+        return view('seller-outreach.entry.prospecting-create-contact', [
+            'listing'         => null,
+            'trackedProperty' => $trackedProperty,
+        ]);
+    }
+
+    /**
+     * Map Workspace Phase B (Fix 2+3) — store the captured contact and link
+     * it to the Tracked Property as the owner. No Property is created here;
+     * TP→Property promotion is reserved for mandate-sign per CLAUDE.md
+     * non-negotiable #10. The composer renders with no linked property and
+     * the agent can free-form a WhatsApp / email to the captured contact.
+     */
+    public function storeFromTrackedProperty(Request $request, TrackedProperty $trackedProperty)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        if ((int) $trackedProperty->agency_id !== $agencyId) {
+            abort(404);
+        }
+
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:100',
+            'last_name'  => 'nullable|string|max:100',
+            'phone'      => 'nullable|string|max:30',
+            'email'      => 'nullable|email|max:255',
+            'id_number'  => ['nullable', 'string', 'max:20', new \App\Rules\SouthAfricanIdNumber()],
+        ]);
+
+        $idNumber = isset($validated['id_number']) ? preg_replace('/\s+/', '', (string) $validated['id_number']) : null;
+
+        if (empty($validated['phone']) && empty($validated['email'])) {
+            return back()
+                ->withErrors(['contact_required' => 'Provide a phone or email so we can dedupe and reach the seller.'])
+                ->withInput();
+        }
+
+        $existing = $this->findExistingContact($agencyId, $validated);
+        $isNew = $existing === null;
+
+        $contact = DB::transaction(function () use ($request, $agencyId, $trackedProperty, $validated, $existing, $idNumber) {
+            $branchId = $request->user()->branch_id;
+
+            // contacts.last_name + contacts.phone are NOT NULL in the schema —
+            // they must reach Contact::create even when empty, so we merge the
+            // NOT-NULL columns AFTER the array_filter that strips empty values
+            // from the optional ones.
+            $contact = $existing ?: Contact::create(array_merge(
+                array_filter([
+                    'agency_id'             => $agencyId,
+                    'branch_id'             => $branchId,
+                    'first_name'            => $validated['first_name'],
+                    'email'                 => $validated['email'] ?? null,
+                    'created_by_user_id'    => $request->user()->id,
+                    'id_number'             => $idNumber,
+                    'id_number_captured_at' => $idNumber ? now() : null,
+                    'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
+                ], static fn ($v) => $v !== null && $v !== ''),
+                [
+                    'last_name' => $validated['last_name'] ?? '',
+                    'phone'     => $validated['phone'] ?? '',
+                ],
+            ));
+
+            if ($existing && $idNumber && empty($existing->id_number)) {
+                $existing->update([
+                    'id_number'             => $idNumber,
+                    'id_number_captured_at' => now(),
+                    'id_number_source'      => 'seller_outreach_entry',
+                ]);
+            }
+
+            // Link contact ↔ tracked property. Idempotent — re-running the
+            // flow for the same TP+contact pair is a no-op. Capture-fill
+            // only when owner_contact_id is unset; never silently overwrite
+            // a previously-captured owner.
+            if ((int) ($trackedProperty->owner_contact_id ?? 0) === 0) {
+                $trackedProperty->update(['owner_contact_id' => $contact->id]);
+            }
+
+            return $contact;
+        });
+
+        $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
+        return redirect()
+            ->route('seller-outreach.composer.show', [
+                'contact' => $contact->id,
+                'channel' => 'whatsapp',
             ])
             ->with('status', $isNew
                 ? "Created new contact: {$name}"

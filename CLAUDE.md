@@ -1,6 +1,6 @@
 # CoreX OS — Claude Instructions
 > **Root entry point. Read this first. Every session. No exceptions.**
-> Last updated: 2026-05-26
+> Last updated: 2026-05-28
 
 ---
 
@@ -51,11 +51,12 @@ Before touching a single line of code, every session — Johan's or Andre's — 
 ```
 1. Read /.ai/SYSTEM.md          — pillars, architecture, data model, non-negotiables
 2. Read /.ai/STANDARDS.md       — UX rules, execution rules, done criteria
-3. Read /.ai/CODEBASE_MAP.md    — file paths, patterns, common gotchas
-4. Git sync (non-negotiable #11) — fetch + pull origin/<current branch> AND origin/Staging into the working branch. Resolve conflicts BEFORE touching any other file.
-5. Find the relevant spec in /.ai/specs/[module].md
-6. If no spec exists → STOP. Create the spec first. Get approval. Then build.
-7. If the feature touches multiple modules → confirm pillar connections before starting.
+3. Read /.ai/BUILD_STANDARD.md  — Robustness Charter — what "done" means; input-space rule; prevent-or-absorb; test reality. MANDATORY pre-read.
+4. Read /.ai/CODEBASE_MAP.md    — file paths, patterns, common gotchas
+5. Git sync (non-negotiable #11) — fetch + pull origin/<current branch> AND origin/Staging into the working branch. Resolve conflicts BEFORE touching any other file.
+6. Find the relevant spec in /.ai/specs/[module].md
+7. If no spec exists → STOP. Create the spec first. Get approval. Then build.
+8. If the feature touches multiple modules → confirm pillar connections before starting.
 ```
 
 **There is no step 0 that skips this.**
@@ -290,6 +291,7 @@ before returning. Returning content only in the reply is not sufficient."
 | `CLAUDE.md` | This file — session entry point | Every session |
 | `SYSTEM.md` | Pillars, architecture, data model, tech stack | Every session |
 | `STANDARDS.md` | UX rules, execution rules, done criteria | Every session |
+| `BUILD_STANDARD.md` | **Robustness Charter** — what "done" means; input-space rule; prevent-or-absorb; "fix the class, not the instance"; the test-reality matrix | **Every session — mandatory pre-read** |
 | `CODEBASE_MAP.md` | File paths, patterns, component reference, gotchas | Before touching any file |
 | `ROADMAP.md` | What's built, in progress, specced, blocked | When planning or starting a new feature |
 | `specs/listings.md` | Listings module spec | When working on listings |
