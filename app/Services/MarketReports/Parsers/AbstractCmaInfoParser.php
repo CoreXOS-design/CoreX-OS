@@ -173,6 +173,12 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
         if (stripos($text, 'Sectional Title sales') !== false) return true;
         if (stripos($text, 'Sectional Title Scheme Owners List') !== false) return true;
         if (stripos($text, 'ST Residential Sales Analysis') !== false) return true;
+        // Vicinity Sales family — Residential freehold + Vacant land variants.
+        // Added 2026-05-28 alongside CmaInfoVicinitySaleParser. Additive
+        // only; existing parsers ignore these markers in their per-class
+        // canParse() scoring.
+        if (stripos($text, 'Residential sales within') !== false) return true;
+        if (stripos($text, 'Vacant land sales within') !== false) return true;
         if (stripos($text, 'PROPERTY INFORMATION') !== false
             && stripos($text, 'SALE INFORMATION') !== false) return true;
 
