@@ -13,7 +13,13 @@ use Tests\TestCase;
  */
 final class HoverSummaryTest extends TestCase
 {
-    /** M66 — HFC active listing composite → HFC details headline + +N footer. */
+    /** M66 — HFC active listing composite → HFC details headline + +N footer.
+     *
+     *  Updated 2026-05-28: post-Q3 taxonomy, mic_subjects collapses into
+     *  cma_info when non-CMA peers exist at the same address. The H+S+M
+     *  composite from the original test becomes H+S in records[] (M
+     *  attached as cma_info), so the "+N other records" footer counts
+     *  only the remaining peer (S), not the collapsed M. */
     public function test_m66_hfc_active_listing_composite_summary(): void
     {
         $grouper = new LocationGrouper();
@@ -31,7 +37,10 @@ final class HoverSummaryTest extends TestCase
         $this->assertSame('12 Hibiscus Road, Uvongo', $hs['title']);
         $this->assertStringContainsString('HFC', $hs['subtitle']);
         $this->assertStringContainsString('R 1,420,000', $hs['subtitle']);
-        $this->assertSame('+2 other records', $hs['footer']);
+        $this->assertSame('+1 other record', $hs['footer'],
+            'M collapses into cma_info — only S remains as a peer record');
+        $this->assertCount(1, $locs[0]['cma_info'],
+            'The collapsed M is preserved as a cma_info attachment, not dropped');
     }
 
     /** M67 — sectional schemes only → scheme name + N units, no footer. */
@@ -70,7 +79,12 @@ final class HoverSummaryTest extends TestCase
         $this->assertStringContainsString('most recent 12 May 2024', $hs['subtitle']);
     }
 
-    /** M69 — mixed categories → category breakdown. */
+    /** M69 — mixed categories → category breakdown.
+     *
+     *  Updated 2026-05-28: post-Q3 taxonomy the mic_subjects record
+     *  collapses into cma_info (non-CMA peers exist: sold + portal), so
+     *  the records[] breakdown shows 3 records — 2 sold + 1 portal. The
+     *  collapsed M is verified via cma_info instead. */
     public function test_m69_mixed_categories_summary(): void
     {
         $grouper = new LocationGrouper();
@@ -83,10 +97,12 @@ final class HoverSummaryTest extends TestCase
         ]);
 
         $hs = $locs[0]['hover_summary'];
-        $this->assertStringContainsString('4 records', $hs['subtitle']);
+        $this->assertStringContainsString('3 records', $hs['subtitle'],
+            'M collapses into cma_info — 3 peer records remain (2 sold + 1 portal)');
         $this->assertStringContainsString('2 sold', $hs['subtitle']);
-        $this->assertStringContainsString('1 MIC', $hs['subtitle']);
         $this->assertStringContainsString('1 portal', $hs['subtitle']);
+        $this->assertCount(1, $locs[0]['cma_info'],
+            'The M record is preserved as a cma_info attachment');
     }
 
     /** M70 — single pin still gets hover_summary (consistent template). */

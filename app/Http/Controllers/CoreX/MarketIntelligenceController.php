@@ -873,6 +873,113 @@ class MarketIntelligenceController extends Controller
      * Permission-gated (mic.regenerate_brief) at the route level. Bypasses
      * the 24h cache by setting forceRefresh on the gateway request.
      */
+    /**
+     * Q4/D1 — "P24 alerts — awaiting address" prospecting list.
+     *
+     * p24_listings carries asking_price + suburb + area + property_type but
+     * NO street address (the table doesn't have an `address` column at all),
+     * so none of its 3,000+ rows are map-pinnable today. They surface here
+     * instead — paginated, agency-scoped, with each row's portal URL so the
+     * agent can open the listing in P24 and capture the address via the
+     * Chrome extension (which writes a pin-able prospecting_listings row).
+     *
+     * Permission: inherits `access_prospecting` from the MIC route group —
+     * agents (the people actually working this list) get it by default.
+     *
+     * The two pin-blocked cases this list covers:
+     *   (1) every active p24_listings row (~3k by schema — no address column)
+     *   (2) prospecting_listings rows with NULL tracked_property_id (rare;
+     *       Chrome captures with broken geocoding land here too)
+     *
+     * Both render in one list view, distinguished by `source_label`.
+     */
+    public function portalAlertsAwaitingAddress(Request $request)
+    {
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null) abort(403);
+
+        // Build a unified row collection from the two pin-blocked sources.
+        // Each row gets a normalised payload shape so the view treats them
+        // identically. Paginate via a single Paginator over the union of
+        // counts — for the size of the dataset (currently ~3k p24 + a few
+        // ungeocoded prospecting) a Laravel Paginator over an in-PHP
+        // collection is simpler than a UNION query.
+        $page = max(1, (int) $request->query('page', 1));
+        $perPage = 50;
+
+        $p24Rows = P24Listing::query()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->orderByDesc('first_seen_date')
+            ->get(['id', 'p24_listing_number', 'asking_price', 'suburb', 'area',
+                   'property_type', 'bedrooms', 'bathrooms', 'p24_url',
+                   'first_seen_date', 'last_seen_date', 'listing_status'])
+            ->map(fn ($r) => [
+                'id'              => 'p24:' . $r->id,
+                'source_label'    => 'P24 email alert',
+                'source_class'    => 'p24_alert',
+                'reference'       => $r->p24_listing_number,
+                'suburb'          => $r->suburb,
+                'area'            => $r->area,
+                'property_type'   => $r->property_type,
+                'bedrooms'        => $r->bedrooms,
+                'bathrooms'       => $r->bathrooms,
+                'asking_price'    => $r->asking_price,
+                'portal_url'      => $r->p24_url,
+                'first_seen_date' => $r->first_seen_date,
+                'last_seen_date'  => $r->last_seen_date,
+                'reason'          => 'No address in alert email — capture from P24 to make this pin-able.',
+            ]);
+
+        // Chrome-captured prospecting_listings WITHOUT tracked_property_id
+        // (ungeocoded). These are pinned the moment the matcher resolves
+        // them; until then, they sit here.
+        $ungeocodedRows = ProspectingListing::query()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where('is_active', true)
+            ->whereNull('tracked_property_id')
+            ->orderByDesc('first_seen_at')
+            ->get(['id', 'portal_source', 'portal_ref', 'portal_url',
+                   'address', 'suburb', 'price', 'property_type',
+                   'bedrooms', 'bathrooms', 'first_seen_at'])
+            ->map(fn ($r) => [
+                'id'              => 'pl:' . $r->id,
+                'source_label'    => strtoupper($r->portal_source) . ' Chrome capture (ungeocoded)',
+                'source_class'    => 'ungeocoded_prospect',
+                'reference'       => $r->portal_ref,
+                'suburb'          => $r->suburb,
+                'area'            => null,
+                'property_type'   => $r->property_type,
+                'bedrooms'        => $r->bedrooms,
+                'bathrooms'       => $r->bathrooms,
+                'asking_price'    => $r->price,
+                'portal_url'      => $r->portal_url,
+                'first_seen_date' => $r->first_seen_at?->toDateString(),
+                'last_seen_date'  => null,
+                'reason'          => 'Address present but geocoding pending. Will become pin-able once the matcher resolves GPS.',
+            ]);
+
+        $all = $p24Rows->concat($ungeocodedRows)
+            ->sortByDesc('first_seen_date')
+            ->values();
+
+        $alerts = new \Illuminate\Pagination\LengthAwarePaginator(
+            items: $all->forPage($page, $perPage)->values(),
+            total: $all->count(),
+            perPage: $perPage,
+            currentPage: $page,
+            options: ['path' => $request->url(), 'query' => $request->query()],
+        );
+
+        return view('corex.market-intelligence.portal-alerts-awaiting-address', [
+            'alerts'                 => $alerts,
+            'totalP24Alerts'         => $p24Rows->count(),
+            'totalUngeocodedPros'    => $ungeocodedRows->count(),
+        ]);
+    }
+
     public function regenerateBrief(Request $request)
     {
         $user = $request->user();

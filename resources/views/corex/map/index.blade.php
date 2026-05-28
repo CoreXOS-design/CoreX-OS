@@ -2291,18 +2291,119 @@ document.addEventListener('DOMContentLoaded', function () {
         if (current && savedSearches.some(s => String(s.id) === current)) sel.value = current;
     }
 
+    /**
+     * Build the v2 saved-search payload from current map state.
+     * The four categories the legacy shape missed (enabled layers, display
+     * mode, base layer, map view) are top-level keys; the filter
+     * accordion lives in `filters`. Viewmode (Agent/Seller) is INTENTIONALLY
+     * absent — the map always loads owner-hidden regardless of saved state.
+     */
+    function buildSavedSearchPayload() {
+        const view = (function () {
+            try {
+                const c = map.getCenter();
+                const z = map.getZoom();
+                if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng) && Number.isFinite(z)) {
+                    return { lat: +c.lat.toFixed(5), lng: +c.lng.toFixed(5), zoom: z };
+                }
+            } catch (e) { /* map not ready */ }
+            return null;
+        })();
+        return {
+            schema_version: 2,
+            filters,
+            enabled_layers: Array.from(enabledLayers).sort(),
+            display_mode:   displayMode,
+            base_layer:     baseLayerKey,
+            map_view:       view,
+        };
+    }
+
+    /**
+     * Apply a saved search to the live map. Supports BOTH the legacy
+     * payload shape (raw FILTER_DEFAULTS object at the top level) AND the
+     * v2 wrapped shape ({filters, enabled_layers, display_mode, base_layer,
+     * map_view, schema_version}). Robustness: every stale value is
+     * defensively skipped — an old saved row never crashes the page.
+     */
     function applySavedSearch(s) {
-        // Merge into FILTER_DEFAULTS shape so missing keys fall back cleanly
-        // when an older payload is restored after the shape was extended.
-        const f = s.filter_payload || {};
+        const p = s.filter_payload || {};
+        const isV2 = p && typeof p === 'object' && (p.schema_version === 2 || p.filters);
+
+        // ── 1. Filters (the accordion shape) ──
+        const filtersIn = isV2 ? (p.filters || {}) : p;
         const merged = { ...FILTER_DEFAULTS, types: [...FILTER_DEFAULTS.types], listingStatus: [] };
         Object.keys(merged).forEach(k => {
-            if (Object.prototype.hasOwnProperty.call(f, k) && f[k] !== undefined) merged[k] = f[k];
+            if (Object.prototype.hasOwnProperty.call(filtersIn, k) && filtersIn[k] !== undefined) {
+                merged[k] = filtersIn[k];
+            }
         });
         if (!SCOPE_IS_OWNER && merged.scope === 'all') merged.scope = 'agency';
         filters = merged;
         persistFilters();
         syncFilterUi();
+
+        // The remaining four categories only exist on v2 payloads. Legacy
+        // rows skip these blocks (they kept layers/mode/base/view at their
+        // current values — same as before the fix).
+
+        // ── 2. Enabled layers ──
+        if (isV2 && Array.isArray(p.enabled_layers)) {
+            const requested = p.enabled_layers.filter(k => ALL_LAYER_KEYS.includes(k));
+            // Empty list could be a "user disabled everything" saved state —
+            // honour it, but never persist a corruption where the saved set
+            // includes keys that no longer exist. Defensive on read only.
+            enabledLayers.clear();
+            requested.forEach(k => enabledLayers.add(k));
+            // Mirror to the DOM toggle buttons.
+            document.querySelectorAll('[data-layer-toggle]').forEach(btn => {
+                const on = enabledLayers.has(btn.dataset.layerToggle);
+                btn.dataset.on = on ? '1' : '0';
+                paintLayerBtn(btn);
+            });
+        }
+
+        // ── 3. Display mode (Pins / Heatmap / Both) ──
+        if (isV2 && typeof p.display_mode === 'string'
+            && ['pins', 'heatmap', 'both'].includes(p.display_mode)) {
+            displayMode = p.display_mode;
+            localStorage.setItem('corex.map.display_mode', displayMode);
+            document.querySelectorAll('#display-mode-group input[type="radio"]').forEach(r => {
+                r.checked = (r.value === displayMode);
+            });
+        }
+
+        // ── 4. Base layer (Streets / Satellite) ──
+        if (isV2 && typeof p.base_layer === 'string'
+            && Object.prototype.hasOwnProperty.call(baseLayers, p.base_layer)
+            && p.base_layer !== baseLayerKey) {
+            map.removeLayer(baseLayers[baseLayerKey]);
+            baseLayers[p.base_layer].addTo(map);
+            baseLayerKey = p.base_layer;
+            localStorage.setItem('corex.map.base_layer', baseLayerKey);
+            // Style refresh on the basemap pills.
+            document.querySelectorAll('#base-layer-toggle .base-pill').forEach(b => {
+                const active = b.dataset.base === baseLayerKey;
+                b.classList.toggle('active', active);
+                b.style.background = active ? 'var(--brand-button)' : 'transparent';
+                b.style.color = active ? '#fff' : 'var(--text-secondary)';
+            });
+        }
+
+        // ── 5. Map view (lat / lng / zoom) ──
+        if (isV2 && p.map_view && typeof p.map_view === 'object') {
+            const v = p.map_view;
+            const lat = Number(v.lat), lng = Number(v.lng), z = Number(v.zoom);
+            if (Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(z)
+                && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+                && z >= 1 && z <= 22) {
+                map.setView([lat, lng], z);
+            }
+        }
+
+        // Bust the LRU cache then refetch — the new layer/displayMode/base
+        // state changes the server response shape; the new map view bbox
+        // requires a fresh fetch anyway.
         cache.length = 0;
         fetchPins();
     }
@@ -2387,7 +2488,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     method: 'POST',
                     body: JSON.stringify({
                         name,
-                        filter_payload: filters,
+                        // v2 payload shape — wraps filters in a nested key and
+                        // adds the four categories the legacy shape missed:
+                        // enabled layers, display mode, base layer, map view.
+                        // Viewmode (Agent/Seller) is INTENTIONALLY EXCLUDED —
+                        // the map always loads in safe owner-hidden state.
+                        filter_payload: buildSavedSearchPayload(),
                         is_default:     defEl.checked,
                     }),
                 });

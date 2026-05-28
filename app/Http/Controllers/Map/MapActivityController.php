@@ -19,6 +19,7 @@ use App\Models\MarketReports\MarketReport;
 use App\Models\MarketReports\SchemeOwner;
 use App\Models\Property;
 use App\Models\Prospecting\TrackedProperty;
+use App\Models\Scopes\AgencyScope;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -124,7 +125,7 @@ final class MapActivityController extends Controller
     private function pitchLaunched(array $data, int $agencyId, int $userId): ?MapPitchLaunched
     {
         $id = (int) $data['record_id'];
-        $property = Property::withoutGlobalScopes()
+        $property = Property::withoutGlobalScope(AgencyScope::class)
             ->where('id', $id)
             ->where('agency_id', $agencyId)
             ->first();
@@ -145,7 +146,7 @@ final class MapActivityController extends Controller
         $category = (string) $data['category'];
 
         if ($category === 'hfc_listings') {
-            $property = Property::withoutGlobalScopes()
+            $property = Property::withoutGlobalScope(AgencyScope::class)
                 ->where('id', $id)->where('agency_id', $agencyId)->first();
             if (!$property) return null;
             return new MapWhatsAppLaunched(
@@ -160,7 +161,7 @@ final class MapActivityController extends Controller
 
         // contact_id pathway — the composer route takes a contact, the
         // payload sometimes carries one for direct-to-contact wa.me links.
-        $contact = Contact::withoutGlobalScopes()
+        $contact = Contact::withoutGlobalScope(AgencyScope::class)
             ->where('id', $id)->where('agency_id', $agencyId)->first();
         if (!$contact) return null;
         return new MapWhatsAppLaunched(
@@ -176,7 +177,7 @@ final class MapActivityController extends Controller
     private function contactOwnerLaunched(array $data, int $agencyId, int $userId): ?MapContactOwnerLaunched
     {
         $id = (int) $data['record_id'];
-        $owner = SchemeOwner::withoutGlobalScopes()
+        $owner = SchemeOwner::withoutGlobalScope(AgencyScope::class)
             ->where('id', $id)->where('agency_id', $agencyId)->first();
         if (!$owner) return null;
 
@@ -220,7 +221,7 @@ final class MapActivityController extends Controller
             return null;
         }
 
-        $property = Property::withoutGlobalScopes()
+        $property = Property::withoutGlobalScope(AgencyScope::class)
             ->where('id', (int) $data['property_id'])
             ->where('agency_id', $agencyId)
             ->first();
@@ -264,7 +265,7 @@ final class MapActivityController extends Controller
     private function listingOpened(array $data, int $agencyId, int $userId): ?MapListingOpened
     {
         $id = (int) $data['record_id'];
-        $property = Property::withoutGlobalScopes()
+        $property = Property::withoutGlobalScope(AgencyScope::class)
             ->where('id', $id)
             ->where('agency_id', $agencyId)
             ->first();
@@ -283,7 +284,7 @@ final class MapActivityController extends Controller
     private function cmaOpened(array $data, int $agencyId, int $userId): ?MapCmaOpened
     {
         $id = (int) $data['record_id'];
-        $report = MarketReport::withoutGlobalScopes()
+        $report = MarketReport::withoutGlobalScope(AgencyScope::class)
             ->where('id', $id)->where('agency_id', $agencyId)->first();
         if (!$report) return null;
 
@@ -319,7 +320,7 @@ final class MapActivityController extends Controller
         $tp = null;
 
         if (!empty($data['tracked_property_id'])) {
-            $tp = TrackedProperty::withoutGlobalScopes()
+            $tp = TrackedProperty::withoutGlobalScope(AgencyScope::class)
                 ->where('id', (int) $data['tracked_property_id'])
                 ->where('agency_id', $agencyId)
                 ->first();

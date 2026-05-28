@@ -191,6 +191,18 @@ final class MapPinService
             'owner_email'          => $pin['owner_email']          ?? null,
             // A.2.3 Item 4 — full {p24,pp,hfc} URL map for the portal strip.
             'public_listing_urls'  => $pin['public_listing_urls']  ?? null,
+            // Q8 — own-vs-market provenance flag. Carried through from the
+            // S layer (soldComps); other layers don't set it and it stays null.
+            // Used downstream by the UI to differentiate HFC-history pins from
+            // competitor-market comps without consulting the legacy `hfc_sold`
+            // boolean.
+            'source_class'         => $pin['source_class']         ?? null,
+            // Q3 M-collapse — the LocationGrouper needs the M record's report
+            // type so it can attach the right CMA-info context to the primary
+            // pin when M collapses. Surfaced for mic_subjects pins; null
+            // elsewhere.
+            'report_type_key'      => $pin['report_type_key']      ?? null,
+            'report_type_name'     => $pin['report_type_name']     ?? null,
         ];
     }
 
@@ -478,6 +490,11 @@ final class MapPinService
                 'detail_url'       => route('corex.map.sold', ['layerId' => 'mrcr:' . $r->id]),
                 'sensitive'        => false,
                 'parent_report_id' => (int) $r->market_report_id,
+                // Q8 — own-vs-market provenance. MRCR comps are scraped market
+                // data (CMA reports about other agencies' sales), never own
+                // history. NOT NULL with safe default 'market'; downstream
+                // visual treatment lands in a later track.
+                'source_class'     => 'market',
             ];
         }
 
@@ -527,6 +544,10 @@ final class MapPinService
                 'date'       => $r->sale_date,
                 'detail_url' => route('corex.map.sold', ['layerId' => 'psc:' . $r->id]),
                 'sensitive'  => false,
+                // Q8 — presentation sold comps originate from CMA-derived comp
+                // rows uploaded into presentations; they're market data, not
+                // own deal history.
+                'source_class' => 'market',
             ];
 
             if (count($combined) >= $limit * 3) break;
@@ -580,6 +601,11 @@ final class MapPinService
                 'detail_url' => null,
                 'sensitive'  => false,
                 'hfc_sold'   => true,
+                // Q8 — deals.property_id ⋈ properties is HFC's own historical
+                // sales; flag explicitly so the UI can later differentiate
+                // own-history pins from competitor-market comps without having
+                // to consult the legacy `hfc_sold` flag.
+                'source_class' => 'own',
             ];
             if (count($combined) >= $limit * 3) break;
         }
@@ -590,7 +616,29 @@ final class MapPinService
     }
 
     /**
-     * Active listings — same union pattern.
+     * Active listings — the P (Portal Stock) layer.
+     *
+     * Q4/D4 taxonomy ruling (post-map-pin-taxonomy investigation):
+     *   The P layer is PROSPECTING-ONLY now. Sources:
+     *     - prospecting_listings WHERE is_active AND tracked_property_id IS NOT NULL
+     *       (Chrome-extension captures from P24 + PP, both portal_source values
+     *        flow through this single query; cross-portal address dedup is
+     *        handled at write time via prospecting_listings.normalized_address,
+     *        cross-bucket (P vs H vs S) dedup happens in LocationGrouper via
+     *        PropertyAddressKey).
+     *
+     *   What we DELIBERATELY do NOT read:
+     *     - market_report_comp_rows (row_type='listing') — CMA-derived listings
+     *       are information, not prospecting peers. They remain accessible via
+     *       the CMA report show page; they STOP rendering as map pins.
+     *     - presentation_active_listings — same reasoning.
+     *     - p24_listings — every row lacks an address by schema, so none can be
+     *       pin-able. They flow through the "P24 alerts — awaiting address" list
+     *       at `corex.market-intelligence.portal-alerts`.
+     *
+     *   prospecting_listings rows with NULL tracked_property_id have no GPS path
+     *   and are silently skipped here — they ALSO surface in the awaiting-
+     *   address list so the agent can find them. Never a broken pin.
      *
      * @return array{0: array, 1: int}
      */
@@ -598,112 +646,62 @@ final class MapPinService
     {
         $combined = [];
 
-        // (a) market_report_comp_rows (row_type=listing). Same scheme-name
-        // COALESCE pattern as soldComps — listings inherit subject GPS when
-        // a matching scheme has been imported.
-        $mrcrQ = DB::table('market_report_comp_rows as mrcr')
-            ->join('market_reports as mr', 'mr.id', '=', 'mrcr.market_report_id')
-            ->leftJoin('market_reports as mr_scheme', function ($j) use ($req) {
-                $j->on(DB::raw('LOWER(mr_scheme.subject_scheme_name)'), '=', DB::raw('LOWER(mrcr.scheme_name)'))
-                  ->whereNotNull('mr_scheme.subject_latitude');
-                // Phase 3h Step 9.5 — when demo is hidden the COALESCE
-                // fallback must not pull GPS from a demo subject report
-                // (would surface real comps at fake locations).
-                if (!$req->includeDemo) {
-                    $j->where('mr_scheme.is_demo', false);
-                }
-            })
-            ->whereNull('mrcr.deleted_at')
-            ->where('mrcr.row_type', 'listing')
-            ->whereNotNull('mrcr.list_price')
-            ->whereRaw('COALESCE(mrcr.latitude, mr_scheme.subject_latitude) IS NOT NULL')
-            ->whereRaw('COALESCE(mrcr.latitude, mr_scheme.subject_latitude) BETWEEN ? AND ?', [$req->south, $req->north])
-            ->whereRaw('COALESCE(mrcr.longitude, mr_scheme.subject_longitude) BETWEEN ? AND ?', [$req->west, $req->east])
+        $q = DB::table('prospecting_listings as pl')
+            ->join('tracked_properties as tp', 'tp.id', '=', 'pl.tracked_property_id')
+            ->whereNull('pl.deleted_at')
+            ->whereNull('tp.deleted_at')
+            ->where('pl.is_active', true)
+            ->whereNotNull('pl.tracked_property_id')
+            ->whereNotNull('tp.latitude')
+            ->whereNotNull('tp.longitude')
+            ->whereIn('pl.portal_source', ['p24', 'pp'])
+            ->whereBetween('tp.latitude',  [$req->south, $req->north])
+            ->whereBetween('tp.longitude', [$req->west,  $req->east])
             ->select([
-                'mrcr.id', 'mrcr.address', 'mrcr.list_price', 'mrcr.days_on_market',
-                DB::raw('COALESCE(mrcr.latitude, mr_scheme.subject_latitude) as latitude'),
-                DB::raw('COALESCE(mrcr.longitude, mr_scheme.subject_longitude) as longitude'),
-                'mrcr.scheme_name', 'mrcr.section_number',
-                // A.2.1 — parent report id surfaces "Open evaluation" if the
-                // agent wants the source report instead of the prospect flow.
-                'mrcr.market_report_id',
+                'pl.id', 'pl.portal_source', 'pl.portal_url', 'pl.portal_ref',
+                'pl.address', 'pl.suburb', 'pl.normalized_address',
+                'pl.price', 'pl.bedrooms', 'pl.bathrooms', 'pl.property_type',
+                'pl.first_seen_at',
+                'tp.latitude as latitude', 'tp.longitude as longitude',
+                'tp.id as tracked_property_id',
             ]);
-        // A.3.1 — scope on parent market_reports.agency_id.
-        $this->applyScopeFilter($mrcrQ, $req, 'mr.agency_id');
-        $this->applyDemoFilter($mrcrQ, $req, 'mrcr.is_demo');
-        $this->applyPriceFilter($mrcrQ, $req, 'mrcr.list_price');
-        $this->applyTypeFilter($mrcrQ, $req, 'mrcr.property_type');
-        $this->applyRangeFilter($mrcrQ, $req->standMin, $req->standMax, 'mrcr.extent_m2');
-        $this->applyRangeFilter($mrcrQ, $req->domMin,   $req->domMax,   'mrcr.days_on_market');
-        $this->applySearchFilter($mrcrQ, $req, ['mrcr.address', 'mrcr.scheme_name']);
+        // pl.agency_id is required (NOT NULL on the table); explicit agency
+        // scoping replaces the my/agency/all axis since prospecting rows
+        // belong to ONE agency only.
+        $q->where('pl.agency_id', $req->agencyId);
+        $this->applyPriceFilter($q, $req, 'pl.price');
+        $this->applyTypeFilter($q, $req, 'pl.property_type');
+        $this->applyRangeFilter($q, $req->bedroomsMin,  $req->bedroomsMax,  'pl.bedrooms');
+        $this->applyRangeFilter($q, $req->bathroomsMin, $req->bathroomsMax, 'pl.bathrooms');
+        $this->applyRangeFilter($q, $req->standMin,     $req->standMax,     'pl.erf_size_m2');
+        $this->applyRangeFilter($q, $req->buildingMin,  $req->buildingMax,  'pl.property_size_m2');
+        $this->applySearchFilter($q, $req, ['pl.address', 'pl.suburb']);
 
-        foreach ($mrcrQ->limit($limit)->get() as $r) {
-            $key = $this->dedupeKey($r->address ?? $r->scheme_name ?? '', 'active');
+        foreach ($q->limit($limit)->get() as $r) {
+            // Cross-portal dedup uses the existing normalized_address column
+            // (populated by ProspectingListing::normalizeAddress at write time
+            // — same p24 + pp address ALREADY collapse there). Fallback to a
+            // raw address+suburb key when the normalised column is empty.
+            $key = $r->normalized_address ?: $this->dedupeKey($r->address ?? '', $r->suburb ?? '');
             if (isset($combined[$key])) continue;
-            $price = OutlierGuard::price($r->list_price);
-            $title = $r->scheme_name
-                ? trim($r->scheme_name . ($r->section_number ? ' § ' . $r->section_number : ''))
-                : ($r->address ?? 'Listing #' . $r->id);
+
+            $price = OutlierGuard::price($r->price);
+            $title = $r->address ?: 'Listing #' . $r->id;
             $combined[$key] = [
-                'id'               => 'mrcr:' . $r->id,
-                'layer'            => 'active_listings',
-                'lat'              => (float) $r->latitude,
-                'lng'              => (float) $r->longitude,
-                'title'            => $title,
-                'subtitle'         => $this->formatActiveSubtitle($price, $r->days_on_market),
-                'price'            => $price,
-                'date'             => null,
-                'detail_url'       => route('corex.map.active', ['layerId' => 'mrcr:' . $r->id]),
-                'sensitive'        => false,
-                'parent_report_id' => (int) $r->market_report_id,
+                'id'                  => (int) $r->id,           // integer → prospect_launched handler treats as native prospecting_listing
+                'layer'                => 'active_listings',
+                'lat'                  => (float) $r->latitude,
+                'lng'                  => (float) $r->longitude,
+                'title'                => $title,
+                'suburb'               => $r->suburb,             // emitted explicitly so LocationGrouper's PropertyAddressKey can decompose cleanly
+                'subtitle'             => $this->formatActiveSubtitle($price, null),
+                'price'                => $price,
+                'date'                 => null,
+                'detail_url'           => null,                    // future: a portal-listing detail card
+                'preferred_public_url' => $r->portal_url,
+                'sensitive'            => false,
+                'tracked_property_id'  => (int) $r->tracked_property_id,
             ];
-        }
-
-        // (b) presentation_active_listings via mic_comp_row_id join.
-        $palQ = DB::table('presentation_active_listings as pal')
-            ->join('presentations as p', 'p.id', '=', 'pal.presentation_id')
-            ->whereNull('pal.deleted_at')
-            ->whereNotNull('pal.raw_row_json')
-            ->select([
-                'pal.id', 'pal.list_price_inc as list_price',
-                'pal.raw_row_json', 'pal.suburb',
-            ]);
-        $this->applyScopeFilter($palQ, $req, 'p.agency_id');
-        $this->applyPriceFilter($palQ, $req, 'pal.list_price_inc');
-
-        foreach ($palQ->limit($limit * 2)->get() as $r) {
-            $raw = is_string($r->raw_row_json) ? (json_decode($r->raw_row_json, true) ?: []) : ((array) $r->raw_row_json ?: []);
-            $compRowId = $raw['mic_comp_row_id'] ?? null;
-            if (!$compRowId) continue;
-
-            $gps = DB::table('market_report_comp_rows')
-                ->where('id', $compRowId)
-                ->whereNotNull('latitude')->whereNotNull('longitude')
-                ->select(['latitude', 'longitude', 'address'])
-                ->first();
-            if (!$gps) continue;
-
-            $lat = (float) $gps->latitude;
-            $lng = (float) $gps->longitude;
-            if ($lat < $req->south || $lat > $req->north) continue;
-            if ($lng < $req->west  || $lng > $req->east)  continue;
-
-            $key = $this->dedupeKey($raw['address'] ?? $gps->address ?? '', 'active');
-            if (isset($combined[$key])) continue;
-            $price = OutlierGuard::price($r->list_price);
-            $combined[$key] = [
-                'id'         => 'pal:' . $r->id,
-                'layer'      => 'active_listings',
-                'lat'        => $lat,
-                'lng'        => $lng,
-                'title'      => $raw['address'] ?? $gps->address ?? 'Listing #' . $r->id,
-                'subtitle'   => $this->formatActiveSubtitle($price, $raw['days_on_market'] ?? null),
-                'price'      => $price,
-                'date'       => null,
-                'detail_url' => route('corex.map.active', ['layerId' => 'pal:' . $r->id]),
-                'sensitive'  => false,
-            ];
-            if (count($combined) >= $limit * 3) break;
         }
 
         $pins = array_slice(array_values($combined), 0, $limit);

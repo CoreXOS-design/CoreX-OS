@@ -6,6 +6,7 @@ namespace App\Services\Map;
 
 use App\Models\Property;
 use App\Models\Prospecting\TrackedProperty;
+use App\Models\Scopes\AgencyScope;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Carbon\CarbonImmutable;
 
@@ -70,7 +71,15 @@ final class MapProspectStatusService
         $property = null;
         $tp = $this->matcher->findExistingMatch($agencyId, $factsForLookup);
         if ($tp && $tp->promoted_to_property_id) {
-            $property = Property::withoutGlobalScopes()
+            // Strip only AgencyScope — the explicit ->where('agency_id', …)
+            // below scopes the lookup to the resolving agency, and stripping
+            // AgencyScope avoids a clash when the auth user's effective
+            // agency differs from the resolving agency (super-admin or
+            // owner-agency-switch flows). SoftDeletes + BranchScope stay
+            // active: archived / withdrawn properties must NOT resolve as
+            // 'held', and branch-isolated users must not see cross-branch
+            // properties on the map. Per CLAUDE.md NN#7.
+            $property = Property::withoutGlobalScope(AgencyScope::class)
                 ->where('id', $tp->promoted_to_property_id)
                 ->where('agency_id', $agencyId)
                 ->first();
@@ -141,8 +150,13 @@ final class MapProspectStatusService
 
         // ~20m bounding box. 0.00018° ≈ 20m at SA coastal latitudes (1°
         // lat ≈ 111km; 1° lng ≈ 95km at -30°).
+        //
+        // Strip only AgencyScope (same reason as resolve() above); leave
+        // SoftDeletes + BranchScope active. The explicit whereNull(
+        // 'deleted_at') below is now redundant with SoftDeletes restored
+        // but is kept as belt-and-suspenders.
         $box = 0.00018;
-        return Property::withoutGlobalScopes()
+        return Property::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->whereBetween('latitude',  [$lat - $box, $lat + $box])
@@ -154,7 +168,12 @@ final class MapProspectStatusService
     private function resolveAgentName(?int $agentId): ?string
     {
         if (!$agentId) return null;
-        return \App\Models\User::withoutGlobalScopes()
+        // User has the same SoftDeletes + AgencyScope + BranchScope bag as
+        // Property. Stripping only AgencyScope means: deleted users return
+        // null (correct), cross-branch agents return null when the requestor
+        // is branch-isolated (also correct — branch privacy). The UI handles
+        // null by showing "another agent" instead of the actual name.
+        return \App\Models\User::withoutGlobalScope(AgencyScope::class)
             ->where('id', $agentId)
             ->value('name');
     }

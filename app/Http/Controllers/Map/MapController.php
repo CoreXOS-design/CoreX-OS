@@ -11,6 +11,7 @@ use App\Models\MarketReports\SchemeOwner;
 use App\Models\PresentationActiveListing;
 use App\Models\PresentationSoldComp;
 use App\Models\Property;
+use App\Models\Scopes\AgencyScope;
 use App\Services\Map\MapBoundsRequest;
 use App\Services\Map\MapPinService;
 use App\Services\Map\MapProspectStatusService;
@@ -176,8 +177,16 @@ final class MapController extends Controller
         $this->assertSameAgency($request, $presentation->agency_id);
 
         // Subject GPS comes from the linked Property when available.
+        // Strip only AgencyScope (per CLAUDE.md NN#7); the upstream
+        // assertSameAgency($presentation->agency_id) above confirms the
+        // presentation belongs to the requesting user's agency, and we
+        // explicitly clamp the Property by the presentation's agency_id
+        // so a referenced-but-cross-agency property row cannot leak.
+        // SoftDeletes + BranchScope stay active.
         $property = $presentation->property_id
-            ? \App\Models\Property::withoutGlobalScopes()->find($presentation->property_id)
+            ? \App\Models\Property::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $presentation->agency_id)
+                ->find($presentation->property_id)
             : null;
 
         $subject = null;
@@ -416,7 +425,7 @@ final class MapController extends Controller
         $isAgentView = $request->query('viewMode', 'agent') === 'agent';
 
         $matching = MarketReport::query()
-            ->withoutGlobalScopes()
+            ->withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $owner->agency_id)
             ->whereNotNull('subject_latitude')
             ->whereRaw('LOWER(subject_scheme_name) = ?', [mb_strtolower((string) $owner->scheme_name)])

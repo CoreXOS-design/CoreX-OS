@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Map;
 
 use App\Http\Controllers\Controller;
 use App\Models\Map\MapSavedSearch;
+use App\Models\Scopes\AgencyScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,7 @@ final class MapSavedSearchController extends Controller
     {
         [$agencyId, $userId] = $this->ownerOrFail($request);
 
-        $rows = MapSavedSearch::withoutGlobalScopes()
+        $rows = MapSavedSearch::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)
             ->where('user_id', $userId)
             ->whereNull('deleted_at')
@@ -54,7 +55,7 @@ final class MapSavedSearchController extends Controller
 
         // Per-user uniqueness — Eloquent unique check first for a friendly
         // 422, then a DB-level guard via the unique index for race safety.
-        $duplicate = MapSavedSearch::withoutGlobalScopes()
+        $duplicate = MapSavedSearch::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)
             ->where('user_id', $userId)
             ->where('name', $name)
@@ -86,7 +87,7 @@ final class MapSavedSearchController extends Controller
     {
         [$agencyId, $userId] = $this->ownerOrFail($request);
 
-        $row = MapSavedSearch::withoutGlobalScopes()
+        $row = MapSavedSearch::withoutGlobalScope(AgencyScope::class)
             ->where('id', $id)
             ->where('agency_id', $agencyId)
             ->where('user_id', $userId)
@@ -124,7 +125,7 @@ final class MapSavedSearchController extends Controller
     {
         [$agencyId, $userId] = $this->ownerOrFail($request);
 
-        $row = MapSavedSearch::withoutGlobalScopes()
+        $row = MapSavedSearch::withoutGlobalScope(AgencyScope::class)
             ->where('id', $id)
             ->where('agency_id', $agencyId)
             ->where('user_id', $userId)
@@ -138,7 +139,7 @@ final class MapSavedSearchController extends Controller
 
     private function clearDefault(int $agencyId, int $userId, ?int $exceptId = null): void
     {
-        $q = MapSavedSearch::withoutGlobalScopes()
+        $q = MapSavedSearch::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)
             ->where('user_id', $userId)
             ->where('is_default', true);
