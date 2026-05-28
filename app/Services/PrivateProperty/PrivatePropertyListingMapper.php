@@ -74,12 +74,13 @@ class PrivatePropertyListingMapper
             'SoleMandateExclusiveDays' => 0,
         ];
 
-        // PP106: SuburbId and name fields are mutually exclusive
+        // PP106: SuburbId is mutually exclusive with Suburb, Town AND Province.
+        // PP rejects the call if a SuburbId is sent alongside any of the three
+        // name fields — even an empty Suburb/Town or a populated Province.
+        // We must therefore unset all three when sending Mode A.
         if ($property->pp_suburb_id) {
             $listing['SuburbId'] = (int) $property->pp_suburb_id;
-            $listing['Suburb']   = '';
-            $listing['Town']     = '';
-            $listing['Province'] = 'KwaZuluNatal'; // Province enum still required
+            unset($listing['Suburb'], $listing['Town'], $listing['Province']);
         }
 
         // SoleMandateExclusiveDays — auto-calculated from listed_date and expiry_date for sole mandates
@@ -133,12 +134,20 @@ class PrivatePropertyListingMapper
             }
         }
 
-        // Location: SuburbId OR (Suburb + Town) required
-        if (empty($payload['Suburb']) && empty($payload['SuburbId'])) {
+        // Location: SuburbId OR (Suburb + Town + Province) required, never both.
+        // PP106 rule (verbatim from PP): "You cannot provide a suburbId together
+        // with town name, suburb name and province." Mutually exclusive modes.
+        $hasSuburbId = !empty($payload['SuburbId']);
+        if (!$hasSuburbId && empty($payload['Suburb'])) {
             $errors[] = 'Suburb or SuburbId is required for PP syndication';
         }
-        if (empty($payload['Town']) && empty($payload['SuburbId'])) {
+        if (!$hasSuburbId && empty($payload['Town'])) {
             $errors[] = 'Town is required when SuburbId is not provided';
+        }
+        if ($hasSuburbId && (
+            !empty($payload['Suburb']) || !empty($payload['Town']) || !empty($payload['Province'])
+        )) {
+            $errors[] = 'PP106: SuburbId cannot be sent together with Suburb, Town or Province — pick one mode';
         }
 
         // Suburb and Town must not be identical (PP cannot shape the listing)
