@@ -48,6 +48,7 @@ final class TrackedProperty extends Model
         'property_type', 'bedrooms', 'bathrooms', 'garages',
         'floor_size_m2', 'erf_size_m2',
         'promoted_to_property_id', 'promoted_at', 'promoted_by_user_id',
+        'owner_contact_id',
         'source_chain', 'first_seen_at', 'last_enriched_at', 'last_enrichment_source',
         'status', 'duplicate_of_tracked_property_id',
         'is_demo',
@@ -165,6 +166,16 @@ final class TrackedProperty extends Model
     public function promotedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'promoted_by_user_id');
+    }
+
+    /**
+     * Map Workspace Phase B (Fix 2+3) — the Contact captured for this TP via
+     * the T-pin "WhatsApp / Pitch" entry point. Nullable until an agent
+     * captures contact details; set by EntryPointController::storeFromTrackedProperty.
+     */
+    public function ownerContact(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Contact::class, 'owner_contact_id');
     }
 
     public function isPromoted(): bool

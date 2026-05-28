@@ -1719,6 +1719,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('store-from-prospecting');
+
+            // Map Workspace Phase B (Fix 2+3) — T-pin WhatsApp / Pitch flow.
+            // Mirrors the prospecting entry point but the source is a
+            // TrackedProperty (no portal listing). Route model binding pulls
+            // the global agency scope via the BelongsToAgency trait.
+            Route::get('/tracked-properties/{trackedProperty}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'fromTrackedProperty'])
+                ->name('from-tracked-property');
+            Route::post('/tracked-properties/{trackedProperty}/outreach/compose',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromTrackedProperty'])
+                ->name('store-from-tracked-property');
         });
 
     // ── Whistleblower Settings ──

@@ -81,6 +81,63 @@ final class ProspectingClaimService
     }
 
     /**
+     * Map Workspace Phase B (Fix 2+3) — temp lock for a Tracked Property.
+     *
+     * Sibling of createTempLock(): same 30-min lock semantics, same XOR
+     * invariant (one active lock per TP, enforced via SELECT ... FOR UPDATE
+     * in this transaction), but keyed to tracked_property_id instead of
+     * prospecting_listing_id. Used by the T-pin "WhatsApp / Pitch" flow,
+     * where the source isn't a portal listing.
+     *
+     * The prospecting_pitch_locks table holds EITHER a listing_id OR a
+     * tracked_property_id, never both — the column the row uses depends on
+     * which entry-point created it.
+     */
+    public function createTempLockForTrackedProperty(
+        int $trackedPropertyId,
+        int $userId,
+        int $agencyId,
+    ): ProspectingPitchLock {
+        return DB::transaction(function () use ($trackedPropertyId, $userId, $agencyId) {
+            DB::table('prospecting_pitch_locks')
+                ->where('tracked_property_id', $trackedPropertyId)
+                ->whereNull('released_at')
+                ->where('expires_at', '<', now())
+                ->update([
+                    'released_at'    => now(),
+                    'release_reason' => 'auto_expired',
+                    'updated_at'     => now(),
+                ]);
+
+            $existing = ProspectingPitchLock::where('tracked_property_id', $trackedPropertyId)
+                ->whereNull('released_at')
+                ->where('expires_at', '>', now())
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing && (int) $existing->user_id !== $userId) {
+                throw new PitchLockConflictException(
+                    lockedByUserId: (int) $existing->user_id,
+                    expiresAt: $existing->expires_at,
+                );
+            }
+
+            if ($existing && (int) $existing->user_id === $userId) {
+                $existing->update(['expires_at' => $this->computeExpiry($agencyId)]);
+                return $existing->refresh();
+            }
+
+            return ProspectingPitchLock::create([
+                'agency_id'           => $agencyId,
+                'tracked_property_id' => $trackedPropertyId,
+                'user_id'             => $userId,
+                'locked_at'           => now(),
+                'expires_at'          => $this->computeExpiry($agencyId),
+            ]);
+        });
+    }
+
+    /**
      * Upgrade the temp lock to a permanent claim. Called from ComposerController::submit
      * after the SellerOutreachSend row is written, when the send corresponds to a
      * prospecting-derived contact (resolved via property_id → matched_property_id).

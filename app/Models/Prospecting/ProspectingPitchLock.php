@@ -30,6 +30,7 @@ final class ProspectingPitchLock extends Model
     protected $fillable = [
         'agency_id',
         'prospecting_listing_id',
+        'tracked_property_id',
         'user_id',
         'locked_at',
         'expires_at',
