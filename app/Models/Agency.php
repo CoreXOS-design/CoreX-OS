@@ -77,6 +77,8 @@ class Agency extends Model
         'pp_image_base_url',
         'pp_webhook_secret',
         'pp_last_sync_error',
+        'pp_locations_synced_at',
+        'pp_locations_last_error',
         'default_branch_id',
         'whistleblow_approver_user_ids',
         'whistleblow_compliance_officer_email',
@@ -96,6 +98,7 @@ class Agency extends Model
         'pp_sandbox' => 'boolean',
         'pp_password' => 'encrypted',
         'pp_webhook_secret' => 'encrypted',
+        'pp_locations_synced_at' => 'datetime',
         'whistleblow_approver_user_ids' => 'array',
         'whistleblow_tier_recipients' => 'array',
     ];
