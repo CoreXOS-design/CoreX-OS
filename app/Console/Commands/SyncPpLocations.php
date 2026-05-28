@@ -41,15 +41,37 @@ class SyncPpLocations extends Command
         if ($this->option('agency')) {
             $agency = Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
                 ->find($this->option('agency'));
+            if (!$agency) {
+                $this->error("Agency {$this->option('agency')} not found.");
+                $this->progress['status'] = 'failed';
+                $this->progress['error']  = "Agency {$this->option('agency')} not found.";
+                $this->writeProgress();
+                return self::FAILURE;
+            }
+        } else {
+            // No agency specified — pick the first enabled one with PP creds.
+            $agency = Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->whereNotNull('pp_username')
+                ->whereNotNull('pp_branch_guid')
+                ->where('pp_enabled', true)
+                ->first();
+            if (!$agency) {
+                $msg = 'No agency with PP credentials configured. Set pp_username, pp_password, pp_branch_guid and enable PP for an agency, then re-run.';
+                $this->error($msg);
+                $this->progress['status'] = 'failed';
+                $this->progress['error']  = $msg;
+                $this->progress['finished_at'] = now()->toIso8601String();
+                $this->writeProgress();
+                return self::FAILURE;
+            }
+            $this->info("Using agency #{$agency->id} ({$agency->name}) for PP credentials.");
         }
         $client->forAgency($agency);
 
         try {
             $this->syncTree($client);
         } catch (\Throwable $e) {
-            Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
-                ->whereNotNull('pp_branch_guid')
-                ->update(['pp_locations_last_error' => $e->getMessage()]);
+            $agency->forceFill(['pp_locations_last_error' => $e->getMessage()])->save();
             $this->progress['status']      = 'failed';
             $this->progress['error']       = $e->getMessage();
             $this->progress['finished_at'] = now()->toIso8601String();
@@ -58,12 +80,10 @@ class SyncPpLocations extends Command
             return self::FAILURE;
         }
 
-        Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
-            ->whereNotNull('pp_branch_guid')
-            ->update([
-                'pp_locations_synced_at'  => now(),
-                'pp_locations_last_error' => null,
-            ]);
+        $agency->forceFill([
+            'pp_locations_synced_at'  => now(),
+            'pp_locations_last_error' => null,
+        ])->save();
 
         $this->progress['status']      = 'complete';
         $this->progress['current']     = 'Sync complete.';
