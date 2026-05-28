@@ -161,6 +161,15 @@ Every VS Code session begins with the mandatory pre-reads (CLAUDE.md, STANDARDS.
 
 This replaces all separate "sync prompts" — there is no scenario where work begins without a pull or ends without a push. The reason: HFC2402 and andre branches diverge daily; without forced sync at session boundaries, the two developers' commits race each other into Staging with predictable merge pain. Pulling Staging at session start surfaces conflicts on the developer's local clock — not at merge time, not at deploy time. Pushing at session end keeps the remote branch the source of truth for the next session.
 
+### 12a. Test bootstrap uses the schema snapshot.
+`database/schema/mysql-schema.sql` is the committed schema snapshot loaded by `RefreshDatabase` instead of replaying all ~190 migrations per test invocation. The snapshot drops test-run bootstrap from ~190s to ~25s (~83% reduction).
+
+**Prerequisite (one-time, per developer machine):** `mysqldump` and `mysql` must be on the system `PATH` so Laravel's `MySqlSchemaState` can dump/load. On laragon installs the binaries live at `C:\laragon\bin\mysql\mysql-<version>\bin`. Add that folder to the user `PATH` via System Properties → Environment Variables (or `setx PATH "%PATH%;C:\laragon\bin\mysql\mysql-8.4.3-winx64\bin"`). If `mysql` isn't on PATH, `php artisan test` will fail with `'mysql' is not recognized as an internal or external command` — fix PATH; do not delete the snapshot.
+
+**When to re-run `schema:dump`:** every time you add a new migration. New migrations DO run on top of the snapshot, so tests stay correct, but every replay costs seconds; keeping the snapshot current keeps the bootstrap fast. Run `php artisan schema:dump` whenever the `database/migrations/` folder gains a file, then `git add database/schema/mysql-schema.sql` and include in the same commit as the migration.
+
+The snapshot is committed to the repo — it travels with the migrations it represents. Production migrations are unaffected: Laravel only uses the snapshot when no migrations have run yet (i.e. fresh test DB / `migrate:fresh`).
+
 ### 12. Demo is always a working copy.
 The demo environment (`demo1.corexos.co.za`, `/mnt/HC_Volume_103099143/hfc-demo` on the production host, tracking `HFC2402`) is not a snapshot — it is a living working copy. Every dev cycle that touches the database, schema, or any seeder MUST end with the demo migrated, seeded, and verified to match local. The demo's `nexus_os_demo` database is the proving ground: if it can be regenerated end-to-end from `php artisan migrate:fresh --database=demo --force && php artisan demo:seed`, the work is complete; if not, it isn't.
 
