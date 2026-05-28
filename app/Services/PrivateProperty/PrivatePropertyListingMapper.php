@@ -2,6 +2,7 @@
 
 namespace App\Services\PrivateProperty;
 
+use App\Models\PpSuburb;
 use App\Models\Property;
 
 class PrivatePropertyListingMapper
@@ -74,10 +75,19 @@ class PrivatePropertyListingMapper
             'SoleMandateExclusiveDays' => 0,
         ];
 
+        // Resolve the property's suburb against the cached PP suburb list
+        // (populated by `php artisan pp:sync-locations`). If we find a single
+        // unambiguous match, persist it and switch to Mode A.
+        if (!$property->pp_suburb_id && !empty($property->suburb)) {
+            $resolvedId = $this->resolvePpSuburbId($property);
+            if ($resolvedId !== null) {
+                $property->forceFill(['pp_suburb_id' => $resolvedId])->save();
+            }
+        }
+
         // PP106: SuburbId is mutually exclusive with Suburb, Town AND Province.
         // PP rejects the call if a SuburbId is sent alongside any of the three
         // name fields — even an empty Suburb/Town or a populated Province.
-        // We must therefore unset all three when sending Mode A.
         if ($property->pp_suburb_id) {
             $listing['SuburbId'] = (int) $property->pp_suburb_id;
             unset($listing['Suburb'], $listing['Town'], $listing['Province']);
@@ -98,6 +108,44 @@ class PrivatePropertyListingMapper
         }
 
         return $listing;
+    }
+
+    /**
+     * Look up a PP SuburbId for a property based on its suburb name
+     * (+ province where helpful). Returns null if the PP cache is empty
+     * or no unambiguous match is found.
+     */
+    private function resolvePpSuburbId(Property $property): ?int
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('pp_suburbs')) {
+            return null;
+        }
+        if (PpSuburb::query()->limit(1)->count() === 0) {
+            return null; // PP list never synced yet — stay in Mode B.
+        }
+
+        $normalised = PpSuburb::normalise((string) $property->suburb);
+        if ($normalised === '') return null;
+
+        $matches = PpSuburb::where('normalised_name', $normalised)->get();
+
+        if ($matches->count() === 1) {
+            return (int) $matches->first()->pp_suburb_id;
+        }
+
+        // Disambiguate by province if multiple suburbs share a name.
+        if ($matches->count() > 1 && !empty($property->province)) {
+            $enumExpected = $this->mapProvince($property->province);
+            $byProvince = $matches->load('city.province')->filter(function ($s) use ($enumExpected) {
+                $enum = $s->city?->province?->pp_province_enum;
+                return $enum && $enum === $enumExpected;
+            });
+            if ($byProvince->count() === 1) {
+                return (int) $byProvince->first()->pp_suburb_id;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -148,6 +196,23 @@ class PrivatePropertyListingMapper
             !empty($payload['Suburb']) || !empty($payload['Town']) || !empty($payload['Province'])
         )) {
             $errors[] = 'PP106: SuburbId cannot be sent together with Suburb, Town or Province — pick one mode';
+        }
+
+        // If the PP suburb cache is populated and we did NOT resolve to a
+        // SuburbId, block submission with closest-match suggestions. This
+        // catches misspelled / unknown suburbs before they hit PP.
+        if (!$hasSuburbId
+            && !empty($payload['Suburb'])
+            && \Illuminate\Support\Facades\Schema::hasTable('pp_suburbs')
+            && PpSuburb::query()->limit(1)->count() > 0
+        ) {
+            $normalised = PpSuburb::normalise((string) $payload['Suburb']);
+            if (!PpSuburb::where('normalised_name', $normalised)->exists()) {
+                $closest = PpSuburb::where('normalised_name', 'like', substr($normalised, 0, 4) . '%')
+                    ->limit(5)->pluck('name')->all();
+                $hint = !empty($closest) ? ' Closest matches: ' . implode(', ', $closest) . '.' : '';
+                $errors[] = "Suburb '{$payload['Suburb']}' is not on Private Property's list — submission blocked." . $hint;
+            }
         }
 
         // Suburb and Town must not be identical (PP cannot shape the listing)

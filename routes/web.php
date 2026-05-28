@@ -275,6 +275,11 @@ Route::prefix('admin/importer')->middleware(['auth', 'owner_only'])->name('admin
     Route::get('/p24-locations',           [\App\Http\Controllers\Admin\ImporterController::class, 'p24Locations'])->name('p24-locations');
     Route::post('/p24-locations/refresh',  [\App\Http\Controllers\Admin\ImporterController::class, 'refreshP24Locations'])->name('p24-locations.refresh');
     Route::get('/p24-locations/status',    [\App\Http\Controllers\Admin\ImporterController::class, 'p24LocationsStatus'])->name('p24-locations.status');
+
+    // PP Locations browser — hidden background data; UI shows refresh + counts only.
+    Route::get('/pp-locations',           [\App\Http\Controllers\Admin\ImporterController::class, 'ppLocations'])->name('pp-locations');
+    Route::post('/pp-locations/refresh',  [\App\Http\Controllers\Admin\ImporterController::class, 'refreshPpLocations'])->name('pp-locations.refresh');
+    Route::get('/pp-locations/status',    [\App\Http\Controllers\Admin\ImporterController::class, 'ppLocationsStatus'])->name('pp-locations.status');
     Route::post('/agents/upload', [\App\Http\Controllers\Admin\ImporterController::class, 'uploadAgents'])->name('agents.upload');
     Route::get('/runs/{run}/preview', [\App\Http\Controllers\Admin\ImporterController::class, 'preview'])->name('preview');
     Route::post('/runs/{run}/confirm', [\App\Http\Controllers\Admin\ImporterController::class, 'confirmAgents'])->name('confirm');

@@ -374,6 +374,53 @@ class PrivatePropertySoapClient
         ]);
     }
 
+    /**
+     * Get the list of countries PP supports.
+     * WSDL: GetCountries { SecurityToken Token }
+     */
+    public function getCountries(): array
+    {
+        return $this->call('GetCountries', [
+            'Token' => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get the list of provinces for a country.
+     * WSDL: GetProvinces { int CountryId, SecurityToken Token }
+     */
+    public function getProvinces(int $countryId): array
+    {
+        return $this->call('GetProvinces', [
+            'CountryId' => $countryId,
+            'Token'     => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get the list of cities for a province.
+     * WSDL: GetCities { int ProvinceId, SecurityToken Token }
+     */
+    public function getCities(int $provinceId): array
+    {
+        return $this->call('GetCities', [
+            'ProvinceId' => $provinceId,
+            'Token'      => $this->buildToken(),
+        ]);
+    }
+
+    /**
+     * Get the list of suburbs for a city.
+     * WSDL: GetSuburbs { int CityId, SecurityToken Token }
+     */
+    public function getSuburbs(int $cityId): array
+    {
+        return $this->call('GetSuburbs', [
+            'CityId' => $cityId,
+            'Token'  => $this->buildToken(),
+        ]);
+    }
+
     private function log(string $level, string $message, array $context = []): void
     {
         Log::channel('private_property')->{$level}($message, $context);
