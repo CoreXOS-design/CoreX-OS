@@ -116,6 +116,8 @@ class Agency extends Model
         'presentations_default_show_inflow_absorption',
         'presentations_default_show_holding_cost',
         'presentations_default_show_pricing_strategy',
+        // Build 5 — freshness window for public share CTAs.
+        'presentations_freshness_days',
     ];
 
     protected $casts = [
@@ -168,6 +170,8 @@ class Agency extends Model
         'presentations_default_show_inflow_absorption'  => 'boolean',
         'presentations_default_show_holding_cost'       => 'boolean',
         'presentations_default_show_pricing_strategy'   => 'boolean',
+        // Build 5.
+        'presentations_freshness_days'                  => 'integer',
     ];
 
     /**

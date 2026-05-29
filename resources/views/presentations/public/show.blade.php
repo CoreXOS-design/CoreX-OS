@@ -9,9 +9,28 @@
 --}}
 @php
     use App\Services\Presentations\AnalysisDataService;
-    $analysisData = $version && $version->computed_json
-        ? (is_string($version->computed_json) ? json_decode($version->computed_json, true) : $version->computed_json)
-        : (new AnalysisDataService())->compile($presentation);
+
+    // Build 5 — data source priority:
+    //   1. version.snapshot_payload  (Build 5+: frozen at publish)
+    //   2. version.computed_json     (legacy pre-Build-5 snapshot)
+    //   3. live AnalysisDataService::compile() (fallback ONLY — surfaces a
+    //      banner so it's never silently the live path)
+    $snapshotPayload = $version?->snapshot_payload;
+    $usedLiveFallback = false;
+    if (is_array($snapshotPayload) && !empty($snapshotPayload)) {
+        $analysisData = $snapshotPayload;
+    } elseif ($version && $version->computed_json) {
+        $analysisData = is_string($version->computed_json)
+            ? json_decode($version->computed_json, true)
+            : $version->computed_json;
+    } else {
+        $usedLiveFallback = true;
+        \Illuminate\Support\Facades\Log::warning('[PRES-WARN] public/show used live fallback — snapshot_payload missing', [
+            'version_id' => $version?->id,
+            'token'      => $link->token ?? null,
+        ]);
+        $analysisData = (new AnalysisDataService())->compile($presentation, $version);
+    }
     if (!is_array($analysisData)) $analysisData = [];
 
     $property = $presentation->property;
@@ -19,6 +38,38 @@
     $suburb = $presentation->suburb ?? '';
     $askingPrice = $presentation->asking_price_inc;
     $isTeaser = $link->mode === 'teaser';
+
+    // Build 5 — freshness window calc. Snapshot age is in days from
+    // snapshot_taken_at. Agency-configurable threshold (default 90).
+    // Under 30d: no banner. 30-89d: small footnote. 90+ (or threshold):
+    // full CTA panel. If snapshot_taken_at is null (legacy), treat as
+    // not-stale — we don't have a publish anchor to age against.
+    $snapshotAt    = $version?->snapshot_taken_at;
+    $agency        = $version?->presentation?->agency_id
+        ? \App\Models\Agency::find($version->presentation->agency_id)
+        : ($link->agency_id ? \App\Models\Agency::find($link->agency_id) : null);
+    $freshnessDays = (int) ($agency->presentations_freshness_days ?? 90);
+    // Explicit timestamp delta — Carbon's diffInHours sign semantics shifted
+    // across versions (see StalenessCalculator for the same workaround).
+    $snapshotAgeDays = $snapshotAt
+        ? max(0, (int) floor((now()->getTimestamp() - $snapshotAt->getTimestamp()) / 86400))
+        : null;
+    $showCta       = $snapshotAgeDays !== null && $snapshotAgeDays >= $freshnessDays;
+    $showFootnote  = $snapshotAgeDays !== null && $snapshotAgeDays >= 30 && $snapshotAgeDays < $freshnessDays;
+
+    // Build 5 — has the seller already requested a revision for this link?
+    // RefreshRequestService dedups, but we want the button copy to swap
+    // immediately so the seller doesn't tap twice in confusion.
+    $revisionAlreadyRequested = $link
+        ? \App\Models\PresentationRefreshRequest::where('snapshot_link_id', $link->id)
+            ->whereIn('status', [
+                \App\Models\PresentationRefreshRequest::STATUS_PENDING,
+                \App\Models\PresentationRefreshRequest::STATUS_ACKNOWLEDGED,
+            ])
+            ->latest('created_at')
+            ->first()
+        : null;
+    $agentName = $link?->creator?->name ?? 'your agent';
 
     $cma = $analysisData['cma_valuation'] ?? [];
     $cmaLower = $cma['cma_lower']  ?? null;
@@ -80,6 +131,20 @@
         }
         .staleness-banner.aging a.sb-cta { background:#92400e; }
         .staleness-banner.stale a.sb-cta { background:#991b1b; }
+
+        /* Build 5 — freshness CTA panel + footnote */
+        .freshness-cta-panel { margin-bottom:16px; padding:18px 20px; background:linear-gradient(135deg, #ecfeff 0%, #f0fdfa 100%); border:1px solid #5eead4; border-radius:10px; }
+        .freshness-cta-panel .fcp-headline { font-size:0.9375rem; font-weight:700; color:#0f172a; margin-bottom:6px; }
+        .freshness-cta-panel .fcp-copy { font-size:0.875rem; color:var(--text-secondary); margin:0 0 12px 0; line-height:1.55; }
+        .freshness-cta-panel .fcp-button { display:inline-block; padding:9px 18px; background:#0b2a4a; color:#fff; border:0; border-radius:6px; font-size:0.875rem; font-weight:600; cursor:pointer; transition:opacity 200ms; }
+        .freshness-cta-panel .fcp-button:hover { opacity:0.9; }
+        .freshness-cta-panel .fcp-button:disabled { opacity:0.5; cursor:not-allowed; }
+        .freshness-cta-panel .fcp-already { font-size:0.8125rem; color:#0f766e; padding:8px 12px; background:#ccfbf1; border-radius:5px; }
+        .freshness-cta-panel .fcp-confirm { font-size:0.8125rem; color:#065f46; padding:8px 12px; background:#d1fae5; border-radius:5px; margin-top:8px; }
+        .freshness-cta-panel .fcp-confirm[hidden] { display:none; }
+        .freshness-cta-panel .fcp-error { font-size:0.8125rem; color:#991b1b; padding:8px 12px; background:#fee2e2; border-radius:5px; margin-top:8px; }
+        .freshness-cta-panel .fcp-error[hidden] { display:none; }
+        .freshness-footnote { margin-bottom:14px; font-size:0.75rem; color:var(--text-muted); text-align:center; }
         .staleness-banner a.sb-cta:hover { opacity:0.9; }
 
         section.block {
@@ -120,6 +185,57 @@
 </header>
 
 <div class="container">
+
+    {{-- Build 5 — live-fallback warning. Only fires when snapshot_payload
+         was missing and we had to recompile live. Defensive: shouldn't
+         appear in normal operation post-Build-5. --}}
+    @if($usedLiveFallback)
+        <div class="staleness-banner stale">
+            <span class="sb-icon">&#9888;</span>
+            <div class="sb-body">
+                <strong>Snapshot unavailable</strong>
+                This presentation is showing current data because no published snapshot was found. Please ask the agent for a refreshed analysis.
+            </div>
+        </div>
+    @endif
+
+    {{-- Build 5 — snapshot-age CTA. Independent of Phase 7's banner: Phase 7
+         tracks how long since the LINK was shared; this one tracks how long
+         since the data was SNAPSHOTTED. Under 30 days: nothing. 30 to
+         (freshness-1): grey footnote. Freshness window or older: full CTA. --}}
+    @if($showCta)
+        <div class="freshness-cta-panel" id="freshness-cta" data-token="{{ $link->token }}">
+            <div class="fcp-body">
+                <div class="fcp-headline">
+                    This presentation was prepared {{ $snapshotAgeDays }} days ago.
+                </div>
+                <p class="fcp-copy">
+                    Property market data may have changed since then.
+                    Would you like {{ $agentName }} to send you a revised analysis?
+                </p>
+                <div id="freshness-cta-actions">
+                    @if($revisionAlreadyRequested)
+                        <div class="fcp-already" id="fcp-already-msg">
+                            Already requested {{ $revisionAlreadyRequested->created_at->diffForHumans() }} —
+                            {{ $agentName }} has been notified.
+                        </div>
+                    @else
+                        <button type="button" id="btn-request-revision" class="fcp-button">
+                            Yes, request revised analysis &rarr;
+                        </button>
+                    @endif
+                    <div id="fcp-confirm" class="fcp-confirm" hidden>
+                        Got it — {{ $agentName }} has been notified and will be in touch shortly.
+                    </div>
+                    <div id="fcp-error" class="fcp-error" hidden></div>
+                </div>
+            </div>
+        </div>
+    @elseif($showFootnote)
+        <div class="freshness-footnote">
+            Prepared {{ $snapshotAt->format('j F Y') }} · {{ $snapshotAgeDays }} days ago.
+        </div>
+    @endif
 
     {{-- Phase 7 — data-may-be-dated banner (aging | stale) --}}
     @php
@@ -285,6 +401,58 @@
         <a href="{{ route('presentation.public.refresh-form', $link->token) }}">Request a refreshed version</a>
     </footer>
 </div>
+
+{{-- ── Build 5 — freshness CTA handler ─────────────────────────────── --}}
+<script>
+(function () {
+    'use strict';
+    const btn = document.getElementById('btn-request-revision');
+    if (!btn) return;
+    const REQUEST_URL = @json($showCta ? route('presentation.public.request-revision', $link->token) : '');
+    const confirmEl   = document.getElementById('fcp-confirm');
+    const errorEl     = document.getElementById('fcp-error');
+    const actionsEl   = document.getElementById('freshness-cta-actions');
+
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        errorEl.hidden = true;
+        try {
+            const r = await fetch(REQUEST_URL, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({}),
+                credentials: 'same-origin',
+            });
+            const d = await r.json().catch(() => null);
+            if (r.ok && d && d.ok) {
+                btn.hidden = true;
+                if (d.already_requested) {
+                    // Replace the button with the "already requested" copy.
+                    const already = document.createElement('div');
+                    already.className = 'fcp-already';
+                    already.textContent = 'Already requested ' + (d.requested_ago || 'recently') + ' — ' +
+                        (d.agent_name || 'your agent') + ' has been notified.';
+                    actionsEl.insertBefore(already, btn);
+                } else {
+                    confirmEl.hidden = false;
+                }
+            } else if (r.status === 429 && d && d.message) {
+                errorEl.textContent = d.message;
+                errorEl.hidden = false;
+                btn.disabled = false;
+            } else {
+                errorEl.textContent = 'Could not send your request — please try again, or use the longer form.';
+                errorEl.hidden = false;
+                btn.disabled = false;
+            }
+        } catch (e) {
+            errorEl.textContent = 'Network error. Please check your connection and try again.';
+            errorEl.hidden = false;
+            btn.disabled = false;
+        }
+    });
+})();
+</script>
 
 {{-- ── Tracking beacon ─────────────────────────────────────────────────── --}}
 <script>

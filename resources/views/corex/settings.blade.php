@@ -2051,6 +2051,7 @@
                     $presPeriod   = (int) ($presAgency->presentations_default_period_months       ?? 12);
                     $presScope    = (string) ($presAgency->presentations_default_comp_scope        ?? 'radius_all');
                     $presRadius   = (int) ($presAgency->presentations_default_radius_m             ?? 1000);
+                    $presFreshness = (int) ($presAgency->presentations_freshness_days              ?? 90);
                 @endphp
 
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -2136,6 +2137,29 @@
                                            class="w-full rounded-md px-3 py-2 text-sm"
                                            style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                     <div class="text-[11px] mt-1" style="color:var(--text-muted);">Used when scope is "Radius". Range 50–5000m. Default 1000m. Suburb-only ignores this.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Build 5 — snapshot freshness window. When a seller opens a
+                             share link older than this many days, the public view shows
+                             a one-click CTA asking if they'd like a revised analysis. --}}
+                        <div class="pt-4 mt-4" style="border-top:1px solid var(--border);">
+                            <div class="mb-3">
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Snapshot Freshness Window</div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                                    Days before the public share view nudges the seller to ask for a refreshed analysis.
+                                    Sellers see "Prepared X days ago" between 30 days and this threshold, and a CTA panel beyond it.
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Freshness window (days)</label>
+                                    <input type="number" min="7" max="365" name="presentations_freshness_days"
+                                           value="{{ $presFreshness }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 90. Range 7–365.</div>
                                 </div>
                             </div>
                         </div>

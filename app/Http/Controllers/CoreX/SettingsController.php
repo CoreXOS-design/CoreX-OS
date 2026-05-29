@@ -355,6 +355,8 @@ class SettingsController extends Controller
             // Phase 3b
             'presentations_default_comp_scope'          => ['nullable', 'in:radius_all,suburb_only'],
             'presentations_default_radius_m'            => ['nullable', 'integer', 'min:50', 'max:5000'],
+            // Build 5 — freshness window before the seller-facing CTA fires.
+            'presentations_freshness_days'              => ['nullable', 'integer', 'min:7', 'max:365'],
         ]);
 
         if (

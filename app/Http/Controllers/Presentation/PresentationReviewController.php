@@ -399,13 +399,11 @@ final class PresentationReviewController extends Controller
     {
         $this->authoriseReviewer($request, $version);
 
-        if ($version->review_status === PresentationVersion::REVIEW_PUBLISHED) {
-            return response()->json([
-                'ok'         => true,
-                'already'    => true,
-                'public_url' => route('presentations.show', $version->presentation_id),
-            ]);
-        }
+        // Build 5 — republish: an already-published version that gets re-
+        // published refreshes the snapshot. Same URL, new content. This
+        // is Johan's explicit ruling — live edits override the prior
+        // snapshot, age resets to 0, the freshness CTA disappears.
+        $isRepublish = $version->review_status === PresentationVersion::REVIEW_PUBLISHED;
 
         // Build 3 — snapshot the resolved condition on the version BEFORE
         // status flips. The snapshot defends the PDF against future
@@ -417,13 +415,25 @@ final class PresentationReviewController extends Controller
         $resolved = $resolver->resolveLive($version, $presentation);
         $resolver->snapshotOnVersion($version, $resolved['level']);
 
+        // Build 5 — freeze the full compiled report payload onto the
+        // version. The public view reads ONLY from this column, so the
+        // seller always sees what was true on publish day even if the
+        // underlying property / comps / suburb stats shift later.
+        // Republishes overwrite snapshot_payload + refresh
+        // snapshot_taken_at, restarting the freshness clock.
+        $freshPresentation = $version->presentation()->with(['property', 'fields', 'soldComps', 'activeListings'])->first();
+        $payload = (new AnalysisDataService())->compile($freshPresentation, $version);
+
         $version->forceFill([
-            'review_status' => PresentationVersion::REVIEW_PUBLISHED,
-            'published_at'  => now(),
+            'review_status'     => PresentationVersion::REVIEW_PUBLISHED,
+            'published_at'      => $isRepublish ? $version->published_at : now(),
+            'snapshot_payload'  => $payload,
+            'snapshot_taken_at' => now(),
         ])->save();
 
         return response()->json([
             'ok'         => true,
+            'already'    => $isRepublish, // legacy flag for the JS path
             'public_url' => route('presentations.show', $version->presentation_id),
         ]);
     }

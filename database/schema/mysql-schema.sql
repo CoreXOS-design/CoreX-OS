@@ -196,6 +196,7 @@ CREATE TABLE `agencies` (
   `presentations_default_show_inflow_absorption` tinyint(1) NOT NULL DEFAULT '1',
   `presentations_default_show_holding_cost` tinyint(1) NOT NULL DEFAULT '1',
   `presentations_default_show_pricing_strategy` tinyint(1) NOT NULL DEFAULT '1',
+  `presentations_freshness_days` smallint unsigned NOT NULL DEFAULT '90' COMMENT 'Build 5 — public view shows a "request revised analysis" CTA when the snapshot is older than this many days.',
   `presentations_default_comp_scope` enum('radius_all','suburb_only') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'radius_all',
   `presentations_default_radius_m` smallint unsigned NOT NULL DEFAULT '1000',
   `presentations_default_rates_per_million_zar` int unsigned NOT NULL DEFAULT '800' COMMENT 'Monthly municipal rates per R1M of property value.',
@@ -6998,6 +6999,8 @@ CREATE TABLE `presentation_versions` (
   `condition_adjustment_pct` decimal(5,2) DEFAULT NULL COMMENT 'Snapshot at review/publish — defends historic PDF against later setting drift.',
   `condition_label` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `enabled_sections_json` json DEFAULT NULL COMMENT 'Build 4 — per-version snapshot of which report sections render. Null means "use agency defaults at compile time".',
+  `snapshot_payload` json DEFAULT NULL COMMENT 'Build 5 — full compiled report payload frozen at publish. Public view reads from this; live compile is fallback only.',
+  `snapshot_taken_at` timestamp NULL DEFAULT NULL COMMENT 'Build 5 — when snapshot_payload was last frozen. Drives the freshness window calc.',
   `hydration_summary_json` json DEFAULT NULL,
   `ai_variant_id` smallint unsigned DEFAULT NULL,
   `ai_summary_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -10883,3 +10886,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (787,'2026_06_17_10
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_17_110000_add_review_flow_to_presentations',233);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_17_120000_add_condition_levels_to_presentations',234);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_17_130000_add_section_toggles_to_presentations',235);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_17_140000_add_snapshot_payload_to_presentations',236);

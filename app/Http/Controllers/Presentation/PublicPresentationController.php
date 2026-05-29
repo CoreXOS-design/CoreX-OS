@@ -461,6 +461,96 @@ final class PublicPresentationController extends Controller
         ]);
     }
 
+    /**
+     * Build 5 — POST /p/{token}/request-revision.
+     *
+     * One-click variant of the full /refresh form. Designed for the
+     * freshness CTA panel on the public view: the seller taps a button,
+     * we silently submit a refresh request using whatever we already
+     * know about them from the share link (recipient_contact_id +
+     * recipient_label) and the request context (IP, UA, fingerprint).
+     *
+     * Idempotent — if there's already an open request for this link,
+     * we return that one rather than creating a duplicate. The
+     * RefreshRequestService rate-limit still applies as the underlying
+     * safety net.
+     */
+    public function requestRevision(Request $request, string $token): JsonResponse
+    {
+        $link = PresentationSnapshotLink::where('token', $token)->first();
+        if (!$link || $link->isRevoked()) {
+            return response()->json(['error' => 'not_found'], 404);
+        }
+        if ($link->isSuperseded() && $link->superseded_by_link_id) {
+            $newer = PresentationSnapshotLink::find($link->superseded_by_link_id);
+            if ($newer && $newer->isUsable()) {
+                return response()->json([
+                    'ok'       => true,
+                    'redirect' => route('presentation.public.show', $newer->token),
+                ]);
+            }
+        }
+
+        // Idempotency — if the link already has an open request (pending
+        // or acknowledged), return its state rather than create a duplicate.
+        $existing = \App\Models\PresentationRefreshRequest::where('snapshot_link_id', $link->id)
+            ->whereIn('status', [
+                \App\Models\PresentationRefreshRequest::STATUS_PENDING,
+                \App\Models\PresentationRefreshRequest::STATUS_ACKNOWLEDGED,
+            ])
+            ->latest('created_at')
+            ->first();
+        if ($existing) {
+            return response()->json([
+                'ok'                 => true,
+                'already_requested'  => true,
+                'requested_at'       => $existing->created_at?->toIso8601String(),
+                'requested_ago'      => $existing->created_at?->diffForHumans() ?? 'recently',
+                'agent_name'         => $link->creator?->name ?? 'your agent',
+            ]);
+        }
+
+        // Derive a requester name. Order of preference:
+        //   1. seller-supplied (some sellers paste a note when forwarding)
+        //   2. recipient_contact's name (we sent them the link directly)
+        //   3. link.recipient_label (free-text label set by the agent)
+        //   4. "Anonymous viewer"
+        $payloadName = trim((string) $request->input('requester_name', ''));
+        if ($payloadName === '') {
+            $payloadName = optional(
+                $link->recipient_contact_id ? \App\Models\Contact::find($link->recipient_contact_id) : null
+            )->display_name
+                ?? $link->recipient_label
+                ?? 'Anonymous viewer';
+        }
+        $message = trim((string) $request->input('message', ''));
+
+        try {
+            app(RefreshRequestService::class)->submitRequest($link, [
+                'requester_name'   => $payloadName,
+                'requester_email'  => null,
+                'requester_phone'  => null,
+                'message'          => $message !== '' ? mb_substr($message, 0, 2000) : null,
+                'fingerprint_hash' => $this->serverFingerprint($request),
+                'ip_masked'        => $this->ipForStorage($request, $link),
+                'user_agent'       => mb_substr((string) $request->userAgent(), 0, 500) ?: null,
+            ]);
+        } catch (RefreshRateLimitException $e) {
+            return response()->json([
+                'ok'           => false,
+                'rate_limited' => true,
+                'message'      => $e->getMessage(),
+            ], 429);
+        } catch (RefreshNotAllowedException $e) {
+            return response()->json(['ok' => false, 'error' => 'not_allowed'], 422);
+        }
+
+        return response()->json([
+            'ok'         => true,
+            'agent_name' => $link->creator?->name ?? 'your agent',
+        ]);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     /**

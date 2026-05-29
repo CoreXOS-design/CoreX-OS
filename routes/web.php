@@ -48,6 +48,11 @@ Route::get('/p/{token}/refresh', [\App\Http\Controllers\Presentation\PublicPrese
     ->where('token', '[A-Za-z0-9]{40,64}')
     ->middleware('throttle:60,1')
     ->name('presentation.public.refresh-form');
+// Build 5 — one-click "request revised presentation" CTA on the public view.
+// Delegates to the same RefreshRequestService that backs the longer form.
+Route::post('/p/{token}/request-revision', [\App\Http\Controllers\Presentation\PublicPresentationController::class, 'requestRevision'])
+    ->middleware('throttle:6,1')
+    ->name('presentation.public.request-revision');
 Route::post('/p/{token}/refresh', [\App\Http\Controllers\Presentation\PublicPresentationController::class, 'refreshSubmit'])
     ->where('token', '[A-Za-z0-9]{40,64}')
     ->middleware('throttle:5,1')

@@ -44,6 +44,9 @@ class PresentationVersion extends Model
         'condition_label',
         // Build 4 — per-version section toggles snapshot.
         'enabled_sections_json',
+        // Build 5 — full report payload snapshot.
+        'snapshot_payload',
+        'snapshot_taken_at',
     ];
 
     protected $casts = [
@@ -60,6 +63,9 @@ class PresentationVersion extends Model
         'archived_at'                 => 'datetime',
         'included_comp_ids_json'      => 'array',
         'enabled_sections_json'       => 'array',
+        // Build 5.
+        'snapshot_payload'            => 'array',
+        'snapshot_taken_at'           => 'datetime',
     ];
 
     // Build 2 — review_status states.
