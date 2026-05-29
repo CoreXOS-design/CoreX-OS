@@ -86,13 +86,28 @@ Return ONLY a single JSON object, no prose, no markdown fences. Shape:
 Supported intents:
 - "schedule_event" — agent wants to create a calendar entry.
   slots: {
-    "title": string (short, e.g. "Viewing", "Meeting", "Listing presentation"),
+    "title": string — SHORT calendar label, max ~60 chars. Format: "<EventType> — <Property short ref>" when a property is mentioned, otherwise "<EventType> — <Contact name>", otherwise just "<EventType>". EventType is one of: Viewing, Meeting, Listing presentation, Call, Valuation, Inspection, Sign mandate, Offer presentation, Follow-up. Property short ref = street number + street name only (e.g. "12 Beach Road"), drop suburb/city. Do NOT cram attendees, topics, or times into the title.
     "datetime": ISO 8601 with timezone offset (resolve relative phrases like "tomorrow at 11" against the current time above),
     "duration_minutes": int (default 60 if unspecified),
     "contact_name": string|null (the other party if mentioned by name),
-    "property_ref": string|null (any address/erf/listing reference if mentioned),
-    "notes": string|null
+    "property_ref": string|null (any address/erf/listing reference if mentioned — full text as spoken),
+    "notes": string|null — everything that did NOT fit in the title: attendees ("With John."), subject/context ("Re: budget concerns."), and any other detail the agent said. Use short sentences, each ending in a period. Omit if there is nothing beyond title + datetime + contact + property.
   }
+
+  Examples:
+    Utterance: "viewing at 12 Beach Road tomorrow at 11am with John about budget concerns"
+      title: "Viewing — 12 Beach Road"
+      contact_name: "John"
+      property_ref: "12 Beach Road"
+      notes: "With John. Re: budget concerns."
+    Utterance: "meeting with Sarah Friday at 2 to discuss the Uvongo mandate renewal"
+      title: "Meeting — Sarah"
+      contact_name: "Sarah"
+      notes: "Re: Uvongo mandate renewal."
+    Utterance: "listing presentation at 7 Marine Drive Monday 9am"
+      title: "Listing presentation — 7 Marine Drive"
+      property_ref: "7 Marine Drive"
+      notes: null
 - "unknown" — anything else (general chat, questions, multi-intent).
   slots: {}
 

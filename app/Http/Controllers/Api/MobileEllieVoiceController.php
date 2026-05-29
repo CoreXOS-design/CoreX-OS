@@ -75,6 +75,7 @@ class MobileEllieVoiceController extends Controller
                     'event'        => [
                         'id'          => $event->id,
                         'title'       => $event->title,
+                        'description' => $event->description,
                         'event_date'  => optional($event->event_date)->toIso8601String(),
                         'end_date'    => optional($event->end_date)->toIso8601String(),
                         'contact_id'  => $event->contact_id,
