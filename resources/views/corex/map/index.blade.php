@@ -48,6 +48,17 @@
     .corex-pin.corex-pin--pulse {
         animation: corex-pin-pulse 1s ease-in-out 2;
     }
+    /* Map → sidebar reverse-direction flash. Brief teal border tint on the
+       detail panel root so the agent's eye is drawn to the freshly-opened
+       card after a map-pin click. */
+    @keyframes corex-panel-flash {
+        0%   { box-shadow: 0 0 0 0 rgba(0, 212, 170, 0); }
+        30%  { box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.55); }
+        100% { box-shadow: 0 0 0 0 rgba(0, 212, 170, 0); }
+    }
+    .corex-panel--flash {
+        animation: corex-panel-flash 0.9s ease-out 1;
+    }
     /* Per-shape halo radius — keeps the box-shadow ring shaped to the
        silhouette of each bucket's pin. */
     .corex-pin-circle.corex-pin--selected   { border-radius: 50%; }
@@ -186,13 +197,19 @@
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Layers</div>
                 <div id="layer-list" style="display: flex; gap: 6px;">
                     @php
+                        // Layer-chip palette MUST stay in sync with PIN_STYLES
+                        // and LAYER_COLOURS in the JS section below. Otherwise
+                        // the sidebar shows one colour while the map renders
+                        // another — observed in fix-up #2 where the chip was
+                        // still slate while the pin was purple, reinforcing
+                        // the "M missing" misread.
                         $layerDefs = [
-                            ['key' => 'hfc_listings',    'label' => 'HFC Listings',      'colour' => '#00d4aa', 'letter' => 'H'],
-                            ['key' => 'sold_comps',      'label' => 'Sold Comps',        'colour' => '#3b82f6', 'letter' => 'S'],
+                            ['key' => 'hfc_listings',    'label' => 'HFC Listings',      'colour' => '#0b2a4a', 'letter' => 'H'],
+                            ['key' => 'sold_comps',      'label' => 'Sold Comps',        'colour' => '#dc2626', 'letter' => 'S'],
                             ['key' => 'active_listings', 'label' => 'Portal Stock',      'colour' => '#f59e0b', 'letter' => 'P', 'title' => 'Portal Stock — competitor listings captured from Property24 and Private Property'],
-                            ['key' => 'mic_subjects',    'label' => 'MIC Subjects',      'colour' => '#64748b', 'letter' => 'M'],
-                            ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#8b5cf6', 'letter' => 'O', 'sensitive' => true],
-                            ['key' => 'tracked_properties', 'label' => 'Tracked',        'colour' => '#14b8a6', 'letter' => 'T', 'sensitive' => true, 'title' => 'Tracked — prospecting candidates with geocoded GPS, not yet on agency stock (Agent View only)'],
+                            ['key' => 'mic_subjects',    'label' => 'MIC Subjects',      'colour' => '#7c3aed', 'letter' => 'M'],
+                            ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#db2777', 'letter' => 'O', 'sensitive' => true],
+                            ['key' => 'tracked_properties', 'label' => 'Tracked',        'colour' => '#00d4aa', 'letter' => 'T', 'sensitive' => true, 'title' => 'Tracked — prospecting candidates with geocoded GPS, not yet on agency stock (Agent View only)'],
                         ];
                     @endphp
                     @foreach($layerDefs as $l)
@@ -1252,9 +1269,13 @@ document.addEventListener('DOMContentLoaded', function () {
     // would defeat the whole grouping (a sectional title scheme has dozens
     // of units sharing one street address).
     cluster = L.markerClusterGroup({
-        // Visual identity spec §3 — N₁ = 13: pins un-cluster one zoom
-        // earlier than before so the agent has shape-language to read.
-        disableClusteringAtZoom: 13,
+        // Fix-up #2 §1 — N₁ raised 13 → 15. At z=13 with the previous
+        // threshold the Margate area un-clustered into a visual collision
+        // pile (200+ pins overlapping). At z=15 the un-cluster transition
+        // happens with enough pixel separation that each bucket's shape
+        // is legible. Scheme + price labels still appear at z >= 16, so
+        // un-cluster (15) precedes labels (16) by one zoom — clean stepping.
+        disableClusteringAtZoom: 15,
         maxClusterRadius: 40,
         chunkedLoading: true,
         spiderfyOnMaxZoom: false,
@@ -1911,42 +1932,100 @@ document.addEventListener('DOMContentLoaded', function () {
         selectedLocationKey = null;
     }
 
-    /** Sidebar→map hover preview — fix-up §5. Pulses the matching marker
-     *  briefly so the agent scanning the sidebar can see which pin the
-     *  card refers to. Safe when the pin is filtered out (no marker for
-     *  the key) and when the marker is currently clustered. */
-    function pulseMarkerByLocationKey(locationKey) {
-        if (!locationKey) return;
-        const m = markerByLocationKey.get(locationKey);
-        if (!m) return;
-        const el = m.getElement && m.getElement();
+    /** Apply the pulse class to a DOM element. Force a reflow between
+     *  remove/add so a second hover restarts the animation rather than
+     *  no-oping. */
+    function fireElementPulse(el) {
         if (!el) return;
-        // Re-trigger animation when the class is already present so a
-        // second hover restarts the pulse rather than no-oping.
         el.classList.remove('corex-pin--pulse');
-        // Force a reflow so the re-add picks up the animation reset.
-
         void el.offsetWidth;
         el.classList.add('corex-pin--pulse');
         setTimeout(() => { el.classList.remove('corex-pin--pulse'); }, 2200);
     }
 
-    /** Sidebar→map click — fix-up §5. Pan/zoom the map so the matching
-     *  pin is centred (and visible at unclustered zoom), then apply the
-     *  selected halo. */
+    /** Sidebar→map hover preview — fix-up §5 + fix-up #2 §3. Pulses the
+     *  matching marker briefly so the agent scanning the sidebar can see
+     *  which pin the card refers to.
+     *  Cluster-aware: when the marker is INSIDE a cluster, pulse the
+     *  visible cluster icon instead — the agent at least sees WHICH
+     *  cluster bubble contains the card they're hovering. Returns true
+     *  when something visible pulsed, false otherwise (caller may decide
+     *  to surface a "pin off-map" hint). */
+    function pulseMarkerByLocationKey(locationKey) {
+        if (!locationKey) return false;
+        const m = markerByLocationKey.get(locationKey);
+        if (!m) return false;
+        // Direct path: marker is on the map at the current zoom.
+        const el = m.getElement && m.getElement();
+        if (el) {
+            fireElementPulse(el);
+            return true;
+        }
+        // Clustered path: ask the markercluster plugin for the visible
+        // parent and pulse that. Available on Leaflet.markercluster >=1.4.
+        if (cluster && cluster.getVisibleParent) {
+            const parent = cluster.getVisibleParent(m);
+            const parentEl = parent && parent !== m && parent._icon ? parent._icon : null;
+            if (parentEl) {
+                fireElementPulse(parentEl);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Sidebar→map click — fix-up §5 + fix-up #2 §3. Pan/zoom the map so
+     *  the matching pin is centred AND visible (un-cluster if needed),
+     *  then apply the selected halo. zoomToShowLayer is the cluster-aware
+     *  path — it figures out the minimum zoom that un-clusters the marker
+     *  and pans to it. Halo is applied in its callback so it doesn't try
+     *  to attach to a not-yet-mounted DOM node. */
     function panToLocationKey(locationKey, opts) {
         if (!locationKey) return;
         const m = markerByLocationKey.get(locationKey);
         if (!m) return;
         const latlng = m.getLatLng && m.getLatLng();
         if (!latlng) return;
-        // Make sure the pin is unclustered when we arrive, so the agent
-        // sees the pin not a cluster bubble. disableClusteringAtZoom=13,
-        // so jump to >= 14 if currently below it.
-        const targetZoom = Math.max(map.getZoom(), 14);
+        // disableClusteringAtZoom = 15 — make sure we land at or above it
+        // so the marker is rendered as an individual pin (not a cluster).
+        const targetZoom = Math.max(map.getZoom(), 15);
+
+        const applySelectAfterMount = () => {
+            // Defer to the next animation frame so Leaflet has mounted
+            // the marker element after the (un-)cluster transition.
+            requestAnimationFrame(() => selectLocation(locationKey));
+        };
+
+        if (cluster && cluster.zoomToShowLayer && cluster.hasLayer(m) && !m.getElement()) {
+            // Marker is currently inside a cluster bubble. Let the plugin
+            // pick the zoom that surfaces it, then select.
+            cluster.zoomToShowLayer(m, applySelectAfterMount);
+            return;
+        }
         const animate = !(opts && opts.skipAnimate);
         map.setView(latlng, targetZoom, { animate });
-        selectLocation(locationKey);
+        // setView fires a moveend after the animation — apply select then
+        // so the marker DOM exists. Fallback: also try immediately for
+        // the no-animation path.
+        map.once('moveend', applySelectAfterMount);
+        if (!animate) applySelectAfterMount();
+    }
+
+    /** Map pin → sidebar — fix-up #2 §3 reverse direction. Briefly
+     *  highlights the panel area so the agent's eye is drawn to the
+     *  newly-loaded content. Pure CSS class toggle on the panel root —
+     *  no scroll, since the panel is fixed-position and always visible.
+     *  Defensive: panel element may not exist on degenerate pages. */
+    function flashPanelHighlight() {
+        // Panel id is map-detail-panel (set on the right-rail aside);
+        // double-check before mutating in case the element was removed
+        // by a future refactor.
+        const panel = document.getElementById('map-detail-panel');
+        if (!panel) return;
+        panel.classList.remove('corex-panel--flash');
+        void panel.offsetWidth;
+        panel.classList.add('corex-panel--flash');
+        setTimeout(() => panel.classList.remove('corex-panel--flash'), 900);
     }
 
     function clearAllPins() {
@@ -2015,17 +2094,23 @@ document.addEventListener('DOMContentLoaded', function () {
                     // no back arrow (there's no list to go back to).
                     openSingleDetail(loc.records[0], null, loc.location_key);
                 }
+                // Reverse direction (fix-up #2 §3): flash the right-panel
+                // so the agent's eye lands on the freshly-opened content.
+                flashPanelHighlight();
             });
             cluster.addLayer(m);
         });
 
         document.getElementById('empty-state').style.display = total === 0 ? 'block' : 'none';
 
-        // Capped-layers warning — reuses the V1 banner.
+        // Capped-layers warning — reuses the V1 banner. Map internal layer
+        // keys (e.g. 'scheme_owners') to the human-friendly LAYER_NAMES
+        // before joining, so the agent sees "Truncated: Sectional Schemes"
+        // not the raw db column name (fix-up #2 free find).
         const capEl = document.getElementById('layer-cap-notice');
         const capped = payload.capped_layers || [];
         if (capped.length > 0) {
-            capEl.textContent = 'Truncated: ' + capped.join(', ');
+            capEl.textContent = 'Truncated: ' + capped.map(k => LAYER_NAMES[k] || k).join(', ');
             capEl.style.display = 'block';
         } else {
             capEl.style.display = 'none';
@@ -2037,6 +2122,49 @@ document.addEventListener('DOMContentLoaded', function () {
         // Spec §3 — scheme + price labels at Z ≥ 16. Rebuild from the
         // filtered locations so toggling layers also refreshes labels.
         rebuildLabelLayers(filtered);
+
+        // Fix-up #2 §2 — render invariant. If a layer's chip count is
+        // non-zero but ZERO locations in the rendered payload carry that
+        // category, log a warn so future regressions surface immediately
+        // (this is exactly the M-missing failure mode that took two
+        // staging rounds to diagnose). Dev-only: gated on hostname so it
+        // stays silent in production.
+        assertLayerCountsMatchRendered(payload, filtered);
+    }
+
+    /** Map invariant: for every layer with chip count > 0 the rendered
+     *  payload must include at least one location whose records contain
+     *  that category. Cluster-collapse + applyLayerFilters can both
+     *  legitimately drop records (e.g. M collapsed into cma_info when a
+     *  non-CMA peer exists), so the comparison uses the SERVER payload's
+     *  locations (pre-filter) for the orphan baseline. Triggers on the
+     *  staging hostname only to keep prod logs clean. */
+    function assertLayerCountsMatchRendered(serverPayload, filteredPayload) {
+        if (!serverPayload || !filteredPayload) return;
+        try {
+            if (!/(localhost|127\.0|staging|hfc-staging|\.localhost)/i.test(location.hostname)) return;
+        } catch (e) { return; }
+
+        const counts = serverPayload.layer_counts || {};
+        // Categories present in the rendered (post-filter) locations.
+        const renderedCats = new Set();
+        (filteredPayload.locations || []).forEach(loc => {
+            (loc.records || []).forEach(r => renderedCats.add(r.category));
+        });
+        // Categories with non-zero server count.
+        Object.keys(counts).forEach(layer => {
+            if ((counts[layer] || 0) === 0) return;
+            if (!enabledLayers.has(layer)) return;  // user toggled it off — expected absence
+            if (!renderedCats.has(layer)) {
+                console.warn('[CoreX Map] Invariant broken — layer "' + layer
+                    + '" reports ' + counts[layer]
+                    + ' records but ZERO rendered. Likely causes: server-side '
+                    + 'collapse (e.g. M collapsed into cma_info when a non-CMA '
+                    + 'peer exists), aggressive filter, or a regression in '
+                    + 'locationIcon for this bucket. Check applyLayerFilters '
+                    + 'and renderPayload at the marker creation site.');
+            }
+        });
     }
 
     function renderHeatmap(points) {
@@ -2184,6 +2312,35 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('detail-back-btn').addEventListener('click', () => {
         if (panelParentComposite) openCompositeList(panelParentComposite);
     });
+
+    // Fix-up #2 §3 — single-detail mode sidebar↔map link. The detail
+    // header is the persistent "card" for the open record; hovering it
+    // pulses the matching pin (whether un-clustered or inside a cluster
+    // bubble — pulseMarkerByLocationKey handles both). Clicking it pans
+    // the map back to the pin (useful when the agent has scrolled the
+    // map away from the open card). Hooked once at init via the static
+    // header DOM (id="detail-title"); reads panelCurrentLocationKey at
+    // event time so it always points at the current record.
+    (function wireSingleDetailHeaderLink() {
+        const titleEl = document.getElementById('detail-title');
+        const subtitleEl = document.getElementById('detail-subtitle');
+        // Treat the header block as a single hover target. Cursor hint
+        // signals it's interactive without spoiling the layout.
+        [titleEl, subtitleEl].forEach(el => {
+            if (!el) return;
+            el.style.cursor = 'pointer';
+            el.addEventListener('mouseenter', () => {
+                if (panelState === 'single_detail' && panelCurrentLocationKey) {
+                    pulseMarkerByLocationKey(panelCurrentLocationKey);
+                }
+            });
+            el.addEventListener('click', () => {
+                if (panelState === 'single_detail' && panelCurrentLocationKey) {
+                    panToLocationKey(panelCurrentLocationKey);
+                }
+            });
+        });
+    })();
 
     /**
      * Render the composite list — every record at this location, each
