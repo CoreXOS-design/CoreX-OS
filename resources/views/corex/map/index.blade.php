@@ -208,17 +208,23 @@
                             ['key' => 'sold_comps',      'label' => 'Sold Comps',        'colour' => '#dc2626', 'letter' => 'S'],
                             ['key' => 'active_listings', 'label' => 'Portal Stock',      'colour' => '#f59e0b', 'letter' => 'P', 'title' => 'Portal Stock — competitor listings captured from Property24 and Private Property'],
                             ['key' => 'mic_subjects',    'label' => 'MIC Subjects',      'colour' => '#7c3aed', 'letter' => 'M'],
-                            ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#db2777', 'letter' => 'O', 'sensitive' => true],
+                            ['key' => 'scheme_owners',   'label' => 'Sectional Schemes', 'colour' => '#06b6d4', 'letter' => 'O', 'sensitive' => true],
                             ['key' => 'tracked_properties', 'label' => 'Tracked',        'colour' => '#00d4aa', 'letter' => 'T', 'sensitive' => true, 'title' => 'Tracked — prospecting candidates with geocoded GPS, not yet on agency stock (Agent View only)'],
                         ];
                     @endphp
                     @foreach($layerDefs as $l)
+                    {{-- Fix-up #3 §3 — left-rail layer chip uses the SAME pin shape +
+                         colour + glyph as the map pin for its bucket. JS injects the
+                         SVG into [data-layer-pin-icon] on init; the button is a
+                         transparent box-shaped container so the SVG silhouette is
+                         the only visual. Hover/active border + count badge below
+                         continue to work unchanged. --}}
                     <button type="button" data-layer-toggle="{{ $l['key'] }}" data-on="1"
                             @if($l['sensitive'] ?? false) data-sensitive="1" @endif
                             title="{{ $l['title'] ?? $l['label'] }}"
                             aria-label="Toggle {{ $l['label'] }}"
-                            style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: {{ $l['colour'] }}; color: #fff; border: 2px solid transparent; border-radius: 50%; font-size: 0.75rem; font-weight: 700; cursor: pointer;">
-                        {{ $l['letter'] }}
+                            style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: transparent; color: #fff; border: 2px solid transparent; border-radius: 4px; cursor: pointer; padding: 0;">
+                        <span data-layer-pin-icon="{{ $l['key'] }}" style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;"></span>
                         <span data-layer-count="{{ $l['key'] }}"
                               style="position: absolute; bottom: -4px; right: -4px; min-width: 14px; padding: 1px 3px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; font-size: 0.5625rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums;">—</span>
                     </button>
@@ -498,21 +504,23 @@ document.addEventListener('DOMContentLoaded', function () {
     const AGENCY_NAME      = @json($agency?->name ?? 'Agency');
 
     // Single-record category visuals. Aligned to the high-contrast palette
-    // ruling from the visual identity fix-up — six strongly distinct hues
+    // ruling from the visual identity fix-ups — six strongly distinct hues
     // spread across the spectrum (no two adjacent buckets within 60° of hue,
     // colour-blind safe at marker size). Final hexes:
     //   COMPANY (H)        navy    #0b2a4a
     //   PORTAL  (P)        amber   #f59e0b
     //   TRACKED (T)        teal    #00d4aa  (the spine)
     //   CMA-M (subject)    purple  #7c3aed
-    //   CMA-O (owner)      magenta #db2777
+    //   CMA-O (owner)      cyan    #06b6d4  (fix-up #3 §2 — was magenta,
+    //                                       read as nearly-red against the
+    //                                       map and conflicted with S-red)
     //   CMA-S (sold)       red     #dc2626
     const LAYER_COLOURS = {
         hfc_listings:       '#0b2a4a',
         sold_comps:         '#dc2626',
         active_listings:    '#f59e0b',
         mic_subjects:       '#7c3aed',
-        scheme_owners:      '#db2777',
+        scheme_owners:      '#06b6d4',
         tracked_properties: '#00d4aa',
     };
     const LAYER_LETTERS = {
@@ -566,7 +574,7 @@ document.addEventListener('DOMContentLoaded', function () {
         P:        { shape: 'diamond',  size: [22, 22], fill: '#f59e0b', stroke: '#ffffff', strokeWidth: 2, glyph: 'P', glyphFill: '#0b2a4a' },
         T:        { shape: 'hexagon',  size: [22, 22], fill: '#00d4aa', stroke: '#0b2a4a', strokeWidth: 2 },
         M:        { shape: 'square',   size: [22, 22], fill: '#7c3aed', stroke: '#ffffff',          strokeWidth: 2, glyph: 'M', glyphFill: '#ffffff' },
-        O:        { shape: 'triangle', size: [24, 22], fill: '#db2777', stroke: '#ffffff', strokeWidth: 2, glyph: 'O', glyphFill: '#ffffff' },
+        O:        { shape: 'triangle', size: [24, 22], fill: '#06b6d4', stroke: '#ffffff', strokeWidth: 2, glyph: 'O', glyphFill: '#0b2a4a' },
         S_market: { shape: 'circle',   size: [22, 22], fill: '#dc2626', stroke: '#ffffff', strokeWidth: 2, glyph: 'S', glyphFill: '#ffffff' },
         // S_own is rendered via the house-pin path, NOT via shapeSvg —
         // the entry stays so pinKeyForRecord can dispatch on it, but the
@@ -783,7 +791,69 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function ringColourFor(k) {
-        return ({ T: '#00d4aa', P: '#f59e0b', S: '#dc2626', M: '#7c3aed', O: '#db2777' })[k] || '#94a3b8';
+        // Keep in sync with LAYER_COLOURS — single source for bucket
+        // accent colours used in composite rings and sidebar icons.
+        return ({ T: '#00d4aa', P: '#f59e0b', S: '#dc2626', M: '#7c3aed', O: '#06b6d4' })[k] || '#94a3b8';
+    }
+
+    /** Map a category key (database value) to a pinKey lookup in
+     *  PIN_STYLES. Used by sidebar icon rendering so the same bucket
+     *  reuses the map pin's shape + colour at a smaller size. */
+    function pinKeyForCategory(cat) {
+        return ({
+            hfc_listings:       'H',
+            active_listings:    'P',
+            tracked_properties: 'T',
+            mic_subjects:       'M',
+            scheme_owners:      'O',
+            sold_comps:         'S_market',
+        })[cat] || null;
+    }
+
+    /** Fix-up #3 §3 — render a miniature pin icon for use in sidebar
+     *  composite-list section headers. Reuses shapeSvg + glyphLayer from
+     *  the map pin module so the sidebar bucket icon is the SAME shape +
+     *  colour + (where applicable) glyph as the map pin for that bucket.
+     *  No duplicate SVG code. Sized down to `sizePx` px; default 18 to
+     *  match the previous chip footprint.
+     *
+     *  Returns inline-block HTML, ready to drop into a row. */
+    function sidebarBucketIcon(category, sizePx) {
+        const px = sizePx || 18;
+        const pinKey = pinKeyForCategory(category);
+        if (!pinKey) {
+            return '<span style="display:inline-block;width:' + px + 'px;height:' + px
+                + 'px;background:#94a3b8;border-radius:50%;"></span>';
+        }
+        const baseStyle = PIN_STYLES[pinKey];
+        if (!baseStyle) {
+            return '<span style="display:inline-block;width:' + px + 'px;height:' + px
+                + 'px;background:#94a3b8;border-radius:50%;"></span>';
+        }
+        // Scale to the target size, preserving aspect ratio. House pin is
+        // taller than wide; everything else is square or near-square.
+        const w0 = baseStyle.size[0], h0 = baseStyle.size[1];
+        const longest = Math.max(w0, h0);
+        const scale = px / longest;
+        const W = Math.max(8, Math.round(w0 * scale));
+        const H = Math.max(8, Math.round(h0 * scale));
+        const style = {
+            shape: baseStyle.shape,
+            size: [W, H],
+            fill: baseStyle.fill,
+            stroke: baseStyle.stroke,
+            strokeWidth: Math.max(1, Math.round((baseStyle.strokeWidth || 2) * scale)),
+            glyph: baseStyle.glyph,
+            glyphFill: baseStyle.glyphFill,
+        };
+        // Wrap with relative positioning so the glyph (position:absolute)
+        // anchors inside the icon. Vertical-align middle for inline layout
+        // alongside the section title.
+        return '<span style="position:relative;display:inline-flex;width:' + W + 'px;height:' + H
+            + 'px;vertical-align:middle;flex-shrink:0;">'
+            + shapeSvg(style)
+            + (style.glyph ? glyphLayer(style) : '')
+            + '</span>';
     }
 
     /** SVG ring layer — concentric circles centred on the pin, sized to
@@ -2059,11 +2129,35 @@ document.addEventListener('DOMContentLoaded', function () {
             total += loc.record_count;
             if (!showPins) return;
 
+            const _bucket = bucketForLocation(loc);
+            // Fix-up #3 §1 — also resolve the primary category (mic_subjects /
+            // hfc_listings / …) so the DOM carries a queryable attribute the
+            // PROOF console queries can target directly. This is the
+            // contract behind:
+            //   document.querySelectorAll('[data-bucket="mic_subjects"]')
+            // returning the M marker count in the DOM.
+            const _primaryCat = (loc.display_as === 'scheme')
+                ? 'scheme_owners'
+                : (((loc.records || [])[0] || {}).category || 'unknown');
             const m = L.marker([loc.latitude, loc.longitude], {
                 icon:   locationIcon(loc, loc.location_key === selectedLocationKey),
                 // Stamp the bucket so the themed cluster iconCreateFunction
                 // can tally child markers per bucket without re-deriving.
-                bucket: bucketForLocation(loc),
+                bucket: _bucket,
+                primaryCategory: _primaryCat,
+            });
+            // Project the bucket + category onto the rendered icon element
+            // as soon as Leaflet mounts it, so dev-tools can query directly
+            // (see proof procedure in fix-up #3 §1). The marker may mount
+            // and un-mount as the user pans (cluster/un-cluster), so we
+            // listen for every 'add' rather than just the first one.
+            m.on('add', function () {
+                const el = m.getElement && m.getElement();
+                if (el) {
+                    el.setAttribute('data-bucket', _bucket);
+                    el.setAttribute('data-category', _primaryCat);
+                    el.setAttribute('data-location-key', loc.location_key || '');
+                }
             });
             markerByLocationKey.set(loc.location_key, m);
             // A.2.6 — hover_summary is built server-side per location with a
@@ -2130,6 +2224,16 @@ document.addEventListener('DOMContentLoaded', function () {
         // staging rounds to diagnose). Dev-only: gated on hostname so it
         // stays silent in production.
         assertLayerCountsMatchRendered(payload, filtered);
+
+        // Fix-up #3 §1 — stronger invariant. The previous check only
+        // looked at the filtered PAYLOAD; this one inspects the actual
+        // MARKER COLLECTION inside the cluster and counts by primary
+        // category. If the payload says "59 M records, 56 locations"
+        // but only 0-or-few markers carry primaryCategory='mic_subjects',
+        // we know the JS marker-creation pipeline silently dropped them.
+        // This is the diagnostic the user can run themselves via the
+        // dev-tools console contract above. Gated to staging/localhost.
+        reportClusterMarkersByCategory(payload);
     }
 
     /** Map invariant: for every layer with chip count > 0 the rendered
@@ -2146,15 +2250,13 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (e) { return; }
 
         const counts = serverPayload.layer_counts || {};
-        // Categories present in the rendered (post-filter) locations.
         const renderedCats = new Set();
         (filteredPayload.locations || []).forEach(loc => {
             (loc.records || []).forEach(r => renderedCats.add(r.category));
         });
-        // Categories with non-zero server count.
         Object.keys(counts).forEach(layer => {
             if ((counts[layer] || 0) === 0) return;
-            if (!enabledLayers.has(layer)) return;  // user toggled it off — expected absence
+            if (!enabledLayers.has(layer)) return;
             if (!renderedCats.has(layer)) {
                 console.warn('[CoreX Map] Invariant broken — layer "' + layer
                     + '" reports ' + counts[layer]
@@ -2163,6 +2265,51 @@ document.addEventListener('DOMContentLoaded', function () {
                     + 'peer exists), aggressive filter, or a regression in '
                     + 'locationIcon for this bucket. Check applyLayerFilters '
                     + 'and renderPayload at the marker creation site.');
+            }
+        });
+    }
+
+    /** Marker-collection-level invariant. After render, walks
+     *  cluster.getLayers() and tallies markers by primaryCategory option.
+     *  Logs an info table to the console so the user / on-call can
+     *  copy-paste it into a bug report. Logs a warn when an enabled,
+     *  non-zero-count layer has ZERO markers — the precise failure mode
+     *  the M-missing complaints reported. Staging/localhost only. */
+    function reportClusterMarkersByCategory(serverPayload) {
+        try {
+            if (!/(localhost|127\.0|staging|hfc-staging|\.localhost)/i.test(location.hostname)) return;
+        } catch (e) { return; }
+        if (!cluster || !cluster.getLayers) return;
+
+        const layers = cluster.getLayers();
+        const byCat = {};
+        layers.forEach(layer => {
+            const cat = (layer.options && layer.options.primaryCategory) || 'unknown';
+            byCat[cat] = (byCat[cat] || 0) + 1;
+        });
+        const counts = (serverPayload && serverPayload.layer_counts) || {};
+
+        // Surface as a single console table so the diff between "server
+        // says X records" and "DOM has Y markers" is immediately visible.
+        const report = Object.keys({ ...counts, ...byCat }).sort().map(cat => ({
+            category:      cat,
+            server_count:  counts[cat] || 0,
+            markers_in_cluster: byCat[cat] || 0,
+            enabled:       enabledLayers.has(cat) ? 'yes' : 'no',
+        }));
+        if (typeof console.table === 'function') console.table(report);
+
+        // Hard-fail invariant: enabled layer with server>0 but markers=0.
+        report.forEach(row => {
+            if (row.enabled === 'yes' && row.server_count > 0 && row.markers_in_cluster === 0) {
+                console.warn('[CoreX Map] FIX-UP #3 §1 invariant broken — "'
+                    + row.category + '" has ' + row.server_count
+                    + ' server records but 0 markers in the cluster. '
+                    + 'Markers were not added to the cluster — check '
+                    + 'applyLayerFilters output and the marker-creation '
+                    + 'loop in renderPayload. To inspect the DOM manually: '
+                    + 'document.querySelectorAll(\'[data-category="' + row.category
+                    + '"]\').length;');
             }
         });
     }
@@ -2382,14 +2529,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
         let html = '';
         Object.keys(byCategory).forEach(cat => {
-            const colour = LAYER_COLOURS[cat] || '#64748b';
-            const letter = LAYER_LETTERS[cat] || '?';
             const name   = LAYER_NAMES[cat]   || cat;
             const recs   = byCategory[cat];
+            // Fix-up #3 §3 — sidebar bucket icon uses the SAME shape +
+            // colour + glyph as the map pin for this category. Single
+            // source: sidebarBucketIcon() reuses shapeSvg + glyphLayer
+            // from PIN_STYLES.
+            const icon = sidebarBucketIcon(cat, 18);
 
             html += '<div style="margin-bottom:14px;">'
                 +    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);font-weight:600;">'
-                +      '<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:' + colour + ';color:#fff;border-radius:50%;font-size:9px;font-weight:700;">' + letter + '</span>'
+                +      icon
                 +      escapeHtml(name) + ' · ' + recs.length
                 +    '</div>';
 
@@ -2912,6 +3062,17 @@ document.addEventListener('DOMContentLoaded', function () {
         btn.style.opacity = on ? '1' : '0.35';
         btn.style.borderColor = on ? 'transparent' : 'var(--border)';
     }
+    // Fix-up #3 §3 — inject the SAME pin SVG (from sidebarBucketIcon /
+    // PIN_STYLES) into each layer-toggle's pin-icon placeholder. Single
+    // source: when palette or shape changes, only PIN_STYLES needs an
+    // edit; the left-rail chips pick it up automatically on next load.
+    document.querySelectorAll('[data-layer-pin-icon]').forEach(host => {
+        const cat = host.dataset.layerPinIcon;
+        // House pin is 24×28; everything else 22×22-ish. Render to a
+        // size that fits within the 30×30 button container with breathing
+        // room for the count badge.
+        host.innerHTML = sidebarBucketIcon(cat, 24);
+    });
     document.querySelectorAll('[data-layer-toggle]').forEach(btn => {
         paintLayerBtn(btn);
         btn.addEventListener('click', () => {
