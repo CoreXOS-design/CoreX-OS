@@ -118,6 +118,9 @@ class Agency extends Model
         'presentations_default_show_pricing_strategy',
         // Build 5 — freshness window for public share CTAs.
         'presentations_freshness_days',
+        // Build 8b — independent CMA compute engine cleaning controls.
+        'cma_compute_recency_months',
+        'cma_compute_iqr_multiplier',
     ];
 
     protected $casts = [
@@ -172,6 +175,9 @@ class Agency extends Model
         'presentations_default_show_pricing_strategy'   => 'boolean',
         // Build 5.
         'presentations_freshness_days'                  => 'integer',
+        // Build 8b.
+        'cma_compute_recency_months'                    => 'integer',
+        'cma_compute_iqr_multiplier'                    => 'decimal:2',
     ];
 
     /**

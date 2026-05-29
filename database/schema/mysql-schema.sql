@@ -197,6 +197,8 @@ CREATE TABLE `agencies` (
   `presentations_default_show_holding_cost` tinyint(1) NOT NULL DEFAULT '1',
   `presentations_default_show_pricing_strategy` tinyint(1) NOT NULL DEFAULT '1',
   `presentations_freshness_days` smallint unsigned NOT NULL DEFAULT '90' COMMENT 'Build 5 — public view shows a "request revised analysis" CTA when the snapshot is older than this many days.',
+  `cma_compute_recency_months` smallint unsigned DEFAULT '36' COMMENT 'Build 8b — recency window (months) for CmaComputeService input pool. Decoupled from presentations_default_period_months which drives the hydrator + coverage badge. Null falls back to service constant.',
+  `cma_compute_iqr_multiplier` decimal(4,2) DEFAULT '1.50' COMMENT 'Build 8b — IQR multiplier for R/m² lower-bound outlier fence (median − multiplier × IQR). 1.5 is Tukey standard. Null falls back to service constant.',
   `presentations_default_comp_scope` enum('radius_all','suburb_only') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'radius_all',
   `presentations_default_radius_m` smallint unsigned NOT NULL DEFAULT '1000',
   `presentations_default_rates_per_million_zar` int unsigned NOT NULL DEFAULT '800' COMMENT 'Monthly municipal rates per R1M of property value.',
@@ -10890,3 +10892,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_17_12
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_17_130000_add_section_toggles_to_presentations',235);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_17_140000_add_snapshot_payload_to_presentations',236);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (793,'2026_06_17_150000_add_title_type_to_properties',237);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (795,'2026_06_17_160000_add_cma_compute_settings_to_agencies',238);

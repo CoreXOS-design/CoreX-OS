@@ -2052,6 +2052,8 @@
                     $presScope    = (string) ($presAgency->presentations_default_comp_scope        ?? 'radius_all');
                     $presRadius   = (int) ($presAgency->presentations_default_radius_m             ?? 1000);
                     $presFreshness = (int) ($presAgency->presentations_freshness_days              ?? 90);
+                    $cmaRecency    = (int) ($presAgency->cma_compute_recency_months                ?? 36);
+                    $cmaIqr        = (float) ($presAgency->cma_compute_iqr_multiplier              ?? 1.5);
                 @endphp
 
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -2160,6 +2162,40 @@
                                            class="w-full rounded-md px-3 py-2 text-sm"
                                            style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                     <div class="text-[11px] mt-1" style="color:var(--text-muted);">Default 90. Range 7–365.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- Build 8b — CMA compute engine cleaning controls. Internal
+                             this build (the cleaned numbers ride in the cma_computed
+                             payload only — no seller surface yet). Decoupled from
+                             presentations_default_period_months so this setting only
+                             affects what the compute engine processes; the hydrator
+                             pool + coverage badge are unaffected. --}}
+                        <div class="pt-4 mt-4" style="border-top:1px solid var(--border);">
+                            <div class="mb-3">
+                                <div class="text-sm font-semibold" style="color:var(--text-primary);">CMA Compute Engine — Pool Cleaning</div>
+                                <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
+                                    How aggressively the independent CMA compute engine cleans the comp pool before deriving its median / mean / R-per-m² values.
+                                    Affects the engine's output only — the review-screen comp table still shows the full unfiltered pool.
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Recency window (months)</label>
+                                    <input type="number" min="1" max="600" name="cma_compute_recency_months"
+                                           value="{{ $cmaRecency }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Drop comps older than this. Default 36. Range 1–600.</div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">IQR multiplier (lower fence)</label>
+                                    <input type="number" min="0.5" max="5.0" step="0.1" name="cma_compute_iqr_multiplier"
+                                           value="{{ number_format($cmaIqr, 2, '.', '') }}"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">Drop R/m² &lt; Q1 − (multiplier × IQR). Default 1.5. Range 0.5–5.0.</div>
                                 </div>
                             </div>
                         </div>

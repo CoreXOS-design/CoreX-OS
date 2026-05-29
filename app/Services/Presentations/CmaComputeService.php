@@ -45,6 +45,19 @@ final class CmaComputeService
     /** bcmath scale for intermediate money math (cents-level precision). */
     public const SCALE = 2;
 
+    /** Build 8b — minimum viable n for a cleaned pool. Below this the
+     *  median becomes too noise-vulnerable to be trusted; we fall back
+     *  to the previous, less-cleaned stage and surface a flag in the
+     *  output so the consumer knows cleaning was deferred. 5 is the
+     *  judgment call: enough comps that a single outlier can't move the
+     *  median; small enough that thin-market presentations still get
+     *  cleaning when they can. Tunable here if Tinker output shows
+     *  a different bar is right. */
+    public const MIN_VIABLE_N = 5;
+
+    public const DEFAULT_RECENCY_MONTHS = 36;
+    public const DEFAULT_IQR_MULTIPLIER = 1.5;
+
     /**
      * Compute CoreX's independent CMA outputs.
      *
@@ -78,16 +91,173 @@ final class CmaComputeService
 
         $extent = $this->resolveSubjectExtentM2($presentation, $isSectional);
 
-        $prices       = $this->extractPrices($inPoolComps);
-        $pricesWithSz = $this->extractPricesWithSize($inPoolComps);
+        // Build 8b — agency-configurable cleaning controls. Defaults
+        // kick in for legacy agencies or when the column is null.
+        $agency       = $presentation->agency;
+        $recencyMo    = (int) ($agency?->cma_compute_recency_months ?? self::DEFAULT_RECENCY_MONTHS);
+        $iqrMult      = (float) ($agency?->cma_compute_iqr_multiplier ?? self::DEFAULT_IQR_MULTIPLIER);
 
+        // ── PRE-CLEAN POOL (Build 8a contract) ──────────────────────────
+        $preCleanPrices       = $this->extractPrices($inPoolComps);
+        $preCleanPricesWithSz = $this->extractPricesWithSize($inPoolComps);
+        $nTotalPre            = count($preCleanPrices);
+        $nWithSizePre         = count($preCleanPricesWithSz);
+
+        // ── CLEAN: recency cut, then IQR on R/m² ────────────────────────
+        $cleaning = $this->cleanPool($inPoolComps, $recencyMo, $iqrMult);
+        $cleanedComps         = $cleaning['cleaned_comps'];
+        $cleanedPrices        = $this->extractPrices($cleanedComps);
+        $cleanedPricesWithSz  = $this->extractPricesWithSize($cleanedComps);
+
+        // pool_stats — distribution on the FULL pre-clean pool (Build 8a
+        // contract preserved) + cleaning audit trail (Build 8b additions).
+        $poolStats = array_merge(
+            $this->poolStats($preCleanPrices, $nWithSizePre),
+            [
+                'n_after_recency_cut'  => $cleaning['n_after_recency'],
+                'n_after_outlier_cut'  => $cleaning['n_after_outlier'],
+                'excluded_by_recency'  => $nTotalPre - $cleaning['n_after_recency'],
+                'excluded_by_outlier'  => $cleaning['n_after_recency'] - $cleaning['n_after_outlier'],
+                'cleaning_fallback'    => $cleaning['fallback'],  // null | 'outlier_too_thin' | 'recency_too_thin'
+                'recency_months_used'  => $recencyMo,
+                'iqr_multiplier_used'  => $iqrMult,
+            ]
+        );
+
+        // Methods compute off the CLEANED pool; preclean sub-key carries
+        // the Build 8a values for side-by-side delta inspection.
         return [
             'cma_info_stated_middle' => $cmaInfoStatedMiddle,
-            'pool_stats'             => $this->poolStats($prices, count($pricesWithSz)),
-            'method_median'          => $this->methodMedian($prices, $conditionPct),
-            'method_mean'             => $this->methodMean($prices, $conditionPct),
-            'method_rm2_extent'      => $this->methodRm2Extent($pricesWithSz, $extent, $conditionPct),
+            'pool_stats'             => $poolStats,
+            'method_median' => array_merge(
+                $this->methodMedian($cleanedPrices, $conditionPct),
+                ['preclean' => $this->methodMedian($preCleanPrices, $conditionPct)],
+            ),
+            'method_mean' => array_merge(
+                $this->methodMean($cleanedPrices, $conditionPct),
+                ['preclean' => $this->methodMean($preCleanPrices, $conditionPct)],
+            ),
+            'method_rm2_extent' => array_merge(
+                $this->methodRm2Extent($cleanedPricesWithSz, $extent, $conditionPct),
+                ['preclean' => $this->methodRm2Extent($preCleanPricesWithSz, $extent, $conditionPct)],
+            ),
         ];
+    }
+
+    // ── Build 8b — cleaning pipeline ────────────────────────────────────
+
+    /**
+     * Apply recency cut then R/m² IQR lower-fence cut to the comp pool.
+     *
+     * Order matters: recency first (drops ancient outliers), THEN IQR
+     * on the survivors (self-calibrates against the remaining pool's
+     * distribution, not against ancient comps).
+     *
+     * Min-n floor protects against over-prune. Two-level fallback:
+     *   - If IQR cut would leave < MIN_VIABLE_N → use recency-only,
+     *     flag 'outlier_too_thin'.
+     *   - If recency-only is also < MIN_VIABLE_N → use full pre-clean,
+     *     flag 'recency_too_thin'.
+     *   - Empty pool falls through to empty results.
+     *
+     * @return array{
+     *   cleaned_comps:    Collection<PresentationSoldComp>,
+     *   n_after_recency:  int,
+     *   n_after_outlier:  int,
+     *   fallback:         ?string,
+     * }
+     */
+    private function cleanPool(Collection $allComps, int $recencyMonths, float $iqrMultiplier): array
+    {
+        // Recency cut: drop comps whose sold_date is older than now()
+        // minus $recencyMonths. Null dates fall through (not excluded —
+        // we can't say they're old, the analyst put them in for a reason).
+        $cutoff = \Illuminate\Support\Carbon::now()
+            ->subMonths(max(0, $recencyMonths))
+            ->toDateString();
+        $afterRecency = $allComps->filter(function ($c) use ($cutoff) {
+            if (empty($c->sold_date)) return true;
+            $d = (string) ($c->sold_date instanceof \DateTimeInterface
+                ? $c->sold_date->format('Y-m-d')
+                : $c->sold_date);
+            return $d >= $cutoff;
+        })->values();
+        $nAfterRecency = $afterRecency->count();
+
+        // IQR cut on R/m² (lower fence only). Comps without size_m2
+        // are NOT evaluated by R/m² so they pass through unchanged.
+        $afterOutlier  = $this->applyIqrLowerFence($afterRecency, $iqrMultiplier);
+        $nAfterOutlier = $afterOutlier->count();
+
+        // Min-n fallback ladder.
+        if ($nAfterOutlier >= self::MIN_VIABLE_N) {
+            return [
+                'cleaned_comps'   => $afterOutlier,
+                'n_after_recency' => $nAfterRecency,
+                'n_after_outlier' => $nAfterOutlier,
+                'fallback'        => null,
+            ];
+        }
+        if ($nAfterRecency >= self::MIN_VIABLE_N) {
+            return [
+                'cleaned_comps'   => $afterRecency,
+                'n_after_recency' => $nAfterRecency,
+                'n_after_outlier' => $nAfterOutlier,
+                'fallback'        => 'outlier_too_thin',
+            ];
+        }
+        // Both cuts too aggressive — fall back to the unfiltered pool.
+        return [
+            'cleaned_comps'   => $allComps->values(),
+            'n_after_recency' => $nAfterRecency,
+            'n_after_outlier' => $nAfterOutlier,
+            'fallback'        => $allComps->count() > 0 ? 'recency_too_thin' : null,
+        ];
+    }
+
+    /**
+     * Apply the IQR lower-fence outlier cut on R/m². The fence is
+     * Q1 − (multiplier × IQR) where Q1 / Q3 are nearest-rank percentiles
+     * of the in-pool R/m² list. Comps without size_m2 pass through
+     * unconditionally (no R/m² to evaluate; their absolute price still
+     * counts for median/mean).
+     *
+     * @param  Collection<PresentationSoldComp>  $comps
+     * @return Collection<PresentationSoldComp>
+     */
+    private function applyIqrLowerFence(Collection $comps, float $multiplier): Collection
+    {
+        // Collect R/m² per comp where computable.
+        $rm2List = [];
+        foreach ($comps as $c) {
+            if ($c->sold_price_inc === null || $c->size_m2 === null || (int) $c->size_m2 <= 0) continue;
+            $rm2List[] = bcdiv((string) (int) $c->sold_price_inc, (string) (int) $c->size_m2, self::SCALE);
+        }
+        if (count($rm2List) < self::MIN_VIABLE_N) {
+            // Pool too thin to compute a sensible fence — skip the cut.
+            return $comps;
+        }
+        usort($rm2List, fn($a, $b) => bccomp($a, $b, self::SCALE));
+        $n   = count($rm2List);
+        $q1  = $rm2List[(int) floor($n * 0.25)];
+        $med = $rm2List[(int) floor($n * 0.5)];
+        $q3  = $rm2List[(int) floor($n * 0.75)];
+        $iqr = bcsub($q3, $q1, self::SCALE);
+        // Per locked spec: fence = median − multiplier × IQR.
+        // Median anchor is more aggressive than Q1 anchor — catches
+        // noise that pushes Q1 down into the outlier zone, at the cost
+        // of trimming legitimate borderline-low comps in pools with
+        // wide natural spread. The multiplier is the agency's lever.
+        $multStr = number_format($multiplier, 4, '.', '');
+        $fence   = bcsub($med, bcmul($iqr, $multStr, self::SCALE), self::SCALE);
+
+        return $comps->filter(function ($c) use ($fence) {
+            if ($c->sold_price_inc === null || $c->size_m2 === null || (int) $c->size_m2 <= 0) {
+                return true; // no R/m² to evaluate — pass through
+            }
+            $rm2 = bcdiv((string) (int) $c->sold_price_inc, (string) (int) $c->size_m2, self::SCALE);
+            return bccomp($rm2, $fence, self::SCALE) >= 0;
+        })->values();
     }
 
     // ── Distribution stats ──────────────────────────────────────────────

@@ -357,6 +357,12 @@ class SettingsController extends Controller
             'presentations_default_radius_m'            => ['nullable', 'integer', 'min:50', 'max:5000'],
             // Build 5 — freshness window before the seller-facing CTA fires.
             'presentations_freshness_days'              => ['nullable', 'integer', 'min:7', 'max:365'],
+            // Build 8b — CmaComputeService cleaning controls. Decoupled
+            // from presentations_default_period_months so the compute
+            // engine has its own knob without rippling into the hydrator
+            // pool or the coverage-badge thresholds.
+            'cma_compute_recency_months'                => ['nullable', 'integer', 'min:1', 'max:600'],
+            'cma_compute_iqr_multiplier'                => ['nullable', 'numeric', 'min:0.5', 'max:5.0'],
         ]);
 
         if (
