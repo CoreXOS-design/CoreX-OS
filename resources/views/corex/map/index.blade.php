@@ -15,6 +15,29 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 {{-- Phase 3g V2 — heatmap overlay. --}}
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+{{-- Selected-pin halo. Lives outside the inline body styles so it survives
+     the Leaflet marker DOM reset on every fetchPins() — Leaflet writes
+     marker.options.icon's className verbatim onto the .leaflet-marker-icon
+     element, so the rule targets that class directly. The ring is layered
+     OUTSIDE the existing 2px white border via box-shadow so it doesn't
+     resize the icon and clash with iconAnchor. z-index lifts the selected
+     pin above its neighbours so the halo is never clipped by overlap. --}}
+<style>
+    .corex-pin.corex-pin--selected {
+        box-shadow:
+            0 0 0 3px #00d4aa,
+            0 0 0 6px rgba(0, 212, 170, 0.35),
+            0 1px 3px rgba(0, 0, 0, 0.4);
+        z-index: 1000 !important;
+        border-radius: 50%;
+    }
+    /* Rectangular variants (scheme + composite) drop the 50% radius so the
+       halo follows the icon's actual shape. */
+    .corex-pin.corex-pin-scheme.corex-pin--selected,
+    .corex-pin.corex-pin-composite.corex-pin--selected {
+        border-radius: 7px;
+    }
+</style>
 @endpush
 
 @section('corex-content')
@@ -774,7 +797,8 @@ document.addEventListener('DOMContentLoaded', function () {
      * record_count + records[].category to stay compatible with cached
      * pre-A.2.3 payloads.
      */
-    function locationIcon(loc) {
+    function locationIcon(loc, isSelected) {
+        const selectedClass = isSelected ? ' corex-pin--selected' : '';
         const display = loc.display_as
             || (loc.record_count > 1
                 ? ((loc.records || []).every(r => r.category === 'scheme_owners') ? 'scheme' : 'composite')
@@ -796,7 +820,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 + '</div>';
             return L.divIcon({
                 html,
-                className: 'corex-pin corex-pin-scheme',
+                className: 'corex-pin corex-pin-scheme' + selectedClass,
                 iconSize:   [28, 24],
                 iconAnchor: [14, 12],
             });
@@ -816,7 +840,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 + '</div>';
             return L.divIcon({
                 html,
-                className: 'corex-pin corex-pin-composite',
+                className: 'corex-pin corex-pin-composite' + selectedClass,
                 iconSize: [24, 24],
                 iconAnchor: [12, 12],
             });
@@ -829,7 +853,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const html = '<div style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:'
             + colour + ';color:#fff;border:2px solid #ffffff;border-radius:50%;font-size:11px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.4);">'
             + letter + '</div>';
-        return L.divIcon({ html: html, className: 'corex-pin', iconSize: [22, 22], iconAnchor: [11, 11] });
+        return L.divIcon({ html: html, className: 'corex-pin' + selectedClass, iconSize: [22, 22], iconAnchor: [11, 11] });
     }
 
     /**
@@ -1362,8 +1386,45 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('map-loading-pill').style.display = on ? 'inline-flex' : 'none';
     }
 
+    // ── Selected-pin highlight ────────────────────────────────────────────
+    // Tracks the location_key of the pin currently shown in the detail panel
+    // so the marker can render with a halo ring. State persists across
+    // fetchPins() reloads (filter toggles, pan/zoom) — the marker may be
+    // re-created, but the new instance picks up the selected class from its
+    // location_key matching `selectedLocationKey`.
+    let selectedLocationKey = null;
+    let markerByLocationKey = new Map();
+
+    /** Toggle the halo class on a marker's icon element. Safe on clustered
+     *  markers (getElement returns null while clustered — the class is also
+     *  baked into the divIcon HTML at render so it survives un-clustering). */
+    function applyHaloToMarker(marker, on) {
+        if (!marker) return;
+        const el = marker.getElement && marker.getElement();
+        if (el) el.classList.toggle('corex-pin--selected', !!on);
+    }
+
+    function selectLocation(locationKey) {
+        if (selectedLocationKey === locationKey) return;
+        const prev = selectedLocationKey ? markerByLocationKey.get(selectedLocationKey) : null;
+        if (prev) applyHaloToMarker(prev, false);
+        selectedLocationKey = locationKey || null;
+        const next = selectedLocationKey ? markerByLocationKey.get(selectedLocationKey) : null;
+        if (next) applyHaloToMarker(next, true);
+    }
+
+    function clearSelection() {
+        if (!selectedLocationKey) return;
+        const prev = markerByLocationKey.get(selectedLocationKey);
+        if (prev) applyHaloToMarker(prev, false);
+        selectedLocationKey = null;
+    }
+
     function clearAllPins() {
         if (cluster) cluster.clearLayers();
+        // Re-index from scratch on each render; selectedLocationKey stays
+        // so the next render re-applies the halo to the matching marker.
+        markerByLocationKey = new Map();
     }
 
     function renderPayload(payload) {
@@ -1390,7 +1451,8 @@ document.addEventListener('DOMContentLoaded', function () {
             total += loc.record_count;
             if (!showPins) return;
 
-            const m = L.marker([loc.latitude, loc.longitude], { icon: locationIcon(loc) });
+            const m = L.marker([loc.latitude, loc.longitude], { icon: locationIcon(loc, loc.location_key === selectedLocationKey) });
+            markerByLocationKey.set(loc.location_key, m);
             // A.2.6 — hover_summary is built server-side per location with a
             // 5-priority cascade. The client just renders it. Fallback path
             // kicks in only on legacy cached payloads from pre-A.2.6.
@@ -1411,6 +1473,7 @@ document.addEventListener('DOMContentLoaded', function () {
             m.bindTooltip(tooltipLines.filter(Boolean).join('\n'), { direction: 'top' });
 
             m.on('click', () => {
+                selectLocation(loc.location_key);
                 if (loc.is_composite) {
                     openCompositeList(loc);
                 } else {
@@ -1576,6 +1639,7 @@ document.addEventListener('DOMContentLoaded', function () {
         panelParentComposite = null;
         panelCurrentRecord = null;
         panelCurrentLocationKey = null;
+        clearSelection();
         document.getElementById('detail-back-btn').style.display = 'none';
     });
 
@@ -1842,9 +1906,20 @@ document.addEventListener('DOMContentLoaded', function () {
                         +     escapeHtml(act.banner.text)
                         + '</div>';
                 }
-                html += '<a href="' + escapeAttr(act.destUrl || '#') + '" '
+                // awaitServerRedirect actions intercept the click via JS and
+                // open the new tab themselves (we need a handle on the new
+                // window so we can swap its URL once the fetch resolves).
+                // Rendering target="_blank" on the anchor would cause the
+                // browser to ALSO open the destUrl in a new tab on click —
+                // a duplicate / wrong-URL tab next to ours. The href
+                // becomes '#' so middle-click is a no-op (and Cmd/Ctrl+click
+                // can't accidentally bypass the JS handler and land on the
+                // MIC destUrl fallback).
+                const renderNewTab = act.newTab && !act.awaitServerRedirect;
+                const hrefAttr     = act.awaitServerRedirect ? '#' : (act.destUrl || '#');
+                html += '<a href="' + escapeAttr(hrefAttr) + '" '
                     + 'data-map-action="' + escapeAttr(act.key) + '" '
-                    + (act.newTab ? 'target="_blank" rel="noopener" ' : '')
+                    + (renderNewTab ? 'target="_blank" rel="noopener" ' : '')
                     + (disabled ? 'aria-disabled="true" ' : '')
                     + 'style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;padding:8px 12px;border-radius:6px;font-size:0.8125rem;font-weight:600;text-decoration:none;transition:opacity 150ms;'
                     +    styleStr + (disabled ? 'opacity:0.5;cursor:not-allowed;' : '') + '">'
@@ -1894,14 +1969,23 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (act.awaitServerRedirect) {
             e.preventDefault();
+            e.stopPropagation();
             // Pre-open the new tab SYNCHRONOUSLY while we still have the
             // user gesture — Chrome/Firefox/Safari block window.open() that
             // fires after an await boundary. We assign the real URL once
             // the server response lands. If the server returns no URL
             // (pitch_unavailable from MapActivityController) we close the
-            // placeholder and surface an explicit error. Same-tab branch
-            // (act.newTab=false) doesn't need pre-opening.
-            const popup = act.newTab ? window.open('about:blank', '_blank', 'noopener') : null;
+            // placeholder and surface an explicit error.
+            //
+            // CRITICAL: do NOT pass 'noopener' here. window.open() with
+            // noopener returns null in every browser, which means we lose
+            // the popup handle — the placeholder tab stays on about:blank
+            // forever AND our `if (popup) popup.location.href = url; else
+            // window.location.href = url` cascade falls into the ELSE
+            // branch and navigates THE MAP TAB. After we've assigned
+            // popup.location.href below we sever popup.opener manually to
+            // restore the security property `noopener` was after.
+            const popup = act.newTab ? window.open('about:blank', '_blank') : null;
             try {
                 const resp = await fetch(MAP_ACTIVITY_URL, {
                     method:      'POST',
@@ -1926,8 +2010,23 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     const url = body.redirect_url;
                     if (url) {
-                        if (popup) popup.location.href = url;
-                        else        window.location.href = url;
+                        if (act.newTab) {
+                            if (popup) {
+                                popup.location.href = url;
+                                // Restore the security property `noopener`
+                                // would have given us — break the back-ref
+                                // so the entry-point page can't reach
+                                // window.opener and tamper with the map tab.
+                                try { popup.opener = null; } catch (_) { /* cross-origin will throw, harmless */ }
+                            } else {
+                                // Browser blocked window.open() entirely.
+                                // Surface a clear message — do NOT navigate
+                                // the map tab as a fallback.
+                                toastInfo('Pop-up blocked. Allow pop-ups for this site and try again.');
+                            }
+                        } else {
+                            window.location.href = url;
+                        }
                         return;
                     }
                 }
