@@ -221,15 +221,16 @@ final class MicSnapshotHydrator
                 ->all();
         }
 
-        // Build 1 — title_type discipline. The subject's category (the name
-        // stored on the property record) maps to a PropertySettingItem row
-        // whose title_type drives comp-selection. Houses (full_title) must
-        // not compare against apartments (sectional_title) or vacant land.
-        // Spec: .ai/specs/presentation-data-lineage.md §3-A.
-        // Hotfix — original Build 1 line referenced an undefined $agencyId
-        // variable (only $agency object exists in this scope). Pull the int
-        // from the presentation, which is the multi-tenancy anchor anyway.
-        $titleType = $this->resolveSubjectTitleType($presentation, (int) $presentation->agency_id);
+        // Keystone — title_type now lives on properties.title_type,
+        // derived from property_type by TitleTypeClassifier on every save.
+        // Read the column first; fall back to the classifier (which
+        // re-derives + tries category) only when the column is NULL,
+        // covering rows pre-dating the backfill. Spec:
+        // .ai/specs/presentation-data-lineage.md §3-A.
+        $titleType = $presentation->property?->title_type
+            ?? ($presentation->property
+                ? app(\App\Services\TitleTypeClassifier::class)->forProperty($presentation->property)
+                : null);
 
         return [
             'scope'                => $scope,
@@ -249,80 +250,11 @@ final class MicSnapshotHydrator
         ];
     }
 
-    /**
-     * Resolve the subject's title_type from its PropertySettingItem
-     * (matched by agency + group=category + name = property.category).
-     * Returns null when:
-     *   - the property has no `category` value;
-     *   - or the category name doesn't match any agency setting;
-     *   - or the matching row exists but title_type is null.
-     * A null return means "skip the comp filter and log a warning" — the
-     * comp query is left wide open rather than emitting an empty set.
-     */
-    private function resolveSubjectTitleType(Presentation $presentation, int $agencyId): ?string
-    {
-        $categoryName = $presentation->property?->category ?? null;
-        if (!is_string($categoryName) || trim($categoryName) === '') {
-            \Illuminate\Support\Facades\Log::info('[PRES-WARN] subject category missing — comp title_type filter SKIPPED', [
-                'presentation_id' => $presentation->id,
-                'property_id'     => $presentation->property?->id,
-            ]);
-            return null;
-        }
-
-        $row = PropertySettingItem::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->where('group', PropertySettingItem::GROUP_CATEGORY)
-            ->whereNull('deleted_at')
-            ->whereRaw('LOWER(name) = ?', [mb_strtolower(trim($categoryName))])
-            ->first(['id', 'name', 'title_type']);
-
-        if (!$row) {
-            // Fall back to the system defaults (no agency_id) — covers
-            // agencies that haven't customised the category list yet.
-            $row = PropertySettingItem::withoutGlobalScopes()
-                ->whereNull('agency_id')
-                ->where('group', PropertySettingItem::GROUP_CATEGORY)
-                ->whereNull('deleted_at')
-                ->whereRaw('LOWER(name) = ?', [mb_strtolower(trim($categoryName))])
-                ->first(['id', 'name', 'title_type']);
-        }
-
-        if (!$row || empty($row->title_type)) {
-            \Illuminate\Support\Facades\Log::info('[PRES-WARN] subject category has no title_type — comp filter SKIPPED', [
-                'presentation_id' => $presentation->id,
-                'category'        => $categoryName,
-            ]);
-            return null;
-        }
-
-        return $row->title_type;
-    }
-
-    /**
-     * Classify a comp's free-text property_type into a title_type bucket.
-     * Used by the comp-selection filter — comps whose classified
-     * title_type doesn't match the subject's are dropped.
-     *
-     * Sectional title language: sectional, apartment, flat, unit,
-     *   townhouse, duplex.
-     * Vacant land: vacant_land, plot, stand, erf, vacant.
-     * Everything else: full_title.
-     */
-    private function classifyCompTitleType(?string $compType): string
-    {
-        $t = strtolower((string) $compType);
-        if ($t === '') return PropertySettingItem::TITLE_OTHER;
-        if (str_contains($t, 'sectional') || str_contains($t, 'apartment') || str_contains($t, 'flat')
-            || str_contains($t, 'unit') || str_contains($t, 'townhouse') || str_contains($t, 'duplex')) {
-            return PropertySettingItem::TITLE_SECTIONAL;
-        }
-        if (str_contains($t, 'vacant') || str_contains($t, 'plot') || str_contains($t, 'stand')
-            || str_contains($t, 'erf')) {
-            return PropertySettingItem::TITLE_VACANT;
-        }
-        return PropertySettingItem::TITLE_FULL;
-    }
+    // Keystone — resolveSubjectTitleType + classifyCompTitleType were
+    // duplicate bodies (mirror of PresentationReviewController's pair).
+    // Their logic now lives in App\Services\TitleTypeClassifier. Subject
+    // classification reads properties.title_type directly above; comp
+    // classification calls the service inline at the filter site.
 
     /**
      * Extract street-shaped fragments from an address.
@@ -434,7 +366,15 @@ final class MicSnapshotHydrator
                 $subjectReportHit = !empty($subjectReportIds)
                     && in_array((int) $row->market_report_id, $subjectReportIds, true);
                 if (!$subjectReportHit) {
-                    $compTitleType = $this->classifyCompTitleType($row->property_type ?? null);
+                    // Preserve Build 1's strict-drop semantic: a comp
+                    // with no usable property_type was classified as
+                    // TITLE_OTHER and dropped (OTHER never matches the
+                    // subject's actual type). The new service returns
+                    // null on blank to keep forProperty's fallback chain
+                    // clean — coerce at the call site.
+                    $compTitleType = app(\App\Services\TitleTypeClassifier::class)
+                            ->fromPropertyType($row->property_type ?? null)
+                        ?? \App\Services\TitleTypeClassifier::TITLE_OTHER;
                     if ($compTitleType !== $titleType) {
                         return false;
                     }

@@ -39,6 +39,21 @@ class PresentationGeneratorController extends Controller
             return $this->reject($request, 'Property is outside your agency scope.', 403);
         }
 
+        // Keystone — property_type is mandatory. The classifier needs it
+        // to derive title_type (which drives comp-filter discipline);
+        // without it the presentation would silently mis-classify or be
+        // forced to lean on the agency category fallback, which is too
+        // coarse for mixed-stock agencies. Reject early with a clear
+        // user-facing message rather than letting the generator either
+        // fail mysteriously or produce a wrong report.
+        if (trim((string) ($property->property_type ?? '')) === '') {
+            return $this->reject(
+                $request,
+                'No property type selected — please select a property type to continue.',
+                422,
+            );
+        }
+
         $validated = $request->validate([
             'asking_price'  => ['nullable', 'numeric', 'min:0', 'max:999999999'],
             // Phase 3b — per-presentation scope override.

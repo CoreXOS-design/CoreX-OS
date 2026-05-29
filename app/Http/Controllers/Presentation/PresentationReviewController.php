@@ -78,15 +78,22 @@ final class PresentationReviewController extends Controller
         $includedIds = $version->included_comp_ids_json
             ?: $allComps->pluck('id')->all();
 
-        // title_type resolution for subject + cross-type warning flags
-        // per comp. Mirrors MicSnapshotHydrator's classifier.
-        $subjectTitleType = $this->resolveSubjectTitleType($version, $presentation);
+        // Keystone — title_type now lives on properties.title_type,
+        // derived from property_type by TitleTypeClassifier on every save.
+        // Read the column first; fall back to the classifier (which
+        // re-derives + tries category) only when the column is NULL,
+        // covering rows pre-dating the backfill.
+        $classifier = app(\App\Services\TitleTypeClassifier::class);
+        $subjectTitleType = $presentation->property?->title_type
+            ?? ($presentation->property ? $classifier->forProperty($presentation->property) : null);
 
-        $compRows = $allComps->map(function ($c) use ($includedIds, $subjectTitleType) {
+        $compRows = $allComps->map(function ($c) use ($includedIds, $subjectTitleType, $classifier) {
             $raw = is_string($c->raw_row_json)
                 ? (json_decode($c->raw_row_json, true) ?: [])
                 : ((array) $c->raw_row_json ?: []);
-            $compTitleType = $this->classifyCompTitleType($c->property_type);
+            // Preserve Build 1 strict-drop semantic on blank comp type.
+            $compTitleType = $classifier->fromPropertyType($c->property_type)
+                ?? \App\Services\TitleTypeClassifier::TITLE_OTHER;
             return [
                 'id'              => $c->id,
                 'address'         => $raw['address'] ?? '—',
@@ -562,37 +569,9 @@ final class PresentationReviewController extends Controller
         return count($missing);
     }
 
-    /** Mirrors MicSnapshotHydrator::resolveSubjectTitleType but on the
-     *  PresentationVersion's frozen presentation. Returns null when the
-     *  subject has no resolvable category — page surfaces this. */
-    private function resolveSubjectTitleType(PresentationVersion $version, $presentation): ?string
-    {
-        $categoryName = $presentation->property?->category ?? null;
-        if (!is_string($categoryName) || trim($categoryName) === '') return null;
-
-        $row = PropertySettingItem::withoutGlobalScopes()
-            ->where('agency_id', $version->agency_id)
-            ->where('group', PropertySettingItem::GROUP_CATEGORY)
-            ->whereNull('deleted_at')
-            ->whereRaw('LOWER(name) = ?', [mb_strtolower(trim($categoryName))])
-            ->first(['title_type']);
-
-        return $row?->title_type;
-    }
-
-    /** Mirrors MicSnapshotHydrator::classifyCompTitleType. */
-    private function classifyCompTitleType(?string $compType): string
-    {
-        $t = strtolower((string) $compType);
-        if ($t === '') return PropertySettingItem::TITLE_OTHER;
-        if (str_contains($t, 'sectional') || str_contains($t, 'apartment') || str_contains($t, 'flat')
-            || str_contains($t, 'unit') || str_contains($t, 'townhouse') || str_contains($t, 'duplex')) {
-            return PropertySettingItem::TITLE_SECTIONAL;
-        }
-        if (str_contains($t, 'vacant') || str_contains($t, 'plot') || str_contains($t, 'stand')
-            || str_contains($t, 'erf')) {
-            return PropertySettingItem::TITLE_VACANT;
-        }
-        return PropertySettingItem::TITLE_FULL;
-    }
+    // Keystone — resolveSubjectTitleType + classifyCompTitleType were
+    // duplicates of MicSnapshotHydrator's pair. Both retired. The
+    // controller now reads $presentation->property?->title_type
+    // directly (line ~83 above), with App\Services\TitleTypeClassifier
+    // as the fallback path for legacy rows pre-dating the backfill.
 }

@@ -36,29 +36,33 @@ class TitleTypeAndFallbacksTest extends TestCase
         return $ref->invokeArgs($instance, $args);
     }
 
-    public function test_classify_comp_title_type_buckets_correctly(): void
+    public function test_classifier_from_property_type_buckets_correctly(): void
     {
-        $h = new MicSnapshotHydrator();
+        $svc = new \App\Services\TitleTypeClassifier();
 
-        $this->assertSame('full_title',      $this->invokePrivate($h, 'classifyCompTitleType', ['house']));
-        $this->assertSame('full_title',      $this->invokePrivate($h, 'classifyCompTitleType', ['House']));
-        $this->assertSame('sectional_title', $this->invokePrivate($h, 'classifyCompTitleType', ['sectional']));
-        $this->assertSame('sectional_title', $this->invokePrivate($h, 'classifyCompTitleType', ['sectional_title']));
-        $this->assertSame('sectional_title', $this->invokePrivate($h, 'classifyCompTitleType', ['Flat']));
-        $this->assertSame('sectional_title', $this->invokePrivate($h, 'classifyCompTitleType', ['apartment']));
-        $this->assertSame('sectional_title', $this->invokePrivate($h, 'classifyCompTitleType', ['townhouse']));
-        $this->assertSame('sectional_title', $this->invokePrivate($h, 'classifyCompTitleType', ['duplex']));
-        $this->assertSame('sectional_title', $this->invokePrivate($h, 'classifyCompTitleType', ['unit']));
-        $this->assertSame('vacant_land',     $this->invokePrivate($h, 'classifyCompTitleType', ['vacant_land']));
-        $this->assertSame('vacant_land',     $this->invokePrivate($h, 'classifyCompTitleType', ['plot']));
-        $this->assertSame('vacant_land',     $this->invokePrivate($h, 'classifyCompTitleType', ['Stand']));
-        $this->assertSame('other',           $this->invokePrivate($h, 'classifyCompTitleType', [null]));
-        $this->assertSame('other',           $this->invokePrivate($h, 'classifyCompTitleType', ['']));
+        $this->assertSame('full_title',      $svc->fromPropertyType('house'));
+        $this->assertSame('full_title',      $svc->fromPropertyType('House'));
+        $this->assertSame('sectional_title', $svc->fromPropertyType('sectional'));
+        $this->assertSame('sectional_title', $svc->fromPropertyType('Sectional Title'));
+        $this->assertSame('sectional_title', $svc->fromPropertyType('Flat'));
+        $this->assertSame('sectional_title', $svc->fromPropertyType('Apartment / Flat'));
+        $this->assertSame('sectional_title', $svc->fromPropertyType('townhouse'));
+        $this->assertSame('sectional_title', $svc->fromPropertyType('duplex'));
+        $this->assertSame('sectional_title', $svc->fromPropertyType('unit'));
+        $this->assertSame('vacant_land',     $svc->fromPropertyType('vacant_land'));
+        $this->assertSame('vacant_land',     $svc->fromPropertyType('Vacant Land'));
+        $this->assertSame('vacant_land',     $svc->fromPropertyType('plot'));
+        $this->assertSame('vacant_land',     $svc->fromPropertyType('Stand'));
+        // Keystone — blank input now returns null (caller decides). The
+        // legacy duplicate bodies returned TITLE_OTHER on blank; we
+        // preserve that effective behaviour at the comp-filter call site
+        // via a `?? TITLE_OTHER` coercion. See test_blank_comp_type_*.
+        $this->assertNull($svc->fromPropertyType(null));
+        $this->assertNull($svc->fromPropertyType(''));
     }
 
-    public function test_resolve_subject_title_type_reads_from_property_setting_item(): void
+    public function test_classifier_from_category_reads_agency_setting_item(): void
     {
-        // Seed an agency-scoped category row.
         $agencyId = $this->seedAgency();
         DB::table('property_setting_items')->insert([
             'agency_id'  => $agencyId,
@@ -70,32 +74,66 @@ class TitleTypeAndFallbacksTest extends TestCase
             'active'     => true,
             'created_at' => now(), 'updated_at' => now(),
         ]);
-
-        // Property + presentation pointing at it.
-        $propertyId = $this->seedProperty($agencyId, 'Residential');
-        $presentation = Presentation::create([
-            'agency_id'         => $agencyId,
-            'branch_id'         => $agencyId,
-            'created_by_user_id'=> \App\Models\User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId])->id,
-            'property_id'       => $propertyId,
-            'title'             => 'T',
-            'property_address'  => '1 Test',
-            'suburb'            => 'Test',
-            'property_type'     => 'house',
-            'status'            => 'draft',
-            'currency'          => 'ZAR',
-        ]);
-        $presentation->load('property');
-
-        $h = new MicSnapshotHydrator();
-        $titleType = $this->invokePrivate($h, 'resolveSubjectTitleType', [$presentation, $agencyId]);
-        $this->assertSame('full_title', $titleType);
+        $svc = new \App\Services\TitleTypeClassifier();
+        $this->assertSame('full_title', $svc->fromCategory($agencyId, 'Residential'));
+        $this->assertSame('full_title', $svc->fromCategory($agencyId, 'residential')); // case-insensitive
+        $this->assertNull($svc->fromCategory($agencyId, 'NoSuchCategory'));
+        $this->assertNull($svc->fromCategory($agencyId, null));
+        $this->assertNull($svc->fromCategory($agencyId, ''));
     }
 
-    public function test_resolve_subject_title_type_returns_null_when_subject_has_no_category(): void
+    public function test_classifier_for_property_prefers_property_type_then_category(): void
     {
         $agencyId = $this->seedAgency();
-        $propertyId = $this->seedProperty($agencyId, null);   // null category
+        DB::table('property_setting_items')->insert([
+            'agency_id'  => $agencyId,
+            'group'      => 'category',
+            'name'       => 'Residential',
+            'title_type' => 'full_title',  // mismatch with the property_type
+            'sort_order' => 0,
+            'is_default' => true,
+            'active'     => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        // Property 1: sectional property_type + Residential category.
+        // property_type wins — must NOT mis-classify as full_title from
+        // category. This is the exact production bug Phase A* identified.
+        $propIdSec = $this->seedProperty($agencyId, 'Residential', 'Sectional Title');
+        $sectional = \App\Models\Property::find($propIdSec);
+        $svc = new \App\Services\TitleTypeClassifier();
+        $this->assertSame('sectional_title', $svc->forProperty($sectional));
+
+        // Property 2: blank property_type + Residential category. Falls
+        // through to category fallback.
+        $propIdFb = $this->seedProperty($agencyId, 'Residential', '');
+        $fallback = \App\Models\Property::find($propIdFb);
+        $this->assertSame('full_title', $svc->forProperty($fallback));
+    }
+
+    public function test_observer_populates_title_type_on_save(): void
+    {
+        $agencyId = $this->seedAgency();
+        // Insert WITHOUT touching the model so the observer fires on save below.
+        $rawPropId = $this->seedProperty($agencyId, 'Residential', 'Vacant Land');
+        // The seedProperty helper used DB::table — observer didn't fire.
+        // The column was set by the migration backfill though, so reset
+        // to NULL to prove the observer (not the migration) is doing the work.
+        DB::table('properties')->where('id', $rawPropId)->update(['title_type' => null]);
+
+        $p = \App\Models\Property::find($rawPropId);
+        $p->touch(); // trigger save → observer
+        $this->assertSame('vacant_land', $p->fresh()->title_type);
+    }
+
+    public function test_micsnapshot_subject_reads_property_title_type(): void
+    {
+        $agencyId = $this->seedAgency();
+        // No agency category row — so category fallback won't work. The
+        // ONLY source of title_type is the property column. Property
+        // is a sectional unit (which Build 1's category-only path would
+        // have mis-classified as full_title against the empty category).
+        $propertyId = $this->seedProperty($agencyId, 'Residential', 'Sectional Title');
         $presentation = Presentation::create([
             'agency_id'         => $agencyId,
             'branch_id'         => $agencyId,
@@ -104,14 +142,15 @@ class TitleTypeAndFallbacksTest extends TestCase
             'title'             => 'T',
             'property_address'  => '1 Test',
             'suburb'            => 'Test',
-            'property_type'     => 'house',
+            'property_type'     => 'sectional',
             'status'            => 'draft',
             'currency'          => 'ZAR',
         ]);
         $presentation->load('property');
 
         $h = new MicSnapshotHydrator();
-        $this->assertNull($this->invokePrivate($h, 'resolveSubjectTitleType', [$presentation, $agencyId]));
+        $cfg = $this->invokePrivate($h, 'resolveConfig', [$presentation]);
+        $this->assertSame('sectional_title', $cfg['title_type']);
     }
 
     /**
@@ -258,7 +297,7 @@ class TitleTypeAndFallbacksTest extends TestCase
         return $agencyId;
     }
 
-    private function seedProperty(int $agencyId, ?string $categoryName): int
+    private function seedProperty(int $agencyId, ?string $categoryName, string $propertyType = 'house'): int
     {
         $agentId = \App\Models\User::factory()->create([
             'agency_id' => $agencyId, 'branch_id' => $agencyId,
@@ -271,7 +310,7 @@ class TitleTypeAndFallbacksTest extends TestCase
             'latitude'      => -30.84,
             'longitude'     => 30.39,
             'price'         => 1_200_000,
-            'property_type' => 'house',
+            'property_type' => $propertyType,
             'category'      => $categoryName,
             'status'        => 'active',
             'is_demo'       => false,

@@ -7178,6 +7178,7 @@ CREATE TABLE `properties` (
   `floor_number` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `unit_section_block` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'house',
+  `title_type` enum('full_title','sectional_title','vacant_land','other') COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Keystone — derived from property_type by TitleTypeClassifier on every save. Source of truth for comp-filter and review-screen badge.',
   `condition_level_id` bigint unsigned DEFAULT NULL COMMENT 'Build 3 — FK to property_setting_items where group=condition_level. Nullable: property may have no recorded condition.',
   `category` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `mandate_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -7267,6 +7268,7 @@ CREATE TABLE `properties` (
   KEY `idx_properties_is_demo` (`is_demo`),
   KEY `idx_properties_address_key` (`agency_id`,`suburb_normalised`,`street_name_normalised`,`street_number`,`unit_number`),
   KEY `properties_condition_level_idx` (`condition_level_id`),
+  KEY `properties_title_type_idx` (`title_type`),
   CONSTRAINT `properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `properties_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `properties_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
@@ -10887,3 +10889,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (789,'2026_06_17_11
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (790,'2026_06_17_120000_add_condition_levels_to_presentations',234);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (791,'2026_06_17_130000_add_section_toggles_to_presentations',235);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (792,'2026_06_17_140000_add_snapshot_payload_to_presentations',236);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (793,'2026_06_17_150000_add_title_type_to_properties',237);

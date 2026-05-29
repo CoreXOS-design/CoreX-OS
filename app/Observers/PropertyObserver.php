@@ -81,6 +81,29 @@ class PropertyObserver
             }
         }
 
+        // Keystone — derive title_type whenever the inputs change OR
+        // when the column is currently NULL (self-heal for rows that
+        // pre-date the backfill). Fires on insert OR when property_type
+        // / category shift. Leaves NULL when both fail so the
+        // presentation generator gate can reject the row with a
+        // user-facing message rather than guessing.
+        $titleTypeDirty = !$property->exists
+            || $property->isDirty('property_type')
+            || $property->isDirty('category')
+            || $property->title_type === null;
+        if ($titleTypeDirty) {
+            $classifier = app(\App\Services\TitleTypeClassifier::class);
+            $derived = $classifier->forProperty($property);
+            if ($derived === null) {
+                \Illuminate\Support\Facades\Log::info('[PRES-WARN] property saved with no derivable title_type', [
+                    'property_id'   => $property->id,
+                    'property_type' => $property->property_type,
+                    'category'      => $property->category,
+                ]);
+            }
+            $property->title_type = $derived;
+        }
+
         if (!$property->agent_id) {
             return;
         }

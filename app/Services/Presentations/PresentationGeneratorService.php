@@ -60,6 +60,19 @@ class PresentationGeneratorService
         return DB::transaction(function () use ($propertyId, $agentUserId, $agencyId, $options) {
             $property = Property::findOrFail($propertyId);
 
+            // Keystone — belt-and-braces. The controller gate at
+            // PresentationGeneratorController::generate rejects blank
+            // property_type with a user-facing message. This assertion
+            // catches future non-controller callers (jobs, tests, CLI)
+            // that might bypass the HTTP path. A thrown exception is
+            // fine here — non-controller callers don't need a polished
+            // error surface, they just need to fail loudly.
+            if (trim((string) ($property->property_type ?? '')) === '') {
+                throw new \RuntimeException(
+                    'Cannot generate presentation: property has no property_type.'
+                );
+            }
+
             // ── 1. Upsert Presentation ─────────────────────────────────────
             $presentation = Presentation::where('property_id', $propertyId)
                 ->where('agency_id', $agencyId)

@@ -59,6 +59,7 @@ class Property extends Model
         'complex_name',
         'unit_number',
         'property_type',
+        'title_type',
         'category',
         'condition_level_id',
         'mandate_type',
