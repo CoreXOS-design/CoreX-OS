@@ -324,6 +324,97 @@ final class MapActivityLogTest extends TestCase
         $this->assertIsInt($payload['tracked_property_id'] ?? null);
     }
 
+    /** M77 — P-pin Pitch flow, happy path. After the prospecting_listings
+     *  re-point (df93c4b3) the map P-pin emits the raw numeric
+     *  prospecting_listings.id as record_id. The activity-log endpoint
+     *  must accept it via resolveProspectingListingId's Case 1 and return
+     *  a redirect_url pointing at the seller-outreach entry-point form. */
+    public function test_m77_p_pin_numeric_record_id_returns_entry_point_redirect(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+        $listingId = $this->insertProspectingListing($agencyId, $userId);
+
+        $resp = $this->actingAs(User::find($userId))->postJson(route('corex.map.activity.log'), [
+            'action'       => 'prospect_launched',
+            'category'     => 'active_listings',
+            'record_id'    => (string) $listingId,
+            'location_key' => 'sha256:m77',
+            'source'       => 'single_detail',
+            'address'      => '12 Test Lane, Margate',
+            'latitude'     => -30.86,
+            'longitude'    => 30.37,
+            'suburb'       => 'Margate',
+        ])->assertOk();
+
+        $body = $resp->json();
+        $this->assertTrue($body['logged']);
+        $this->assertSame($listingId, (int) $body['prospecting_listing_id'],
+            'numeric record_id must resolve to the same prospecting_listings.id');
+        $this->assertIsString($body['redirect_url']);
+        $this->assertStringContainsString('/prospecting/' . $listingId . '/outreach/compose', $body['redirect_url']);
+        $this->assertArrayNotHasKey('error', $body);
+    }
+
+    /** M78 — Silent MIC fallback is GONE. When the record_id points at a
+     *  soft-deleted prospecting_listings row the server must respond with
+     *  redirect_url=null + error='pitch_unavailable' so the client can
+     *  surface a clear "couldn't start a pitch" toast instead of dropping
+     *  the agent on the MIC Opportunities tab. */
+    public function test_m78_p_pin_deleted_listing_returns_pitch_unavailable_not_mic_redirect(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyUserProperty();
+        $listingId = $this->insertProspectingListing($agencyId, $userId);
+        DB::table('prospecting_listings')->where('id', $listingId)->update(['deleted_at' => now()]);
+
+        $resp = $this->actingAs(User::find($userId))->postJson(route('corex.map.activity.log'), [
+            'action'       => 'prospect_launched',
+            'category'     => 'active_listings',
+            'record_id'    => (string) $listingId,
+            'location_key' => 'sha256:m78',
+            'source'       => 'single_detail',
+            'address'      => '12 Test Lane, Margate',
+            'latitude'     => -30.86,
+            'longitude'    => 30.37,
+            'suburb'       => 'Margate',
+        ])->assertOk();
+
+        $body = $resp->json();
+        $this->assertTrue($body['logged'], 'audit event still fires even on resolve failure');
+        $this->assertNull($body['redirect_url'],
+            'no silent fallback URL — soft-deleted record means no destination');
+        $this->assertSame('pitch_unavailable', $body['error']);
+        $this->assertNotEmpty($body['error_message']);
+        $this->assertStringNotContainsStringIgnoringCase('opportunities', (string) ($body['redirect_url'] ?? ''));
+    }
+
+    /** M79 — Cross-agency prospecting_listings.id → pitch_unavailable.
+     *  An agent in agency A clicking a P-pin whose record_id belongs to
+     *  agency B (race condition: the row was re-scoped between pin fetch
+     *  and click) must hit the same explicit error path, not get auto-
+     *  bounced to MIC. */
+    public function test_m79_p_pin_cross_agency_record_returns_pitch_unavailable(): void
+    {
+        [$agencyA, $userIdA] = $this->seedAgencyUserProperty();
+        [$agencyB, $userIdB] = $this->seedAgencyUserProperty();
+        $listingInB = $this->insertProspectingListing($agencyB, $userIdB);
+
+        $resp = $this->actingAs(User::find($userIdA))->postJson(route('corex.map.activity.log'), [
+            'action'       => 'prospect_launched',
+            'category'     => 'active_listings',
+            'record_id'    => (string) $listingInB,
+            'location_key' => 'sha256:m79',
+            'source'       => 'single_detail',
+            'address'      => '12 Test Lane, Margate',
+            'latitude'     => -30.86,
+            'longitude'    => 30.37,
+            'suburb'       => 'Margate',
+        ])->assertOk();
+
+        $body = $resp->json();
+        $this->assertNull($body['redirect_url']);
+        $this->assertSame('pitch_unavailable', $body['error']);
+    }
+
     /** M24 — user-facing "valuation" was removed from active CoreX views.
      *
      * Strips ALL of these (which are protected per spec):
@@ -1041,6 +1132,28 @@ final class MapActivityLogTest extends TestCase
             'is_demo'          => false,
             'created_at'       => now(),
             'updated_at'       => now(),
+        ]);
+    }
+
+    /** Seed a prospecting_listings row scoped to the given agency, with the
+     *  fields the activity-log endpoint needs to resolve it via Case 1
+     *  (purely numeric record_id). */
+    private function insertProspectingListing(int $agencyId, int $userId): int
+    {
+        return (int) DB::table('prospecting_listings')->insertGetId([
+            'agency_id'            => $agencyId,
+            'captured_by_user_id'  => $userId,
+            'portal_source'        => 'p24',
+            'portal_ref'           => 'test-' . Str::random(8),
+            'portal_url'           => 'https://example.com/' . Str::random(6),
+            'address'              => '12 Test Lane, Margate',
+            'suburb'               => 'Margate',
+            'price'                => 1_500_000,
+            'first_seen_at'        => now(),
+            'last_seen_at'         => now(),
+            'is_active'            => true,
+            'created_at'           => now(),
+            'updated_at'           => now(),
         ]);
     }
 }

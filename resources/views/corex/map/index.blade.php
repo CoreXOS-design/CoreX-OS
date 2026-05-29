@@ -1299,6 +1299,10 @@ document.addEventListener('DOMContentLoaded', function () {
             wrap.remove();
 
             // 2) Now fire the actual prospect_launched + redirect.
+            //    Same explicit-error contract as handleActionClick — when
+            //    the server can't resolve the prospecting_listing we
+            //    surface the failure instead of silently sending the
+            //    agent to MIC opportunities.
             try {
                 const resp = await fetch(MAP_ACTIVITY_URL, {
                     method:  'POST',
@@ -1308,10 +1312,19 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
                 if (resp.ok) {
                     const body = await resp.json();
-                    const url = body.redirect_url || MIC_OPPORTUNITIES_URL;
-                    window.location.href = url;
+                    if (body.error === 'pitch_unavailable') {
+                        toastInfo(body.error_message || 'Could not start a pitch for this record.');
+                        return;
+                    }
+                    if (body.redirect_url) {
+                        window.location.href = body.redirect_url;
+                        return;
+                    }
                 }
-            } catch (err) { /* if launch fails the override audit is still recorded */ }
+                toastInfo('Could not start a pitch right now. Please try again.');
+            } catch (err) {
+                toastInfo('Network error starting the pitch. Please try again.');
+            }
         });
 
         setTimeout(() => ta.focus(), 50);
@@ -1881,6 +1894,14 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (act.awaitServerRedirect) {
             e.preventDefault();
+            // Pre-open the new tab SYNCHRONOUSLY while we still have the
+            // user gesture — Chrome/Firefox/Safari block window.open() that
+            // fires after an await boundary. We assign the real URL once
+            // the server response lands. If the server returns no URL
+            // (pitch_unavailable from MapActivityController) we close the
+            // placeholder and surface an explicit error. Same-tab branch
+            // (act.newTab=false) doesn't need pre-opening.
+            const popup = act.newTab ? window.open('about:blank', '_blank', 'noopener') : null;
             try {
                 const resp = await fetch(MAP_ACTIVITY_URL, {
                     method:      'POST',
@@ -1894,17 +1915,30 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
                 if (resp.ok) {
                     const body = await resp.json();
-                    const url = body.redirect_url || act.destUrl;
+                    // Server may explicitly flag pitch_unavailable when the
+                    // record can't be resolved (soft-deleted, cross-agency,
+                    // unsupported record_id shape). Honour it — do NOT fall
+                    // back to MIC, that's the bug we're removing.
+                    if (body.error === 'pitch_unavailable') {
+                        if (popup) popup.close();
+                        toastInfo(body.error_message || 'Could not start a pitch for this record.');
+                        return;
+                    }
+                    const url = body.redirect_url;
                     if (url) {
-                        if (act.newTab) window.open(url, '_blank', 'noopener');
-                        else window.location.href = url;
+                        if (popup) popup.location.href = url;
+                        else        window.location.href = url;
                         return;
                     }
                 }
-            } catch (err) { /* fall through to destUrl fallback */ }
-            if (act.destUrl) {
-                if (act.newTab) window.open(act.destUrl, '_blank', 'noopener');
-                else window.location.href = act.destUrl;
+                // Non-2xx, or 200 with neither redirect_url nor error —
+                // treat as a transient hiccup. Close the popup, tell the
+                // agent, do not bounce to MIC.
+                if (popup) popup.close();
+                toastInfo('Could not start a pitch right now. Please try again.');
+            } catch (err) {
+                if (popup) popup.close();
+                toastInfo('Network error starting the pitch. Please try again.');
             }
             return;
         }

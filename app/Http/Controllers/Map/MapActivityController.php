@@ -354,16 +354,25 @@ final class MapActivityController extends Controller
             }
         }
 
-        // A.2.7 — route to the compose flow, find-or-create prospecting_listing
-        // when needed. Errors fall back to opportunities.show so a hiccup at
-        // the listing-create step never traps the agent.
+        // Route to the compose flow via find-or-create prospecting_listing.
+        // When resolution fails (soft-deleted row, cross-agency row, or
+        // record_id outside the accepted patterns) we DELIBERATELY return
+        // no redirect_url and stamp pitch_unavailable. The client surfaces
+        // an explicit error toast instead of silently bouncing the agent
+        // to the MIC Opportunities tab — that behaviour (silent MIC
+        // fallback) was the source of the "loads MIC" confusion in
+        // .ai/specs/mic-pitch-flow-trace.md §8 and is now disallowed.
         $plId = $this->resolveProspectingListingId($data, $agencyId, $userId, (int) $tp->id);
 
         $extras['tracked_property_id']    = (int) $tp->id;
         $extras['prospecting_listing_id'] = $plId;
-        $extras['redirect_url']           = $plId
-            ? route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $plId])
-            : route('market-intelligence.opportunities.show', $tp);
+        if ($plId !== null) {
+            $extras['redirect_url'] = route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $plId]);
+        } else {
+            $extras['redirect_url'] = null;
+            $extras['error']        = 'pitch_unavailable';
+            $extras['error_message'] = "Couldn't start a pitch for this record — it may have been removed or belongs to another agency. Refresh the map and try again.";
+        }
 
         return new MapProspectLaunched(
             trackedProperty: $tp,
