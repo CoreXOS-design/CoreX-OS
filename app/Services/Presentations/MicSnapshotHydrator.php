@@ -226,7 +226,10 @@ final class MicSnapshotHydrator
         // whose title_type drives comp-selection. Houses (full_title) must
         // not compare against apartments (sectional_title) or vacant land.
         // Spec: .ai/specs/presentation-data-lineage.md §3-A.
-        $titleType = $this->resolveSubjectTitleType($presentation, $agencyId);
+        // Hotfix — original Build 1 line referenced an undefined $agencyId
+        // variable (only $agency object exists in this scope). Pull the int
+        // from the presentation, which is the multi-tenancy anchor anyway.
+        $titleType = $this->resolveSubjectTitleType($presentation, (int) $presentation->agency_id);
 
         return [
             'scope'                => $scope,

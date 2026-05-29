@@ -114,6 +114,55 @@ class TitleTypeAndFallbacksTest extends TestCase
         $this->assertNull($this->invokePrivate($h, 'resolveSubjectTitleType', [$presentation, $agencyId]));
     }
 
+    /**
+     * Hotfix regression — Build 1 shipped a call inside resolveConfig()
+     * that referenced an undefined $agencyId variable. The bug never
+     * surfaced in Build 1–6 tests because every test created
+     * PresentationVersion rows directly, bypassing the live generator →
+     * MicSnapshotHydrator path. The actual symptom on the property page
+     * was a 500 with "Undefined variable $agencyId" — blocking ALL
+     * generate clicks. This test invokes the real path and would have
+     * thrown the same error before the fix.
+     */
+    public function test_resolve_config_runs_without_undefined_agency_id_variable(): void
+    {
+        $agencyId = $this->seedAgency();
+        // Subject category needs a matching property_setting_items row
+        // so the title_type lookup is exercised, not short-circuited.
+        DB::table('property_setting_items')->insert([
+            'agency_id'  => $agencyId,
+            'group'      => 'category',
+            'name'       => 'Residential',
+            'title_type' => 'full_title',
+            'sort_order' => 0,
+            'is_default' => true,
+            'active'     => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $propertyId = $this->seedProperty($agencyId, 'Residential');
+        $presentation = Presentation::create([
+            'agency_id'         => $agencyId,
+            'branch_id'         => $agencyId,
+            'created_by_user_id'=> \App\Models\User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId])->id,
+            'property_id'       => $propertyId,
+            'title'             => 'Generate Regression',
+            'property_address'  => '1 Test',
+            'suburb'            => 'Test',
+            'property_type'     => 'house',
+            'status'            => 'draft',
+            'currency'          => 'ZAR',
+        ]);
+        $presentation->load('property');
+
+        $h = new MicSnapshotHydrator();
+        // Before the fix this threw ErrorException: Undefined variable $agencyId.
+        $config = $this->invokePrivate($h, 'resolveConfig', [$presentation]);
+
+        $this->assertIsArray($config);
+        $this->assertArrayHasKey('title_type', $config);
+        $this->assertSame('full_title', $config['title_type']);
+    }
+
     public function test_cma_middle_fallback_synthesises_midpoint_when_extraction_missed(): void
     {
         // Seed a presentation with cma.lower_range + cma.upper_range only —
