@@ -47,7 +47,11 @@ class ScheduleEventIntentHandler
             'agency_id'     => $user->agency_id,
             'branch_id'     => $user->branch_id ?? null,
             'event_type'    => 'manual',
-            'category'      => 'voice',
+            // 'manual' is in calendar_event_class_settings so it passes
+            // the web cockpit's whereIn('category', $visibleClassKeys)
+            // filter. AI attribution is carried by created_by_ai +
+            // ai_source instead — that's how the AI badge renders.
+            'category'      => 'manual',
             'title'         => $title,
             'description'   => trim((string) ($slots['notes'] ?? '')) ?: null,
             'event_date'    => $eventDate,
