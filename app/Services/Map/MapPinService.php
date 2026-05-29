@@ -712,6 +712,16 @@ final class MapPinService
     /** @return array{0: array, 1: int} */
     private function micSubjects(MapBoundsRequest $req, int $limit): array
     {
+        // [M-TRACE-SERVER] — log the bounds we were asked for so a staging
+        // log grep can correlate with the [M-TRACE] client logs for the
+        // same request. The pin count is emitted at the bottom of this
+        // method (after we know how many rows survived the bounds + scope
+        // filters). REMOVE after staging confirms M renders correctly.
+        $traceBounds = [
+            'north' => $req->north, 'south' => $req->south,
+            'east'  => $req->east,  'west'  => $req->west,
+            'agency' => $req->agencyId, 'limit' => $limit,
+        ];
         $q = DB::table('market_reports')
             ->whereNull('deleted_at')
             ->whereNotNull('subject_latitude')->whereNotNull('subject_longitude')
@@ -749,6 +759,11 @@ final class MapPinService
         ])->all();
 
         $pins = $this->applyRadiusFilter($pins, $req);
+
+        \Illuminate\Support\Facades\Log::info('[M-TRACE-SERVER] cmaSubjects: count='
+            . count($pins) . ' total=' . $total
+            . ' bounds=' . json_encode($traceBounds));
+
         return [$pins, $total];
     }
 

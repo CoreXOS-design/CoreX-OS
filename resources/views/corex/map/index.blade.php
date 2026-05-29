@@ -810,14 +810,14 @@ document.addEventListener('DOMContentLoaded', function () {
         })[cat] || null;
     }
 
-    /** Fix-up #3 §3 — render a miniature pin icon for use in sidebar
-     *  composite-list section headers. Reuses shapeSvg + glyphLayer from
-     *  the map pin module so the sidebar bucket icon is the SAME shape +
-     *  colour + (where applicable) glyph as the map pin for that bucket.
-     *  No duplicate SVG code. Sized down to `sizePx` px; default 18 to
-     *  match the previous chip footprint.
+    /** Fix-up #3 §3 / #4 §2 — render a miniature pin icon for use in
+     *  sidebar composite-list section headers AND left-rail layer chips.
+     *  Reuses shapeSvg + glyphLayer from the map pin module so the sidebar
+     *  bucket icon is the SAME shape + colour + (where applicable) glyph
+     *  + (for H / S_own) the SAME agency logo as the map pin.
      *
-     *  Returns inline-block HTML, ready to drop into a row. */
+     *  Sized down to `sizePx` px; default 18 to match the previous chip
+     *  footprint. Returns inline-block HTML, ready to drop into a row. */
     function sidebarBucketIcon(category, sizePx) {
         const px = sizePx || 18;
         const pinKey = pinKeyForCategory(category);
@@ -846,14 +846,67 @@ document.addEventListener('DOMContentLoaded', function () {
             glyph: baseStyle.glyph,
             glyphFill: baseStyle.glyphFill,
         };
-        // Wrap with relative positioning so the glyph (position:absolute)
-        // anchors inside the icon. Vertical-align middle for inline layout
-        // alongside the section title.
+
+        // Fix-up #4 §2 — H + S_own MUST carry the agency logo so the sidebar
+        // chip matches the map pin's visual signature. miniHousePinInner()
+        // scales housePinInner's logo/initials/Lucide-fallback chain to the
+        // requested icon size, so an 18px or 24px sidebar chip shows the
+        // same agency mark as the 24×28 map pin.
+        const inner = (pinKey === 'H' || pinKey === 'S_own')
+            ? miniHousePinInner(style.size)
+            : (style.glyph ? glyphLayer(style) : '');
+
+        // Own-sold sidebar chip also gets the red "S" corner badge so it
+        // reads "ours" at a glance, identical to the map pin.
+        const cornerBadge = (pinKey === 'S_own') ? ownSoldCornerBadge() : '';
+
         return '<span style="position:relative;display:inline-flex;width:' + W + 'px;height:' + H
             + 'px;vertical-align:middle;flex-shrink:0;">'
             + shapeSvg(style)
-            + (style.glyph ? glyphLayer(style) : '')
+            + inner
+            + cornerBadge
             + '</span>';
+    }
+
+    /** Scaled-down housePinInner for sidebar chips. House map pin places
+     *  a 19×19 logo at (left:2.5, top:7) inside a 24×28 body — relative
+     *  positions: 10.4%, 25%, 79% wide, 67.9% tall. Re-derive at the
+     *  sidebar size so the logo follows the same proportions regardless
+     *  of chip size. Falls through the same logo → initials → Lucide
+     *  outline chain as the map pin. */
+    function miniHousePinInner(size) {
+        const w = size[0], h = size[1];
+        const L = Math.max(1, Math.round(w * 0.104));
+        const T = Math.max(2, Math.round(h * 0.25));
+        const W = Math.max(6, Math.round(w * 0.79));
+        const H = Math.max(6, Math.round(h * 0.679));
+        if (AGENCY_LOGO_URL) {
+            return '<img src="' + escapeAttr(AGENCY_LOGO_URL) + '" alt="' + escapeAttr(AGENCY_NAME) + '" '
+                + 'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';" '
+                + 'style="position:absolute;left:' + L + 'px;top:' + T + 'px;width:' + W
+                + 'px;height:' + H + 'px;border-radius:50%;object-fit:cover;background:#ffffff;"/>'
+                + miniHouseInitials(L, T, W, H, true);
+        }
+        if (AGENCY_INITIALS) return miniHouseInitials(L, T, W, H, false);
+        return miniHouseOutline(L, T, W, H);
+    }
+
+    function miniHouseInitials(L, T, W, H, hiddenByDefault) {
+        const fs = Math.max(6, Math.round(H * 0.6));
+        const display = hiddenByDefault ? 'none' : 'flex';
+        return '<div style="position:absolute;left:' + L + 'px;top:' + T + 'px;width:' + W
+            + 'px;height:' + H + 'px;display:' + display + ';align-items:center;justify-content:center;'
+            + 'border-radius:50%;background:rgba(255,255,255,0.18);color:#ffffff;'
+            + 'font-family:Plus Jakarta Sans,sans-serif;font-size:' + fs + 'px;font-weight:700;'
+            + 'letter-spacing:-0.5px;">' + escapeHtml(AGENCY_INITIALS || '') + '</div>';
+    }
+
+    function miniHouseOutline(L, T, W, H) {
+        return '<svg style="position:absolute;left:' + L + 'px;top:' + T + 'px;" '
+            + 'width="' + W + '" height="' + H + '" viewBox="0 0 24 24" '
+            + 'fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+            + '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'
+            + '<polyline points="9 22 9 12 15 12 15 22"/></svg>';
     }
 
     /** SVG ring layer — concentric circles centred on the pin, sized to
@@ -2119,11 +2172,33 @@ document.addEventListener('DOMContentLoaded', function () {
         // Apply layer toggles client-side (re-derives composite flags).
         const filtered = applyLayerFilters(payload);
 
+        // [M-TRACE] #2 post-group — count M-bearing locations in the
+        // post-filter set. m_locations = total locations with at least one
+        // M record; m_orphans = locations whose ONLY records are M
+        // (is_cma_orphan=true). REMOVE after staging confirmation.
+        (function () {
+            let mLocs = 0, mOrphans = 0;
+            (filtered.locations || []).forEach(loc => {
+                const recs = loc.records || [];
+                const hasM = recs.some(r => r.category === 'mic_subjects');
+                if (!hasM) return;
+                mLocs += 1;
+                if (recs.every(r => r.category === 'mic_subjects')) mOrphans += 1;
+            });
+            console.log('[M-TRACE] post-group:', JSON.stringify({
+                total_locations: (filtered.locations || []).length,
+                m_locations: mLocs,
+                m_orphans: mOrphans,
+                enabled_layers: Array.from(enabledLayers).sort(),
+            }));
+        })();
+
         const showPins = displayMode === 'pins' || displayMode === 'both';
         const showHeat = displayMode === 'heatmap' || displayMode === 'both';
         const heatPoints = [];
 
         let total = 0;
+        let _mTraceAdded = 0;
         (filtered.locations || []).forEach(loc => {
             heatPoints.push([loc.latitude, loc.longitude, 1.0]);
             total += loc.record_count;
@@ -2193,7 +2268,52 @@ document.addEventListener('DOMContentLoaded', function () {
                 flashPanelHighlight();
             });
             cluster.addLayer(m);
+
+            // [M-TRACE] #3 adding-M-marker — fire once per M-bearing
+            // location actually added to the cluster. Logs the classNames
+            // Leaflet will write onto the marker element so we can correlate
+            // with DOM querySelector counts. REMOVE after staging confirms.
+            if (_primaryCat === 'mic_subjects') {
+                _mTraceAdded += 1;
+                const _iconOpts = (m.options.icon && m.options.icon.options) || {};
+                console.log('[M-TRACE] adding-M-marker:', JSON.stringify({
+                    location_key: loc.location_key,
+                    lat: loc.latitude,
+                    lng: loc.longitude,
+                    html_classes: _iconOpts.className || '(none)',
+                    icon_size: _iconOpts.iconSize || null,
+                    display_as: loc.display_as,
+                    records: (loc.records || []).length,
+                }));
+            }
         });
+
+        // [M-TRACE] #4 m-markers-in-dom — count what actually landed in the
+        // DOM. Three queries because the marker may render via three
+        // different class hooks depending on shape:
+        //   .corex-pin-square    — M's specific shape class
+        //   [data-category=...]  — fix-up #3 §1 dataset attribute
+        //   .leaflet-marker-icon — Leaflet's universal marker class
+        // The cluster may keep some markers off-DOM if they're inside a
+        // cluster bubble at the current zoom; the dom_total figure
+        // captures only the currently-visible markers, NOT the cluster's
+        // internal layer count. REMOVE after staging confirms.
+        (function () {
+            const domSquare   = document.querySelectorAll('.corex-pin-square').length;
+            const domCat      = document.querySelectorAll('[data-category="mic_subjects"]').length;
+            const domBucket   = document.querySelectorAll('[data-bucket="CMA"]').length;
+            const domTotalMk  = document.querySelectorAll('.leaflet-marker-icon').length;
+            const clusterChildren = (cluster && cluster.getLayers) ? cluster.getLayers().length : 0;
+            console.log('[M-TRACE] m-markers-in-dom:', JSON.stringify({
+                m_added_this_render: _mTraceAdded,
+                dom_corex_pin_square: domSquare,
+                dom_data_category_mic_subjects: domCat,
+                dom_data_bucket_CMA: domBucket,
+                dom_leaflet_marker_icon_total: domTotalMk,
+                cluster_total_layers: clusterChildren,
+                current_zoom: (map && map.getZoom) ? map.getZoom() : null,
+            }));
+        })();
 
         document.getElementById('empty-state').style.display = total === 0 ? 'block' : 'none';
 
@@ -2408,6 +2528,28 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const payload = await resp.json();
             inFlight = null;
+
+            // [M-TRACE] #1 server-response — count records returned per
+            // category. If 'mic_subjects' is non-zero here, the bug is
+            // downstream of the network layer (grouping / marker create /
+            // DOM insertion / CSS). REMOVE this log after staging confirms
+            // M renders correctly (see follow-up ticket in this file).
+            (function () {
+                const byCat = {};
+                let total = 0;
+                (payload && payload.locations || []).forEach(loc => {
+                    (loc.records || []).forEach(r => {
+                        byCat[r.category] = (byCat[r.category] || 0) + 1;
+                        total += 1;
+                    });
+                });
+                console.log('[M-TRACE] server-response:', JSON.stringify({
+                    total: total,
+                    by_category: byCat,
+                    layer_counts: payload && payload.layer_counts || {},
+                    locations: (payload && payload.locations || []).length,
+                }));
+            })();
 
             // LRU cache
             cache.push({ key: key, payload: payload });
