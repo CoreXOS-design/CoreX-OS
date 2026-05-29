@@ -3,16 +3,24 @@
 namespace App\Services\CommandCenter;
 
 use App\Models\Agency;
+use App\Models\CommandCenter\AgencyDashboardSetting;
 use App\Models\CommandCenter\NotificationEventType;
 use App\Models\CommandCenter\UserDashboardSetting;
 use App\Models\CommandCenter\UserNotificationPreference;
 use App\Models\User;
+use Carbon\Carbon;
 
 class NotificationPreferenceService
 {
     /**
      * Effective preference for a user + event-type key.
      * Returns an array with: enabled, threshold, channel_in_app, channel_email, channel_push.
+     *
+     * Channel resolution order, per agency-lock rules (2026-05-29):
+     *   - When agency mode = 'agency': agency settings drive event toggles, master in_app/email,
+     *     open hours, cooldown. The user's own `notify_push` master still applies (users may
+     *     silence their own device push at any time).
+     *   - Outside open hours: EMAIL channel is suppressed. Push and in-app continue.
      */
     public function effective(User $user, string $key): ?array
     {
@@ -21,29 +29,33 @@ class NotificationPreferenceService
             return null;
         }
 
-        // Notification preferences are ALWAYS per-user, regardless of agency
-        // dashboard_settings_mode. The agency mode only applies to user-level
-        // dashboard settings, not to notification preferences.
-        $dashboard = UserDashboardSetting::firstOrCreate(
-            ['user_id' => $user->id],
-            UserDashboardSetting::defaults()
-        );
+        $ctx = $this->context($user);
+        $effSettings = $ctx['settings'];
 
-        // Master switches gate everything.
-        $masterInApp = (bool) $dashboard->notify_in_app;
-        $masterEmail = (bool) $dashboard->notify_email;
+        $masterInApp = (bool) $effSettings->notify_in_app;
+        $masterEmail = (bool) $effSettings->notify_email;
+        // Push master is ALWAYS the user's own value, even under agency lock.
+        $userOwn = $ctx['user_settings'];
+        $masterPush  = (bool) ($userOwn->notify_push ?? true);
 
-        // Adapter rows: read from existing UserDashboardSetting columns.
-        if ($type->is_adapter && $type->adapter_column) {
-            return $this->resolveAdapter($type, $dashboard, $masterInApp, $masterEmail);
+        // Open-hours email gate
+        if (! $this->withinOpenHours($effSettings)) {
+            $masterEmail = false;
         }
 
-        $pref = UserNotificationPreference::where('user_id', $user->id)
-            ->where('notification_event_type_id', $type->id)
-            ->first();
+        if ($type->is_adapter && $type->adapter_column) {
+            return $this->resolveAdapter($type, $effSettings, $masterInApp, $masterEmail, $masterPush);
+        }
 
-        $enabled       = $pref?->enabled       ?? $type->default_enabled;
-        $threshold     = $pref?->threshold     ?? $type->default_threshold;
+        // Under agency lock, per-event prefs come from the agency, not the user.
+        $pref = $ctx['locked']
+            ? null // agency does not currently expose a per-event matrix table; fall back to type defaults
+            : UserNotificationPreference::where('user_id', $user->id)
+                ->where('notification_event_type_id', $type->id)
+                ->first();
+
+        $enabled       = $pref?->enabled         ?? $type->default_enabled;
+        $threshold     = $pref?->threshold       ?? $type->default_threshold;
         $channelInApp  = $pref?->channel_in_app  ?? true;
         $channelEmail  = $pref?->channel_email   ?? false;
         $channelPush   = $pref?->channel_push    ?? true;
@@ -53,7 +65,7 @@ class NotificationPreferenceService
             'threshold'      => $threshold,
             'channel_in_app' => $masterInApp && $channelInApp,
             'channel_email'  => $masterEmail && $channelEmail,
-            'channel_push'   => $masterInApp && $channelPush, // push gated by in-app master
+            'channel_push'   => $masterPush  && $channelPush,
             'event_type'     => $type,
         ];
     }
@@ -66,28 +78,48 @@ class NotificationPreferenceService
         return $eff['channel_in_app'] || $eff['channel_email'] || $eff['channel_push'];
     }
 
+    /**
+     * True when an agency administrator has locked notification settings for everyone in the agency.
+     * Users retain control of their personal push master (their device).
+     */
     public function isAgencyControlled(User $user): bool
     {
-        // Notification preferences are always user-editable.
-        // Agency dashboard_settings_mode does not apply here — that flag only
-        // governs user-level dashboard settings (idle, digest, working hours,
-        // etc.), not the notification matrix.
-        return false;
+        return $this->context($user)['locked'];
+    }
+
+    public function cooldownMinutes(User $user): int
+    {
+        return (int) ($this->context($user)['settings']->min_minutes_between_same ?? 360);
+    }
+
+    public function withinOpenHours(UserDashboardSetting|AgencyDashboardSetting|null $settings = null, ?Carbon $at = null): bool
+    {
+        if (! $settings) return true;
+        if (! ($settings->open_hours_enabled ?? false)) return true;
+
+        $now   = $at ?? now();
+        $start = substr((string) $settings->open_hours_start, 0, 5);
+        $end   = substr((string) $settings->open_hours_end, 0, 5);
+        $hhmm  = $now->format('H:i');
+
+        if ($start === $end) return true; // degenerate; treat as always
+        if ($start < $end) {
+            return $hhmm >= $start && $hhmm < $end;
+        }
+        // window crosses midnight (e.g. 22:00 → 06:00)
+        return $hhmm >= $start || $hhmm < $end;
     }
 
     /**
      * Snapshot for the settings UI / API: returns every event type with the
-     * user's effective preference resolved.
+     * user's effective preference resolved, plus masters and open-hours.
      */
     public function snapshot(User $user): array
     {
         $types = NotificationEventType::orderBy('pillar')->orderBy('sort_order')->get();
-        $userPrefs = UserNotificationPreference::where('user_id', $user->id)->get()
-            ->keyBy('notification_event_type_id');
-        $dashboard = UserDashboardSetting::firstOrCreate(
-            ['user_id' => $user->id],
-            UserDashboardSetting::defaults()
-        );
+        $ctx = $this->context($user);
+        $effSettings = $ctx['settings'];
+        $userOwn     = $ctx['user_settings'];
 
         $groups = [];
         foreach ($types as $type) {
@@ -116,12 +148,21 @@ class NotificationPreferenceService
         }
 
         return [
+            'mode'   => $ctx['locked'] ? 'agency' : 'user',
+            'locked' => $ctx['locked'],
             'master' => [
-                'in_app' => (bool) $dashboard->notify_in_app,
-                'email'  => (bool) $dashboard->notify_email,
-                'push'   => (bool) $dashboard->notify_in_app, // push follows in_app master
+                'in_app' => (bool) $effSettings->notify_in_app,
+                'email'  => (bool) $effSettings->notify_email,
+                // Push master is the user's own value (always editable).
+                'push'   => (bool) ($userOwn->notify_push ?? true),
             ],
-            'agency_controlled' => $this->isAgencyControlled($user),
+            'open_hours' => [
+                'enabled' => (bool) ($effSettings->open_hours_enabled ?? false),
+                'start'   => substr((string) ($effSettings->open_hours_start ?? '07:00'), 0, 5),
+                'end'     => substr((string) ($effSettings->open_hours_end   ?? '21:00'), 0, 5),
+            ],
+            'cooldown_minutes'   => (int) ($effSettings->min_minutes_between_same ?? 360),
+            'agency_controlled'  => $ctx['locked'],
             'groups' => array_values($groups),
         ];
     }
@@ -131,59 +172,102 @@ class NotificationPreferenceService
      */
     public function applyUpdates(User $user, array $payload): int
     {
+        $ctx = $this->context($user);
+        $locked = $ctx['locked'];
+        $userSettings = $ctx['user_settings'];
+
         $saved = 0;
         $master = $payload['master'] ?? null;
         if (is_array($master)) {
-            $dashboard = UserDashboardSetting::firstOrCreate(
-                ['user_id' => $user->id],
-                UserDashboardSetting::defaults()
-            );
-            $dashboard->fill([
-                'notify_in_app' => (bool) ($master['in_app'] ?? $dashboard->notify_in_app),
-                'notify_email'  => (bool) ($master['email']  ?? $dashboard->notify_email),
+            // Push master is always writable; in_app/email locked under agency mode.
+            $userSettings->fill(array_filter([
+                'notify_in_app' => $locked ? null : (isset($master['in_app']) ? (bool) $master['in_app'] : null),
+                'notify_email'  => $locked ? null : (isset($master['email'])  ? (bool) $master['email']  : null),
+                'notify_push'   => isset($master['push']) ? (bool) $master['push'] : null,
+            ], fn ($v) => ! is_null($v)))->save();
+        }
+
+        if (! $locked && is_array($payload['open_hours'] ?? null)) {
+            $oh = $payload['open_hours'];
+            $userSettings->fill([
+                'open_hours_enabled' => (bool) ($oh['enabled'] ?? false),
+                'open_hours_start'   => substr((string) ($oh['start'] ?? '07:00'), 0, 5),
+                'open_hours_end'     => substr((string) ($oh['end']   ?? '21:00'), 0, 5),
             ])->save();
         }
 
-        foreach ($payload['preferences'] ?? [] as $row) {
-            if (empty($row['key'])) continue;
-            $type = NotificationEventType::where('key', $row['key'])->first();
-            if (! $type) continue;
+        if (! $locked && isset($payload['cooldown_minutes'])) {
+            $userSettings->fill([
+                'min_minutes_between_same' => max(0, (int) $payload['cooldown_minutes']),
+            ])->save();
+        }
 
-            // Adapter rows write back to UserDashboardSetting, not to user_notification_preferences.
-            if ($type->is_adapter && $type->adapter_column) {
-                $this->writeAdapter($user, $type, $row);
+        // Per-event-type matrix — only when not locked.
+        if (! $locked) {
+            foreach ($payload['preferences'] ?? [] as $row) {
+                if (empty($row['key'])) continue;
+                $type = NotificationEventType::where('key', $row['key'])->first();
+                if (! $type) continue;
+
+                if ($type->is_adapter && $type->adapter_column) {
+                    $this->writeAdapter($user, $type, $row);
+                    $saved++;
+                    continue;
+                }
+
+                UserNotificationPreference::updateOrCreate(
+                    ['user_id' => $user->id, 'notification_event_type_id' => $type->id],
+                    [
+                        'enabled'        => (bool) ($row['enabled'] ?? true),
+                        'threshold'      => $row['threshold'] ?? $type->default_threshold,
+                        'channel_in_app' => (bool) ($row['channel_in_app'] ?? true),
+                        'channel_email'  => (bool) ($row['channel_email']  ?? false),
+                        'channel_push'   => (bool) ($row['channel_push']   ?? true),
+                    ]
+                );
                 $saved++;
-                continue;
             }
-
-            UserNotificationPreference::updateOrCreate(
-                ['user_id' => $user->id, 'notification_event_type_id' => $type->id],
-                [
-                    'enabled'        => (bool) ($row['enabled'] ?? true),
-                    'threshold'      => $row['threshold'] ?? $type->default_threshold,
-                    'channel_in_app' => (bool) ($row['channel_in_app'] ?? true),
-                    'channel_email'  => (bool) ($row['channel_email']  ?? false),
-                    'channel_push'   => (bool) ($row['channel_push']   ?? true),
-                ]
-            );
-            $saved++;
         }
 
         return $saved;
     }
 
-    private function resolveAdapter(NotificationEventType $type, $dashboard, bool $masterInApp, bool $masterEmail): array
+    /**
+     * Resolve the effective settings record + agency-lock flag for a user.
+     * Returns ['settings' => effective row used for masters/open-hours,
+     *          'user_settings' => the user's own row (for push master),
+     *          'locked' => bool].
+     */
+    private function context(User $user): array
     {
-        // Map adapter_column → enable boolean + threshold int.
-        // Some adapter columns are themselves the toggle; others are the threshold.
+        $userSettings = UserDashboardSetting::firstOrCreate(
+            ['user_id' => $user->id],
+            UserDashboardSetting::defaults()
+        );
+
+        $agency = $user->effectiveAgencyId() ? Agency::find($user->effectiveAgencyId()) : null;
+        $locked = $agency && ($agency->dashboard_settings_mode ?? 'user') === 'agency';
+
+        $effSettings = $userSettings;
+        if ($locked) {
+            $effSettings = AgencyDashboardSetting::firstOrCreate(
+                ['agency_id' => $agency->id],
+                UserDashboardSetting::defaults()
+            );
+        }
+
+        return ['settings' => $effSettings, 'user_settings' => $userSettings, 'locked' => $locked];
+    }
+
+    private function resolveAdapter(NotificationEventType $type, $dashboard, bool $masterInApp, bool $masterEmail, bool $masterPush): array
+    {
         $col = $type->adapter_column;
         $enabled = true;
         $threshold = $type->default_threshold;
 
-        // Toggle columns we know about
         $toggleMap = [
             'task_reminder_hours_before' => 'task_due_reminders',
-            'event_reminder_hours_before' => null, // always on if master is on
+            'event_reminder_hours_before' => null,
             'lease_reminder_days_before' => 'lease_expiry_reminders',
             'idle_threshold_days' => 'idle_alerts_enabled',
             'overdue_daily_digest' => 'overdue_daily_digest',
@@ -209,7 +293,7 @@ class NotificationPreferenceService
             'threshold'      => $threshold,
             'channel_in_app' => $masterInApp,
             'channel_email'  => $masterEmail,
-            'channel_push'   => $masterInApp,
+            'channel_push'   => $masterPush,
             'event_type'     => $type,
         ];
     }

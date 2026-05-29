@@ -535,7 +535,8 @@ class SettingsController extends Controller
         $boolFields = [
             'idle_alerts_enabled', 'doc_reminders_enabled', 'lease_expiry_reminders',
             'fica_reminders', 'ffc_reminders', 'task_due_reminders', 'overdue_daily_digest',
-            'weekend_visible', 'notify_in_app', 'notify_email',
+            'weekend_visible', 'notify_in_app', 'notify_email', 'notify_push',
+            'open_hours_enabled',
         ];
 
         $data = $request->only([
@@ -543,7 +544,16 @@ class SettingsController extends Controller
             'doc_reminders_enabled', 'lease_expiry_reminders', 'fica_reminders', 'ffc_reminders',
             'task_due_reminders', 'overdue_daily_digest', 'digest_time',
             'default_calendar_view', 'weekend_visible', 'notify_in_app', 'notify_email',
+            'notify_push', 'open_hours_enabled', 'open_hours_start', 'open_hours_end',
+            'min_minutes_between_same',
         ]);
+
+        foreach (['open_hours_start', 'open_hours_end'] as $t) {
+            if (!empty($data[$t])) $data[$t] = substr($data[$t], 0, 5);
+        }
+        if (isset($data['min_minutes_between_same'])) {
+            $data['min_minutes_between_same'] = max(0, (int) $data['min_minutes_between_same']);
+        }
 
         foreach ($boolFields as $bf) {
             $data[$bf] = $request->boolean($bf);

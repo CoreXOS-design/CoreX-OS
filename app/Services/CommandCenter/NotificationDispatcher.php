@@ -46,6 +46,20 @@ class NotificationDispatcher
             ->exists();
         if ($alreadySent) return false;
 
+        // Cooldown: skip if the same (user, event-type, subject) was dispatched
+        // within the user's min_minutes_between_same window. Stops the hourly-spam
+        // where scheduler scans re-fire the same alert each tick.
+        $cooldown = $this->prefs->cooldownMinutes($user);
+        if ($cooldown > 0) {
+            $recent = NotificationDispatchLog::where('user_id', $user->id)
+                ->where('notification_event_type_id', $eff['event_type']->id)
+                ->where('subject_type', $subjectType)
+                ->where('subject_id', $subjectId)
+                ->where('dispatched_at', '>=', now()->subMinutes($cooldown))
+                ->exists();
+            if ($recent) return false;
+        }
+
         $notification = new PillarEventNotification(
             eventKey:     $eventKey,
             pillar:       $eff['event_type']->pillar,

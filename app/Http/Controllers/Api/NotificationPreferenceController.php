@@ -29,6 +29,11 @@ class NotificationPreferenceController extends Controller
             'preferences.*.channel_in_app' => 'sometimes|boolean',
             'preferences.*.channel_email'  => 'sometimes|boolean',
             'preferences.*.channel_push'   => 'sometimes|boolean',
+            'open_hours'                   => 'sometimes|array',
+            'open_hours.enabled'           => 'sometimes|boolean',
+            'open_hours.start'             => 'sometimes|date_format:H:i',
+            'open_hours.end'               => 'sometimes|date_format:H:i',
+            'cooldown_minutes'             => 'sometimes|integer|min:0|max:10080',
         ]);
 
         $saved = $this->service->applyUpdates($request->user(), $payload);
