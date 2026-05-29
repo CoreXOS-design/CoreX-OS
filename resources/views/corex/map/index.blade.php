@@ -36,6 +36,18 @@
         z-index: 1000 !important;
         border-radius: 50%;
     }
+    /* Sidebar-hover pulse — fix-up §5. Applied to the marker icon for ~1s
+       when the agent hovers a composite-row sidebar card. Used in parallel
+       with .corex-pin--selected, so the pulse animation must stack with
+       any halo box-shadow already on the element. */
+    @keyframes corex-pin-pulse {
+        0%   { filter: drop-shadow(0 0 0 rgba(0, 212, 170, 0)); }
+        40%  { filter: drop-shadow(0 0 8px rgba(0, 212, 170, 0.95)); }
+        100% { filter: drop-shadow(0 0 0 rgba(0, 212, 170, 0)); }
+    }
+    .corex-pin.corex-pin--pulse {
+        animation: corex-pin-pulse 1s ease-in-out 2;
+    }
     /* Per-shape halo radius — keeps the box-shadow ring shaped to the
        silhouette of each bucket's pin. */
     .corex-pin-circle.corex-pin--selected   { border-radius: 50%; }
@@ -468,14 +480,23 @@ document.addEventListener('DOMContentLoaded', function () {
     const AGENCY_INITIALS  = @json($agency?->initials ?? '');
     const AGENCY_NAME      = @json($agency?->name ?? 'Agency');
 
-    // Single-record category visuals — composite pins use the neutral scheme below.
+    // Single-record category visuals. Aligned to the high-contrast palette
+    // ruling from the visual identity fix-up — six strongly distinct hues
+    // spread across the spectrum (no two adjacent buckets within 60° of hue,
+    // colour-blind safe at marker size). Final hexes:
+    //   COMPANY (H)        navy    #0b2a4a
+    //   PORTAL  (P)        amber   #f59e0b
+    //   TRACKED (T)        teal    #00d4aa  (the spine)
+    //   CMA-M (subject)    purple  #7c3aed
+    //   CMA-O (owner)      magenta #db2777
+    //   CMA-S (sold)       red     #dc2626
     const LAYER_COLOURS = {
-        hfc_listings: '#00d4aa',
-        sold_comps: '#3b82f6',
-        active_listings: '#f59e0b',
-        mic_subjects: '#64748b',
-        scheme_owners: '#8b5cf6',
-        tracked_properties: '#14b8a6',
+        hfc_listings:       '#0b2a4a',
+        sold_comps:         '#dc2626',
+        active_listings:    '#f59e0b',
+        mic_subjects:       '#7c3aed',
+        scheme_owners:      '#db2777',
+        tracked_properties: '#00d4aa',
     };
     const LAYER_LETTERS = {
         hfc_listings: 'H', sold_comps: 'S', active_listings: 'P',
@@ -516,23 +537,36 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     // Per-pin visual spec. pinKey is bucket-derived ('H'/'P'/'T'/'M'/'O') for
-    // single-shape buckets; S splits by source_class into S_market / S_own.
+    // single-shape buckets; S splits by source_class:
+    //   S_market = red circle with white "S" glyph (no slash, no ring).
+    //   S_own    = SAME shape as H pin (house + agency logo) PLUS a red
+    //              "S" corner badge top-left — logo stays fully visible,
+    //              the corner badge is the single-glance "ours" signal.
+    // M square bumped 18→22px (was visually invisible against the dark
+    // satellite tiles); same shape, just bigger + higher-contrast purple.
     const PIN_STYLES = {
         H:        { shape: 'house',    size: [24, 28], fill: '#0b2a4a', stroke: '#ffffff', strokeWidth: 2 },
         P:        { shape: 'diamond',  size: [22, 22], fill: '#f59e0b', stroke: '#ffffff', strokeWidth: 2, glyph: 'P', glyphFill: '#0b2a4a' },
         T:        { shape: 'hexagon',  size: [22, 22], fill: '#00d4aa', stroke: '#0b2a4a', strokeWidth: 2 },
-        M:        { shape: 'square',   size: [18, 18], fill: '#475569', stroke: 'rgba(255,255,255,0.45)', strokeWidth: 1, glyph: 'M', glyphFill: '#ffffff' },
-        O:        { shape: 'triangle', size: [24, 22], fill: '#7c3aed', stroke: '#ffffff', strokeWidth: 2, glyph: 'O', glyphFill: '#ffffff' },
-        S_market: { shape: 'circle',   size: [22, 22], fill: '#3b82f6', stroke: '#ffffff', strokeWidth: 2, glyph: 'S', glyphFill: '#ffffff', sold: 'market' },
-        S_own:    { shape: 'circle',   size: [22, 22], fill: '#0b2a4a', stroke: '#00d4aa', strokeWidth: 3, glyph: 'S', glyphFill: '#ffffff', sold: 'own' },
+        M:        { shape: 'square',   size: [22, 22], fill: '#7c3aed', stroke: '#ffffff',          strokeWidth: 2, glyph: 'M', glyphFill: '#ffffff' },
+        O:        { shape: 'triangle', size: [24, 22], fill: '#db2777', stroke: '#ffffff', strokeWidth: 2, glyph: 'O', glyphFill: '#ffffff' },
+        S_market: { shape: 'circle',   size: [22, 22], fill: '#dc2626', stroke: '#ffffff', strokeWidth: 2, glyph: 'S', glyphFill: '#ffffff' },
+        // S_own is rendered via the house-pin path, NOT via shapeSvg —
+        // the entry stays so pinKeyForRecord can dispatch on it, but the
+        // primary geometry is reused from H. The red-S corner badge is
+        // added by the locationIcon caller, not from here.
+        S_own:    { shape: 'house',    size: [24, 28], fill: '#0b2a4a', stroke: '#ffffff', strokeWidth: 2, ownSoldBadge: true },
     };
 
-    // Bucket → cluster palette (spec §5).
+    // Bucket → cluster palette. CMA uses purple (the M colour) since the
+    // CMA bucket is dominated by M/O records; slate (the previous CMA
+    // cluster colour) was the source of the "M missing" complaint —
+    // unreadable against satellite tiles.
     const CLUSTER_THEMES = {
         COMPANY: { fill: '#0b2a4a', ring: '#ffffff',            text: '#ffffff' },
         PORTAL:  { fill: '#f59e0b', ring: '#ffffff',            text: '#0b2a4a' },
         TRACKED: { fill: '#00d4aa', ring: '#0b2a4a',            text: '#0b2a4a' },
-        CMA:     { fill: '#475569', ring: 'rgba(255,255,255,0.6)', text: '#ffffff' },
+        CMA:     { fill: '#7c3aed', ring: '#ffffff',            text: '#ffffff' },
         MIXED:   { fill: '#0b2a4a', ring: '#00d4aa',            text: '#00d4aa' },
     };
 
@@ -643,23 +677,16 @@ document.addEventListener('DOMContentLoaded', function () {
             + yShift + 'px);">' + style.glyph + '</div>';
     }
 
-    function soldSlashLayer(style) {
-        if (!style.sold) return '';
-        const w = style.size[0], h = style.size[1];
-        const slashColour = style.sold === 'own' ? '#00d4aa' : '#ffffff';
-        const slashSvg = '<line x1="' + (w * 0.22) + '" y1="' + (h * 0.78)
-            + '" x2="' + (w * 0.78) + '" y2="' + (h * 0.22)
-            + '" stroke="' + slashColour + '" stroke-width="1.5" stroke-linecap="round" opacity="0.95"/>';
-        return '<div style="position:absolute;inset:0;pointer-events:none;">' + svgWrap(style.size, slashSvg) + '</div>';
-    }
-
     // ── H pin inner: agency logo → initials → outline house (spec §4) ───
+    // Logo bumped from 16×16 → 19×19 (~20% larger per fix-up §3). Centred
+    // inside the 24×28 house body (body is x=1, y=5, w=22, h=21), so the
+    // 19×19 logo sits at left=2.5, top=7 and stays inside the outline.
 
     function housePinInner() {
         if (AGENCY_LOGO_URL) {
             return '<img src="' + escapeAttr(AGENCY_LOGO_URL) + '" alt="' + escapeAttr(AGENCY_NAME) + '" '
                 + 'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';" '
-                + 'style="position:absolute;left:4px;top:9px;width:16px;height:16px;border-radius:50%;'
+                + 'style="position:absolute;left:2.5px;top:7px;width:19px;height:19px;border-radius:50%;'
                 + 'object-fit:cover;background:#ffffff;"/>'
                 + houseInitialsFallback(true);
         }
@@ -668,83 +695,118 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function houseInitialsFallback(hiddenByDefault) {
-        const fs = AGENCY_INITIALS && AGENCY_INITIALS.length >= 3 ? 7 : 9;
+        const fs = AGENCY_INITIALS && AGENCY_INITIALS.length >= 3 ? 9 : 11;
         const display = hiddenByDefault ? 'none' : 'flex';
-        return '<div style="position:absolute;left:4px;top:9px;width:16px;height:16px;display:' + display + ';'
+        return '<div style="position:absolute;left:2.5px;top:7px;width:19px;height:19px;display:' + display + ';'
             + 'align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,0.18);'
             + 'color:#ffffff;font-family:Plus Jakarta Sans,sans-serif;font-size:' + fs + 'px;font-weight:700;'
             + 'letter-spacing:-0.5px;">' + escapeHtml(AGENCY_INITIALS || '') + '</div>';
     }
 
     function houseOutlineFallback() {
-        return '<svg style="position:absolute;left:5px;top:10px;" width="14" height="14" viewBox="0 0 24 24" '
+        return '<svg style="position:absolute;left:3.5px;top:8px;" width="17" height="17" viewBox="0 0 24 24" '
             + 'fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
             + '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'
             + '<polyline points="9 22 9 12 15 12 15 22"/></svg>';
     }
 
-    // ── Composite badges (spec §9) ──────────────────────────────────────
-    // Returns the badge-dot HTML overlay for one location. Caller already
-    // confirmed the location is composite (record_count > 1).
-
-    function badgeDotColour(k) {
-        return ({ T: '#00d4aa', P: '#f59e0b', S: '#3b82f6', M: '#475569', O: '#7c3aed' })[k] || '#94a3b8';
+    /** Red "S" corner badge for own-sold pins. Placed top-left as a
+     *  10×10 red pill with a white "S" — matches the corner-badge
+     *  language used elsewhere (count badges, tracked badges in legacy)
+     *  but in CoreX-red so it reads as the sold mark instantly. */
+    function ownSoldCornerBadge() {
+        return '<span style="position:absolute;top:-3px;left:-3px;width:11px;height:11px;'
+            + 'background:#dc2626;color:#ffffff;border-radius:50%;border:1.5px solid #ffffff;'
+            + 'font-family:Plus Jakarta Sans,sans-serif;font-size:8px;font-weight:700;line-height:1;'
+            + 'display:flex;align-items:center;justify-content:center;'
+            + 'box-shadow:0 1px 2px rgba(0,0,0,.5);">S</span>';
     }
 
-    function badgeDot(slot, colour) {
-        const positions = {
-            'top-right':    'top:-4px;right:-4px;',
-            'bottom-right': 'bottom:-4px;right:-4px;',
-            'bottom-left':  'bottom:-4px;left:-4px;',
-        };
-        return '<span style="position:absolute;' + (positions[slot] || '')
-            + 'width:8px;height:8px;border-radius:50%;background:' + colour
-            + ';border:1.5px solid #ffffff;box-shadow:0 1px 1px rgba(0,0,0,.45);"></span>';
-    }
+    // ── Composite rings (fix-up §4) ─────────────────────────────────────
+    // Replaces the corner-badge system entirely. Each additional bucket
+    // present at the location renders as a 2px concentric ring around the
+    // primary pin, with a 1px gap between rings. Stacked OUTWARD from the
+    // pin in priority order T > P > S > M > O — T closest to the pin if
+    // present. Cap at 3 rings + a small "+N" pill on the top-left for the
+    // overflow. The Tracked spine badge is DROPPED (ring replaces badge —
+    // no doubling up).
 
-    function compositeBadges(loc) {
+    /** Resolve the ordered list of ring-bucket-keys for a composite
+     *  location. Returns ['T', 'P', ...] in stack order, innermost first. */
+    function compositeRingBuckets(loc) {
         const records = loc.records || [];
         const primary = records[0] || {};
         const primaryKey = pinKeyForRecord(primary);
+        const primarySlot = (primaryKey || '').charAt(0);
 
-        // Distinct slot keys (collapse S_market + S_own → 'S') present
-        // beyond the primary.
         const seen = new Set();
         records.slice(1).forEach(rec => {
             const k = pinKeyForRecord(rec);
             if (!k) return;
             const slotKey = k.charAt(0);
-            if (slotKey === (primaryKey || '').charAt(0)) return;
+            if (slotKey === primarySlot) return;
             seen.add(slotKey);
         });
-
-        // Tracked spine override — if the grouper flagged has_tracked_record
-        // and the primary isn't already T, the T badge is mandatory.
+        // Tracked spine override — when LocationGrouper flagged
+        // has_tracked_record and the primary isn't T, T is mandatory.
         if (loc.has_tracked_record && primaryKey !== 'T') seen.add('T');
-        if (seen.size === 0) return '';
 
-        const ordered = BADGE_PRIORITY.filter(k => seen.has(k));
-        const positioned = [];
-        if (seen.has('T')) {
-            positioned.push(['T', 'top-right']);
-            ordered.filter(k => k !== 'T')
-                .slice(0, 2)
-                .forEach((k, i) => positioned.push([k, ['bottom-right', 'bottom-left'][i]]));
-        } else {
-            ordered.slice(0, 3).forEach((k, i) => {
-                positioned.push([k, ['top-right', 'bottom-right', 'bottom-left'][i]]);
-            });
-        }
+        return BADGE_PRIORITY.filter(k => seen.has(k));
+    }
 
-        const overflow = Math.max(0, ordered.length - positioned.length);
-        let html = positioned.map(([k, slot]) => badgeDot(slot, badgeDotColour(k))).join('');
-        if (overflow > 0) {
-            html += '<span style="position:absolute;top:-6px;left:-8px;background:#0b2a4a;color:#ffffff;'
-                + 'font-family:Plus Jakarta Sans,sans-serif;font-size:9px;font-weight:700;border-radius:10px;'
-                + 'padding:1px 4px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.4);white-space:nowrap;'
-                + 'border:1px solid #ffffff;">+' + overflow + '</span>';
-        }
-        return html;
+    /** Total radial extent (in px) the ring system adds beyond the pin's
+     *  bounding box. Used by the outer wrapper sizing so the rings aren't
+     *  clipped by Leaflet's iconSize.
+     *    Each ring contributes 2px ring + 1px gap = 3px radial. Plus a
+     *    1px leading gap from the pin edge to the first ring.
+     *    Cap at 3 rings so the wrapper never blows up. */
+    function ringRadialExtent(ringCount) {
+        const visible = Math.min(ringCount, 3);
+        return visible === 0 ? 0 : (1 + visible * 3);
+    }
+
+    function ringColourFor(k) {
+        return ({ T: '#00d4aa', P: '#f59e0b', S: '#dc2626', M: '#7c3aed', O: '#db2777' })[k] || '#94a3b8';
+    }
+
+    /** SVG ring layer — concentric circles centred on the pin, sized to
+     *  enclose the pin geometry. Caller positions this at the centre of
+     *  the wrapper; wrapper size = pin size + 2 * ringRadialExtent. */
+    function compositeRingsSvg(loc, pinSize) {
+        const buckets = compositeRingBuckets(loc);
+        if (buckets.length === 0) return '';
+        const visible = buckets.slice(0, 3);
+        const extent  = ringRadialExtent(visible.length);
+        const W = pinSize[0] + 2 * extent;
+        const H = pinSize[1] + 2 * extent;
+        const cx = W / 2, cy = H / 2;
+        // Innermost ring sits 1px outside the pin's enclosing circle.
+        const pinR = Math.max(pinSize[0], pinSize[1]) / 2;
+        let r = pinR + 1;
+        const rings = visible.map(k => {
+            r += 1; // 2px ring rendered with stroke-width 2, so centre is +1
+            const ring = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r
+                + '" fill="none" stroke="' + ringColourFor(k)
+                + '" stroke-width="2" />';
+            r += 2; // step past the ring (centre + 1 for the other half) + 1px gap
+            return ring;
+        }).join('');
+        return '<svg style="position:absolute;left:0;top:0;pointer-events:none;" '
+             + 'width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">'
+             + rings + '</svg>';
+    }
+
+    /** "+N" overflow pill placed top-left of the wrapper when more than
+     *  3 ring-buckets are present. Mirrors the count-badge styling so the
+     *  agent reads it as a numeric. */
+    function ringOverflowPill(loc) {
+        const buckets = compositeRingBuckets(loc);
+        const overflow = Math.max(0, buckets.length - 3);
+        if (overflow === 0) return '';
+        return '<span style="position:absolute;top:-6px;left:-8px;background:#0b2a4a;color:#ffffff;'
+            + 'font-family:Plus Jakarta Sans,sans-serif;font-size:9px;font-weight:700;border-radius:10px;'
+            + 'padding:1px 4px;line-height:1;box-shadow:0 1px 2px rgba(0,0,0,.4);white-space:nowrap;'
+            + 'border:1px solid #ffffff;">+' + overflow + '</span>';
     }
 
     function countBadge(count, accent) {
@@ -1241,25 +1303,47 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // Composite or single. Primary record drives the shape; composite
-        // adds corner-dot badges for the other buckets present (spec §2/§9).
+        // adds concentric coloured rings for the other buckets present
+        // (fix-up §4).
         const primary = (loc.records || [])[0] || {};
         const pinKey  = pinKeyForRecord(primary);
         const style   = PIN_STYLES[pinKey] || PIN_STYLES.M;
 
-        const inner   = (pinKey === 'H') ? housePinInner() : glyphLayer(style);
-        const sold    = soldSlashLayer(style);
-        const badges  = (display === 'composite') ? compositeBadges(loc) : '';
-        const count   = (display === 'composite') ? countBadge(loc.record_count, style.fill) : '';
+        // Inner content per pin type:
+        //   H / S_own → agency logo (house-pin geometry)
+        //   everything else → glyph letter
+        const inner = (pinKey === 'H' || pinKey === 'S_own') ? housePinInner() : glyphLayer(style);
 
-        const html = '<div style="position:relative;width:' + style.size[0] + 'px;height:' + style.size[1] + 'px;">'
-            + shapeSvg(style) + inner + sold + badges + count
+        // Own-sold gets the red "S" corner badge so the agent reads
+        // "ours" at a glance without overlaying anything on the logo.
+        const ownSoldBadge = style.ownSoldBadge ? ownSoldCornerBadge() : '';
+
+        // Composite: concentric coloured rings + count + overflow pill.
+        const ringsVisible = (display === 'composite') ? compositeRingBuckets(loc).slice(0, 3) : [];
+        const ringExt = ringRadialExtent(ringsVisible.length);
+        const ringHtml = (display === 'composite') ? compositeRingsSvg(loc, style.size) : '';
+        const overflow = (display === 'composite') ? ringOverflowPill(loc) : '';
+        const count    = (display === 'composite') ? countBadge(loc.record_count, style.fill) : '';
+
+        // Wrapper size grows to enclose the rings so Leaflet doesn't clip
+        // them. The primary pin is centred inside the wrapper.
+        const W = style.size[0] + 2 * ringExt;
+        const H = style.size[1] + 2 * ringExt;
+
+        const html = '<div style="position:relative;width:' + W + 'px;height:' + H + 'px;">'
+            + ringHtml
+            + '<div style="position:absolute;left:' + ringExt + 'px;top:' + ringExt
+            +     'px;width:' + style.size[0] + 'px;height:' + style.size[1] + 'px;">'
+            +   shapeSvg(style) + inner + ownSoldBadge
+            + '</div>'
+            + count + overflow
             + '</div>';
 
         return L.divIcon({
             html,
             className: 'corex-pin corex-pin-' + style.shape + selectedClass,
-            iconSize:   style.size,
-            iconAnchor: [style.size[0] / 2, style.size[1] / 2],
+            iconSize:   [W, H],
+            iconAnchor: [W / 2, H / 2],
         });
     }
 
@@ -1827,6 +1911,44 @@ document.addEventListener('DOMContentLoaded', function () {
         selectedLocationKey = null;
     }
 
+    /** Sidebar→map hover preview — fix-up §5. Pulses the matching marker
+     *  briefly so the agent scanning the sidebar can see which pin the
+     *  card refers to. Safe when the pin is filtered out (no marker for
+     *  the key) and when the marker is currently clustered. */
+    function pulseMarkerByLocationKey(locationKey) {
+        if (!locationKey) return;
+        const m = markerByLocationKey.get(locationKey);
+        if (!m) return;
+        const el = m.getElement && m.getElement();
+        if (!el) return;
+        // Re-trigger animation when the class is already present so a
+        // second hover restarts the pulse rather than no-oping.
+        el.classList.remove('corex-pin--pulse');
+        // Force a reflow so the re-add picks up the animation reset.
+
+        void el.offsetWidth;
+        el.classList.add('corex-pin--pulse');
+        setTimeout(() => { el.classList.remove('corex-pin--pulse'); }, 2200);
+    }
+
+    /** Sidebar→map click — fix-up §5. Pan/zoom the map so the matching
+     *  pin is centred (and visible at unclustered zoom), then apply the
+     *  selected halo. */
+    function panToLocationKey(locationKey, opts) {
+        if (!locationKey) return;
+        const m = markerByLocationKey.get(locationKey);
+        if (!m) return;
+        const latlng = m.getLatLng && m.getLatLng();
+        if (!latlng) return;
+        // Make sure the pin is unclustered when we arrive, so the agent
+        // sees the pin not a cluster bubble. disableClusteringAtZoom=13,
+        // so jump to >= 14 if currently below it.
+        const targetZoom = Math.max(map.getZoom(), 14);
+        const animate = !(opts && opts.skipAnimate);
+        map.setView(latlng, targetZoom, { animate });
+        selectLocation(locationKey);
+    }
+
     function clearAllPins() {
         if (cluster) cluster.clearLayers();
         // Re-index from scratch on each render; selectedLocationKey stays
@@ -2152,11 +2274,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
         document.getElementById('composite-records').innerHTML = html;
 
-        // Wire row clicks → single_detail (icons handled separately below).
+        // Wire row clicks → single_detail. Click ALSO pans the map to the
+        // pin (fix-up §5). Hover on any element in the row pulses the
+        // matching pin so the agent can map sidebar → map at a glance.
+        // Every record in a composite shares the SAME location_key so
+        // hover/click on any row pulses/centres the same pin.
         document.querySelectorAll('[data-record-idx]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const idx = parseInt(btn.dataset.recordIdx, 10);
                 openSingleDetail(loc.records[idx], loc, loc.location_key);
+                panToLocationKey(loc.location_key);
+            });
+        });
+        document.querySelectorAll('[data-record-row]').forEach(row => {
+            // mouseenter (not mouseover) avoids re-firing on every inner
+            // child hover; pulse is idempotent within its 1s window.
+            row.addEventListener('mouseenter', () => {
+                pulseMarkerByLocationKey(loc.location_key);
             });
         });
 
