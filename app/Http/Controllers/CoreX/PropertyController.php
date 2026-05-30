@@ -107,6 +107,17 @@ class PropertyController extends Controller
             $query->searchAddress($search);
         }
 
+        // Stats for the header KPIs — computed across the full filtered set
+        // (not just the current page), before sorting/pagination is applied.
+        $statsQuery = clone $query;
+        $stats = [
+            'total'  => (clone $statsQuery)->count(),
+            'active' => (clone $statsQuery)->where('status', 'active')->count(),
+            'draft'  => (clone $statsQuery)->where('status', 'draft')->count(),
+            'sold'   => (clone $statsQuery)->where('status', 'sold')->count(),
+            'synced' => (clone $statsQuery)->whereNotNull('published_at')->count(),
+        ];
+
         // Sorting — whitelisted columns only
         $dir = strtolower($request->query('dir', 'desc')) === 'asc' ? 'asc' : 'desc';
         $sortableColumns = [
@@ -129,7 +140,7 @@ class PropertyController extends Controller
             $dir = 'desc';
         }
 
-        $properties = $query->get();
+        $properties = $query->paginate(20)->withQueryString();
 
         // Compute marketing status per property (batch-friendly for Phase 1)
         $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
@@ -147,19 +158,12 @@ class PropertyController extends Controller
             }
         }
 
-        // Sort by marketing_status (derived — PHP sort)
+        // Sort by marketing_status (derived — PHP sort, current page only)
         if ($sort === 'marketing_status') {
-            $properties = $properties->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc')->values();
+            $properties->setCollection(
+                $properties->getCollection()->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc')->values()
+            );
         }
-
-        // Stats for the header KPIs
-        $stats = [
-            'total'    => $properties->count(),
-            'active'   => $properties->where('status', 'active')->count(),
-            'draft'    => $properties->where('status', 'draft')->count(),
-            'sold'     => $properties->where('status', 'sold')->count(),
-            'synced'   => $properties->whereNotNull('published_at')->count(),
-        ];
 
         // Agent list for the picker (admin/bm only)
         $agentList = $canPickAgent ? $this->agentList()->values() : collect();

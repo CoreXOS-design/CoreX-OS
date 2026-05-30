@@ -155,6 +155,33 @@ class ContactImportController extends Controller
         $sourceCache = ContactSource::pluck('id', 'name')->mapWithKeys(fn($id, $n) => [strtolower($n) => $id])->toArray();
         $tagCache    = ContactTag::pluck('id', 'name')->mapWithKeys(fn($id, $n) => [strtolower($n) => $id])->toArray();
 
+        // Resolve a fallback branch for the import. contacts.branch_id is NOT NULL,
+        // and the BelongsToBranch trait only auto-fills it from the importing user's
+        // own branch_id — which is empty for agency-level / owner accounts. Resolve
+        // an explicit chain so no contact is ever inserted with a NULL branch_id:
+        //   agency's default branch → agency's lowest active branch.
+        // (Per-row, the resolved agent's branch takes precedence — see below.)
+        $importingUser = auth()->user();
+        $importAgencyId = $importingUser && method_exists($importingUser, 'effectiveAgencyId')
+            ? $importingUser->effectiveAgencyId()
+            : ($importingUser->agency_id ?? null);
+
+        $fallbackBranchId = $importingUser->branch_id ?? null;
+        if (!$fallbackBranchId && $importAgencyId) {
+            $fallbackBranchId = DB::table('agencies')->where('id', $importAgencyId)->value('default_branch_id');
+        }
+        if (!$fallbackBranchId && $importAgencyId) {
+            $fallbackBranchId = DB::table('branches')
+                ->where('agency_id', $importAgencyId)
+                ->whereNull('deleted_at')
+                ->orderBy('id')
+                ->value('id');
+        }
+
+        if (!$fallbackBranchId) {
+            return back()->with('error', 'Import aborted: no branch could be resolved for this agency. Create a branch (or set the agency default branch) before importing contacts.');
+        }
+
         $created  = 0;
         $skipped  = 0;
         $errors   = [];
@@ -210,6 +237,10 @@ class ContactImportController extends Controller
                 $agentUser = $this->resolveAgent($mapped['_agent'] ?? '', $byEmail, $byName);
                 $agentId   = $agentUser ? $agentUser->id : auth()->id();
 
+                // Attach the contact to its agent's branch when known, else the
+                // resolved agency fallback. branch_id is NOT NULL on contacts.
+                $branchId = ($agentUser && $agentUser->branch_id) ? $agentUser->branch_id : $fallbackBranchId;
+
                 // Resolve contact type
                 $typeId = $this->resolveType($mapped['_type'] ?? '', $typeCache);
 
@@ -229,6 +260,7 @@ class ContactImportController extends Controller
                 $lastContactedAt = $this->parseDateTime($mapped['_last_contacted'] ?? null);
 
                 $contact = Contact::create([
+                    'branch_id'          => $branchId,
                     'first_name'         => $firstName,
                     'last_name'          => $lastName,
                     'phone'              => $phone ?: null,
