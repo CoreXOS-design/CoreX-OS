@@ -73,7 +73,7 @@
         <div class="h-screen flex flex-col overflow-hidden">
         @include('partials._env-banner')
         {{-- Mobile sidebar toggle --}}
-        <div x-data="{ sidebarOpen: false, sidebarCollapsed: false }" class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg)">
+        <div x-data="{ sidebarOpen: false }" class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg)">
 
             {{-- Mobile overlay --}}
             <div x-show="sidebarOpen" x-transition:enter="transition-opacity ease-linear duration-200"
@@ -83,10 +83,13 @@
                  @click="sidebarOpen = false"
                  class="fixed inset-0 bg-black/50 z-40 lg:hidden" x-cloak></div>
 
-            {{-- Sidebar --}}
+            {{-- Sidebar — fixed 240px (w-60) to match layouts.corex-app. NOTE: an
+                 element may only carry ONE :class attribute; a second is dropped by
+                 the HTML parser. The previous markup had two, so the width binding
+                 (lg:w-60) was silently discarded and the sidebar rendered at content
+                 width (wider). Width is now in the static class so it always applies. --}}
             <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
-                   :class="sidebarCollapsed ? 'lg:w-16' : 'lg:w-60'"
-                   class="fixed inset-y-0 left-0 z-50 transform transition-all duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0">
+                   class="fixed inset-y-0 left-0 z-50 w-60 transform transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0">
                 @include('layouts.corex-sidebar')
             </aside>
 

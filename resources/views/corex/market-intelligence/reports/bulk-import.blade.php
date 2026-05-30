@@ -47,7 +47,7 @@
 @endpush
 
 @section('corex-content')
-<div style="max-width: 1640px; margin: 0 auto; padding: 0 20px;"
+<div style="width: 100%;"
      x-data="bulkImportPage({
         storeUrl: '{{ route('market-intelligence.reports.bulk-import.store') }}',
         showUrlBase: '{{ url('corex/market-intelligence/reports') }}',

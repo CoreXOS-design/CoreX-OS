@@ -11,10 +11,10 @@
 
 @section('corex-content')
 
-{{-- Constrained, centred container — matches Opportunities / Market Pulse so the
-     branded header, tab menu, and stats strip render at the same width (not
-     full-bleed). --}}
-<div style="max-width: 1640px; margin: 0 auto; padding: 0 20px;">
+{{-- Full-width container — matches Contacts and the rest of the app so the
+     branded header, tab menu, and stats strip render at the same width as
+     every other page. --}}
+<div style="width: 100%;">
 
 <x-mic-page-header
     title="Analyse"

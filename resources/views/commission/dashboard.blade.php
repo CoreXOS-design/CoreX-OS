@@ -1,12 +1,17 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+<div class="space-y-5">
 
-    {{-- Page header --}}
-    <div style="background:var(--brand-default, #0b2a4a); border-radius:6px; padding:20px 24px;">
-        <h2 style="font-size:1.25rem; font-weight:800; color:#fff; margin:0 0 4px;">My Earnings</h2>
-        <div style="font-size:0.875rem; color:rgba(255,255,255,0.55);">Commission, cap progress, and revenue share at a glance.</div>
+    {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
+    <div class="rounded-md px-6 py-5" style="background:var(--brand-default,#0b2a4a);">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-bold text-white leading-tight">My Earnings</h1>
+                <p class="text-sm text-white/60">Commission, cap progress, and revenue share at a glance.</p>
+            </div>
+        </div>
     </div>
 
     {{-- ══════════════════════════════════════
@@ -15,21 +20,21 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
         {{-- Card 1: This Month --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">This Month</div>
             <div class="text-2xl font-extrabold" style="color:var(--text-primary);">R {{ number_format($thisMonthGCI, 2) }}</div>
             <div class="text-xs mt-1" style="color:var(--text-secondary);">Net agent earnings</div>
         </div>
 
         {{-- Card 2: This Year --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">This Year</div>
             <div class="text-2xl font-extrabold" style="color:var(--text-primary);">R {{ number_format($thisYearGCI, 2) }}</div>
             <div class="text-xs mt-1" style="color:var(--text-secondary);">Net agent earnings</div>
         </div>
 
         {{-- Card 3: Cap Progress --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Cap Progress</div>
             <div class="text-2xl font-extrabold" style="color:var(--text-primary);">
                 R {{ number_format($capProgress, 0) }} <span class="text-sm font-normal" style="color:var(--text-secondary);">/ R {{ number_format($capTotal, 0) }}</span>
@@ -37,9 +42,9 @@
             {{-- Mini progress bar --}}
             <div class="mt-2 h-2 rounded-full overflow-hidden" style="background:var(--border);">
                 <div class="h-full rounded-full transition-all duration-500"
-                     style="width:{{ $capPercent }}%; background:{{ $capPeriod->is_capped ? '#f59e0b' : '#0ea5e9' }};"></div>
+                     style="width:{{ $capPercent }}%; background:{{ $capPeriod->is_capped ? 'var(--ds-amber,#f59e0b)' : 'var(--brand-button,#0ea5e9)' }};"></div>
             </div>
-            <div class="text-xs mt-1" style="color:{{ $capPeriod->is_capped ? '#f59e0b' : 'var(--text-secondary)' }};">
+            <div class="text-xs mt-1" style="color:{{ $capPeriod->is_capped ? 'var(--ds-amber,#f59e0b)' : 'var(--text-secondary)' }};">
                 @if($capPeriod->is_capped)
                     CAPPED — 100% commission!
                 @else
@@ -49,7 +54,7 @@
         </div>
 
         {{-- Card 4: Revenue Share --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 20px;">
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Revenue Share</div>
             <div class="text-2xl font-extrabold" style="color:#14b8a6;">R {{ number_format($thisMonthRevShare, 2) }}</div>
             <div class="text-xs mt-1" style="color:var(--text-secondary);">This month</div>
@@ -59,23 +64,23 @@
     {{-- ══════════════════════════════════════
          FULL-WIDTH CAP PROGRESS BAR
          ══════════════════════════════════════ --}}
-    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+    <div class="rounded-md px-6 py-5" style="background:var(--surface); border:1px solid var(--border);">
         <div class="flex items-center justify-between mb-2">
             <div class="text-sm font-semibold" style="color:var(--text-primary);">
                 Annual Cap Progress
                 @if($capPeriod->is_capped)
-                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-bold" style="background:rgba(245,158,11,0.15); color:#f59e0b;">CAPPED</span>
+                    <span class="ds-badge ds-badge-warning ml-2">Capped</span>
                 @endif
             </div>
             <div class="text-xs" style="color:var(--text-secondary);">
-                Resets in {{ $daysUntilReset }} days
+                Resets in {{ number_format($daysUntilReset) }} days
             </div>
         </div>
 
         {{-- Large progress bar --}}
-        <div class="h-4 rounded-full overflow-hidden" style="background:var(--border);">
+        <div class="h-3 rounded-full overflow-hidden" style="background:var(--border);">
             <div class="h-full rounded-full transition-all duration-700 relative"
-                 style="width:{{ $capPercent }}%; background:{{ $capPeriod->is_capped ? 'linear-gradient(90deg, #f59e0b, #eab308)' : 'linear-gradient(90deg, #0ea5e9, #06b6d4)' }};">
+                 style="width:{{ $capPercent }}%; background:{{ $capPeriod->is_capped ? 'var(--ds-amber,#f59e0b)' : 'var(--brand-button,#0ea5e9)' }};">
             </div>
         </div>
 
@@ -105,7 +110,7 @@
     {{-- ══════════════════════════════════════
          MONTHLY EARNINGS CHART
          ══════════════════════════════════════ --}}
-    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+    <div class="rounded-md px-6 py-5" style="background:var(--surface); border:1px solid var(--border);">
         <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Monthly Earnings — Last 12 Months</h3>
         <div style="position:relative; height:280px;">
             <canvas id="earningsChart"></canvas>
@@ -115,34 +120,38 @@
     {{-- ══════════════════════════════════════
          RECENT TRANSACTIONS TABLE
          ══════════════════════════════════════ --}}
-    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
         <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
             <h3 class="text-sm font-bold" style="color:var(--text-primary);">Recent Transactions</h3>
         </div>
 
         @if($recentTransactions->isEmpty())
-            <div class="p-8 text-center">
-                <div class="text-sm" style="color:var(--text-secondary);">No earnings recorded yet.</div>
-                <div class="text-xs mt-1" style="color:var(--text-muted);">Commission entries will appear here once deals close.</div>
+            <div class="py-12 px-6 text-center">
+                <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                     style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>
+                </div>
+                <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No earnings recorded yet</h3>
+                <p class="text-sm" style="color:var(--text-muted);">Commission entries will appear here once deals close.</p>
             </div>
         @else
         <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="min-w-full text-sm ds-table">
                 <thead>
-                    <tr style="border-bottom:1px solid var(--border); background:var(--surface-2, rgba(0,0,0,0.05));">
-                        <th class="text-left text-xs font-bold uppercase tracking-wider px-4 py-2.5" style="color:var(--text-muted);">Date</th>
-                        <th class="text-left text-xs font-bold uppercase tracking-wider px-4 py-2.5" style="color:var(--text-muted);">Description</th>
-                        <th class="text-left text-xs font-bold uppercase tracking-wider px-4 py-2.5" style="color:var(--text-muted);">Type</th>
-                        <th class="text-right text-xs font-bold uppercase tracking-wider px-4 py-2.5" style="color:var(--text-muted);">Gross</th>
-                        <th class="text-right text-xs font-bold uppercase tracking-wider px-4 py-2.5" style="color:var(--text-muted);">My Split</th>
-                        <th class="text-right text-xs font-bold uppercase tracking-wider px-4 py-2.5" style="color:var(--text-muted);">Fees</th>
-                        <th class="text-right text-xs font-bold uppercase tracking-wider px-4 py-2.5" style="color:var(--text-muted);">Net</th>
-                        <th class="text-center text-xs font-bold uppercase tracking-wider px-4 py-2.5" style="color:var(--text-muted);">Status</th>
+                    <tr>
+                        <th class="text-left px-4 py-2.5">Date</th>
+                        <th class="text-left px-4 py-2.5">Description</th>
+                        <th class="text-left px-4 py-2.5">Type</th>
+                        <th class="text-right px-4 py-2.5">Gross</th>
+                        <th class="text-right px-4 py-2.5">My Split</th>
+                        <th class="text-right px-4 py-2.5">Fees</th>
+                        <th class="text-right px-4 py-2.5">Net</th>
+                        <th class="text-center px-4 py-2.5">Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($recentTransactions as $tx)
-                    <tr style="border-bottom:1px solid var(--border);" class="hover:bg-white/5 transition-colors">
+                    <tr>
                         <td class="px-4 py-2.5 whitespace-nowrap" style="color:var(--text-secondary);">
                             {{ $tx->deal_date ? $tx->deal_date->format('d M Y') : $tx->created_at->format('d M Y') }}
                         </td>
@@ -152,17 +161,24 @@
                         <td class="px-4 py-2.5 whitespace-nowrap">
                             @php
                                 $typeBadge = match($tx->transaction_type) {
-                                    'sale' => ['bg' => 'rgba(59,130,246,0.12)', 'color' => '#3b82f6', 'label' => 'Sale'],
-                                    'rental_letting' => ['bg' => 'rgba(20,184,166,0.12)', 'color' => '#14b8a6', 'label' => 'Letting'],
-                                    'rental_management' => ['bg' => 'rgba(20,184,166,0.12)', 'color' => '#14b8a6', 'label' => 'Rental'],
-                                    'referral' => ['bg' => 'rgba(168,85,247,0.12)', 'color' => '#a855f7', 'label' => 'Referral'],
-                                    default => ['bg' => 'rgba(148,163,184,0.12)', 'color' => '#94a3b8', 'label' => 'Other'],
+                                    'sale' => ['var' => 'var(--brand-icon,#0ea5e9)', 'label' => 'Sale'],
+                                    'rental_letting' => ['var' => 'var(--ds-amber,#f59e0b)', 'label' => 'Letting'],
+                                    'rental_management' => ['var' => 'var(--ds-amber,#f59e0b)', 'label' => 'Rental'],
+                                    'referral' => ['var' => 'var(--ds-navy,#0b2a4a)', 'label' => 'Referral'],
+                                    default => ['var' => null, 'label' => 'Other'],
                                 };
                             @endphp
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold"
-                                  style="background:{{ $typeBadge['bg'] }}; color:{{ $typeBadge['color'] }};">
-                                {{ $typeBadge['label'] }}
-                            </span>
+                            @if($typeBadge['var'])
+                                <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                                      style="background:color-mix(in srgb, {{ $typeBadge['var'] }} 12%, transparent); color:{{ $typeBadge['var'] }}; border:1px solid color-mix(in srgb, {{ $typeBadge['var'] }} 25%, transparent);">
+                                    {{ $typeBadge['label'] }}
+                                </span>
+                            @else
+                                <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
+                                      style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                    {{ $typeBadge['label'] }}
+                                </span>
+                            @endif
                         </td>
                         <td class="px-4 py-2.5 text-right whitespace-nowrap" style="color:var(--text-secondary);">
                             R {{ number_format($tx->gross_commission, 2) }}
@@ -184,17 +200,14 @@
                         <td class="px-4 py-2.5 text-center whitespace-nowrap">
                             @php
                                 $statusBadge = match($tx->status) {
-                                    'pending' => ['bg' => 'rgba(245,158,11,0.12)', 'color' => '#f59e0b', 'label' => 'Pending'],
-                                    'confirmed' => ['bg' => 'rgba(59,130,246,0.12)', 'color' => '#3b82f6', 'label' => 'Confirmed'],
-                                    'paid' => ['bg' => 'rgba(34,197,94,0.12)', 'color' => '#22c55e', 'label' => 'Paid'],
-                                    'cancelled' => ['bg' => 'rgba(239,68,68,0.12)', 'color' => '#ef4444', 'label' => 'Cancelled'],
-                                    default => ['bg' => 'rgba(148,163,184,0.12)', 'color' => '#94a3b8', 'label' => ucfirst($tx->status)],
+                                    'pending' => ['class' => 'ds-badge-warning', 'label' => 'Pending'],
+                                    'confirmed' => ['class' => 'ds-badge-info', 'label' => 'Confirmed'],
+                                    'paid' => ['class' => 'ds-badge-success', 'label' => 'Paid'],
+                                    'cancelled' => ['class' => 'ds-badge-danger', 'label' => 'Cancelled'],
+                                    default => ['class' => 'ds-badge-default', 'label' => ucfirst($tx->status)],
                                 };
                             @endphp
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold"
-                                  style="background:{{ $statusBadge['bg'] }}; color:{{ $statusBadge['color'] }};">
-                                {{ $statusBadge['label'] }}
-                            </span>
+                            <span class="ds-badge {{ $statusBadge['class'] }}">{{ $statusBadge['label'] }}</span>
                         </td>
                     </tr>
                     @endforeach
@@ -216,7 +229,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
         {{-- Left: Revenue Share Summary --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+        <div class="rounded-md px-6 py-5" style="background:var(--surface); border:1px solid var(--border);">
             <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Your Network</h3>
 
             <div class="space-y-3">
@@ -244,22 +257,26 @@
         </div>
 
         {{-- Right: Tier 1 Agents List --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+        <div class="rounded-md px-6 py-5" style="background:var(--surface); border:1px solid var(--border);">
             <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Your Tier 1 Agents</h3>
 
             @if($tier1Agents->isEmpty())
-                <div class="text-center py-6">
-                    <div class="text-sm" style="color:var(--text-secondary);">No sponsored agents yet.</div>
-                    <div class="text-xs mt-1" style="color:var(--text-muted);">Agents you recruit will appear here.</div>
+                <div class="py-8 px-6 text-center">
+                    <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                         style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
+                    </div>
+                    <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No sponsored agents yet</h3>
+                    <p class="text-sm" style="color:var(--text-muted);">Agents you recruit will appear here.</p>
                 </div>
             @else
                 <div class="space-y-2">
                     @foreach($tier1Agents as $agent)
-                    <div class="flex items-center justify-between p-2.5 rounded-md transition-colors hover:bg-white/5"
+                    <div class="flex items-center justify-between p-2.5 rounded-md transition-colors"
                          style="border:1px solid var(--border);">
                         <div class="flex items-center gap-3">
-                            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-                                 style="background:rgba(14,165,233,0.12); color:#0ea5e9;">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                                 style="background:var(--brand-icon,#0ea5e9);">
                                 {{ collect(explode(' ', $agent['name']))->map(fn($w) => strtoupper(substr($w, 0, 1)))->take(2)->join('') }}
                             </div>
                             <div class="text-sm font-medium" style="color:var(--text-primary);">{{ $agent['name'] }}</div>

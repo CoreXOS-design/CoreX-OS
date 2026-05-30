@@ -95,7 +95,7 @@
         $activeGroup = 'agency-tracker';
     } elseif (request()->routeIs('evaluation.*')) {
         $activeGroup = 'evaluation';
-    } elseif (request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) {
+    } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*')) {
         $activeGroup = 'documents';
     } elseif (request()->routeIs('rental.*')) {
         $activeGroup = 'rentals';
@@ -133,6 +133,7 @@
         'admin.p24.*',
         'corex.contacts.*',
         'corex.core-matches.*',
+        'corex.portal-leads.*',
         'presentations.*',
         'corex.presentations.*',
         'commercial-evaluations.*'
@@ -489,26 +490,11 @@
                 @endif
                 @endpermission
 
-                @permission('manage_p24')
-                @if(\Illuminate\Support\Facades\Route::has('admin.p24.index'))
-                <a href="{{ route('admin.p24.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.p24.*') ? 'active' : '' }}">P24 Alerts</a>
-                @endif
-                @endpermission
+                {{-- Legacy "P24 Alerts" link removed: admin.p24.index is a 301 redirect into
+                     Market Intelligence → Market Pulse (MIC redesign Phase D1/D6). Market Pulse
+                     is reachable from the Market Intelligence tab bar — single entry per spec. --}}
             </div>
         </div>
-
-        {{-- ═══════════════════════════════════════════
-             AGENCY DOCUMENTS (staff read-only)
-             ═══════════════════════════════════════════ --}}
-        @permission('view_agency_documents')
-        <a href="{{ route('my-portal.agency-documents') }}"
-           class="corex-nav-item {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-            </svg>
-            <span>Agency Documents</span>
-        </a>
-        @endpermission
 
         {{-- ═══════════════════════════════════════════
              MY EARNINGS
@@ -749,7 +735,7 @@
         {{-- ═══════════════════════════════════════════
              DOCUMENTS (DocuPerfect — expandable group)
              ═══════════════════════════════════════════ --}}
-        @permission('access_docuperfect')
+        @if(auth()->check() && (auth()->user()->hasPermission('access_docuperfect') || auth()->user()->hasPermission('view_agency_documents')))
         @if(\Illuminate\Support\Facades\Route::has('docuperfect.dashboard'))
         <div>
             <button type="button" @click="push('documents')"
@@ -790,10 +776,13 @@
                 <a href="{{ route('docuperfect.field-groups.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.field-groups.*') ? 'active' : '' }}">Field Groups</a>
                 <a href="{{ route('docuperfect.import.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.import.*') ? 'active' : '' }}">Import Document</a>
                 @endpermission
+                @permission('view_agency_documents')
+                <a href="{{ route('my-portal.agency-documents') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">Agency Documents</a>
+                @endpermission
             </div>
         </div>
         @endif
-        @endpermission
+        @endif
 
         {{-- ═══════════════════════════════════════════
              RENTALS (expandable group)

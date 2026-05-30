@@ -46,7 +46,15 @@
       "PowerShell(& \"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -ExecutionPolicy Bypass -File scripts/dev-check.ps1 2>&1 | Select-Object -Last 40)",
       "PowerShell(& \"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -ExecutionPolicy Bypass -File scripts/dev-check.ps1 -Full 2>&1 | Select-Object -Last 25)",
       "PowerShell(& \"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -ExecutionPolicy Bypass -File scripts/dev-check.ps1 2>&1 | Select-Object -Last 30)",
-      "PowerShell(& \"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -ExecutionPolicy Bypass -File scripts/dev-check.ps1 2>&1 | Select-Object -Last 28)"
+      "PowerShell(& \"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -ExecutionPolicy Bypass -File scripts/dev-check.ps1 2>&1 | Select-Object -Last 28)",
+      "PowerShell(php -l resources\\\\views\\\\compliance\\\\my-portal\\\\agency-documents.blade.php)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts\\\\dev-check.ps1)",
+      "PowerShell(php -l resources\\\\views\\\\layouts\\\\corex-sidebar.blade.php)",
+      "PowerShell(& scripts/dev-check.ps1 -SkipPipelineGate)",
+      "PowerShell(php artisan route:list --path=portal-leads)",
+      "PowerShell(php artisan route:list --path=corex/real-estate --columns=uri,name)",
+      "PowerShell(& \"C:\\\\xampp\\\\php\\\\php.exe\" -l \"resources\\\\views\\\\presentations\\\\index.blade.php\" 2>&1)",
+      "PowerShell(& \".\\\\scripts\\\\dev-check.ps1\" 2>&1)"
     ]
   }
 }
