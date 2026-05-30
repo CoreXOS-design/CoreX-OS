@@ -83,6 +83,11 @@ class SettingsController extends Controller
         $data['contactSources'] = ContactSource::orderBy('sort_order')->orderBy('name')->get();
         $data['contactTags']    = ContactTag::orderBy('sort_order')->orderBy('name')->get();
 
+        // Feature Settings: list page sizes (how many rows show per page)
+        $data['perPageOptions'] = [10, 20, 25, 50, 100];
+        $data['contactsPerPage']   = (int) PerformanceSetting::get('contacts_per_page', 25);
+        $data['propertiesPerPage'] = (int) PerformanceSetting::get('properties_per_page', 20);
+
         // Feature Settings tab: Properties
         $data['propCategories']   = PropertySettingItem::group('category')->get();
         $data['propTypes']        = PropertySettingItem::group('property_type')->get();
@@ -300,6 +305,24 @@ class SettingsController extends Controller
         $enabled = $request->boolean('matches_show_on_properties');
         PerformanceSetting::updateOrCreate(['key' => 'matches_show_on_properties'], ['value' => $enabled ? 1 : 0]);
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'matches'])->with('success', 'Setting updated.');
+    }
+
+    public function updateContactsPerPage(Request $request)
+    {
+        $perPage = $request->validate([
+            'contacts_per_page' => 'required|integer|in:10,20,25,50,100',
+        ])['contacts_per_page'];
+        PerformanceSetting::updateOrCreate(['key' => 'contacts_per_page'], ['value' => (int) $perPage]);
+        return redirect()->route('corex.settings', ['s' => 'feature-contacts'])->with('success', 'Contacts per page updated.');
+    }
+
+    public function updatePropertiesPerPage(Request $request)
+    {
+        $perPage = $request->validate([
+            'properties_per_page' => 'required|integer|in:10,20,25,50,100',
+        ])['properties_per_page'];
+        PerformanceSetting::updateOrCreate(['key' => 'properties_per_page'], ['value' => (int) $perPage]);
+        return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
     }
 
     public function updateMatchesVisibilityScope(Request $request)

@@ -1103,6 +1103,27 @@
             {{-- CONTACTS section --}}
             <div x-show="activeSection === 'feature-contacts'" x-cloak class="space-y-3">
 
+                {{-- Contacts per page --}}
+                <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Contacts per page</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How many contacts to show on each page of the Contacts list before paging to the next.</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.contacts-per-page') }}" class="flex flex-wrap items-center gap-2">
+                        @csrf
+                        @foreach ($perPageOptions as $opt)
+                            @php $isActive = $contactsPerPage === $opt; @endphp
+                            <button type="submit" name="contacts_per_page" value="{{ $opt }}"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold border transition-colors"
+                                    style="background:{{ $isActive ? 'var(--brand-button, #0ea5e9)' : 'transparent' }};
+                                           color:{{ $isActive ? '#fff' : 'var(--text-secondary)' }};
+                                           border-color:{{ $isActive ? 'var(--brand-button, #0ea5e9)' : 'var(--border)' }};">
+                                {{ $opt }}
+                            </button>
+                        @endforeach
+                    </form>
+                </div>
+
                 {{-- ── Contact Types (accordion) ── --}}
                 <div x-data="{ open: false }" class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
                     <button type="button" @click="open = !open"
@@ -1497,6 +1518,27 @@
                 $itemBaseUrl = url('corex/settings/property-items');
                 $csrfToken   = csrf_token();
                 @endphp
+
+                {{-- Properties per page --}}
+                <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Properties per page</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How many properties to show on each page of the Properties list before paging to the next.</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.properties-per-page') }}" class="flex flex-wrap items-center gap-2">
+                        @csrf
+                        @foreach ($perPageOptions as $opt)
+                            @php $isActive = $propertiesPerPage === $opt; @endphp
+                            <button type="submit" name="properties_per_page" value="{{ $opt }}"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold border transition-colors"
+                                    style="background:{{ $isActive ? 'var(--brand-button, #0ea5e9)' : 'transparent' }};
+                                           color:{{ $isActive ? '#fff' : 'var(--text-secondary)' }};
+                                           border-color:{{ $isActive ? 'var(--brand-button, #0ea5e9)' : 'var(--border)' }};">
+                                {{ $opt }}
+                            </button>
+                        @endforeach
+                    </form>
+                </div>
 
                 {{-- Marketing Toggle --}}
                 <div class="p-4 rounded-md flex items-center justify-between gap-4" style="background:var(--surface-2); border:1px solid var(--border);">

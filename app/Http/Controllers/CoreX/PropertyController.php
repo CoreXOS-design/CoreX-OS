@@ -9,6 +9,7 @@ use App\Models\Property;
 use App\Models\PropertyAdTemplate;
 use App\Models\DocumentType;
 use App\Models\PropertySettingItem;
+use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
@@ -140,7 +141,11 @@ class PropertyController extends Controller
             $dir = 'desc';
         }
 
-        $properties = $query->paginate(20)->withQueryString();
+        // Page size is agency-configurable (Settings → Properties). Validate the
+        // stored value against the allowed set so a stale/invalid value can't break paging.
+        $perPage = (int) PerformanceSetting::get('properties_per_page', 20);
+        if (! in_array($perPage, [10, 20, 25, 50, 100], true)) $perPage = 20;
+        $properties = $query->paginate($perPage)->withQueryString();
 
         // Compute marketing status per property (batch-friendly for Phase 1)
         $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
