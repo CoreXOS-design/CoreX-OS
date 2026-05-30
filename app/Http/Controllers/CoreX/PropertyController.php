@@ -141,10 +141,10 @@ class PropertyController extends Controller
             $dir = 'desc';
         }
 
-        // Page size is agency-configurable (Settings → Properties). Validate the
-        // stored value against the allowed set so a stale/invalid value can't break paging.
+        // Page size is agency-configurable (Settings → Properties). Clamp the
+        // stored value to a sane range so a missing/invalid value can't break paging.
         $perPage = (int) PerformanceSetting::get('properties_per_page', 20);
-        if (! in_array($perPage, [10, 20, 25, 50, 100], true)) $perPage = 20;
+        $perPage = $perPage > 0 ? min($perPage, 200) : 20;
         $properties = $query->paginate($perPage)->withQueryString();
 
         // Compute marketing status per property (batch-friendly for Phase 1)

@@ -1107,20 +1107,15 @@
                 <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div>
                         <div class="text-sm font-semibold" style="color:var(--text-primary);">Contacts per page</div>
-                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How many contacts to show on each page of the Contacts list before paging to the next.</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How many contacts to show on each page of the Contacts list before paging to the next. Any number from 1 to 200.</div>
                     </div>
                     <form method="POST" action="{{ route('corex.settings.contacts-per-page') }}" class="flex flex-wrap items-center gap-2">
                         @csrf
-                        @foreach ($perPageOptions as $opt)
-                            @php $isActive = $contactsPerPage === $opt; @endphp
-                            <button type="submit" name="contacts_per_page" value="{{ $opt }}"
-                                    class="px-4 py-2 rounded-md text-sm font-semibold border transition-colors"
-                                    style="background:{{ $isActive ? 'var(--brand-button, #0ea5e9)' : 'transparent' }};
-                                           color:{{ $isActive ? '#fff' : 'var(--text-secondary)' }};
-                                           border-color:{{ $isActive ? 'var(--brand-button, #0ea5e9)' : 'var(--border)' }};">
-                                {{ $opt }}
-                            </button>
-                        @endforeach
+                        <input type="number" name="contacts_per_page" min="1" max="200" step="1" required
+                               value="{{ old('contacts_per_page', $contactsPerPage) }}"
+                               class="w-24 rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
                     </form>
                 </div>
 
@@ -1523,20 +1518,15 @@
                 <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div>
                         <div class="text-sm font-semibold" style="color:var(--text-primary);">Properties per page</div>
-                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How many properties to show on each page of the Properties list before paging to the next.</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">How many properties to show on each page of the Properties list before paging to the next. Any number from 1 to 200.</div>
                     </div>
                     <form method="POST" action="{{ route('corex.settings.properties-per-page') }}" class="flex flex-wrap items-center gap-2">
                         @csrf
-                        @foreach ($perPageOptions as $opt)
-                            @php $isActive = $propertiesPerPage === $opt; @endphp
-                            <button type="submit" name="properties_per_page" value="{{ $opt }}"
-                                    class="px-4 py-2 rounded-md text-sm font-semibold border transition-colors"
-                                    style="background:{{ $isActive ? 'var(--brand-button, #0ea5e9)' : 'transparent' }};
-                                           color:{{ $isActive ? '#fff' : 'var(--text-secondary)' }};
-                                           border-color:{{ $isActive ? 'var(--brand-button, #0ea5e9)' : 'var(--border)' }};">
-                                {{ $opt }}
-                            </button>
-                        @endforeach
+                        <input type="number" name="properties_per_page" min="1" max="200" step="1" required
+                               value="{{ old('properties_per_page', $propertiesPerPage) }}"
+                               class="w-24 rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
                     </form>
                 </div>
 

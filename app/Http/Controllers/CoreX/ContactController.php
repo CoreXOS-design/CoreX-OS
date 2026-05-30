@@ -65,10 +65,10 @@ class ContactController extends Controller
             $query->where('contact_type_id', $request->type);
         }
 
-        // Page size is agency-configurable (Settings → Contacts). Validate the
-        // stored value against the allowed set so a stale/invalid value can't break paging.
+        // Page size is agency-configurable (Settings → Contacts). Clamp the
+        // stored value to a sane range so a missing/invalid value can't break paging.
         $perPage = (int) PerformanceSetting::get('contacts_per_page', 25);
-        if (! in_array($perPage, [10, 20, 25, 50, 100], true)) $perPage = 25;
+        $perPage = $perPage > 0 ? min($perPage, 200) : 25;
         $contacts     = $query->paginate($perPage)->withQueryString();
         $contactTypes = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
 

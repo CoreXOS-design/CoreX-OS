@@ -84,7 +84,6 @@ class SettingsController extends Controller
         $data['contactTags']    = ContactTag::orderBy('sort_order')->orderBy('name')->get();
 
         // Feature Settings: list page sizes (how many rows show per page)
-        $data['perPageOptions'] = [10, 20, 25, 50, 100];
         $data['contactsPerPage']   = (int) PerformanceSetting::get('contacts_per_page', 25);
         $data['propertiesPerPage'] = (int) PerformanceSetting::get('properties_per_page', 20);
 
@@ -310,7 +309,7 @@ class SettingsController extends Controller
     public function updateContactsPerPage(Request $request)
     {
         $perPage = $request->validate([
-            'contacts_per_page' => 'required|integer|in:10,20,25,50,100',
+            'contacts_per_page' => 'required|integer|min:1|max:200',
         ])['contacts_per_page'];
         PerformanceSetting::updateOrCreate(['key' => 'contacts_per_page'], ['value' => (int) $perPage]);
         return redirect()->route('corex.settings', ['s' => 'feature-contacts'])->with('success', 'Contacts per page updated.');
@@ -319,7 +318,7 @@ class SettingsController extends Controller
     public function updatePropertiesPerPage(Request $request)
     {
         $perPage = $request->validate([
-            'properties_per_page' => 'required|integer|in:10,20,25,50,100',
+            'properties_per_page' => 'required|integer|min:1|max:200',
         ])['properties_per_page'];
         PerformanceSetting::updateOrCreate(['key' => 'properties_per_page'], ['value' => (int) $perPage]);
         return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
