@@ -738,8 +738,16 @@
     </div>
 
     <p class="text-xs text-right mt-2" style="color:var(--text-muted);">
-        {{ $properties->count() }} {{ \Illuminate\Support\Str::plural('property', $properties->count()) }} shown
+        Showing {{ $properties->firstItem() ?? 0 }}–{{ $properties->lastItem() ?? 0 }} of
+        {{ $properties->total() }} {{ \Illuminate\Support\Str::plural('property', $properties->total()) }}
     </p>
+
+    {{-- Pagination --}}
+    @if($properties->hasPages())
+    <div class="mt-3">
+        {{ $properties->links() }}
+    </div>
+    @endif
     @endif
 
 </div>

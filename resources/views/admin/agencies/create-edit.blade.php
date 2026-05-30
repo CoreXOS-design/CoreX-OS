@@ -44,6 +44,7 @@
     <div class="flex gap-1 rounded-md p-1 flex-wrap" style="background: var(--surface); border:1px solid var(--border);">
         @foreach($tabs as $key => $label)
             <button type="button" @click="activeTab = '{{ $key }}'"
+                    data-tab-btn="{{ $key }}"
                     class="flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-md transition-colors"
                     :style="activeTab === '{{ $key }}'
                         ? 'background: var(--brand-button, #0ea5e9); color: #fff;'
@@ -57,14 +58,16 @@
          MAIN AGENCY FORM (Company / Branding / Syndication / Admin tabs)
          ============================================================ --}}
     <form method="POST"
+          id="agency-form"
           action="{{ $agency ? route('agencies.update', $agency) : route('agencies.store') }}"
           enctype="multipart/form-data"
+          novalidate
           class="space-y-5">
         @csrf
         @if($agency) @method('PUT') @endif
 
         {{-- ── COMPANY TAB ── --}}
-        <div x-show="activeTab === 'company'" x-cloak class="ds-status-card p-4 space-y-5">
+        <div x-show="activeTab === 'company'" x-cloak data-tab-panel="company" class="ds-status-card p-4 space-y-5">
             <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Agency Identity</div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -203,7 +206,7 @@
         </div>
 
         {{-- ── BRANDING TAB ── --}}
-        <div x-show="activeTab === 'branding'" x-cloak class="ds-status-card p-4 space-y-5">
+        <div x-show="activeTab === 'branding'" x-cloak data-tab-panel="branding" class="ds-status-card p-4 space-y-5">
             <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Brand Colours</div>
             <p class="text-xs" style="color:var(--text-muted);">Four semantic colour roles control the entire platform look for this agency.</p>
 
@@ -290,7 +293,7 @@
         </div>
 
         {{-- ── SYNDICATION TAB ── --}}
-        <div x-show="activeTab === 'syndication'" x-cloak class="ds-status-card p-4 space-y-5">
+        <div x-show="activeTab === 'syndication'" x-cloak data-tab-panel="syndication" class="ds-status-card p-4 space-y-5">
             <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Property24 — Default Agency ID</div>
             <p class="text-xs" style="color:var(--text-muted);">Where this agency's listings are published on Property24. Each branch can override this default in the Branches tab.</p>
 
@@ -512,7 +515,7 @@
 
         {{-- ── FIRST ADMIN TAB (create only) ── --}}
         @if(!$agency)
-        <div x-show="activeTab === 'admin'" x-cloak class="ds-status-card p-4 space-y-5">
+        <div x-show="activeTab === 'admin'" x-cloak data-tab-panel="admin" class="ds-status-card p-4 space-y-5">
             <label class="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" name="is_demo" value="1" x-model="isDemo" class="mt-1 h-4 w-4 rounded">
                 <span>
@@ -868,6 +871,46 @@ document.addEventListener('DOMContentLoaded', function () {
     syncPair('default_color_picker', 'default_color_text');
     syncPair('button_color_picker',  'button_color_text');
     updatePreviews();
+});
+
+// ── Cross-tab validation guard ──────────────────────────────────────────────
+// The agency form is split across tabbed panels (Company / Branding /
+// Syndication / First Admin). A native `required` field on a hidden
+// (display:none) tab can't be focused, so the browser silently aborts the
+// submit with no feedback — e.g. ticking "Demo agency" on the Admin tab and
+// hitting Create while the required Name field on the Company tab is empty made
+// the button appear to do nothing. The form carries `novalidate`, so the submit
+// event always fires; here we find the first invalid control, switch to its
+// tab, and surface the native message on the now-visible field.
+document.addEventListener('DOMContentLoaded', function () {
+    var agencyForm = document.getElementById('agency-form');
+    if (!agencyForm) return;
+
+    function switchToTab(tabKey) {
+        var btns = document.querySelectorAll('[data-tab-btn]');
+        for (var i = 0; i < btns.length; i++) {
+            if (btns[i].getAttribute('data-tab-btn') === tabKey) { btns[i].click(); return; }
+        }
+    }
+
+    agencyForm.addEventListener('submit', function (e) {
+        var controls = agencyForm.querySelectorAll('input, select, textarea');
+        var firstInvalid = null;
+        for (var i = 0; i < controls.length; i++) {
+            var c = controls[i];
+            if (c.disabled || c.type === 'hidden') continue;
+            if (typeof c.checkValidity === 'function' && !c.checkValidity()) { firstInvalid = c; break; }
+        }
+        if (firstInvalid) {
+            e.preventDefault();
+            var panel = firstInvalid.closest('[data-tab-panel]');
+            if (panel) switchToTab(panel.getAttribute('data-tab-panel'));
+            // Let Alpine reveal the tab before asking the browser to report.
+            setTimeout(function () {
+                try { firstInvalid.reportValidity(); firstInvalid.focus(); } catch (err) {}
+            }, 60);
+        }
+    });
 });
 </script>
 @endsection

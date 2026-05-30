@@ -9,6 +9,7 @@ use App\Models\Property;
 use App\Models\PropertyAdTemplate;
 use App\Models\DocumentType;
 use App\Models\PropertySettingItem;
+use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
@@ -107,6 +108,17 @@ class PropertyController extends Controller
             $query->searchAddress($search);
         }
 
+        // Stats for the header KPIs — computed across the full filtered set
+        // (not just the current page), before sorting/pagination is applied.
+        $statsQuery = clone $query;
+        $stats = [
+            'total'  => (clone $statsQuery)->count(),
+            'active' => (clone $statsQuery)->where('status', 'active')->count(),
+            'draft'  => (clone $statsQuery)->where('status', 'draft')->count(),
+            'sold'   => (clone $statsQuery)->where('status', 'sold')->count(),
+            'synced' => (clone $statsQuery)->whereNotNull('published_at')->count(),
+        ];
+
         // Sorting — whitelisted columns only
         $dir = strtolower($request->query('dir', 'desc')) === 'asc' ? 'asc' : 'desc';
         $sortableColumns = [
@@ -129,7 +141,11 @@ class PropertyController extends Controller
             $dir = 'desc';
         }
 
-        $properties = $query->get();
+        // Page size is agency-configurable (Settings → Properties). Clamp the
+        // stored value to a sane range so a missing/invalid value can't break paging.
+        $perPage = (int) PerformanceSetting::get('properties_per_page', 20);
+        $perPage = $perPage > 0 ? min($perPage, 200) : 20;
+        $properties = $query->paginate($perPage)->withQueryString();
 
         // Compute marketing status per property (batch-friendly for Phase 1)
         $readinessSvc = app(\App\Services\Compliance\MarketingReadinessService::class);
@@ -147,19 +163,12 @@ class PropertyController extends Controller
             }
         }
 
-        // Sort by marketing_status (derived — PHP sort)
+        // Sort by marketing_status (derived — PHP sort, current page only)
         if ($sort === 'marketing_status') {
-            $properties = $properties->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc')->values();
+            $properties->setCollection(
+                $properties->getCollection()->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc')->values()
+            );
         }
-
-        // Stats for the header KPIs
-        $stats = [
-            'total'    => $properties->count(),
-            'active'   => $properties->where('status', 'active')->count(),
-            'draft'    => $properties->where('status', 'draft')->count(),
-            'sold'     => $properties->where('status', 'sold')->count(),
-            'synced'   => $properties->whereNotNull('published_at')->count(),
-        ];
 
         // Agent list for the picker (admin/bm only)
         $agentList = $canPickAgent ? $this->agentList()->values() : collect();

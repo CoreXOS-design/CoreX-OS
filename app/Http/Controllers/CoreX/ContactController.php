@@ -8,6 +8,7 @@ use App\Models\ContactTag;
 use App\Models\ContactType;
 use App\Models\DocumentType;
 use App\Models\PropertySettingItem;
+use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\ContactDuplicateService;
 use App\Services\PermissionService;
@@ -79,7 +80,11 @@ class ContactController extends Controller
             }
         }
 
-        $contacts     = $query->paginate(25)->withQueryString();
+        // Page size is agency-configurable (Settings → Contacts). Clamp the
+        // stored value to a sane range so a missing/invalid value can't break paging.
+        $perPage = (int) PerformanceSetting::get('contacts_per_page', 25);
+        $perPage = $perPage > 0 ? min($perPage, 200) : 25;
+        $contacts     = $query->paginate($perPage)->withQueryString();
         $contactTypes = ContactType::where('is_active', true)->orderBy('sort_order')->orderBy('name')->get();
 
         $agentList     = $canPickAgent ? $this->agentList()->values() : collect();

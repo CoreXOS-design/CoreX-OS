@@ -19,7 +19,12 @@
       "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan migrate --force 2>&1)",
       "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan view:clear 2>&1)",
       "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan route:clear 2>&1)",
-      "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan cache:clear 2>&1)"
+      "PowerShell(C:\\\\xampp\\\\php\\\\php.exe artisan cache:clear 2>&1)",
+      "PowerShell(& \"c:/Users/USER-PC/Documents/Projects/hfc-dash/scripts/dev-check.ps1\")",
+      "PowerShell(& C:\\\\xampp\\\\php\\\\php.exe -l \"c:\\\\Users\\\\USER-PC\\\\Documents\\\\Projects\\\\hfc-dash\\\\app\\\\Http\\\\Controllers\\\\CoreX\\\\ContactImportController.php\")",
+      "PowerShell(& C:\\\\xampp\\\\php\\\\php.exe -l \"c:\\\\Users\\\\USER-PC\\\\Documents\\\\Projects\\\\hfc-dash\\\\app\\\\Http\\\\Controllers\\\\CoreX\\\\ContactImportController.php\"; Write-Output \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(& powershell -ExecutionPolicy Bypass -File \"c:\\\\Users\\\\USER-PC\\\\Documents\\\\Projects\\\\hfc-dash\\\\scripts\\\\dev-check.ps1\")",
+      "PowerShell(& C:\\\\xampp\\\\php\\\\php.exe artisan test --filter=\"ContactImport|Contact\" 2>&1)"
     ]
   }
 }
